@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Suit {
+  denara
+  coppe
+  spade
+  bastoni
+}
+
+enum Value {
+  asso
+  due
+  tre
+  quattro
+  cinque
+  sei
+  sette
+  fante
+  cavallo
+  re
+}
+
+// ===========
+// User
+// ===========
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  createdAt DateTime @default(now())
+
+  players   Player[]
+}
+
+// ===========
+// Player
+// ===========
+model Player {
+  id         Int      @id @default(autoincrement())
+  seat       Int?                       // 0–3 (serve per ordine nei round)
+  isReady    Boolean   @default(false)
+  team       Int?                 // 0 o 1
+
+  userId     Int
+  gameRoomId Int
+
+  user       User      @relation(fields: [userId], references: [id])
+  gameRoom   GameRoom  @relation(fields: [gameRoomId], references: [id])
+  playedCards PlayedCard[]
+  playerCards PlayerCard[]
+  @@unique([gameRoomId, seat])
+}
+
+// ===========
+// GameRoom
+// ===========
+model GameRoom {
+  id        Int       @id @default(autoincrement())
+  code      String    @unique  // tipo "ABCD"
+  briscola  Suit?             // "denara", "coppe", etc.
+  started   Boolean   @default(false)
+  finished  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  players   Player[]
+  rounds    Round[]
+}
+
+// ===========
+// Hand
+// ===========
+model Hand {
+  id         Int       @id @default(autoincrement())
+  number     Int               // 1–10
+  roundId    Int
+  starterId  Int               // playerId che ha iniziato la mano
+  winnerId   Int?              // playerId che ha preso
+  createdAt  DateTime  @default(now())
+
+  round      Round     @relation(fields: [roundId], references: [id])
+  cards      PlayedCard[]
+}
+
+// ===========
+// Round
+// ===========
+model Round {
+  id          Int       @id @default(autoincrement())
+  number      Int                 // 1, 2, 3, ...
+  briscola    Suit?               // fissata a inizio round
+  gameRoomId  Int
+  winnerTeam  Int?                // 0 o 1 (oppure nullable finché non finisce)
+  createdAt   DateTime  @default(now())
+
+  gameRoom    GameRoom  @relation(fields: [gameRoomId], references: [id])
+  hands       Hand[]
+  playerCards PlayerCard[]
+}
+
+// ===========
+// PlayedCard
+// ===========
+model PlayedCard {
+  id       Int     @id @default(autoincrement())
+  handId   Int
+  playerId Int
+  suit     Suit       // "coppe", "denara", ...
+  value    Value      // "asso", "due", "re", etc.
+  position Int       // ordine di gioco: 0–3
+
+  hand     Hand   @relation(fields: [handId], references: [id])
+  player   Player @relation(fields: [playerId], references: [id])
+}
+
+// ===========
+// PlayerCard
+// ===========
+model PlayerCard {
+  id         Int    @id @default(autoincrement())
+  playerId   Int
+  roundId    Int
+  suit       Suit
+  value      Value
+  inHand     Boolean @default(true) // true finché non giocata
+
+  player     Player @relation(fields: [playerId], references: [id])
+  round      Round  @relation(fields: [roundId], references: [id])
+}

@@ -1,0 +1,15 @@
+node_modules
+
+build/
+.env
+
+logs/
+.vscode/
+coverage/
+.jest/
+.jest-cache/
+.jest-test-results.json
+
+prisma/dev.db
+prisma/test.db
+prisma/migrations/
