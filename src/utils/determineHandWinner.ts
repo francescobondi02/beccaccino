@@ -1,51 +1,47 @@
 import { Suit, Value } from "@prisma/client";
 
+const cardStrength: Record<Value, number> = {
+  [Value.tre]: 10,
+  [Value.due]: 9,
+  [Value.asso]: 8,
+  [Value.re]: 7,
+  [Value.cavallo]: 6,
+  [Value.fante]: 5,
+  [Value.sette]: 4,
+  [Value.sei]: 3,
+  [Value.cinque]: 2,
+  [Value.quattro]: 1,
+};
+
 export function determineHandWinner(
   playedCards: { playerId: number; suit: Suit; value: Value }[],
   briscolaSuit: Suit | null
 ): number {
   if (playedCards.length === 0) throw new Error("No cards played");
 
-  // Ordine di presa: punteggi decrescenti
-  const strengthOrder: Value[] = [
-    "tre",
-    "due",
-    "asso",
-    "re",
-    "cavallo",
-    "fante",
-    "sette",
-    "sei",
-    "cinque",
-    "quattro",
-  ];
-
-  const strengthMap = Object.fromEntries(
-    strengthOrder.map((value, index) => [value, strengthOrder.length - index])
-  );
-
   const firstSuit = playedCards[0].suit;
 
-  const winningCard = playedCards.reduce((best, current) => {
-    const bestIsBriscola = best.suit === briscolaSuit;
-    const currentIsBriscola = current.suit === briscolaSuit;
+  let bestCard: { playerId: number; score: number } | null = null;
+  const hasBriscola =
+    briscolaSuit !== null && playedCards.some((c) => c.suit === briscolaSuit);
 
-    if (bestIsBriscola && !currentIsBriscola) return best;
-    if (!bestIsBriscola && currentIsBriscola) return current;
+  for (const card of playedCards) {
+    const isBriscola = briscolaSuit && card.suit === briscolaSuit;
+    const isSameSuit = card.suit === firstSuit;
 
-    // Entrambe briscole o nessuna
-    if (best.suit === current.suit) {
-      const bestStrength = strengthMap[best.value];
-      const currentStrength = strengthMap[current.value];
-      return currentStrength > bestStrength ? current : best;
+    // Se ci sono briscole, ignoriamo carte di altri semi
+    if (hasBriscola && !isBriscola) continue;
+    // Se non ci sono briscole, ignoriamo carte di seme diverso dal primo
+    if (!hasBriscola && !isSameSuit) continue;
+
+    const score = cardStrength[card.value];
+
+    if (!bestCard || score > bestCard.score) {
+      bestCard = { playerId: card.playerId, score };
     }
+  }
 
-    // Seme diverso, nessuna è briscola
-    if (best.suit === firstSuit) return best;
-    if (current.suit === firstSuit) return current;
+  if (!bestCard) throw new Error("No valid winner found — logic error");
 
-    return best;
-  });
-
-  return winningCard.playerId;
+  return bestCard.playerId;
 }
