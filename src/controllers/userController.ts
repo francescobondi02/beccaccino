@@ -4,6 +4,14 @@ import { Request, Response } from "express";
 import { prisma } from "../db";
 
 export const createUser = async (req: Request, res: Response) => {
+  /**
+   * Crea un nuovo utente con uno username.
+   *
+   * @param username Username dell'utente (dal body della richiesta)
+   * @return L'utente creato
+   *
+   */
+
   const { username } = req.body;
 
   if (!username) {

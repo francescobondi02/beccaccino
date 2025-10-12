@@ -30,6 +30,11 @@ type Card = {
 };
 
 function generateDeck(): Card[] {
+  /**
+   * Genera un mazzo di 40 carte italiane (romagnole, sono le migliori).
+   *
+   * @return Array di carte ({ suit: Suit, value: Value }[])
+   */
   const deck: Card[] = [];
 
   for (const suit of Object.values(Suit)) {
@@ -41,11 +46,32 @@ function generateDeck(): Card[] {
 }
 
 function shuffleDeck<T>(deck: T[]): T[] {
+  /**
+   * Mescola un array di elementi (carte).
+   *
+   * @param deck Array di elementi da mescolare
+   * @return Array mescolato
+   *
+   * @note Questo è un metodo di mescolamento semplice e non perfetto.
+   *       Per un'applicazione reale, considera l'uso di un algoritmo di Fisher-Yates.
+   */
   return [...deck].sort(() => Math.random() - 0.5);
 }
 
 export async function setupRound(gameRoomId: number, roundNumber: number) {
-  // Prendi i player nella room
+  /**
+   * Funzione che fa il setup di un round di gioco.
+   *
+   * @note Se è il primo round, chi ha il 4 di Denara in mano sceglie la briscola e inizia lui la prima mano.
+   * Se non è il primo round, lo starter è il giocatore alla sinistra di chi ha iniziato prima.
+   *
+   * @param gameRoomId ID della room di gioco
+   * @param roundNumber Numero del round (1, 2, 3, ...)
+   * @return void
+   *
+   */
+
+  //^ Prendi i player nella room (usando gameRoomId)
   const players = await prisma.player.findMany({
     where: { gameRoomId },
     orderBy: { seat: "asc" },
@@ -55,7 +81,9 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     throw new Error("There must be exactly 4 players to start the game");
   }
 
-  // Gestisci i seats
+  //^ Assegna i posti a sedere utilizzando i team scelti
+  //^ (team 0: seat 0 e 2, team 1: seat 1 e 3)
+  //^ Questo garantisce che i membri del team siano seduti uno di fronte all'altro
   const team0 = players.filter((p) => p.team === 0);
   const team1 = players.filter((p) => p.team === 1);
   if (team0.length !== 2 || team1.length !== 2) {
@@ -76,7 +104,7 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     });
   }
 
-  // Pre. Trova il round precedente
+  //^ Prendi il round precedente (se esiste) per determinare lo starter se non è il primo round
   const previousRound = await prisma.round.findFirst({
     where: { gameRoomId, number: roundNumber - 1 },
     include: { hands: { orderBy: { number: "asc" } } },
@@ -86,7 +114,7 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
 
   let starterId: number;
 
-  // 1. Crea il round
+  //^ 1. Crea il round utilizzando il nuovo Round Number
   const round = await prisma.round.create({
     data: {
       number: newRoundNumber,
@@ -95,17 +123,17 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     },
   });
 
-  // 2. Genera e mescola il mazzo
+  //^ 2. Genera e mescola il mazzo
   const deck = shuffleDeck(generateDeck());
 
-  // 3. Distribuisci le carte (10 a testa, random)
+  //^ 3. Distribuisci le carte (10 a testa, random), crea tutte le playerCard
   const cardsPerPlayer = 10;
   let playerWithQuattroDenara: number | null = null;
   for (let i = 0; i < players.length; i++) {
     const playerId = players[i].id;
     const handCards = deck.slice(i * cardsPerPlayer, (i + 1) * cardsPerPlayer);
 
-    // Trova il player con il 4 di Denara
+    //^ Trova il player con il 4 di Denara
     if (
       handCards.some(
         (card) => card.suit === Suit.denara && card.value === Value.quattro
@@ -125,21 +153,13 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
   }
 
   if (newRoundNumber === 1) {
-    // Primo round, chi ha il 4 di Denara in mano inizia
+    //^ Primo round, chi ha il 4 di Denara in mano inizia
     starterId = playerWithQuattroDenara!;
-
-    // Creo la prima mano
-    await prisma.hand.create({
-      data: {
-        roundId: round.id,
-        number: 1,
-        starterId: starterId, // Chi inizia è chi ha il 4 di Denara
-      },
-    });
   } else {
-    // Nei round successivi, cambia chiamante //! DA CAPIRE
+    //^ Nei round successivi, cambia chiamante. Prendo l'ultimo starter
     let lastStarterId = previousRound!.hands[0].starterId;
-    // Ora computa il nuovo starterId, facendo rotazione antiorario fra i player
+
+    //^ Ora computa il nuovo starterId, facendo rotazione antiorario fra i player
     const lastStarterPlayer = players.find((p) => p.id === lastStarterId);
     if (!lastStarterPlayer || lastStarterPlayer.seat === null) {
       throw new Error("Invalid previous starter or seat not assigned");
@@ -151,16 +171,17 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     if (!newStarter) {
       throw new Error("New starter not found");
     }
-    const starterId = newStarter.id;
-
-    await prisma.hand.create({
-      data: {
-        roundId: round.id,
-        number: 1,
-        starterId: starterId, // Nuovo starter computato
-      },
-    });
+    starterId = newStarter.id;
   }
+
+  //^ Creo la prima mano
+  await prisma.hand.create({
+    data: {
+      roundId: round.id,
+      number: 1,
+      starterId: starterId, // Nuovo starter computato
+    },
+  });
 
   //* Qui dovresti notificare tramite websocket il player che deve scegliere briscola
 }
@@ -176,7 +197,19 @@ export async function playCard({
   suit: Suit;
   value: Value;
 }) {
-  // 1. Trova la room
+  /**
+   * Funzione che gestisce la logica di gioco quando un giocatore gioca una carta.
+   *
+   * @param roomCode Codice della room di gioco
+   * @param userId ID dell'utente che gioca la carta
+   * @param suit Seme della carta giocata
+   * @param value Valore della carta giocata
+   * @return void
+   *
+   * @note Questa funzione controlla anche la validità della mossa
+   */
+
+  //^ 1. Trova la room in cui si sta giocando
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
     include: {
@@ -205,18 +238,18 @@ export async function playCard({
 
   const playedCards = currentHand.cards;
 
-  // 2. Controlla che la mano non sia piena
+  //^ 2. Controlla che la mano corrente non sia già completa (4 carte giocate)
   if (playedCards.length >= 4) {
     throw new Error("Hand is already full");
   }
 
-  // 3. Determina l'ordine di gioco a partire da starterId
+  //^ 3. Determina l'ordine di gioco a partire da starterId
   const order = [1, 2, 3, 4]; //! DA SISTEMARE
   const currentTurnPlayerId = order[playedCards.length];
   if (currentTurnPlayerId !== userId)
     throw new Error("It's not this player's turn");
 
-  // 4. Controlla che il giocatore abbia la carta
+  //^ 4. Controlla che il giocatore abbia effettivamente la carta specificata in mano
   const player = room.players.find((p) => p.userId === userId);
   if (!player) throw new Error("Player not found in this room");
 
@@ -230,7 +263,7 @@ export async function playCard({
 
   if (!playerCard) throw new Error("Player does not have this card");
 
-  // 5. Rimuovi la carta dalla mano del giocatore e aggiungila alle carte giocate
+  //^ 5. Rimuovi la carta dalla mano del giocatore e aggiungila alle carte giocate
   await prisma.playerCard.delete({
     where: {
       id: playerCard.id,
@@ -249,10 +282,10 @@ export async function playCard({
 
   //* NOTIFICA TRAMITE WEBSOCKET LA CARTA GIOCATA CON SUCCESSO
 
-  // Ora dobbiamo controllare se la mano è completa e gestire il turno successivo
-  // Lo facciamo ma aspettando qualche secondo
+  //^ Ora dobbiamo controllare se la mano è completa e gestire il turno successivo
+  //^ Lo facciamo ma aspettando qualche secondo (5 secondi === 5000 ms)
   if (playedCards.length + 1 === 4) {
-    // Era l'ultimo della mano
+    //^ Il player in questione era l'ultimo della mano corrente
     setTimeout(async () => {
       const winnerPlayerId = determineHandWinner(
         [...playedCards, played],
@@ -266,6 +299,7 @@ export async function playCard({
         },
       });
 
+      //^ Se la mano non era l'ultima del round, crea una nuova mano
       if (currentHand.number < 10) {
         const newHand = await prisma.hand.create({
           data: {
@@ -277,9 +311,7 @@ export async function playCard({
 
         //* NOTIFICA TRAMITE WEBSOCKET I GIOCATORI CHE INIZIA LA NUOVA MANO E CHI PARTE
       } else {
-        // Era l'ultima mano del round
-
-        // Bisogna creare un nuovo round
+        //^ Era l'ultima mano del round, bisogna creare un nuovo round
         const newRound = await prisma.round.create({
           data: {
             number: currentRound.number + 1,
@@ -287,6 +319,7 @@ export async function playCard({
             gameRoomId: room.id,
           },
         });
+
         //* NOTIFICA TRAMITE WEBSOCKET CHE IL ROUND E' FINITO E SI DEVE PARTIRE CON IL PROSSIMO (DI PIù DI COSì)
       }
     }, 5000);
