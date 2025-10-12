@@ -152,6 +152,8 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     });
   }
 
+  /*
+
   if (newRoundNumber === 1) {
     //^ Primo round, chi ha il 4 di Denara in mano inizia
     starterId = playerWithQuattroDenara!;
@@ -182,8 +184,9 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
       starterId: starterId, // Nuovo starter computato
     },
   });
+  */
 
-  //* Qui dovresti notificare tramite websocket il player che deve scegliere briscola
+  //* Qui dovresti notificare tramite websocket il player che deve scegliere briscola (starterId)
 }
 
 export async function playCard({
@@ -244,9 +247,15 @@ export async function playCard({
   }
 
   //^ 3. Determina l'ordine di gioco a partire da starterId
-  const order = [1, 2, 3, 4]; //! DA SISTEMARE
-  const currentTurnPlayerId = order[playedCards.length];
-  if (currentTurnPlayerId !== userId)
+  const seatOrder = Array.from(
+    { length: 4 },
+    (_, i) =>
+      (room.players.find((p) => p.id === currentHand.starterId)!.seat! + i) % 4
+  );
+  const currentTurnPlayer = room.players.find(
+    (p) => p.seat === seatOrder[playedCards.length]
+  );
+  if (!currentTurnPlayer || currentTurnPlayer.userId !== userId)
     throw new Error("It's not this player's turn");
 
   //^ 4. Controlla che il giocatore abbia effettivamente la carta specificata in mano
@@ -258,6 +267,7 @@ export async function playCard({
       playerId: player.id,
       suit,
       value,
+      roundId: currentRound.id,
     },
   });
 
@@ -283,45 +293,37 @@ export async function playCard({
   //* NOTIFICA TRAMITE WEBSOCKET LA CARTA GIOCATA CON SUCCESSO
 
   //^ Ora dobbiamo controllare se la mano è completa e gestire il turno successivo
-  //^ Lo facciamo ma aspettando qualche secondo (5 secondi === 5000 ms)
+  //^ Lo facciamo ma aspettando qualche secondo (5 secondi === 5000 ms) => SARA' FATTO LATO CLIENT, IL SERVER NON PUO' ASPETTARE
   if (playedCards.length + 1 === 4) {
     //^ Il player in questione era l'ultimo della mano corrente
-    setTimeout(async () => {
-      const winnerPlayerId = determineHandWinner(
-        [...playedCards, played],
-        currentRound.briscola
-      );
+    const winnerPlayerId = determineHandWinner(
+      [...playedCards, played],
+      currentRound.briscola
+    );
 
-      await prisma.hand.update({
-        where: { id: currentHand.id },
+    await prisma.hand.update({
+      where: { id: currentHand.id },
+      data: {
+        winnerId: winnerPlayerId,
+      },
+    });
+
+    //^ Se la mano non era l'ultima del round, crea una nuova mano
+    if (currentHand.number < 10) {
+      const newHand = await prisma.hand.create({
         data: {
-          winnerId: winnerPlayerId,
+          roundId: currentRound.id,
+          number: currentHand.number + 1,
+          starterId: winnerPlayerId, // La nuova mano parte da chi ha preso quella prima
         },
       });
 
-      //^ Se la mano non era l'ultima del round, crea una nuova mano
-      if (currentHand.number < 10) {
-        const newHand = await prisma.hand.create({
-          data: {
-            roundId: currentRound.id,
-            number: currentHand.number + 1,
-            starterId: winnerPlayerId, // La nuova mano parte da chi ha preso quella prima
-          },
-        });
+      //* NOTIFICA TRAMITE WEBSOCKET I GIOCATORI CHE INIZIA LA NUOVA MANO E CHI PARTE
+    } else {
+      //^ Era l'ultima mano del round, bisogna creare un nuovo round
+      await setupRound(room.id, currentRound.number + 1);
 
-        //* NOTIFICA TRAMITE WEBSOCKET I GIOCATORI CHE INIZIA LA NUOVA MANO E CHI PARTE
-      } else {
-        //^ Era l'ultima mano del round, bisogna creare un nuovo round
-        const newRound = await prisma.round.create({
-          data: {
-            number: currentRound.number + 1,
-            briscola: null,
-            gameRoomId: room.id,
-          },
-        });
-
-        //* NOTIFICA TRAMITE WEBSOCKET CHE IL ROUND E' FINITO E SI DEVE PARTIRE CON IL PROSSIMO (DI PIù DI COSì)
-      }
-    }, 5000);
+      //* NOTIFICA TRAMITE WEBSOCKET CHE IL ROUND E' FINITO E SI DEVE PARTIRE CON IL PROSSIMO (DI PIù DI COSì)
+    }
   }
 }

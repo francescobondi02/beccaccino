@@ -64,7 +64,6 @@ model Player {
 model GameRoom {
   id        Int       @id @default(autoincrement())
   code      String    @unique  // tipo "ABCD"
-  briscola  Suit?             // "denara", "coppe", etc.
   started   Boolean   @default(false)
   finished  Boolean   @default(false)
   createdAt DateTime  @default(now())
