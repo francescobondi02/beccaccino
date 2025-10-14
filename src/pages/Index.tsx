@@ -1,9 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Users, Plus, Hash } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Room {
   id: string;
@@ -11,6 +17,8 @@ interface Room {
   currentPlayers: number;
   maxPlayers: number;
 }
+
+const API_URL = import.meta.env.VITE_API_URL;
 
 const Index = () => {
   const [playerName, setPlayerName] = useState("");
@@ -20,6 +28,21 @@ const Index = () => {
     { id: "2", code: "PLAY42", currentPlayers: 1, maxPlayers: 4 },
     { id: "3", code: "CARD88", currentPlayers: 3, maxPlayers: 4 },
   ]);
+  const [showNameDialog, setShowNameDialog] = useState(true);
+
+  const fetchRooms = async () => {
+    try {
+      // console.log(`${API_URL}/rooms/available`);
+      const res = await fetch(`${API_URL}/rooms/available`);
+      if (!res.ok) throw new Error("Errore nel recupero stanze");
+      const data = await res.json();
+      console.log("Stanze disponibili:", data);
+      setRooms(data);
+    } catch (err) {
+      console.error("Errore nel fetch delle stanze:", err);
+      toast.error("Impossibile caricare le stanze disponibili");
+    }
+  };
 
   const handleCreateRoom = () => {
     if (!playerName.trim()) {
@@ -49,15 +72,69 @@ const Index = () => {
     toast.success(`Joining room ${roomCode}! (Player: ${playerName})`);
   };
 
+  const handleConfirmName = async () => {
+    const trimmed = playerName.trim();
+    if (!trimmed) {
+      toast.error("Inserisci un nome valido");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: trimmed }),
+      });
+
+      if (!res.ok) throw new Error("Errore creazione utente");
+
+      const user = await res.json();
+      console.log("Utente creato:", user);
+      setShowNameDialog(false);
+    } catch (err) {
+      console.error("Errore creazione utente:", err);
+      toast.error("Errore nella creazione dell'utente");
+    }
+  };
+
+  useEffect(() => {
+    if (!showNameDialog) {
+      fetchRooms();
+    }
+  }, [showNameDialog]);
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <Dialog open={showNameDialog}>
+        <DialogContent className="max-w-sm mx-auto">
+          <DialogHeader>
+            <DialogTitle className="text-center">Come ti chiami?</DialogTitle>
+          </DialogHeader>
+
+          <Input
+            placeholder="Inserisci il tuo nome"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+          />
+
+          <Button
+            variant="gradient"
+            className="w-full mt-4"
+            onClick={handleConfirmName}
+          >
+            Continua
+          </Button>
+        </DialogContent>
+      </Dialog>
       <div className="w-full max-w-4xl animate-fade-in">
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold bg-gradient-primary bg-clip-text text-transparent mb-3">
-            Card Game Lobby
+            Beccaccino Online - Beta
           </h1>
-          <p className="text-muted-foreground text-lg">Join or create a room to start playing</p>
+          <p className="text-muted-foreground text-lg">
+            Entra in una stanza o creane una nuova per iniziare a giocare
+          </p>
         </div>
 
         {/* Main Container */}
@@ -70,10 +147,10 @@ const Index = () => {
                 <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-foreground mb-2 block">
-                      Your Name
+                      Nome
                     </label>
                     <Input
-                      placeholder="Enter your name"
+                      placeholder="Inserisci il tuo nome"
                       value={playerName}
                       onChange={(e) => setPlayerName(e.target.value)}
                       className="bg-secondary border-border focus:border-primary"
@@ -87,7 +164,7 @@ const Index = () => {
                     onClick={handleCreateRoom}
                   >
                     <Plus className="mr-2 h-5 w-5" />
-                    Create New Room
+                    Crea una nuova stanza
                   </Button>
                 </div>
               </CardContent>
@@ -99,12 +176,14 @@ const Index = () => {
                 <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-foreground mb-2 block">
-                      Room Code
+                      Codice Stanza
                     </label>
                     <Input
-                      placeholder="Enter room code"
+                      placeholder="Inserisci il codice della stanza"
                       value={roomCode}
-                      onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                      onChange={(e) =>
+                        setRoomCode(e.target.value.toUpperCase())
+                      }
                       className="bg-secondary border-border focus:border-primary uppercase"
                       maxLength={6}
                     />
@@ -117,7 +196,7 @@ const Index = () => {
                     onClick={handleJoinByCode}
                   >
                     <Hash className="mr-2 h-5 w-5" />
-                    Join by Code
+                    Entra con il codice
                   </Button>
                 </div>
               </CardContent>
@@ -128,7 +207,7 @@ const Index = () => {
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-4">
               <Users className="h-5 w-5 text-primary" />
-              <h2 className="text-xl font-semibold">Available Rooms</h2>
+              <h2 className="text-xl font-semibold">Stanze Disponibili</h2>
             </div>
 
             <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
@@ -149,7 +228,7 @@ const Index = () => {
                         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                           <Users className="h-3.5 w-3.5" />
                           <span>
-                            {room.currentPlayers} / {room.maxPlayers} players
+                            {room.currentPlayers} / {room.maxPlayers} giocatori
                           </span>
                         </div>
                       </div>
@@ -161,7 +240,9 @@ const Index = () => {
                         disabled={room.currentPlayers >= room.maxPlayers}
                         className="hover:bg-primary hover:text-primary-foreground transition-colors"
                       >
-                        {room.currentPlayers >= room.maxPlayers ? "Full" : "Join"}
+                        {room.currentPlayers >= room.maxPlayers
+                          ? "Piena"
+                          : "Entra"}
                       </Button>
                     </div>
                   </CardContent>
