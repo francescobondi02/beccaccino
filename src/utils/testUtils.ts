@@ -3,6 +3,7 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
 import app from "../../src/app";
+import { computePoints } from "./computePoints";
 
 export async function setupGame() {
   /**
@@ -291,6 +292,7 @@ export async function oneRound(roomCode: string, round: any) {
     where: {
       roundId: round.id,
     },
+    include: { cards: true },
   });
   expect(finalHands.length).toBe(10);
 
@@ -298,4 +300,44 @@ export async function oneRound(roomCode: string, round: any) {
     where: { handId: { in: finalHands.map((h) => h.id) } },
   });
   expect(allPlayedCards.length).toBe(40);
+
+  // Calcolo dei punti a fine round
+  const players = await prisma.player.findMany({
+    where: { gameRoomId: round.gameRoomId },
+  });
+
+  const teamPlayers: Record<number, number> = {};
+  for (const player of players) {
+    teamPlayers[player.id] = player.team!;
+  }
+
+  const rawPoints = computePoints(finalHands, teamPlayers, round.briscola);
+
+  // Trova chi ha preso l’ultima mano
+  const lastHand = finalHands.reduce((prev, curr) =>
+    curr.number > prev.number ? curr : prev
+  );
+
+  const cleanedTeam0 = rawPoints.team0.points;
+  const cleanedTeam1 = rawPoints.team1.points;
+
+  // Bonus 1 punto a chi prende l’ultima mano (dopo arrotondamento)
+  const bonusTeam = teamPlayers[lastHand.winnerId!];
+  if (bonusTeam === 0) {
+    rawPoints.team0.points += 1;
+  } else {
+    rawPoints.team1.points += 1;
+  }
+
+  // Ritorna i punti del round
+  return {
+    rawPoints,
+    finalPoints: {
+      team0: rawPoints.team0.points,
+      team1: rawPoints.team1.points,
+    },
+    bonusTeam,
+  };
 }
+
+
