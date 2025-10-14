@@ -1,5 +1,18 @@
 import { determineHandWinner } from "../src/utils/determineHandWinner";
 import { Suit, Value } from "@prisma/client";
+import { prisma } from "../src/db";
+
+beforeEach(async () => {
+  await prisma.$transaction([
+    prisma.playedCard.deleteMany(),
+    prisma.playerCard.deleteMany(),
+    prisma.hand.deleteMany(),
+    prisma.round.deleteMany(),
+    prisma.player.deleteMany(),
+    prisma.gameRoom.deleteMany(),
+    prisma.user.deleteMany(),
+  ]);
+});
 
 describe("Hand winner logic", () => {
   it("should return the index of the highest card of the starting suit if no briscola is played", () => {

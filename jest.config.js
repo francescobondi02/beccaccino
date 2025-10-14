@@ -9,4 +9,5 @@ module.exports = {
   transform: {
     ...tsJestTransformCfg,
   },
+  globalTeardown: "./tests/teardown.ts",
 };

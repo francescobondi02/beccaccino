@@ -4,6 +4,8 @@ import request from "supertest";
 import { prisma } from "../../src/db";
 import app from "../../src/app";
 import { computePoints } from "./computePoints";
+import { Suit } from "@prisma/client";
+import { PlayerCard, Round } from "@prisma/client";
 
 export async function setupGame() {
   /**
@@ -221,7 +223,7 @@ export async function oneHand(
 
     expect(playableRes.statusCode).toBe(200);
     const playableCards = playableRes.body.playableCards;
-    //console.log("Playable cards for player", player.userId, playableCards);
+    // console.log("Playable cards for player", player.userId, playableCards);
     expect(Array.isArray(playableCards)).toBe(true);
     expect(playableCards.length).toBeGreaterThan(0);
 
@@ -340,4 +342,84 @@ export async function oneRound(roomCode: string, round: any) {
   };
 }
 
+export async function computeRoundPoints(
+  roundId: number,
+  roundCount: number,
+  team0Total: number,
+  team1Total: number
+): Promise<{
+  team0Cleaned: number;
+  team1Cleaned: number;
+  team0Total: number;
+  team1Total: number;
+}> {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+  });
 
+  const hands = await prisma.hand.findMany({
+    where: { roundId },
+    include: { cards: true },
+  });
+
+  const players = await prisma.player.findMany({
+    where: { gameRoomId: round!.gameRoomId },
+  });
+
+  const teamPlayers: Record<number, number> = {};
+  for (const p of players) {
+    teamPlayers[p.id] = p.team!;
+  }
+
+  const lastHand = hands.reduce((max, h) => (h.number > max.number ? h : max));
+
+  const rawPoints = computePoints(hands, teamPlayers, round!.briscola as Suit);
+
+  let team0Cleaned = rawPoints.team0.points;
+  let team1Cleaned = rawPoints.team1.points;
+
+  if (teamPlayers[lastHand.winnerId!] === 0) {
+    team0Cleaned += 1;
+  } else {
+    team1Cleaned += 1;
+  }
+
+  team0Total += team0Cleaned;
+  team1Total += team1Cleaned;
+
+  const roundSum = team0Cleaned + team1Cleaned;
+  if (roundSum !== 11) {
+    throw new Error(`Round ${roundCount} does not sum to 11 (got ${roundSum})`);
+  }
+
+  console.log(
+    `Round ${roundCount}: Team 0 → ${team0Cleaned} / Team 1 → ${team1Cleaned} (Total: ${team0Total} - ${team1Total})`
+  );
+
+  return {
+    team0Cleaned,
+    team1Cleaned,
+    team0Total,
+    team1Total,
+  };
+}
+
+export async function prepareNextRound(currentRound: Round): Promise<{
+  nextRound: Round;
+  nextCards: PlayerCard[];
+}> {
+  const nextRound = await prisma.round.findFirst({
+    where: { gameRoomId: currentRound.gameRoomId },
+    orderBy: { number: "desc" },
+  });
+
+  if (!nextRound) {
+    throw new Error("No next round found");
+  }
+
+  const nextCards = await prisma.playerCard.findMany({
+    where: { roundId: nextRound.id },
+  });
+
+  return { nextRound, nextCards };
+}

@@ -1,6 +1,19 @@
 import { computePoints } from "../src/utils/computePoints";
 import { determineHandWinner } from "../src/utils/determineHandWinner";
+import { prisma } from "../src/db";
 import { Suit, Value } from "@prisma/client";
+
+beforeEach(async () => {
+  await prisma.$transaction([
+    prisma.playedCard.deleteMany(),
+    prisma.playerCard.deleteMany(),
+    prisma.hand.deleteMany(),
+    prisma.round.deleteMany(),
+    prisma.player.deleteMany(),
+    prisma.gameRoom.deleteMany(),
+    prisma.user.deleteMany(),
+  ]);
+});
 
 describe("computePoints full round test", () => {
   it("should compute correct points and last hand bonus", () => {
@@ -54,7 +67,7 @@ describe("computePoints full round test", () => {
       lastWinner = winnerId;
     }
 
-    const scores = computePoints(hands, teamPlayers);
+    const scores = computePoints(hands, teamPlayers, "bastoni");
 
     // Apply end-of-round bonus
     const bonusTeam = teamPlayers[lastWinner!];

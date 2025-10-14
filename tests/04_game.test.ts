@@ -9,17 +9,15 @@ import {
 } from "../src/utils/testUtils";
 
 beforeEach(async () => {
-  await prisma.playedCard.deleteMany();
-  await prisma.playerCard.deleteMany();
-  await prisma.hand.deleteMany();
-  await prisma.round.deleteMany();
-  await prisma.player.deleteMany();
-  await prisma.gameRoom.deleteMany();
-  await prisma.user.deleteMany();
-});
-
-afterAll(async () => {
-  await prisma.$disconnect();
+  await prisma.$transaction([
+    prisma.playedCard.deleteMany(),
+    prisma.playerCard.deleteMany(),
+    prisma.hand.deleteMany(),
+    prisma.round.deleteMany(),
+    prisma.player.deleteMany(),
+    prisma.gameRoom.deleteMany(),
+    prisma.user.deleteMany(),
+  ]);
 });
 
 describe("Game flow", () => {
