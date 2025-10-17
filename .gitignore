@@ -25,3 +25,6 @@ dist-ssr
 
 # Env files
 .env
+
+# Carte romagnole
+public/images/cards
