@@ -137,36 +137,40 @@ const Index = () => {
           </p>
         </div>
 
+        {/* Card Animations - Left Side */}
+        <div className="fixed left-0 top-0 bottom-0 w-32 pointer-events-none overflow-hidden opacity-20">
+          <div className="animate-scroll-up space-y-4">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="w-20 h-28 bg-gradient-primary rounded-lg shadow-lg mx-auto" />
+            ))}
+          </div>
+        </div>
+
+        {/* Card Animations - Right Side */}
+        <div className="fixed right-0 top-0 bottom-0 w-32 pointer-events-none overflow-hidden opacity-20">
+          <div className="animate-scroll-down space-y-4">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="w-20 h-28 bg-gradient-primary rounded-lg shadow-lg mx-auto" />
+            ))}
+          </div>
+        </div>
+
         {/* Main Container */}
         <div className="grid md:grid-cols-2 gap-6">
           {/* Left Panel - Create/Join */}
           <div className="space-y-6">
-            {/* Player Name Card */}
+            {/* Create Room Card */}
             <Card className="bg-gradient-card border-border/50">
               <CardContent className="pt-6">
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-2 block">
-                      Nome
-                    </label>
-                    <Input
-                      placeholder="Inserisci il tuo nome"
-                      value={playerName}
-                      onChange={(e) => setPlayerName(e.target.value)}
-                      className="bg-secondary border-border focus:border-primary"
-                    />
-                  </div>
-
-                  <Button
-                    variant="gradient"
-                    size="lg"
-                    className="w-full"
-                    onClick={handleCreateRoom}
-                  >
-                    <Plus className="mr-2 h-5 w-5" />
-                    Crea una nuova stanza
-                  </Button>
-                </div>
+                <Button
+                  variant="gradient"
+                  size="lg"
+                  className="w-full"
+                  onClick={handleCreateRoom}
+                >
+                  <Plus className="mr-2 h-5 w-5" />
+                  Crea una nuova stanza
+                </Button>
               </CardContent>
             </Card>
 
