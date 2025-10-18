@@ -126,6 +126,7 @@ export default {
       backgroundImage: {
         "gradient-primary": "var(--gradient-primary)",
         "gradient-card": "var(--gradient-card)",
+        "gradient-warm": "var(--gradient-warm)",
       },
     },
   },
