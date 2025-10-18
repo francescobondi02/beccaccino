@@ -4,6 +4,7 @@ import { Request, Response } from "express";
 import { prisma } from "../db";
 import { generateRoomCode } from "../utils/generateRoomCode";
 import { setupRound } from "../services/gameService";
+import { getSocketInstance } from "../socketInstance";
 
 export const createRoom = async (req: Request, res: Response) => {
   /**
@@ -37,9 +38,31 @@ export const createRoom = async (req: Request, res: Response) => {
         },
       },
       include: {
-        players: true,
+        players: {
+          include: {
+            user: true,
+          },
+        },
       },
     });
+
+    // 🔥 Notifica tutti gli utenti nella lobby globale della nuova stanza
+    try {
+      const io = getSocketInstance();
+      io.to("lobby").emit("room_created", {
+        room: {
+          id: room.id,
+          code: room.code,
+          currentPlayers: room.players.length,
+          maxPlayers: 4,
+        },
+      });
+      console.log(`📢 Notified lobby: new room ${room.code} created`);
+    } catch (socketError) {
+      // Socket non critico, logghiamo ma non blocchiamo la risposta
+      console.error("Socket notification failed:", socketError);
+    }
+
     return res.status(201).json(room);
   } catch (error) {
     console.error("Error creating room:", error);
@@ -113,6 +136,53 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
   }
 };
 
+export const getRoomByCode = async (req: Request, res: Response) => {
+  /**
+   * Recupera i dati di una stanza specifica dato il suo codice.
+   * Verifica che l'utente richiedente sia un giocatore nella stanza.
+   *
+   * @param roomCode Codice della stanza di gioco (dal parametro URL)
+   * @param userId ID dell'utente che richiede i dati (dal query param)
+   * @return I dati della stanza di gioco con tutti i giocatori
+   *
+   * @note Controlla che l'utente sia un giocatore nella stanza prima di restituire i dati
+   */
+  const { roomCode } = req.params;
+  const userId = Number(req.query.userId);
+
+  if (!userId) return res.status(400).json({ error: "User ID is required" });
+
+  try {
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: roomCode },
+      include: {
+        players: {
+          include: {
+            user: true,
+          },
+        },
+      },
+    });
+
+    if (!room) {
+      return res.status(404).json({ error: "Room not found" });
+    }
+
+    //^ Verifica che l'utente sia un giocatore nella stanza
+    const isPlayerInRoom = room.players.some((p) => p.userId === userId);
+    if (!isPlayerInRoom) {
+      return res
+        .status(403)
+        .json({ error: "You are not a player in this room" });
+    }
+
+    return res.status(200).json(room);
+  } catch (error) {
+    console.error("Error fetching room by code:", error);
+    return res.status(500).json({ error: "Failed to fetch room" });
+  }
+};
+
 export const joinRoom = async (req: Request, res: Response) => {
   /**
    * Permette a un utente di unirsi a una stanza di gioco esistente se non è piena e non è iniziata.
@@ -177,6 +247,31 @@ export const joinRoom = async (req: Request, res: Response) => {
         },
       },
     });
+
+    // 🔥 Notifica la lobby se la stanza è diventata piena o è stata aggiornata
+    try {
+      const io = getSocketInstance();
+      const currentPlayers = updatedRoom?.players.length || 0;
+
+      if (currentPlayers >= 4) {
+        // Stanza piena - rimuovila dalla lista disponibili
+        io.to("lobby").emit("room_full", {
+          roomCode: roomCode,
+        });
+        console.log(`📢 Notified lobby: room ${roomCode} is now full`);
+      } else {
+        // Aggiorna il conteggio giocatori
+        io.to("lobby").emit("room_updated", {
+          roomCode: roomCode,
+          currentPlayers: currentPlayers,
+        });
+        console.log(
+          `📢 Notified lobby: room ${roomCode} updated (${currentPlayers}/4)`
+        );
+      }
+    } catch (socketError) {
+      console.error("Socket notification failed:", socketError);
+    }
 
     return res.json(updatedRoom);
   } catch (error) {

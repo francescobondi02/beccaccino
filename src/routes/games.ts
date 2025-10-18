@@ -4,11 +4,12 @@ import {
   handlePlayCard,
   getPlayableCards,
 } from "../controllers/gameController";
+import { authenticateToken } from "../middleware/auth";
 
 const router = Router();
 
-router.post("/choose-briscola", chooseBriscola);
-router.post("/play-card", handlePlayCard);
-router.get("/playable-cards/:roomCode", getPlayableCards);
+router.post("/choose-briscola", authenticateToken, chooseBriscola);
+router.post("/play-card", authenticateToken, handlePlayCard);
+router.get("/playable-cards/:roomCode", authenticateToken, getPlayableCards);
 
 export default router;

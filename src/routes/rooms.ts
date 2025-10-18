@@ -4,15 +4,18 @@ import {
   getAvailableRooms,
   joinRoom,
   setPlayerReady,
+  getRoomByCode,
 } from "../controllers/roomController";
 import { chooseTeam } from "../controllers/chooseTeam";
+import { authenticateToken } from "../middleware/auth";
 
 const router = Router();
 
-router.post("/", createRoom);
-router.get("/available", getAvailableRooms);
-router.post("/:roomCode/choose-team", chooseTeam);
-router.post("/join", joinRoom);
-router.post("/:roomCode/ready", setPlayerReady);
+router.post("/", authenticateToken, createRoom);
+router.get("/available", authenticateToken, getAvailableRooms);
+router.get("/:roomCode", authenticateToken, getRoomByCode);
+router.post("/:roomCode/choose-team", authenticateToken, chooseTeam);
+router.post("/join", authenticateToken, joinRoom);
+router.post("/:roomCode/ready", authenticateToken, setPlayerReady);
 
 export default router;

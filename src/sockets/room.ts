@@ -1,0 +1,262 @@
+// src/sockets/room.ts
+/**
+ * Gestisce gli eventi socket relativi alla room (lobby) prima dell'inizio della partita.
+ * Include: join room, leave room, choose team, ready state
+ */
+
+import { Server, Socket } from "socket.io";
+import { prisma } from "../db";
+
+// Interfacce per gli eventi
+interface JoinRoomData {
+  roomCode: string;
+  userId: number;
+  username: string;
+}
+
+interface ChooseTeamData {
+  roomCode: string;
+  userId: number;
+  team: number;
+}
+
+interface ReadyData {
+  roomCode: string;
+  userId: number;
+  isReady: boolean;
+}
+
+export function registerRoomSocket(socket: Socket, io: Server) {
+  console.log("🔌 Socket client connected:", socket.id);
+
+  /**
+   * JOIN_LOBBY - Un utente loggato entra nella pagina principale
+   * Si unisce alla "lobby globale" per ricevere aggiornamenti su nuove stanze
+   */
+  socket.on("join_lobby", (data: { userId: number }) => {
+    const { userId } = data;
+    console.log(`🏠 User ${userId} joined global lobby`);
+
+    // Unisce l'utente alla lobby globale
+    socket.join("lobby");
+  });
+
+  /**
+   * LEAVE_LOBBY - Un utente lascia la pagina principale
+   */
+  socket.on("leave_lobby", () => {
+    console.log(`🏠 User left global lobby`);
+    socket.leave("lobby");
+  });
+
+  /**
+   * JOIN_ROOM - Un giocatore entra nella room
+   * Quando un utente entra in una room, si unisce alla "stanza" socket
+   * e notifica tutti gli altri utenti nella stanza
+   */
+  socket.on("join_room", async (data: JoinRoomData) => {
+    const { roomCode, userId, username } = data;
+
+    console.log(`👤 ${username} (${userId}) joining room ${roomCode}`);
+
+    try {
+      // Verifica che la room esista e l'utente sia un player
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: {
+          players: {
+            include: {
+              user: true,
+            },
+          },
+        },
+      });
+
+      if (!room) {
+        socket.emit("error", { message: "Room not found" });
+        return;
+      }
+
+      const player = room.players.find((p) => p.userId === userId);
+      if (!player) {
+        socket.emit("error", { message: "You are not in this room" });
+        return;
+      }
+
+      // Unisce l'utente alla room socket
+      socket.join(roomCode);
+
+      // Notifica tutti gli altri nella room che un nuovo player si è unito
+      socket.to(roomCode).emit("player_joined", {
+        player: {
+          id: player.id,
+          userId: player.userId,
+          username: player.user.username,
+          seat: player.seat,
+          team: player.team,
+          isReady: player.isReady,
+        },
+      });
+
+      console.log(`✅ ${username} joined room ${roomCode}`);
+    } catch (error) {
+      console.error("Error joining room:", error);
+      socket.emit("error", { message: "Failed to join room" });
+    }
+  });
+
+  /**
+   * CHOOSE_TEAM - Un giocatore sceglie una squadra
+   * Notifica tutti gli altri nella room della scelta
+   */
+  socket.on("choose_team", async (data: ChooseTeamData) => {
+    const { roomCode, userId, team } = data;
+
+    console.log(`🎯 User ${userId} choosing team ${team} in room ${roomCode}`);
+
+    try {
+      // Verifica che il team sia valido (0 o 1)
+      if (![0, 1].includes(team)) {
+        socket.emit("error", { message: "Invalid team" });
+        return;
+      }
+
+      // Trova la room e il player
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
+      });
+
+      if (!room) {
+        socket.emit("error", { message: "Room not found" });
+        return;
+      }
+
+      const player = room.players.find((p) => p.userId === userId);
+      if (!player) {
+        socket.emit("error", { message: "Player not found" });
+        return;
+      }
+
+      // Verifica che il team non sia pieno
+      const teamCount = room.players.filter((p) => p.team === team).length;
+      if (teamCount >= 2) {
+        socket.emit("error", { message: "Team is full" });
+        return;
+      }
+
+      // Aggiorna il team nel database
+      await prisma.player.update({
+        where: { id: player.id },
+        data: { team },
+      });
+
+      // Notifica tutti nella room (incluso chi ha fatto l'azione)
+      io.to(roomCode).emit("team_chosen", {
+        userId,
+        playerId: player.id,
+        team,
+      });
+
+      console.log(`✅ User ${userId} joined team ${team}`);
+    } catch (error) {
+      console.error("Error choosing team:", error);
+      socket.emit("error", { message: "Failed to choose team" });
+    }
+  });
+
+  /**
+   * SET_READY - Un giocatore si mette pronto/non pronto
+   * Notifica tutti nella room e controlla se tutti sono pronti per iniziare
+   */
+  socket.on("set_ready", async (data: ReadyData) => {
+    const { roomCode, userId, isReady } = data;
+
+    console.log(
+      `⏳ User ${userId} setting ready to ${isReady} in room ${roomCode}`
+    );
+
+    try {
+      // Trova la room e il player
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
+      });
+
+      if (!room) {
+        socket.emit("error", { message: "Room not found" });
+        return;
+      }
+
+      const player = room.players.find((p) => p.userId === userId);
+      if (!player) {
+        socket.emit("error", { message: "Player not found" });
+        return;
+      }
+
+      // Controlla che abbia scelto un team
+      if (player.team === null) {
+        socket.emit("error", { message: "Choose a team first" });
+        return;
+      }
+
+      // Aggiorna lo stato ready nel database
+      await prisma.player.update({
+        where: { id: player.id },
+        data: { isReady },
+      });
+
+      // Notifica tutti nella room
+      io.to(roomCode).emit("ready_changed", {
+        userId,
+        playerId: player.id,
+        isReady,
+      });
+
+      // Controlla se tutti sono pronti
+      const updatedRoom = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
+      });
+
+      if (updatedRoom) {
+        const allReady = updatedRoom.players.every((p) => p.isReady === true);
+        const team0Count = updatedRoom.players.filter(
+          (p) => p.team === 0
+        ).length;
+        const team1Count = updatedRoom.players.filter(
+          (p) => p.team === 1
+        ).length;
+
+        // Se tutti sono pronti e i team sono completi
+        if (allReady && team0Count === 2 && team1Count === 2) {
+          console.log(`🎮 Room ${roomCode} is ready to start!`);
+
+          // Imposta la room come iniziata
+          await prisma.gameRoom.update({
+            where: { id: room.id },
+            data: { started: true },
+          });
+
+          // Notifica tutti che la partita sta per iniziare
+          io.to(roomCode).emit("game_starting", {
+            message: "All players ready! Game starting...",
+          });
+        }
+      }
+
+      console.log(`✅ User ${userId} ready state: ${isReady}`);
+    } catch (error) {
+      console.error("Error setting ready:", error);
+      socket.emit("error", { message: "Failed to set ready" });
+    }
+  });
+
+  /**
+   * DISCONNECT - Quando un client si disconnette
+   * Gestisce la disconnessione pulita (opzionale)
+   */
+  socket.on("disconnect", () => {
+    console.log("🔌 Socket client disconnected:", socket.id);
+  });
+}

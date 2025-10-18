@@ -6,6 +6,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 
 import { registerGameSocket } from "./sockets/game";
+import { registerRoomSocket } from "./sockets/room";
+import { setSocketInstance } from "./socketInstance";
 import userRouter from "./routes/users";
 import roomRouter from "./routes/rooms";
 import gameRouter from "./routes/games";
@@ -15,7 +17,16 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || "http://localhost:8081",
+    credentials: true,
+  },
+  path: "/socket.io/",
+});
+
+// Inizializza l'istanza socket globale
+setSocketInstance(io);
 
 // CORS configuration per permettere cookies
 app.use(
@@ -35,6 +46,11 @@ app.use("/api/games", gameRouter);
 // WebSocket logic
 io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
+
+  // Registra gli eventi della room (lobby)
+  registerRoomSocket(socket, io);
+
+  // Registra gli eventi del gioco vero e proprio
   registerGameSocket(socket, io);
 });
 
