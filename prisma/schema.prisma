@@ -34,7 +34,15 @@ enum Value {
 model User {
   id        Int      @id @default(autoincrement())
   username  String   @unique
+  email     String?  @unique          // Email opzionale per OAuth
+  password  String?                   // Password opzionale (null per OAuth)
+  
+  // OAuth fields
+  googleId  String?  @unique          // Google OAuth ID
+  
+  // Metadata
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt @default(now())
 
   players   Player[]
 }
