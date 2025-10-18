@@ -15,7 +15,7 @@ import { Mail, Loader2 } from "lucide-react";
 interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAuthSuccess: (username: string) => void;
+  onAuthSuccess: (username: string, userId: number) => void;
 }
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -64,7 +64,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
       toast.success(
         isLogin ? "Accesso effettuato!" : "Registrazione completata!"
       );
-      onAuthSuccess(data.username);
+      onAuthSuccess(data.username, data.id);
       onOpenChange(false);
 
       // Reset form

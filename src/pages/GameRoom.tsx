@@ -1,47 +1,180 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Check, X, LogOut, Copy } from "lucide-react";
+import { Users, Check, X, LogOut, Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import Header from "@/components/Header";
 import { Badge } from "@/components/ui/badge";
-import italianCard from "@/assets/italian-card.png";
 
 interface Player {
   id: number;
-  name: string | null;
+  userId: number;
+  seat: number | null;
   isReady: boolean;
-  isMe: boolean;
+  team: number | null;
+  user: {
+    id: number;
+    username: string;
+  };
 }
+
+interface Room {
+  id: number;
+  code: string;
+  started: boolean;
+  finished: boolean;
+  players: Player[];
+}
+
+const API_URL = import.meta.env.VITE_API_URL;
 
 const GameRoom = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
-  const [username] = useState("Mario Rossi");
-  const [isReady, setIsReady] = useState(false);
+  const [username, setUsername] = useState<string>("");
+  const [userId, setUserId] = useState<number | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [room, setRoom] = useState<Room | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [myPlayer, setMyPlayer] = useState<Player | null>(null);
 
-  const [players, setPlayers] = useState<Player[]>([
-    { id: 1, name: "Mario Rossi", isReady: false, isMe: true },
-    { id: 2, name: "Luigi Verdi", isReady: true, isMe: false },
-    { id: 3, name: "Anna Bianchi", isReady: false, isMe: false },
-    { id: 4, name: null, isReady: false, isMe: false },
-  ]);
+  // Controlla autenticazione
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch(`${API_URL}/users/me`, {
+          credentials: "include",
+        });
 
-  const handleReady = () => {
-    const newReadyState = !isReady;
-    setIsReady(newReadyState);
-    
-    setPlayers(players.map(p => 
-      p.isMe ? { ...p, isReady: newReadyState } : p
-    ));
-    
-    toast.success(newReadyState ? "Sei pronto!" : "Non più pronto");
+        if (res.ok) {
+          const user = await res.json();
+          setUsername(user.username);
+          setUserId(user.id);
+          setIsAuthenticated(true);
+        } else {
+          toast.error("Devi effettuare l'accesso");
+          navigate("/");
+        }
+      } catch (error) {
+        console.error("Auth check error:", error);
+        toast.error("Errore di autenticazione");
+        navigate("/");
+      }
+    };
+
+    checkAuth();
+  }, [navigate]);
+
+  // Carica i dati della stanza
+  useEffect(() => {
+    if (!userId || !roomCode) return;
+
+    const fetchRoom = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(
+          `${API_URL}/rooms/${roomCode}?userId=${userId}`,
+          {
+            credentials: "include",
+          }
+        );
+
+        if (!res.ok) {
+          if (res.status === 404) {
+            toast.error("Stanza non trovata");
+          } else if (res.status === 403) {
+            toast.error("Non sei un giocatore in questa stanza");
+          } else {
+            toast.error("Errore nel caricamento della stanza");
+          }
+          navigate("/");
+          return;
+        }
+
+        const roomData: Room = await res.json();
+        setRoom(roomData);
+
+        // Trova il player corrente
+        const me = roomData.players.find((p) => p.userId === userId);
+        setMyPlayer(me || null);
+      } catch (error) {
+        console.error("Error fetching room:", error);
+        toast.error("Impossibile caricare i dati della stanza");
+        navigate("/");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRoom();
+  }, [userId, roomCode, navigate]);
+
+  const handleReady = async () => {
+    if (!myPlayer || !userId) return;
+
+    const newReadyState = !myPlayer.isReady;
+
+    try {
+      const res = await fetch(`${API_URL}/rooms/${roomCode}/ready`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId, isReady: newReadyState }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Errore nell'impostare lo stato");
+      }
+
+      const data = await res.json();
+
+      // Aggiorna lo stato locale
+      setMyPlayer({ ...myPlayer, isReady: newReadyState });
+
+      if (room) {
+        const updatedPlayers = room.players.map((p) =>
+          p.userId === userId ? { ...p, isReady: newReadyState } : p
+        );
+        setRoom({ ...room, players: updatedPlayers });
+      }
+
+      toast.success(newReadyState ? "Sei pronto!" : "Non più pronto");
+
+      // Se tutti sono pronti, la partita inizia
+      if (data.allReady) {
+        toast.success("Tutti pronti! La partita sta per iniziare...");
+      }
+    } catch (error) {
+      console.error("Error setting ready:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Errore nell'impostare lo stato"
+      );
+    }
   };
 
-  const handleLeaveRoom = () => {
-    toast.success("Hai lasciato la stanza");
-    navigate("/");
+  const handleLogout = async () => {
+    try {
+      const res = await fetch(`${API_URL}/users/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        throw new Error("Errore durante il logout");
+      }
+
+      setUsername("");
+      setIsAuthenticated(false);
+      toast.success("Logout effettuato");
+      navigate("/");
+    } catch (error) {
+      console.error("Logout error:", error);
+      toast.error("Errore durante il logout");
+    }
   };
 
   const handleCopyCode = () => {
@@ -49,43 +182,85 @@ const GameRoom = () => {
     toast.success("Codice copiato!");
   };
 
-  const handleLogout = () => {
-    toast.success("Logout effettuato");
+  const handleLeaveRoom = () => {
+    toast.success("Hai lasciato la stanza");
     navigate("/");
   };
+
+  const handleChooseTeam = async (team: number) => {
+    if (!userId) return;
+
+    try {
+      const res = await fetch(`${API_URL}/rooms/${roomCode}/choose-team`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId, team }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Errore nella scelta del team");
+      }
+
+      // Aggiorna lo stato locale
+      if (myPlayer) {
+        setMyPlayer({ ...myPlayer, team });
+      }
+
+      if (room) {
+        const updatedPlayers = room.players.map((p) =>
+          p.userId === userId ? { ...p, team } : p
+        );
+        setRoom({ ...room, players: updatedPlayers });
+      }
+
+      toast.success(`Sei nel Team ${team + 1}!`);
+    } catch (error) {
+      console.error("Error choosing team:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Errore nella scelta del team"
+      );
+    }
+  };
+
+  // Crea array di 4 player (riempiendo gli slot vuoti)
+  const allPlayers: (Player | null)[] = [];
+  for (let i = 0; i < 4; i++) {
+    const player = room?.players.find((p) => p.seat === i) || null;
+    allPlayers.push(player);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="bg-gradient-card border-border/50">
+          <CardContent className="p-8 text-center">
+            <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
+            <p className="text-muted-foreground text-lg">
+              Caricamento stanza...
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!room) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Card className="bg-gradient-card border-border/50">
+          <CardContent className="p-8 text-center">
+            <p className="text-destructive text-lg">Stanza non trovata</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
       <Header username={username} onLogout={handleLogout} />
-
-      {/* Background Cards */}
-      <div className="fixed left-0 top-16 bottom-0 w-32 pointer-events-none overflow-hidden opacity-20">
-        <div className="animate-scroll-up space-y-4">
-          {[...Array(12)].map((_, i) => (
-            <img
-              key={i}
-              src={italianCard}
-              alt=""
-              className="w-20 h-auto rounded-lg shadow-lg mx-auto"
-              style={{ transform: `rotate(${(i % 3) * 5 - 5}deg)` }}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="fixed right-0 top-16 bottom-0 w-32 pointer-events-none overflow-hidden opacity-20">
-        <div className="animate-scroll-down space-y-4">
-          {[...Array(12)].map((_, i) => (
-            <img
-              key={i}
-              src={italianCard}
-              alt=""
-              className="w-20 h-auto rounded-lg shadow-lg mx-auto"
-              style={{ transform: `rotate(${(i % 3) * 5 - 5}deg)` }}
-            />
-          ))}
-        </div>
-      </div>
 
       <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto animate-fade-in">
@@ -110,95 +285,126 @@ const GameRoom = () => {
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground text-center">
-                In attesa che tutti i giocatori siano pronti...
+                {room.started
+                  ? "La partita è iniziata!"
+                  : "In attesa che tutti i giocatori siano pronti..."}
+              </p>
+              <p className="text-sm text-muted-foreground text-center mt-2">
+                Giocatori: {room.players.length} / 4
               </p>
             </CardContent>
           </Card>
 
           {/* Players Grid */}
           <div className="grid md:grid-cols-2 gap-4 mb-8">
-            {players.map((player) => (
-              <Card
-                key={player.id}
-                className={`bg-gradient-card border-border/50 transition-all duration-300 ${
-                  player.name ? "hover:border-primary/50 hover:scale-[1.02]" : "opacity-50"
-                } ${player.isMe ? "ring-2 ring-primary" : ""}`}
-              >
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
-                          player.name
-                            ? "bg-gradient-primary text-primary-foreground"
-                            : "bg-secondary text-muted-foreground"
-                        }`}
-                      >
-                        {player.name ? (
-                          player.name.split(" ").map(n => n[0]).join("").toUpperCase()
-                        ) : (
-                          <X className="h-6 w-6" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-lg">
-                            {player.name || "In attesa..."}
-                          </p>
-                          {player.isMe && (
-                            <Badge variant="secondary" className="text-xs">Tu</Badge>
+            {allPlayers.map((player, index) => {
+              const isMe = player?.userId === userId;
+              return (
+                <Card
+                  key={index}
+                  className={`bg-gradient-card border-border/50 transition-all duration-300 ${
+                    player
+                      ? "hover:border-primary/50 hover:scale-[1.02]"
+                      : "opacity-50"
+                  } ${isMe ? "ring-2 ring-primary" : ""}`}
+                >
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
+                            player
+                              ? "bg-gradient-primary text-primary-foreground"
+                              : "bg-secondary text-muted-foreground"
+                          }`}
+                        >
+                          {player ? (
+                            player.user.username
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .toUpperCase()
+                          ) : (
+                            <X className="h-6 w-6" />
                           )}
                         </div>
-                        {player.name && (
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <div
-                              className={`w-2 h-2 rounded-full ${
-                                player.isReady ? "bg-accent animate-pulse" : "bg-muted-foreground"
-                              }`}
-                            />
-                            <p
-                              className={`text-sm font-medium ${
-                                player.isReady ? "text-accent" : "text-muted-foreground"
-                              }`}
-                            >
-                              {player.isReady ? "Pronto" : "Non pronto"}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-lg">
+                              {player?.user.username || "In attesa..."}
                             </p>
+                            {isMe && (
+                              <Badge variant="secondary" className="text-xs">
+                                Tu
+                              </Badge>
+                            )}
                           </div>
-                        )}
+                          {player && (
+                            <>
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <div
+                                  className={`w-2 h-2 rounded-full ${
+                                    player.isReady
+                                      ? "bg-accent animate-pulse"
+                                      : "bg-muted-foreground"
+                                  }`}
+                                />
+                                <p
+                                  className={`text-sm font-medium ${
+                                    player.isReady
+                                      ? "text-accent"
+                                      : "text-muted-foreground"
+                                  }`}
+                                >
+                                  {player.isReady ? "Pronto" : "Non pronto"}
+                                </p>
+                              </div>
+                              {player.team !== null && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs mt-1"
+                                >
+                                  Team {player.team + 1}
+                                </Badge>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    {player.name && (
-                      <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
-                          player.isReady
-                            ? "bg-accent/20 text-accent"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {player.isReady ? (
-                          <Check className="h-5 w-5" />
-                        ) : (
-                          <X className="h-5 w-5" />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                      {player && (
+                        <div
+                          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                            player.isReady
+                              ? "bg-accent/20 text-accent"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {player.isReady ? (
+                            <Check className="h-5 w-5" />
+                          ) : (
+                            <X className="h-5 w-5" />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
 
           {/* Actions */}
           <div className="grid sm:grid-cols-2 gap-4">
             <Button
-              variant={isReady ? "secondary" : "gradient"}
+              variant={myPlayer?.isReady ? "secondary" : "gradient"}
               size="lg"
               onClick={handleReady}
               className="w-full"
+              disabled={!myPlayer || myPlayer.team === null}
             >
               <Check className="mr-2 h-5 w-5" />
-              {isReady ? "Non pronto" : "Sono pronto!"}
+              {myPlayer?.isReady ? "Non pronto" : "Sono pronto!"}
             </Button>
 
             <Button
@@ -211,6 +417,36 @@ const GameRoom = () => {
               Lascia la stanza
             </Button>
           </div>
+
+          {myPlayer?.team === null && (
+            <Card className="bg-gradient-card border-border/50 mt-6">
+              <CardContent className="p-6 text-center">
+                <p className="text-muted-foreground mb-4">
+                  Scegli una squadra prima di poterti mettere pronto
+                </p>
+                <div className="flex gap-4 justify-center">
+                  <Button
+                    variant="outline"
+                    onClick={() => handleChooseTeam(0)}
+                    disabled={
+                      room.players.filter((p) => p.team === 0).length >= 2
+                    }
+                  >
+                    Team 1 ({room.players.filter((p) => p.team === 0).length}/2)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleChooseTeam(1)}
+                    disabled={
+                      room.players.filter((p) => p.team === 1).length >= 2
+                    }
+                  >
+                    Team 2 ({room.players.filter((p) => p.team === 1).length}/2)
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
