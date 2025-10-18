@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,61 @@ import { toast } from "sonner";
 import { Users, Plus, Hash } from "lucide-react";
 import Header from "@/components/Header";
 import AuthDialog from "@/components/AuthDialog";
-import italianCard from "@/assets/italian-card.png";
+
+// Lista delle 40 carte italiane
+const cardFilenames = [
+  "asso_bastoni.png",
+  "asso_coppe.png",
+  "asso_denari.png",
+  "asso_spade.png",
+  "cavallo_bastoni.png",
+  "cavallo_coppe.png",
+  "cavallo_denari.png",
+  "cavallo_spade.png",
+  "cinque_bastoni.png",
+  "cinque_coppe.png",
+  "cinque_denari.png",
+  "cinque_spade.png",
+  "due_bastoni.png",
+  "due_coppe.png",
+  "due_denari.png",
+  "due_spade.png",
+  "fante_bastoni.png",
+  "fante_coppe.png",
+  "fante_denari.png",
+  "fante_spade.png",
+  "quattro_bastoni.png",
+  "quattro_coppe.png",
+  "quattro_denari.png",
+  "quattro_spade.png",
+  "re_bastoni.png",
+  "re_coppe.png",
+  "re_denari.png",
+  "re_spade.png",
+  "sei_bastoni.png",
+  "sei_coppe.png",
+  "sei_denari.png",
+  "sei_spade.png",
+  "sette_bastoni.png",
+  "sette_coppe.png",
+  "sette_denari.png",
+  "sette_spade.png",
+  "tre_bastoni.png",
+  "tre_coppe.png",
+  "tre_denari.png",
+  "tre_spade.png",
+];
+
+// Funzione per creare array di carte random
+const getRandomCards = (count: number) => {
+  const cards = [];
+  for (let i = 0; i < count; i++) {
+    const randomCard =
+      cardFilenames[Math.floor(Math.random() * cardFilenames.length)];
+    cards.push(randomCard);
+  }
+  return cards;
+};
 
 interface Room {
   id: string;
@@ -30,16 +84,59 @@ const Index = () => {
     { id: "3", code: "CARD88", currentPlayers: 3, maxPlayers: 4 },
   ]);
 
+  // Carte casuali per le animazioni (generate una sola volta)
+  const [leftCards] = useState(() => getRandomCards(20));
+  const [rightCards] = useState(() => getRandomCards(20));
+
   const handleAuthSuccess = (name: string) => {
     setUsername(name);
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
-    setUsername("");
-    setIsAuthenticated(false);
-    toast.success("Logout effettuato");
+  const handleLogout = async () => {
+    try {
+      const res = await fetch(`${API_URL}/users/logout`, {
+        method: "POST",
+        credentials: "include", // IMPORTANTE per HTTP-only cookies
+      });
+
+      if (!res.ok) {
+        throw new Error("Errore durante il logout");
+      }
+
+      setUsername("");
+      setIsAuthenticated(false);
+      toast.success("Logout effettuato");
+    } catch (error) {
+      console.error("Logout error:", error);
+      toast.error("Errore durante il logout");
+    }
   };
+
+  // Controlla se l'utente è già autenticato al caricamento
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch(`${API_URL}/users/me`, {
+          credentials: "include", // IMPORTANTE per HTTP-only cookies
+        });
+
+        if (res.ok) {
+          const user = await res.json();
+          setUsername(user.username);
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+          setUsername("");
+        }
+      } catch (error) {
+        console.error("Auth check error:", error);
+        // Utente non autenticato, ignora l'errore
+      }
+    };
+
+    checkAuth();
+  }, []);
 
   const handleCreateRoom = () => {
     if (!isAuthenticated) {
@@ -74,8 +171,11 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header username={isAuthenticated ? username : undefined} onLogout={handleLogout} />
-      
+      <Header
+        username={isAuthenticated ? username : undefined}
+        onLogout={handleLogout}
+      />
+
       <AuthDialog
         open={showAuthDialog}
         onOpenChange={setShowAuthDialog}
@@ -95,14 +195,25 @@ const Index = () => {
           </div>
 
           {/* Card Animations - Left Side */}
-          <div className="fixed left-0 top-16 bottom-0 w-32 pointer-events-none overflow-hidden opacity-30">
-            <div className="animate-scroll-up space-y-4">
-              {[...Array(12)].map((_, i) => (
+          <div className="fixed left-0 top-16 bottom-0 w-36 pointer-events-none overflow-hidden opacity-70">
+            <div className="infinite-scroll-up">
+              {/* Primo set */}
+              {leftCards.map((card, i) => (
                 <img
-                  key={i}
-                  src={italianCard}
+                  key={`left-1-${i}`}
+                  src={`/images/cards/${card}`}
                   alt=""
-                  className="w-20 h-auto rounded-lg shadow-lg mx-auto"
+                  className="w-24 h-auto rounded-lg shadow-lg mx-auto flex-shrink-0"
+                  style={{ transform: `rotate(${(i % 3) * 5 - 5}deg)` }}
+                />
+              ))}
+              {/* Secondo set per loop seamless */}
+              {leftCards.map((card, i) => (
+                <img
+                  key={`left-2-${i}`}
+                  src={`/images/cards/${card}`}
+                  alt=""
+                  className="w-24 h-auto rounded-lg shadow-lg mx-auto flex-shrink-0"
                   style={{ transform: `rotate(${(i % 3) * 5 - 5}deg)` }}
                 />
               ))}
@@ -110,14 +221,25 @@ const Index = () => {
           </div>
 
           {/* Card Animations - Right Side */}
-          <div className="fixed right-0 top-16 bottom-0 w-32 pointer-events-none overflow-hidden opacity-30">
-            <div className="animate-scroll-down space-y-4">
-              {[...Array(12)].map((_, i) => (
+          <div className="fixed right-0 top-16 bottom-0 w-36 pointer-events-none overflow-hidden opacity-70">
+            <div className="infinite-scroll-down">
+              {/* Primo set */}
+              {rightCards.map((card, i) => (
                 <img
-                  key={i}
-                  src={italianCard}
+                  key={`right-1-${i}`}
+                  src={`/images/cards/${card}`}
                   alt=""
-                  className="w-20 h-auto rounded-lg shadow-lg mx-auto"
+                  className="w-24 h-auto rounded-lg shadow-lg mx-auto flex-shrink-0"
+                  style={{ transform: `rotate(${(i % 3) * 5 - 5}deg)` }}
+                />
+              ))}
+              {/* Secondo set per loop seamless */}
+              {rightCards.map((card, i) => (
+                <img
+                  key={`right-2-${i}`}
+                  src={`/images/cards/${card}`}
+                  alt=""
+                  className="w-24 h-auto rounded-lg shadow-lg mx-auto flex-shrink-0"
                   style={{ transform: `rotate(${(i % 3) * 5 - 5}deg)` }}
                 />
               ))}
@@ -219,7 +341,8 @@ const Index = () => {
                           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                             <Users className="h-3.5 w-3.5" />
                             <span>
-                              {room.currentPlayers} / {room.maxPlayers} giocatori
+                              {room.currentPlayers} / {room.maxPlayers}{" "}
+                              giocatori
                             </span>
                           </div>
                         </div>
@@ -259,6 +382,47 @@ const Index = () => {
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: hsl(var(--accent));
+        }
+
+        /* Animazioni infinite per le carte */
+        .infinite-scroll-up {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+          animation: scroll-up 25s linear infinite;
+          will-change: transform;
+        }
+        
+        .infinite-scroll-down {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+          animation: scroll-down 25s linear infinite;
+          will-change: transform;
+        }
+
+        .infinite-scroll-up img,
+        .infinite-scroll-down img {
+          backface-visibility: hidden;
+          -webkit-backface-visibility: hidden;
+        }
+
+        @keyframes scroll-up {
+          from {
+            transform: translateY(0);
+          }
+          to {
+            transform: translateY(-50%);
+          }
+        }
+
+        @keyframes scroll-down {
+          from {
+            transform: translateY(-50%);
+          }
+          to {
+            transform: translateY(0);
+          }
         }
       `}</style>
     </div>

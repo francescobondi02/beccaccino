@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Mail } from "lucide-react";
+import { Mail, Loader2 } from "lucide-react";
 
 interface AuthDialogProps {
   open: boolean;
@@ -18,12 +18,15 @@ interface AuthDialogProps {
   onAuthSuccess: (username: string) => void;
 }
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!username.trim()) {
@@ -36,10 +39,47 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
       return;
     }
 
-    // Mock authentication - replace with actual auth later
-    toast.success(isLogin ? "Accesso effettuato!" : "Registrazione completata!");
-    onAuthSuccess(username);
-    onOpenChange(false);
+    if (password.length < 6) {
+      toast.error("La password deve essere di almeno 6 caratteri");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const endpoint = isLogin ? "/users/login" : "/users/register";
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include", // IMPORTANTE per HTTP-only cookies
+        body: JSON.stringify({ username, password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Errore durante l'autenticazione");
+      }
+
+      toast.success(
+        isLogin ? "Accesso effettuato!" : "Registrazione completata!"
+      );
+      onAuthSuccess(data.username);
+      onOpenChange(false);
+
+      // Reset form
+      setUsername("");
+      setPassword("");
+    } catch (error) {
+      console.error("Auth error:", error);
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Errore durante l'autenticazione"
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleGoogleLogin = () => {
@@ -84,8 +124,23 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
             />
           </div>
 
-          <Button type="submit" variant="gradient" className="w-full" size="lg">
-            {isLogin ? "Accedi" : "Registrati"}
+          <Button
+            type="submit"
+            variant="gradient"
+            className="w-full"
+            size="lg"
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                {isLogin ? "Accesso in corso..." : "Registrazione in corso..."}
+              </>
+            ) : isLogin ? (
+              "Accedi"
+            ) : (
+              "Registrati"
+            )}
           </Button>
 
           <div className="relative">
