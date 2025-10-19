@@ -28,3 +28,7 @@ dist-ssr
 
 # Carte romagnole
 public/images/cards
+
+# Altre icons
+public/*.ico
+!public/favicon.ico

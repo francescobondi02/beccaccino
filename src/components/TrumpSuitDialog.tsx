@@ -14,23 +14,29 @@ type TrumpSuitDialogProps = {
 };
 
 const italianSuits = [
-  { name: "Coins", value: "coins", icon: "🪙" },
-  { name: "Cups", value: "cups", icon: "🏆" },
-  { name: "Swords", value: "swords", icon: "⚔️" },
-  { name: "Clubs", value: "clubs", icon: "🏏" },
+  { name: "Denara", value: "coins", icon: "🪙" },
+  { name: "Coppe", value: "cups", icon: "🏆" },
+  { name: "Spade", value: "swords", icon: "⚔️" },
+  { name: "Bastoni", value: "clubs", icon: "🏏" },
 ];
 
-const TrumpSuitDialog = ({ open, onOpenChange, onSelectSuit }: TrumpSuitDialogProps) => {
+const TrumpSuitDialog = ({
+  open,
+  onOpenChange,
+  onSelectSuit,
+}: TrumpSuitDialogProps) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold text-center">Choose Trump Suit</DialogTitle>
+          <DialogTitle className="text-2xl font-bold text-center">
+            Scegli la briscola
+          </DialogTitle>
           <DialogDescription className="text-center">
-            Select the suit that will be trump for this game
+            Seleziona il seme che sarà la briscola per questa mano
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="grid grid-cols-2 gap-4 mt-4">
           {italianSuits.map((suit) => (
             <Button
