@@ -29,10 +29,10 @@ const GameTable = () => {
 
   // Mock data for players
   const players: Player[] = [
-    { username: "You", position: "bottom", isLocalPlayer: true },
-    { username: "Teammate", position: "top", isTeammate: true },
-    { username: "Opponent 1", position: "left" },
-    { username: "Opponent 2", position: "right" },
+    { username: "Tu", position: "bottom", isLocalPlayer: true },
+    { username: "Giovanni", position: "top", isTeammate: true },
+    { username: "Paolo", position: "left" },
+    { username: "Matteo", position: "right" },
   ];
 
   // Mock local player's hand (10 cards)
@@ -50,15 +50,15 @@ const GameTable = () => {
   ];
 
   // Mock team points
-  const teamPoints = { team1: 45, team2: 32 };
+  const teamPoints = { team1: 10, team2: 18 };
 
   const handleCardClick = (cardId: string) => {
-    console.log("Card clicked:", cardId);
+    console.log("Carta premuta:", cardId);
     // Play card logic will go here
   };
 
   const handleTrumpSelect = (suit: string) => {
-    console.log("Trump suit selected:", suit);
+    console.log("Seme di briscola selezionato:", suit);
     setTrumpDialogOpen(false);
   };
 
@@ -66,44 +66,56 @@ const GameTable = () => {
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 relative overflow-hidden">
       {/* Background decorative elements */}
       <div className="absolute inset-0 bg-gradient-warm opacity-20 pointer-events-none" />
-      
+
       {/* Header with room code and back button */}
-      <div className="absolute top-4 left-4 z-10">
-        <Button variant="ghost" size="sm" onClick={() => window.history.back()}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Leave Game
-        </Button>
-      </div>
+      {false && (
+        <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => window.history.back()}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Lascia la partita
+          </Button>
+        </div>
+      )}
 
       <div className="absolute top-4 right-4 text-sm text-muted-foreground">
-        Room: <span className="font-semibold text-foreground">{gameRoomCode}</span>
+        Room:{" "}
+        <span className="font-semibold text-foreground">{gameRoomCode}</span>
       </div>
 
       {/* Team Points Panel */}
       <Card className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 shadow-lg border-2">
         <div className="flex items-center gap-6">
           <div className="text-center">
-            <div className="text-xs text-muted-foreground mb-1">Your Team</div>
-            <div className="text-2xl font-bold text-primary">{teamPoints.team1}</div>
+            <div className="text-xs text-muted-foreground mb-1">
+              La tua squadra
+            </div>
+            <div className="text-2xl font-bold text-primary">
+              {teamPoints.team1}
+            </div>
           </div>
           <div className="h-8 w-px bg-border" />
           <div className="text-center">
-            <div className="text-xs text-muted-foreground mb-1">Opponents</div>
-            <div className="text-2xl font-bold text-accent">{teamPoints.team2}</div>
+            <div className="text-xs text-muted-foreground mb-1">Avversari</div>
+            <div className="text-2xl font-bold text-accent">
+              {teamPoints.team2}
+            </div>
           </div>
         </div>
       </Card>
 
       {/* Main game area */}
       <div className="container mx-auto h-screen flex flex-col justify-between items-center py-20 px-4">
-        
         {/* Top Player (Teammate) */}
         <div className="flex flex-col items-center gap-2">
           <Card className="px-4 py-2 bg-card/80 backdrop-blur-sm">
             <p className="text-sm font-semibold text-foreground">
-              {players.find(p => p.position === "top")?.username}
+              {players.find((p) => p.position === "top")?.username}
             </p>
-            <p className="text-xs text-muted-foreground">Teammate</p>
+            <p className="text-xs text-muted-foreground">Socio</p>
           </Card>
         </div>
 
@@ -113,16 +125,20 @@ const GameTable = () => {
             {/* Left Player (Opponent) */}
             <div className="absolute left-0 top-1/2 -translate-y-1/2">
               <Card className="px-3 py-2 bg-card/80 backdrop-blur-sm">
-                <p className="text-sm font-semibold">{players.find(p => p.position === "left")?.username}</p>
-                <p className="text-xs text-muted-foreground">Opponent</p>
+                <p className="text-sm font-semibold">
+                  {players.find((p) => p.position === "left")?.username}
+                </p>
+                <p className="text-xs text-muted-foreground">Avversario</p>
               </Card>
             </div>
 
             {/* Right Player (Opponent) */}
             <div className="absolute right-0 top-1/2 -translate-y-1/2">
               <Card className="px-3 py-2 bg-card/80 backdrop-blur-sm">
-                <p className="text-sm font-semibold">{players.find(p => p.position === "right")?.username}</p>
-                <p className="text-xs text-muted-foreground">Opponent</p>
+                <p className="text-sm font-semibold">
+                  {players.find((p) => p.position === "right")?.username}
+                </p>
+                <p className="text-xs text-muted-foreground">Avversario</p>
               </Card>
             </div>
 
@@ -141,11 +157,13 @@ const GameTable = () => {
                       ? "left-8"
                       : "right-8"
                   } ${
-                    playedCard.position === "left" || playedCard.position === "right"
+                    playedCard.position === "left" ||
+                    playedCard.position === "right"
                       ? "top-1/2 -translate-y-1/2"
                       : ""
                   } ${
-                    playedCard.position === "top" || playedCard.position === "bottom"
+                    playedCard.position === "top" ||
+                    playedCard.position === "bottom"
                       ? "left-1/2 -translate-x-1/2"
                       : ""
                   }`}
@@ -155,7 +173,9 @@ const GameTable = () => {
               ))}
 
               {playedCards.length === 0 && (
-                <p className="text-muted-foreground text-sm">Waiting for cards...</p>
+                <p className="text-muted-foreground text-sm">
+                  Waiting for cards...
+                </p>
               )}
             </div>
           </div>
@@ -179,26 +199,28 @@ const GameTable = () => {
 
           {/* Local Player Info */}
           <Card className="px-4 py-2 bg-card/80 backdrop-blur-sm">
-            <p className="text-sm font-semibold">{players.find(p => p.position === "bottom")?.username}</p>
+            <p className="text-sm font-semibold">
+              {players.find((p) => p.position === "bottom")?.username}
+            </p>
           </Card>
         </div>
       </div>
 
       {/* Game Action Buttons */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2">
-        <Button 
-          variant="secondary" 
+        <Button
+          variant="secondary"
           size="sm"
           onClick={() => setLastTrickDialogOpen(true)}
         >
-          Last Trick
+          Ultima Mano
         </Button>
-        <Button 
-          variant="default" 
+        <Button
+          variant="default"
           size="sm"
           onClick={() => setTrumpDialogOpen(true)}
         >
-          Choose Trump
+          Scegli Briscola
         </Button>
       </div>
 
