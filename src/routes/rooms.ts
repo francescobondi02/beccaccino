@@ -6,6 +6,7 @@ import {
   setPlayerReady,
   getRoomByCode,
   leaveRoom,
+  getExitedRooms,
 } from "../controllers/roomController";
 import { chooseTeam } from "../controllers/chooseTeam";
 import { authenticateToken } from "../middleware/auth";
@@ -14,6 +15,7 @@ const router = Router();
 
 router.post("/", authenticateToken, createRoom);
 router.get("/available", authenticateToken, getAvailableRooms);
+router.get("/getExitedRooms", authenticateToken, getExitedRooms);
 router.get("/:roomCode", authenticateToken, getRoomByCode);
 router.post("/:roomCode/choose-team", authenticateToken, chooseTeam);
 router.post("/join", authenticateToken, joinRoom);

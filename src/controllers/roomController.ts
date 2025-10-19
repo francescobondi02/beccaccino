@@ -350,12 +350,23 @@ export const setPlayerReady = async (req: Request, res: Response) => {
     const team0Count = updatedRoom.players.filter((p) => p.team === 0).length;
     const team1Count = updatedRoom.players.filter((p) => p.team === 1).length;
 
+    //^ Notifica tutti nella room del cambiamento di stato Ready
+    const io = getSocketInstance();
+    io.to(roomCode).emit("ready_changed", {
+      userId,
+      isReady,
+    });
+
     //^ Se tutti i Player sono pronti e i team sono pieni e scelti, imposta la stanza come iniziata
     if (allReady && team0Count === 2 && team1Count === 2) {
       await prisma.gameRoom.update({
         where: { id: room.id },
         data: { started: true },
       });
+
+      // Notifico tutti nella room che la partita sta iniziando
+      io.to(roomCode).emit("game_started", {});
+
       try {
         //^ Chiama setupRound per creare il primo round
         await setupRound(room.id, 1);
@@ -428,4 +439,32 @@ export const leaveRoom = async (req: Request, res: Response) => {
     console.error("Error while leaving room:", error);
     return res.status(500).json({ error: "Failed to leave room" });
   }
+};
+
+export const getExitedRooms = async (req: Request, res: Response) => {
+  const userId = Number(req.query.userId);
+  if (!userId) {
+    return res.status(400).json({ error: "User ID is required" });
+  }
+
+  const rooms = await prisma.gameRoom.findMany({
+    where: {
+      players: {
+        some: { userId },
+      },
+      finished: false,
+    },
+    include: {
+      players: true,
+    },
+  });
+
+  const formatted = rooms.map((room) => ({
+    id: room.id,
+    code: room.code,
+    currentPlayers: room.players.length,
+    maxPlayers: 4,
+  }));
+
+  return res.status(200).json(formatted);
 };

@@ -2,6 +2,7 @@
 
 import { Request, Response } from "express";
 import { prisma } from "../db";
+import { getSocketInstance } from "../socketInstance";
 
 export const chooseTeam = async (req: Request, res: Response) => {
   /**
@@ -51,6 +52,13 @@ export const chooseTeam = async (req: Request, res: Response) => {
     const updatedPlayer = await prisma.player.update({
       where: { id: player.id },
       data: { team },
+    });
+
+    //^ Usa il socket per notificare gli altri giocatori nella stanza
+    const io = getSocketInstance();
+    io.to(roomCode).emit("team_chosen", {
+      userId,
+      team,
     });
 
     return res.status(200).json({ success: true, player: updatedPlayer });
