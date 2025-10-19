@@ -7,7 +7,16 @@ import { toast } from "sonner";
 import { Users, Plus, Hash, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import AuthDialog from "@/components/AuthDialog";
-import { useLobbySocket } from "@/hooks/useLobbySocket";
+
+import {
+  registerLobbyHandlers,
+  onRoomCreated,
+  onRoomUpdated,
+  onRoomFull,
+  leaveLobby,
+  onRoomDeleted,
+} from "@/sockets/lobbyHandlers";
+import { getSocket, isSocketConnected } from "@/sockets/socketClient";
 
 // Lista delle 40 carte italiane
 const cardFilenames = [
@@ -82,17 +91,11 @@ const Index = () => {
   const [roomCode, setRoomCode] = useState("");
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
 
   // Carte casuali per le animazioni (generate una sola volta)
   const [leftCards] = useState(() => getRandomCards(20));
   const [rightCards] = useState(() => getRandomCards(20));
-
-  // 🔥 WebSocket per aggiornamenti real-time della lobby
-  const { isConnected, onRoomCreated, onRoomUpdated, onRoomFull } =
-    useLobbySocket({
-      userId,
-      isAuthenticated,
-    });
 
   const handleAuthSuccess = async (newUsername: string, newUserId: number) => {
     setUsername(newUsername);
@@ -119,7 +122,16 @@ const Index = () => {
       }
 
       const data = await res.json();
-      setRooms(data);
+
+      // 🔥 Mappa le stanze nel formato uniforme
+      const mappedRooms: Room[] = data.map((room: any) => ({
+        id: room.id,
+        code: room.code,
+        currentPlayers: room.players?.length ?? 0,
+        maxPlayers: 4, // oppure room.maxPlayers se vuoi dinamico
+      }));
+
+      setRooms(mappedRooms);
     } catch (error) {
       console.error("Error fetching rooms:", error);
       toast.error("Impossibile caricare le stanze disponibili");
@@ -178,50 +190,51 @@ const Index = () => {
     checkAuth();
   }, []);
 
-  // 🔥 Gestione eventi socket real-time
+  // useEffect per registrare handler + gestionne stato isConnected
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!userId || !isAuthenticated) return;
 
-    // Evento: Nuova stanza creata
-    onRoomCreated((newRoom) => {
-      console.log("🆕 Nuova stanza ricevuta via socket:", newRoom);
+    // Registra solo una volta
+    registerLobbyHandlers(userId);
 
-      setRooms((prevRooms) => {
-        // Evita duplicati
-        const exists = prevRooms.some((r) => r.code === newRoom.code);
-        if (exists) return prevRooms;
+    // Collega isConnected al socket centrale
+    const socket = getSocket();
+    const handleConnect = () => setIsConnected(true);
+    const handleDisconnect = () => setIsConnected(false);
 
-        // Aggiungi la nuova stanza all'inizio della lista
-        return [newRoom, ...prevRooms];
-      });
+    setIsConnected(isSocketConnected());
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
 
-      toast.success(`Nuova stanza disponibile: ${newRoom.code}`);
+    // Callback: nuova stanza
+    onRoomCreated((room) => {
+      setRooms((prev) => [...prev, room]);
     });
 
-    // Evento: Stanza aggiornata (nuovo giocatore entrato)
-    onRoomUpdated((data) => {
-      console.log("🔄 Stanza aggiornata via socket:", data);
-
-      setRooms((prevRooms) =>
-        prevRooms.map((room) =>
-          room.code === data.roomCode
-            ? { ...room, currentPlayers: data.currentPlayers }
-            : room
-        )
+    // Callback: stanza aggiornata
+    onRoomUpdated(({ roomCode, currentPlayers }) => {
+      setRooms((prev) =>
+        prev.map((r) => (r.code === roomCode ? { ...r, currentPlayers } : r))
       );
     });
 
-    // Evento: Stanza diventata piena (rimuovi dalla lista)
-    onRoomFull((data) => {
-      console.log("🔒 Stanza piena via socket:", data.roomCode);
-
-      setRooms((prevRooms) =>
-        prevRooms.filter((room) => room.code !== data.roomCode)
-      );
-
-      toast.info(`La stanza ${data.roomCode} è ora completa`);
+    // Callback: stanza piena
+    onRoomFull(({ roomCode }) => {
+      setRooms((prev) => prev.filter((r) => r.code !== roomCode));
     });
-  }, [isAuthenticated, onRoomCreated, onRoomUpdated, onRoomFull]);
+
+    // Callback: stanza eliminata
+    onRoomDeleted(({ roomCode }) => {
+      setRooms((prev) => prev.filter((r) => r.code !== roomCode));
+    });
+
+    // Cleanup
+    return () => {
+      leaveLobby();
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+    };
+  }, [userId, isAuthenticated]);
 
   const handleCreateRoom = async () => {
     if (!isAuthenticated) {

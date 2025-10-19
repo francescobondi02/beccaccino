@@ -7,16 +7,22 @@ import { toast } from "sonner";
 import Header from "@/components/Header";
 import { Badge } from "@/components/ui/badge";
 
+import {
+  registerRoomHandlers,
+  leaveRoom,
+  onPlayerJoined,
+  offPlayerJoined,
+  onPlayerLeft,
+  offPlayerLeft,
+} from "@/sockets/roomHandlers";
+
 interface Player {
   id: number;
   userId: number;
+  username: string;
   seat: number | null;
-  isReady: boolean;
   team: number | null;
-  user: {
-    id: number;
-    username: string;
-  };
+  isReady: boolean;
 }
 
 interface Room {
@@ -93,7 +99,18 @@ const GameRoom = () => {
         }
 
         const roomData: Room = await res.json();
-        setRoom(roomData);
+
+        // Normalizza i giocatori per compatibilità con l'interfaccia
+        const players: Player[] = roomData.players.map((p: any) => ({
+          id: p.id,
+          userId: p.userId,
+          username: p.user?.username ?? "Sconosciuto",
+          seat: p.seat,
+          team: p.team,
+          isReady: p.isReady,
+        }));
+
+        setRoom({ ...roomData, players });
 
         // Trova il player corrente
         const me = roomData.players.find((p) => p.userId === userId);
@@ -109,6 +126,60 @@ const GameRoom = () => {
 
     fetchRoom();
   }, [userId, roomCode, navigate]);
+
+  // Gestione WebSocket room
+  useEffect(() => {
+    if (!userId || !username || !roomCode) return;
+
+    const user = { userId, username };
+
+    // Connessione a registrazione handler
+    registerRoomHandlers(roomCode, user);
+
+    // Callback per quando un nuovo player si unisce
+    const handlePlayerJoined = (joinedPlayer: Player) => {
+      console.log("👥 Nuovo giocatore:", joinedPlayer);
+
+      setRoom((prevRoom) => {
+        // console.log("Giocatori attuali:", prevRoom.players);
+        // console.log("Nuovo giocatore:", joinedPlayer);
+        if (!prevRoom) return prevRoom;
+
+        // Evita duplicati
+        const alreadyExists = prevRoom.players.some(
+          (p) => p.userId === joinedPlayer.userId
+        );
+        if (alreadyExists) return prevRoom;
+
+        return {
+          ...prevRoom,
+          players: [...prevRoom.players, joinedPlayer],
+        };
+      });
+    };
+
+    const handlePlayerLeft = (leftUserId: number) => {
+      console.log("👋 Giocatore uscito:", leftUserId);
+      setRoom((prevRoom) => {
+        if (!prevRoom) return prevRoom;
+        return {
+          ...prevRoom,
+          players: prevRoom.players.filter((p) => p.userId !== leftUserId),
+        };
+      });
+    };
+
+    // Registra la callback
+    onPlayerJoined(handlePlayerJoined);
+    onPlayerLeft(handlePlayerLeft);
+
+    return () => {
+      // Cleanup
+      offPlayerJoined(handlePlayerJoined);
+      offPlayerLeft(handlePlayerLeft);
+      leaveRoom(roomCode);
+    };
+  }, [userId, username, roomCode]);
 
   const handleReady = async () => {
     if (!myPlayer || !userId) return;
@@ -182,9 +253,21 @@ const GameRoom = () => {
     toast.success("Codice copiato!");
   };
 
-  const handleLeaveRoom = () => {
-    toast.success("Hai lasciato la stanza");
-    navigate("/");
+  const handleLeaveRoom = async () => {
+    try {
+      await fetch(`${API_URL}/rooms/${roomCode}/leave`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+
+      toast.success("Hai lasciato la stanza");
+      navigate("/");
+    } catch (error) {
+      console.error("Errore nel lasciare la stanza:", error);
+      toast.error("Errore nel lasciare la stanza");
+    }
   };
 
   const handleChooseTeam = async (team: number) => {
@@ -226,9 +309,16 @@ const GameRoom = () => {
 
   // Crea array di 4 player (riempiendo gli slot vuoti)
   const allPlayers: (Player | null)[] = [];
+
+  const currentPlayers = [...(room?.players ?? [])].sort((a, b) => {
+    if (a.userId === userId) return -1;
+    if (b.userId === userId) return 1;
+    return a.username.localeCompare(b.username);
+  });
+
+  // Riempie gli slot con i player presenti
   for (let i = 0; i < 4; i++) {
-    const player = room?.players.find((p) => p.seat === i) || null;
-    allPlayers.push(player);
+    allPlayers[i] = currentPlayers[i] || null;
   }
 
   if (isLoading) {
@@ -319,7 +409,8 @@ const GameRoom = () => {
                           }`}
                         >
                           {player ? (
-                            player.user.username
+                            // Prendi solo le iniziali
+                            player?.username
                               .split(" ")
                               .map((n) => n[0])
                               .join("")
@@ -331,7 +422,7 @@ const GameRoom = () => {
                         <div>
                           <div className="flex items-center gap-2">
                             <p className="font-semibold text-lg">
-                              {player?.user.username || "In attesa..."}
+                              {player ? player.username : "In attesa..."}
                             </p>
                             {isMe && (
                               <Badge variant="secondary" className="text-xs">
