@@ -608,6 +608,7 @@ const Index = () => {
           gap: 1rem;
           animation: scroll-up 25s linear infinite;
           will-change: transform;
+          transform: translateZ(0);
         }
         
         .infinite-scroll-down {
@@ -616,6 +617,7 @@ const Index = () => {
           gap: 1rem;
           animation: scroll-down 25s linear infinite;
           will-change: transform;
+          transform: translateZ(0);
         }
 
         .infinite-scroll-up img,
