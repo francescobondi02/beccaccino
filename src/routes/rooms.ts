@@ -5,6 +5,7 @@ import {
   joinRoom,
   setPlayerReady,
   getRoomByCode,
+  leaveRoom,
 } from "../controllers/roomController";
 import { chooseTeam } from "../controllers/chooseTeam";
 import { authenticateToken } from "../middleware/auth";
@@ -17,5 +18,6 @@ router.get("/:roomCode", authenticateToken, getRoomByCode);
 router.post("/:roomCode/choose-team", authenticateToken, chooseTeam);
 router.post("/join", authenticateToken, joinRoom);
 router.post("/:roomCode/ready", authenticateToken, setPlayerReady);
+router.post("/:roomCode/leave", authenticateToken, leaveRoom);
 
 export default router;

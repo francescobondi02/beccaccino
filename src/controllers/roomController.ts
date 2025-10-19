@@ -372,3 +372,60 @@ export const setPlayerReady = async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to set player ready" });
   }
 };
+
+export const leaveRoom = async (req: Request, res: Response) => {
+  const { roomCode } = req.params;
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: "User ID is required" });
+  }
+
+  try {
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: roomCode },
+      include: { players: true },
+    });
+
+    if (!room) {
+      return res.status(404).json({ error: "Room not found" });
+    }
+
+    const player = room.players.find((p) => p.userId === userId);
+    if (!player) {
+      return res.status(404).json({ error: "Player not found in room" });
+    }
+
+    const io = getSocketInstance();
+
+    if (room.players.length === 1) {
+      // 🔥 Sei l’unico player: cancella la stanza
+      await prisma.player.deleteMany({
+        where: { gameRoomId: room.id },
+      });
+      await prisma.gameRoom.delete({
+        where: { id: room.id },
+      });
+
+      console.log(`🗑️ Room ${roomCode} deleted (last player left)`);
+
+      io.to("lobby").emit("room_deleted", { roomCode }); // opzionale, se vuoi aggiornare la lobby
+
+      return res.status(200).json({ success: true, deletedRoom: true });
+    } else {
+      // 🔥 Altri player presenti: rimuovi solo il Player
+      await prisma.player.delete({
+        where: { id: player.id },
+      });
+
+      io.to(roomCode).emit("player_left", { userId });
+
+      console.log(`🚪 User ${userId} left room ${roomCode}`);
+
+      return res.status(200).json({ success: true, deletedRoom: false });
+    }
+  } catch (error) {
+    console.error("Error while leaving room:", error);
+    return res.status(500).json({ error: "Failed to leave room" });
+  }
+};
