@@ -14,6 +14,11 @@ import {
   offPlayerJoined,
   onPlayerLeft,
   offPlayerLeft,
+  onTeamChosen,
+  offTeamChosen,
+  onReadyChanged,
+  offReadyChanged,
+  onGameStarted,
 } from "@/sockets/roomHandlers";
 
 interface Player {
@@ -169,14 +174,56 @@ const GameRoom = () => {
       });
     };
 
+    const handleTeamChosen = (data: { userId: number; team: number }) => {
+      console.log("🏳️‍🌈 Team scelto:", data);
+      setRoom((prevRoom) => {
+        if (!prevRoom) return prevRoom;
+        const updatedPlayers = prevRoom.players.map((p) =>
+          p.userId === data.userId ? { ...p, team: data.team } : p
+        );
+        return { ...prevRoom, players: updatedPlayers };
+      });
+
+      if (data.userId === userId && myPlayer) {
+        setMyPlayer({ ...myPlayer, team: data.team });
+      }
+    };
+
+    const handleReadyChanged = (data: { userId: number; isReady: boolean }) => {
+      console.log("✅ Stato pronto cambiato:", data);
+      setRoom((prevRoom) => {
+        if (!prevRoom) return prevRoom;
+        const updatedPlayers = prevRoom.players.map((p) =>
+          p.userId === data.userId ? { ...p, isReady: data.isReady } : p
+        );
+        return { ...prevRoom, players: updatedPlayers };
+      });
+
+      if (data.userId === userId && myPlayer) {
+        setMyPlayer({ ...myPlayer, isReady: data.isReady });
+      }
+    };
+
+    // Callback per quando la partita inizia
+
     // Registra la callback
     onPlayerJoined(handlePlayerJoined);
     onPlayerLeft(handlePlayerLeft);
+    onTeamChosen(handleTeamChosen);
+    onReadyChanged(handleReadyChanged);
+    onGameStarted(() => {
+      toast.success("La partita sta per iniziare! Redirecting...");
+      setTimeout(() => {
+        navigate(`/game/${roomCode}`);
+      }, 5000);
+    });
 
     return () => {
       // Cleanup
       offPlayerJoined(handlePlayerJoined);
       offPlayerLeft(handlePlayerLeft);
+      offTeamChosen(handleTeamChosen);
+      offReadyChanged(handleReadyChanged);
       leaveRoom(roomCode);
     };
   }, [userId, username, roomCode]);

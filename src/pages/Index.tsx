@@ -92,6 +92,7 @@ const Index = () => {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [myExRooms, setMyExRooms] = useState<Room[]>([]);
 
   // Carte casuali per le animazioni (generate una sola volta)
   const [leftCards] = useState(() => getRandomCards(20));
@@ -117,11 +118,23 @@ const Index = () => {
         }
       );
 
+      const res2 = await fetch(
+        `${API_URL}/rooms/getExitedRooms?userId=${userIdParam}`,
+        {
+          credentials: "include",
+        }
+      );
+
       if (!res.ok) {
         throw new Error("Errore nel recupero delle stanze");
       }
 
+      if (!res2.ok) {
+        throw new Error("Errore nel recupero delle stanze precedenti");
+      }
+
       const data = await res.json();
+      const data2 = await res2.json();
 
       // 🔥 Mappa le stanze nel formato uniforme
       const mappedRooms: Room[] = data.map((room: any) => ({
@@ -131,7 +144,15 @@ const Index = () => {
         maxPlayers: 4, // oppure room.maxPlayers se vuoi dinamico
       }));
 
+      const mappedExRooms: Room[] = data2.map((room: any) => ({
+        id: room.id,
+        code: room.code,
+        currentPlayers: room.players?.length ?? 0,
+        maxPlayers: 4,
+      }));
+
       setRooms(mappedRooms);
+      setMyExRooms(mappedExRooms);
     } catch (error) {
       console.error("Error fetching rooms:", error);
       toast.error("Impossibile caricare le stanze disponibili");
@@ -525,7 +546,7 @@ const Index = () => {
                       </p>
                     </CardContent>
                   </Card>
-                ) : rooms.length === 0 ? (
+                ) : rooms.length + myExRooms.length === 0 ? (
                   <Card className="bg-gradient-card border-border/50">
                     <CardContent className="p-8 text-center">
                       <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
@@ -539,6 +560,44 @@ const Index = () => {
                   </Card>
                 ) : (
                   <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                    {myExRooms.map((room) => (
+                      <Card
+                        key={room.id}
+                        className="bg-gradient-card border-border/50 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
+                      >
+                        <CardContent className="p-5">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <Hash className="h-4 w-4 text-accent" />
+                                <span className="font-bold text-lg tracking-wider text-foreground">
+                                  {room.code}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                <Users className="h-3.5 w-3.5" />
+                                <span>
+                                  {room.currentPlayers} / {room.maxPlayers}{" "}
+                                  giocatori
+                                </span>
+                              </div>
+                            </div>
+
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => handleJoinRoom(room.code)}
+                              disabled={room.currentPlayers >= room.maxPlayers}
+                              className="hover:bg-primary hover:text-primary-foreground transition-colors"
+                            >
+                              {room.currentPlayers >= room.maxPlayers
+                                ? "Piena"
+                                : "Rientra"}
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
                     {rooms.map((room) => (
                       <Card
                         key={room.id}
