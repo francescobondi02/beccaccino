@@ -10,4 +10,5 @@ module.exports = {
     ...tsJestTransformCfg,
   },
   globalTeardown: "./tests/teardown.ts",
+  setupFilesAfterEnv: ["./tests/setup.ts"],
 };
