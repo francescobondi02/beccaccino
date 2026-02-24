@@ -46,7 +46,7 @@ const Header = ({ username, onLogout }: HeaderProps) => {
           onClick={() => navigate("/")}
         >
           <div className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            Beccaccino
+            Beccaccino Online
           </div>
         </div>
 
