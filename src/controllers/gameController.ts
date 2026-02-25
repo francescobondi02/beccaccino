@@ -121,3 +121,88 @@ export const getPlayableCards = async (req: Request, res: Response) => {
     return res.status(500).json({ error: (error as Error).message });
   }
 };
+
+export const getGameState = async (req: Request, res: Response) => {
+  const { roomCode } = req.params;
+  const userId = parseInt(req.query.userId as string);
+
+  // Verifico che l'utente sia nella stanza
+  const gameRoom = await prisma.gameRoom.findUnique({
+    where: { code: roomCode },
+    include: {
+      players: {
+        include: {
+          user: true,
+        },
+      },
+    },
+  });
+
+  if (!gameRoom) {
+    return res.status(404).json({ error: "Room not found" });
+  }
+
+  const isPlayerInRoom = gameRoom.players.some((p) => p.userId === userId);
+  if (!isPlayerInRoom) {
+    return res.status(403).json({ error: "You are not in this room" });
+  }
+
+  if (!gameRoom.started) {
+    return res.status(400).json({ error: "Game has not started yet" });
+  }
+
+  // Trova il round corrente (l'ultimo creato)
+  const currentRound = await prisma.round.findFirst({
+    where: { gameRoomId: gameRoom.id },
+    orderBy: { number: "desc" },
+    include: { hands: { orderBy: { number: "asc" }, take: 1 } },
+  });
+
+  if (!currentRound) {
+    return res.status(404).json({ error: "No active round found" });
+  }
+
+  // Determina chi deve chiamare la briscola
+  let callerPlayerId: number | null = null;
+
+  if (currentRound.number === 1) {
+    // Round 1: chi ha il 4 di denara
+    const quattroDeNara = await prisma.playerCard.findFirst({
+      where: {
+        roundId: currentRound.id,
+        suit: "denara",
+        value: "quattro",
+      },
+    });
+    callerPlayerId = quattroDeNara?.playerId ?? null;
+  } else {
+    // Round 2+: il player con seat successivo al caller del round precedente
+    const prevRound = await prisma.round.findFirst({
+      where: { gameRoomId: gameRoom.id, number: currentRound.number - 1 },
+      include: { hands: { orderBy: { number: "asc" }, take: 1 } },
+    });
+    if (prevRound && prevRound.hands.length > 0) {
+      const prevCaller = gameRoom.players.find(
+        (p) => p.id === prevRound.hands[0].starterId,
+      );
+      if (prevCaller !== undefined && prevCaller.seat !== null) {
+        const nextSeat = (prevCaller.seat + 1) % 4;
+        const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
+        callerPlayerId = nextPlayer?.id ?? null;
+      }
+    }
+  }
+
+  // Converti callerPlayerId in callerUserId per il frontend
+  const callerPlayer = gameRoom.players.find((p) => p.id === callerPlayerId);
+  const callerUserId = callerPlayer?.userId ?? null;
+
+  return res.status(200).json({
+    round: {
+      id: currentRound.id,
+      number: currentRound.number,
+      briscola: currentRound.briscola,
+    },
+    callerUserId,
+  });
+};
