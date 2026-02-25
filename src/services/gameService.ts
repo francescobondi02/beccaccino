@@ -412,13 +412,73 @@ export async function playCard({
         winnerTeam,
       });
 
-      // Crea il nuovo round
-      await setupRound(room.id, currentRound.number + 1);
-
-      // Notifica il nuovo round
-      io.to(roomCode).emit("new_round_started", {
-        roundNumber: currentRound.number + 1,
+      // Calcola i punteggi totali di tutti i round completati
+      const allCompletedRounds = await prisma.round.findMany({
+        where: {
+          gameRoomId: room.id,
+          winnerTeam: { not: null },
+        },
+        select: {
+          team0Points: true,
+          team1Points: true,
+        },
       });
+
+      const totalTeam0Points = allCompletedRounds.reduce(
+        (sum, r) => sum + r.team0Points,
+        0,
+      );
+      const totalTeam1Points = allCompletedRounds.reduce(
+        (sum, r) => sum + r.team1Points,
+        0,
+      );
+
+      // Controlla se una squadra ha raggiunto 5 punti o più (41 in production)
+      const gameFinished = totalTeam0Points >= 5 || totalTeam1Points >= 5;
+
+      if (gameFinished) {
+        // Determina il vincitore finale
+        const finalWinnerTeam = totalTeam0Points >= 5 ? 0 : 1;
+
+        // Segna la partita come finita
+        await prisma.gameRoom.update({
+          where: { id: room.id },
+          data: { finished: true },
+        });
+
+        // Calcola statistiche aggiuntive
+        const totalRounds = allCompletedRounds.length;
+        const team0Wins = allCompletedRounds.filter(
+          (r) => r.team0Points > r.team1Points,
+        ).length;
+        const team1Wins = totalRounds - team0Wins;
+
+        // Notifica la fine della partita con tutte le statistiche
+        io.to(roomCode).emit("game_finished", {
+          winnerTeam: finalWinnerTeam,
+          totalRounds,
+          finalScores: {
+            team0: totalTeam0Points,
+            team1: totalTeam1Points,
+          },
+          roundsWon: {
+            team0: team0Wins,
+            team1: team1Wins,
+          },
+        });
+
+        console.log(
+          `🏆 Partita ${roomCode} terminata! Vincitore: Team ${finalWinnerTeam}`,
+        );
+      } else {
+        // Crea il nuovo round
+        await setupRound(room.id, currentRound.number + 1);
+
+        // Notifica il nuovo round
+        io.to(roomCode).emit("new_round_started", {
+          roundNumber: currentRound.number + 1,
+        });
+      }
     }
   }
 }
