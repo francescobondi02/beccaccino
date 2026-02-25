@@ -137,6 +137,8 @@ const GameRoom = () => {
     if (!userId || !username || !roomCode) return;
 
     const user = { userId, username };
+    // Ref locale per sapere se la partita è iniziata (navigazione a GameTable)
+    let gameStarted = false;
 
     // Connessione a registrazione handler
     registerRoomHandlers(roomCode, user);
@@ -212,6 +214,7 @@ const GameRoom = () => {
     onTeamChosen(handleTeamChosen);
     onReadyChanged(handleReadyChanged);
     onGameStarted(() => {
+      gameStarted = true; // 🔥 Non disconnettere quando si naviga a GameTable
       toast.success("La partita sta per iniziare! Redirecting...");
       setTimeout(() => {
         navigate(`/game/${roomCode}`);
@@ -219,12 +222,15 @@ const GameRoom = () => {
     });
 
     return () => {
-      // Cleanup
+      // Cleanup: rimuovi solo i listener locali
       offPlayerJoined(handlePlayerJoined);
       offPlayerLeft(handlePlayerLeft);
       offTeamChosen(handleTeamChosen);
       offReadyChanged(handleReadyChanged);
-      leaveRoom(roomCode);
+      // 🔥 Lascia la room socket SOLO se la partita NON è iniziata
+      if (!gameStarted) {
+        leaveRoom(roomCode);
+      }
     };
   }, [userId, username, roomCode]);
 

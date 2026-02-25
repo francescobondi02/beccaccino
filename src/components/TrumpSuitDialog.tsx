@@ -14,20 +14,23 @@ type TrumpSuitDialogProps = {
 };
 
 const italianSuits = [
-  { name: "Denara", value: "coins", icon: "🪙" },
-  { name: "Coppe", value: "cups", icon: "🏆" },
-  { name: "Spade", value: "swords", icon: "⚔️" },
-  { name: "Bastoni", value: "clubs", icon: "🏏" },
+  { name: "Denara", value: "denara", icon: "🪙" },
+  { name: "Coppe", value: "coppe", icon: "🏆" },
+  { name: "Spade", value: "spade", icon: "⚔️" },
+  { name: "Bastoni", value: "bastoni", icon: "🏏" },
 ];
 
 const TrumpSuitDialog = ({
   open,
-  onOpenChange,
   onSelectSuit,
-}: TrumpSuitDialogProps) => {
+}: Omit<TrumpSuitDialogProps, "onOpenChange">) => {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={() => {}}>
+      <DialogContent
+        className="sm:max-w-md"
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-center">
             Scegli la briscola

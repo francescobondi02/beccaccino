@@ -5,8 +5,14 @@ import { Card } from "@/components/ui/card";
 import PlayingCard from "@/components/PlayingCard";
 import TrumpSuitDialog from "@/components/TrumpSuitDialog";
 import LastTrickDialog from "@/components/LastTrickDialog";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  registerRoomHandlers,
+  leaveRoom,
+  onPlayerLeft,
+  offPlayerLeft,
+} from "@/sockets/roomHandlers";
 
 type PlayerPosition = "bottom" | "top" | "left" | "right";
 
@@ -43,6 +49,12 @@ const GameTable = () => {
   const [myPlayer, setMyPlayer] = useState<Player | null>(null);
   const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);
   const [lastTrickDialogOpen, setLastTrickDialogOpen] = useState(false);
+  const [currentRound, setCurrentRound] = useState<{
+    id: number;
+    number: number;
+    briscola: string | null;
+  } | null>(null);
+  const [callerUserId, setCallerUserId] = useState<number | null>(null);
 
   // Controlla autenticazione
   useEffect(() => {
@@ -133,6 +145,60 @@ const GameTable = () => {
     fetchRoom();
   }, [userId, gameRoomCode, navigate]);
 
+  // Carica stato del round (briscola, caller)
+  useEffect(() => {
+    if (!userId || !gameRoomCode) return;
+
+    const fetchGameState = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/games/${gameRoomCode}/state?userId=${userId}`,
+          { credentials: "include" },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        setCurrentRound(data.round);
+        setCallerUserId(data.callerUserId);
+        // Apri il dialog automaticamente se sono io il caller e briscola non è ancora scelta
+        if (data.round.briscola === null && data.callerUserId === userId) {
+          setTrumpDialogOpen(true);
+        }
+      } catch (error) {
+        console.error("Error fetching game state:", error);
+      }
+    };
+
+    fetchGameState();
+  }, [userId, gameRoomCode]);
+
+  // Gestione WebSocket: mantieni la connessione alla room durante la partita
+  useEffect(() => {
+    if (!userId || !username || !gameRoomCode) return;
+
+    // Ri-registra gli handler senza emettere join_room se già connessi,
+    // oppure ri-joina la room se per qualche motivo la connessione si è persa
+    registerRoomHandlers(gameRoomCode, { userId, username });
+
+    const handlePlayerLeft = (leftUserId: number) => {
+      console.log("👋 Giocatore uscito durante la partita:", leftUserId);
+      toast.warning("Un giocatore ha abbandonato la partita");
+      setRoom((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.filter((p) => p.userId !== leftUserId),
+        };
+      });
+    };
+
+    onPlayerLeft(handlePlayerLeft);
+
+    return () => {
+      offPlayerLeft(handlePlayerLeft);
+      // NON chiamare leaveRoom qui: lo farà solo il bottone "Lascia la partita"
+    };
+  }, [userId, username, gameRoomCode]);
+
   // Calcola le posizioni relative dei giocatori
   const getPlayersWithPositions = (): Player[] => {
     if (!room || !myPlayer) return [];
@@ -189,11 +255,31 @@ const GameTable = () => {
     toast.info("Funzionalità in sviluppo");
   };
 
-  const handleTrumpSelect = (suit: string) => {
-    console.log("Seme di briscola selezionato:", suit);
-    // TODO: Inviare la scelta della briscola al backend
-    setTrumpDialogOpen(false);
-    toast.success(`Briscola scelta: ${suit}`);
+  const handleTrumpSelect = async (suit: string) => {
+    if (!myPlayer || !room) return;
+    try {
+      const res = await fetch(`${API_URL}/games/choose-briscola`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          gameRoomId: room.id,
+          playerId: myPlayer.id,
+          suit,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error || "Errore nella scelta della briscola");
+        return;
+      }
+      setCurrentRound((prev) => (prev ? { ...prev, briscola: suit } : prev));
+      setTrumpDialogOpen(false);
+      toast.success(`Briscola scelta: ${suit}`);
+    } catch (error) {
+      console.error("Error choosing briscola:", error);
+      toast.error("Errore nella scelta della briscola");
+    }
   };
 
   if (isLoading) {
@@ -381,19 +467,20 @@ const GameTable = () => {
         >
           Ultima Mano
         </Button>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => setTrumpDialogOpen(true)}
-        >
-          Scegli Briscola
-        </Button>
+        {currentRound?.briscola === null && callerUserId === userId && (
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setTrumpDialogOpen(true)}
+          >
+            Scegli Briscola
+          </Button>
+        )}
       </div>
 
       {/* Dialogs */}
       <TrumpSuitDialog
         open={trumpDialogOpen}
-        onOpenChange={setTrumpDialogOpen}
         onSelectSuit={handleTrumpSelect}
       />
       <LastTrickDialog
