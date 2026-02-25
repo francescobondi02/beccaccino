@@ -1,22 +1,31 @@
 import { cn } from "@/lib/utils";
-import italianCardImg from "@/assets/italian-card.png";
 
 type PlayingCardProps = {
   suit?: string;
-  value?: number;
+  value?: string;
   size?: "sm" | "md" | "lg";
   onClick?: () => void;
   clickable?: boolean;
+  disabled?: boolean;
   className?: string;
 };
 
-const PlayingCard = ({ 
-  suit = "coins", 
-  value = 1, 
-  size = "md", 
-  onClick, 
+// Mappa suit DB (denara) -> nome file immagine (denari)
+const suitFileMap: Record<string, string> = {
+  denara: "denari",
+  coppe: "coppe",
+  spade: "spade",
+  bastoni: "bastoni",
+};
+
+const PlayingCard = ({
+  suit = "bastoni",
+  value = "asso",
+  size = "md",
+  onClick,
   clickable = false,
-  className 
+  disabled = false,
+  className,
 }: PlayingCardProps) => {
   const sizeClasses = {
     sm: "w-12 h-16",
@@ -24,29 +33,31 @@ const PlayingCard = ({
     lg: "w-20 h-28",
   };
 
+  const suitFile = suitFileMap[suit] ?? suit;
+  const imgSrc = `/images/cards/${value}_${suitFile}.png`;
+
   return (
     <div
       className={cn(
         "relative rounded-lg overflow-hidden shadow-lg border-2 border-primary/20 bg-card transition-all duration-200",
         sizeClasses[size],
-        clickable && "cursor-pointer hover:scale-110 hover:shadow-xl hover:border-primary/60 hover:-translate-y-2",
-        className
+        clickable &&
+          !disabled &&
+          "cursor-pointer hover:scale-110 hover:shadow-xl hover:border-primary/60 hover:-translate-y-2",
+        disabled && "opacity-40 grayscale cursor-not-allowed",
+        className,
       )}
-      onClick={clickable ? onClick : undefined}
+      onClick={clickable && !disabled ? onClick : undefined}
     >
-      {/* Card image (placeholder) */}
-      <img 
-        src={italianCardImg} 
-        alt={`${value} of ${suit}`}
+      <img
+        src={imgSrc}
+        alt={`${value} di ${suit}`}
         className="w-full h-full object-cover"
+        onError={(e) => {
+          // Fallback se l'immagine non esiste
+          (e.target as HTMLImageElement).style.display = "none";
+        }}
       />
-      
-      {/* Card label overlay (for debugging/clarity) */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent flex items-end justify-center pb-1">
-        <span className="text-white text-xs font-bold drop-shadow-lg">
-          {value}
-        </span>
-      </div>
     </div>
   );
 };

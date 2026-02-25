@@ -39,13 +39,25 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
     socket.connect();
   }
 
-  // Entra nella stanza
-  socket.emit("join_room", {
-    roomCode,
-    userId: user.userId,
-    username: user.username,
+  const joinRoom = () => {
+    socket.emit("join_room", {
+      roomCode,
+      userId: user.userId,
+      username: user.username,
+    });
+    console.log("🎮 [SOCKET] Joined room", roomCode, "as", user.username);
+  };
+
+  // Entra nella stanza subito
+  joinRoom();
+
+  // Se il socket si riconnette (es. dopo un drop di rete), re-joina la room automaticamente
+  // così non si perdono gli eventi come game_started
+  socket.off("connect");
+  socket.on("connect", () => {
+    console.log("🔄 [SOCKET] Reconnected, re-joining room", roomCode);
+    joinRoom();
   });
-  console.log("🎮 [SOCKET] Joined room", roomCode, "as", user.username);
 
   // Handler: player joined
   socket.off("player_joined");
@@ -137,13 +149,13 @@ export const offPlayerLeft = (cb: (userId: number) => void) => {
 
 // Callbacks per team_chosen
 export const onTeamChosen = (
-  callback: (data: { userId: number; team: number }) => void
+  callback: (data: { userId: number; team: number }) => void,
 ) => {
   teamChosenCallbacks.push(callback);
 };
 
 export const offTeamChosen = (
-  callback: (data: { userId: number; team: number }) => void
+  callback: (data: { userId: number; team: number }) => void,
 ) => {
   const idx = teamChosenCallbacks.indexOf(callback);
   if (idx !== -1) teamChosenCallbacks.splice(idx, 1);
@@ -151,13 +163,13 @@ export const offTeamChosen = (
 
 // Callbacks per ready_changed
 export const onReadyChanged = (
-  callback: (data: { userId: number; isReady: boolean }) => void
+  callback: (data: { userId: number; isReady: boolean }) => void,
 ) => {
   readyChangedCallbacks.push(callback);
 };
 
 export const offReadyChanged = (
-  callback: (data: { userId: number; isReady: boolean }) => void
+  callback: (data: { userId: number; isReady: boolean }) => void,
 ) => {
   const idx = readyChangedCallbacks.indexOf(callback);
   if (idx !== -1) readyChangedCallbacks.splice(idx, 1);
@@ -165,6 +177,10 @@ export const offReadyChanged = (
 
 export const onGameStarted = (cb: () => void) => {
   onGameStartedCallbacks = cb;
+};
+
+export const offGameStarted = () => {
+  onGameStartedCallbacks = null;
 };
 
 // Stato connessione

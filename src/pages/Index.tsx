@@ -78,6 +78,14 @@ interface Room {
   code: string;
   currentPlayers: number;
   maxPlayers: number;
+  players?: Array<{
+    id: number;
+    userId: number;
+    user?: {
+      id: number;
+      username: string;
+    };
+  }>;
 }
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -89,10 +97,10 @@ const Index = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [roomCode, setRoomCode] = useState("");
-  const [rooms, setRooms] = useState<Room[]>([]);
+  const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
+  const [activeGames, setActiveGames] = useState<Room[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [myExRooms, setMyExRooms] = useState<Room[]>([]);
 
   // Carte casuali per le animazioni (generate una sola volta)
   const [leftCards] = useState(() => getRandomCards(20));
@@ -115,44 +123,37 @@ const Index = () => {
         `${API_URL}/rooms/available?userId=${userIdParam}`,
         {
           credentials: "include",
-        }
-      );
-
-      const res2 = await fetch(
-        `${API_URL}/rooms/getExitedRooms?userId=${userIdParam}`,
-        {
-          credentials: "include",
-        }
+        },
       );
 
       if (!res.ok) {
         throw new Error("Errore nel recupero delle stanze");
       }
 
-      if (!res2.ok) {
-        throw new Error("Errore nel recupero delle stanze precedenti");
-      }
-
       const data = await res.json();
-      const data2 = await res2.json();
 
-      // 🔥 Mappa le stanze nel formato uniforme
-      const mappedRooms: Room[] = data.map((room: any) => ({
-        id: room.id,
-        code: room.code,
-        currentPlayers: room.players?.length ?? 0,
-        maxPlayers: 4, // oppure room.maxPlayers se vuoi dinamico
-      }));
+      // Mappa le stanze disponibili (non iniziate)
+      const mappedAvailableRooms: Room[] = data.availableRooms.map(
+        (room: any) => ({
+          id: room.id,
+          code: room.code,
+          currentPlayers: room.players?.length ?? 0,
+          maxPlayers: 4,
+          players: room.players,
+        }),
+      );
 
-      const mappedExRooms: Room[] = data2.map((room: any) => ({
+      // Mappa i giochi attivi (partite iniziate in cui sono dentro)
+      const mappedActiveGames: Room[] = data.activeGames.map((room: any) => ({
         id: room.id,
         code: room.code,
         currentPlayers: room.players?.length ?? 0,
         maxPlayers: 4,
+        players: room.players,
       }));
 
-      setRooms(mappedRooms);
-      setMyExRooms(mappedExRooms);
+      setAvailableRooms(mappedAvailableRooms);
+      setActiveGames(mappedActiveGames);
     } catch (error) {
       console.error("Error fetching rooms:", error);
       toast.error("Impossibile caricare le stanze disponibili");
@@ -229,24 +230,24 @@ const Index = () => {
 
     // Callback: nuova stanza
     onRoomCreated((room) => {
-      setRooms((prev) => [...prev, room]);
+      setAvailableRooms((prev) => [...prev, room]);
     });
 
     // Callback: stanza aggiornata
     onRoomUpdated(({ roomCode, currentPlayers }) => {
-      setRooms((prev) =>
-        prev.map((r) => (r.code === roomCode ? { ...r, currentPlayers } : r))
+      setAvailableRooms((prev) =>
+        prev.map((r) => (r.code === roomCode ? { ...r, currentPlayers } : r)),
       );
     });
 
     // Callback: stanza piena
     onRoomFull(({ roomCode }) => {
-      setRooms((prev) => prev.filter((r) => r.code !== roomCode));
+      setAvailableRooms((prev) => prev.filter((r) => r.code !== roomCode));
     });
 
     // Callback: stanza eliminata
     onRoomDeleted(({ roomCode }) => {
-      setRooms((prev) => prev.filter((r) => r.code !== roomCode));
+      setAvailableRooms((prev) => prev.filter((r) => r.code !== roomCode));
     });
 
     // Cleanup
@@ -320,7 +321,7 @@ const Index = () => {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Impossibile entrare nella stanza"
+          : "Impossibile entrare nella stanza",
       );
     }
   };
@@ -360,7 +361,7 @@ const Index = () => {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Impossibile entrare nella stanza"
+          : "Impossibile entrare nella stanza",
       );
     }
   };
@@ -512,15 +513,13 @@ const Index = () => {
               </Card>
             </div>
 
-            {/* Right Panel - Available Rooms */}
+            {/* Right Panel - Rooms Lists */}
             {isAuthenticated && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <Users className="h-5 w-5 text-primary" />
-                    <h2 className="text-xl font-semibold">
-                      Stanze Disponibili
-                    </h2>
+                    <h2 className="text-xl font-semibold">Le tue stanze</h2>
                   </div>
                   {/* Indicatore connessione real-time */}
                   <div className="flex items-center gap-2">
@@ -546,7 +545,7 @@ const Index = () => {
                       </p>
                     </CardContent>
                   </Card>
-                ) : rooms.length + myExRooms.length === 0 ? (
+                ) : availableRooms.length + activeGames.length === 0 ? (
                   <Card className="bg-gradient-card border-border/50">
                     <CardContent className="p-8 text-center">
                       <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
@@ -559,83 +558,118 @@ const Index = () => {
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                    {myExRooms.map((room) => (
-                      <Card
-                        key={room.id}
-                        className="bg-gradient-card border-border/50 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
-                      >
-                        <CardContent className="p-5">
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <Hash className="h-4 w-4 text-accent" />
-                                <span className="font-bold text-lg tracking-wider text-foreground">
-                                  {room.code}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                                <Users className="h-3.5 w-3.5" />
-                                <span>
-                                  {room.currentPlayers} / {room.maxPlayers}{" "}
-                                  giocatori
-                                </span>
-                              </div>
-                            </div>
+                  <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                    {/* Giochi attivi - Partite in corso */}
+                    {activeGames.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-amber-500 flex items-center gap-2">
+                          <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
+                          Partite in corso
+                        </h3>
+                        {activeGames.map((game) => (
+                          <Card
+                            key={game.id}
+                            className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-amber-500/30 hover:border-amber-500/50 transition-all duration-300 hover:scale-[1.02]"
+                          >
+                            <CardContent className="p-5">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <Hash className="h-4 w-4 text-amber-500" />
+                                    <span className="font-bold text-lg tracking-wider text-foreground">
+                                      {game.code}
+                                    </span>
+                                    <span className="text-xs px-2 py-0.5 bg-amber-500/20 text-amber-500 rounded-full font-semibold">
+                                      IN CORSO
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                    <Users className="h-3.5 w-3.5" />
+                                    <span>
+                                      {game.currentPlayers} / {game.maxPlayers}{" "}
+                                      giocatori
+                                    </span>
+                                  </div>
+                                </div>
 
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleJoinRoom(room.code)}
-                              disabled={room.currentPlayers >= room.maxPlayers}
-                              className="hover:bg-primary hover:text-primary-foreground transition-colors"
-                            >
-                              {room.currentPlayers >= room.maxPlayers
-                                ? "Piena"
-                                : "Rientra"}
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                    {rooms.map((room) => (
-                      <Card
-                        key={room.id}
-                        className="bg-gradient-card border-border/50 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
-                      >
-                        <CardContent className="p-5">
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <Hash className="h-4 w-4 text-accent" />
-                                <span className="font-bold text-lg tracking-wider text-foreground">
-                                  {room.code}
-                                </span>
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() => navigate(`/game/${game.code}`)}
+                                  className="bg-amber-500 hover:bg-amber-600 text-white"
+                                >
+                                  Rientra
+                                </Button>
                               </div>
-                              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                                <Users className="h-3.5 w-3.5" />
-                                <span>
-                                  {room.currentPlayers} / {room.maxPlayers}{" "}
-                                  giocatori
-                                </span>
-                              </div>
-                            </div>
 
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => handleJoinRoom(room.code)}
-                              disabled={room.currentPlayers >= room.maxPlayers}
-                              className="hover:bg-primary hover:text-primary-foreground transition-colors"
-                            >
-                              {room.currentPlayers >= room.maxPlayers
-                                ? "Piena"
-                                : "Entra"}
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                              {/* Lista giocatori */}
+                              {game.players && game.players.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-amber-500/20">
+                                  {game.players.map((player) => (
+                                    <span
+                                      key={player.id}
+                                      className="text-xs px-2 py-1 bg-secondary rounded-md text-muted-foreground"
+                                    >
+                                      {player.user?.username ?? "Sconosciuto"}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Stanze disponibili - In attesa di giocatori */}
+                    {availableRooms.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          Stanze disponibili
+                        </h3>
+                        {availableRooms.map((room) => (
+                          <Card
+                            key={room.id}
+                            className="bg-gradient-card border-border/50 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
+                          >
+                            <CardContent className="p-5">
+                              <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <Hash className="h-4 w-4 text-accent" />
+                                    <span className="font-bold text-lg tracking-wider text-foreground">
+                                      {room.code}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                    <Users className="h-3.5 w-3.5" />
+                                    <span>
+                                      {room.currentPlayers} / {room.maxPlayers}{" "}
+                                      giocatori
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => handleJoinRoom(room.code)}
+                                  disabled={
+                                    room.currentPlayers >= room.maxPlayers
+                                  }
+                                  className="hover:bg-primary hover:text-primary-foreground transition-colors"
+                                >
+                                  {room.currentPlayers >= room.maxPlayers
+                                    ? "Piena"
+                                    : "Entra"}
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

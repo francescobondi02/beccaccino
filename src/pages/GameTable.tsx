@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import PlayingCard from "@/components/PlayingCard";
 import TrumpSuitDialog from "@/components/TrumpSuitDialog";
 import LastTrickDialog from "@/components/LastTrickDialog";
+import RoundEndDialog from "@/components/RoundEndDialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -36,6 +37,23 @@ interface Room {
   players: Player[];
 }
 
+interface PlayerCard {
+  id: number;
+  suit: string;
+  value: string;
+  playerId: number;
+  roundId: number;
+  inHand: boolean;
+}
+
+interface PlayedCardData {
+  playerId: number;
+  userId: number;
+  suit: string;
+  value: string;
+  position: number;
+}
+
 const API_URL = import.meta.env.VITE_API_URL;
 
 const GameTable = () => {
@@ -55,6 +73,28 @@ const GameTable = () => {
     briscola: string | null;
   } | null>(null);
   const [callerUserId, setCallerUserId] = useState<number | null>(null);
+  const [myCards, setMyCards] = useState<PlayerCard[]>([]);
+  const [currentTurnUserId, setCurrentTurnUserId] = useState<number | null>(
+    null,
+  );
+  const [playedCards, setPlayedCards] = useState<PlayedCardData[]>([]);
+  const [playableCards, setPlayableCards] = useState<PlayerCard[]>([]);
+  const [lastHand, setLastHand] = useState<PlayedCardData[]>([]);
+  const [roundEndDialogOpen, setRoundEndDialogOpen] = useState(false);
+  const [roundEndData, setRoundEndData] = useState<{
+    roundNumber: number;
+    team0Points: number;
+    team1Points: number;
+    team0Figures: number;
+    team1Figures: number;
+    winnerTeam: number;
+  } | null>(null);
+  const [totalPoints, setTotalPoints] = useState<{
+    team0Points: number;
+    team1Points: number;
+    team0Figures: number;
+    team1Figures: number;
+  }>({ team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 });
 
   // Controlla autenticazione
   useEffect(() => {
@@ -159,6 +199,18 @@ const GameTable = () => {
         const data = await res.json();
         setCurrentRound(data.round);
         setCallerUserId(data.callerUserId);
+        setMyCards(data.myCards ?? []);
+        setCurrentTurnUserId(data.currentTurnUserId ?? null);
+        setPlayedCards(data.playedCards ?? []);
+        setLastHand(data.lastHandCards ?? []);
+        setTotalPoints(
+          data.totalPoints ?? {
+            team0Points: 0,
+            team1Points: 0,
+            team0Figures: 0,
+            team1Figures: 0,
+          },
+        );
         // Apri il dialog automaticamente se sono io il caller e briscola non è ancora scelta
         if (data.round.briscola === null && data.callerUserId === userId) {
           setTrumpDialogOpen(true);
@@ -170,6 +222,63 @@ const GameTable = () => {
 
     fetchGameState();
   }, [userId, gameRoomCode]);
+
+  // Fetch carte giocabili quando è il mio turno
+  useEffect(() => {
+    if (!userId || !gameRoomCode || currentTurnUserId !== userId) {
+      setPlayableCards([]);
+      return;
+    }
+
+    const fetchPlayableCards = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/games/playable-cards/${gameRoomCode}?userId=${userId}`,
+          { credentials: "include" },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        setPlayableCards(data.playableCards ?? []);
+      } catch (error) {
+        console.error("Error fetching playable cards:", error);
+      }
+    };
+
+    fetchPlayableCards();
+  }, [currentTurnUserId, userId, gameRoomCode, currentRound?.briscola]);
+
+  // Gestione completamento mano (4 carte giocate) - refetch dopo 3 secondi
+  useEffect(() => {
+    if (playedCards.length !== 4) return;
+
+    // Aspetta 3 secondi per mostrare l'ultima carta, poi refetch
+    const timer = setTimeout(async () => {
+      console.log("🏁 Mano completata, aggiorno stato dal backend");
+
+      // Refetch dello stato per ottenere la nuova mano dal backend
+      if (userId && gameRoomCode) {
+        try {
+          const res = await fetch(
+            `${API_URL}/games/${gameRoomCode}/state?userId=${userId}`,
+            { credentials: "include" },
+          );
+          if (res.ok) {
+            const data = await res.json();
+            setCurrentRound(data.round);
+            setCallerUserId(data.callerUserId);
+            setMyCards(data.myCards ?? []);
+            setCurrentTurnUserId(data.currentTurnUserId ?? null);
+            setPlayedCards(data.playedCards ?? []);
+            setLastHand(data.lastHandCards ?? []);
+          }
+        } catch (error) {
+          console.error("Error refetching game state:", error);
+        }
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [playedCards.length, userId, gameRoomCode]);
 
   // Gestione WebSocket: mantieni la connessione alla room durante la partita
   useEffect(() => {
@@ -193,11 +302,155 @@ const GameTable = () => {
 
     onPlayerLeft(handlePlayerLeft);
 
+    // Importa getSocket per ascoltare card_played
+    let socketCleanup: (() => void) | undefined;
+
+    import("@/sockets/socketClient").then(({ getSocket }) => {
+      const socket = getSocket();
+
+      const handleCardPlayed = async (data: PlayedCardData) => {
+        console.log("🃏 Carta giocata:", data);
+
+        // Ottimistic update: aggiungi la carta alle carte giocate
+        setPlayedCards((prev) => [...prev, data]);
+
+        // Se la carta è mia, rimuovila dalla mano
+        if (data.userId === userId) {
+          setMyCards((prev) =>
+            prev.filter(
+              (c) => !(c.suit === data.suit && c.value === data.value),
+            ),
+          );
+        }
+
+        // Refetch dello stato per sincronizzare con il backend
+        // Questo garantisce che anche in caso di disconnessioni il dato sia corretto
+        setTimeout(async () => {
+          if (userId && gameRoomCode) {
+            try {
+              const res = await fetch(
+                `${API_URL}/games/${gameRoomCode}/state?userId=${userId}`,
+                { credentials: "include" },
+              );
+              if (res.ok) {
+                const stateData = await res.json();
+                setCurrentRound(stateData.round);
+                setCallerUserId(stateData.callerUserId);
+                setMyCards(stateData.myCards ?? []);
+                setCurrentTurnUserId(stateData.currentTurnUserId ?? null);
+                setPlayedCards(stateData.playedCards ?? []);
+                setLastHand(stateData.lastHandCards ?? []);
+              }
+            } catch (error) {
+              console.error("Error syncing state after card played:", error);
+            }
+          }
+        }, 300);
+      };
+
+      socket.on("card_played", handleCardPlayed);
+
+      // Handler per scelta briscola
+      const handleBriscolaChosen = (data: {
+        briscola: string;
+        roundNumber: number;
+        starterId: number;
+      }) => {
+        console.log("🎺 Briscola scelta:", data);
+
+        // Aggiorna lo stato del round corrente per mostrare il badge a tutti
+        setCurrentRound((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            briscola: data.briscola,
+          };
+        });
+      };
+
+      socket.on("briscola_chosen", handleBriscolaChosen);
+
+      // Handler per fine round
+      const handleRoundEnded = (data: {
+        roundNumber: number;
+        team0: { points: number; figures: number };
+        team1: { points: number; figures: number };
+        winnerTeam: number;
+      }) => {
+        console.log("🏁 Round terminato:", data);
+
+        // Mostra il dialog di fine round
+        setRoundEndData({
+          roundNumber: data.roundNumber,
+          team0Points: data.team0.points,
+          team1Points: data.team1.points,
+          team0Figures: data.team0.figures,
+          team1Figures: data.team1.figures,
+          winnerTeam: data.winnerTeam,
+        });
+        setRoundEndDialogOpen(true);
+      };
+
+      const handleNewRoundStarted = async () => {
+        console.log("🆕 Nuovo round iniziato");
+        toast.success("Nuovo round iniziato!");
+
+        // Refetch completo dello stato
+        if (userId && gameRoomCode) {
+          try {
+            const res = await fetch(
+              `${API_URL}/games/${gameRoomCode}/state?userId=${userId}`,
+              { credentials: "include" },
+            );
+            if (res.ok) {
+              const stateData = await res.json();
+              setCurrentRound(stateData.round);
+              setCallerUserId(stateData.callerUserId);
+              setMyCards(stateData.myCards ?? []);
+              setCurrentTurnUserId(stateData.currentTurnUserId ?? null);
+              setPlayedCards(stateData.playedCards ?? []);
+              setLastHand(stateData.lastHandCards ?? []);
+              setTotalPoints(
+                stateData.totalPoints ?? {
+                  team0Points: 0,
+                  team1Points: 0,
+                  team0Figures: 0,
+                  team1Figures: 0,
+                },
+              );
+
+              // Se sono il caller, apri il dialog briscola
+              if (
+                stateData.round.briscola === null &&
+                stateData.callerUserId === userId
+              ) {
+                setTrumpDialogOpen(true);
+              }
+            }
+          } catch (error) {
+            console.error("Error refetching after new round:", error);
+          }
+        }
+      };
+
+      socket.on("round_ended", handleRoundEnded);
+      socket.on("new_round_started", handleNewRoundStarted);
+
+      // Salva la funzione di cleanup
+      socketCleanup = () => {
+        socket.off("card_played", handleCardPlayed);
+        socket.off("briscola_chosen", handleBriscolaChosen);
+        socket.off("round_ended", handleRoundEnded);
+        socket.off("new_round_started", handleNewRoundStarted);
+      };
+    });
+
     return () => {
       offPlayerLeft(handlePlayerLeft);
+      if (socketCleanup) socketCleanup();
       // NON chiamare leaveRoom qui: lo farà solo il bottone "Lascia la partita"
     };
-  }, [userId, username, gameRoomCode]);
+  }, [userId, username, gameRoomCode, room]);
 
   // Calcola le posizioni relative dei giocatori
   const getPlayersWithPositions = (): Player[] => {
@@ -236,23 +489,57 @@ const GameTable = () => {
 
   const playersWithPositions = getPlayersWithPositions();
 
-  // Mock data per le carte in mano (TODO: ottenere dal backend)
-  const playerHand = Array.from({ length: 10 }, (_, i) => ({
-    id: `card-${i}`,
-    suit: "coins",
-    value: i + 1,
-  }));
+  // Calcola i punti per squadra
+  const myTeamPoints =
+    myPlayer?.team === 0
+      ? { points: totalPoints.team0Points, figures: totalPoints.team0Figures }
+      : { points: totalPoints.team1Points, figures: totalPoints.team1Figures };
 
-  // Mock data per le carte giocate (TODO: ottenere dal backend)
-  const playedCards: any[] = [];
+  const opponentTeamPoints =
+    myPlayer?.team === 0
+      ? { points: totalPoints.team1Points, figures: totalPoints.team1Figures }
+      : { points: totalPoints.team0Points, figures: totalPoints.team0Figures };
 
-  // Mock team points (TODO: ottenere dal backend)
-  const teamPoints = { myTeam: 0, opponentTeam: 0 };
+  const handleCardClick = async (card: PlayerCard) => {
+    if (!gameRoomCode || currentTurnUserId !== userId) {
+      toast.error("Non è il tuo turno!");
+      return;
+    }
 
-  const handleCardClick = (cardId: string) => {
-    console.log("Carta giocata:", cardId);
-    // TODO: Implementare logica per giocare la carta
-    toast.info("Funzionalità in sviluppo");
+    // Verifica che la carta sia tra quelle giocabili
+    const isPlayable = playableCards.some(
+      (c) => c.suit === card.suit && c.value === card.value,
+    );
+    if (!isPlayable) {
+      toast.error("Non puoi giocare questa carta!");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/games/play-card`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          roomCode: gameRoomCode,
+          userId,
+          suit: card.suit,
+          value: card.value,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error || "Errore nel giocare la carta");
+        return;
+      }
+
+      toast.success("Carta giocata!");
+      // Il socket event "card_played" aggiornerà lo stato automaticamente
+    } catch (error) {
+      console.error("Error playing card:", error);
+      toast.error("Errore nel giocare la carta");
+    }
   };
 
   const handleTrumpSelect = async (suit: string) => {
@@ -315,6 +602,25 @@ const GameTable = () => {
         <span className="font-semibold text-foreground">{gameRoomCode}</span>
       </div>
 
+      {/* Briscola Badge */}
+      {currentRound?.briscola && (
+        <Card className="absolute top-4 left-4 px-4 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <img
+              src={`/images/semi/${currentRound.briscola}_seme.png`}
+              alt={currentRound.briscola}
+              className="w-8 h-8 object-contain"
+            />
+            <div>
+              <div className="text-xs text-muted-foreground">Briscola</div>
+              <div className="text-sm font-bold capitalize">
+                {currentRound.briscola}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Team Points Panel */}
       <Card className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm">
         <div className="flex items-center gap-6">
@@ -323,7 +629,7 @@ const GameTable = () => {
               La tua squadra (Team {(myPlayer.team ?? 0) + 1})
             </div>
             <div className="text-2xl font-bold text-primary">
-              {teamPoints.myTeam}
+              {myTeamPoints.points}
             </div>
           </div>
           <div className="h-8 w-px bg-border" />
@@ -332,7 +638,7 @@ const GameTable = () => {
               Avversari (Team {((myPlayer.team ?? 0) === 0 ? 1 : 0) + 1})
             </div>
             <div className="text-2xl font-bold text-accent">
-              {teamPoints.opponentTeam}
+              {opponentTeamPoints.points}
             </div>
           </div>
         </div>
@@ -347,7 +653,11 @@ const GameTable = () => {
             .map((player) => (
               <Card
                 key={player.id}
-                className="px-4 py-2 bg-card/80 backdrop-blur-sm"
+                className={`px-4 py-2 bg-card/80 backdrop-blur-sm transition-all ${
+                  currentTurnUserId === player.userId
+                    ? "ring-2 ring-primary shadow-lg"
+                    : ""
+                }`}
               >
                 <p className="text-sm font-semibold text-foreground">
                   {player.username}
@@ -369,7 +679,11 @@ const GameTable = () => {
                 .map((player) => (
                   <Card
                     key={player.id}
-                    className="px-3 py-2 bg-card/80 backdrop-blur-sm"
+                    className={`px-3 py-2 bg-card/80 backdrop-blur-sm transition-all ${
+                      currentTurnUserId === player.userId
+                        ? "ring-2 ring-primary shadow-lg"
+                        : ""
+                    }`}
                   >
                     <p className="text-sm font-semibold">{player.username}</p>
                     <p className="text-xs text-muted-foreground">
@@ -386,7 +700,11 @@ const GameTable = () => {
                 .map((player) => (
                   <Card
                     key={player.id}
-                    className="px-3 py-2 bg-card/80 backdrop-blur-sm"
+                    className={`px-3 py-2 bg-card/80 backdrop-blur-sm transition-all ${
+                      currentTurnUserId === player.userId
+                        ? "ring-2 ring-primary shadow-lg"
+                        : ""
+                    }`}
                   >
                     <p className="text-sm font-semibold">{player.username}</p>
                     <p className="text-xs text-muted-foreground">
@@ -399,29 +717,39 @@ const GameTable = () => {
             {/* Central Table with Played Cards */}
             <div className="relative w-80 h-80 rounded-full bg-gradient-to-br from-primary/5 to-accent/5 border-4 border-primary/20 shadow-2xl flex items-center justify-center">
               {playedCards.length > 0 ? (
-                playedCards.map((playedCard) => (
-                  <div
-                    key={`${playedCard.playerId}-${playedCard.cardId}`}
-                    className={`absolute ${
-                      playedCard.position === "bottom"
-                        ? "bottom-8 left-1/2 -translate-x-1/2"
-                        : playedCard.position === "top"
-                          ? "top-8 left-1/2 -translate-x-1/2"
-                          : playedCard.position === "left"
-                            ? "left-8 top-1/2 -translate-y-1/2"
-                            : "right-8 top-1/2 -translate-y-1/2"
-                    }`}
-                  >
-                    <PlayingCard
-                      suit={playedCard.suit}
-                      value={playedCard.value}
-                      size="md"
-                    />
-                  </div>
-                ))
+                playedCards.map((playedCard, idx) => {
+                  // Mappa userId a posizione visuale
+                  const player = playersWithPositions.find(
+                    (p) => p.userId === playedCard.userId,
+                  );
+                  const visualPosition = player?.position ?? "bottom";
+
+                  return (
+                    <div
+                      key={`${playedCard.userId}-${playedCard.suit}-${playedCard.value}`}
+                      className={`absolute ${
+                        visualPosition === "bottom"
+                          ? "bottom-8 left-1/2 -translate-x-1/2"
+                          : visualPosition === "top"
+                            ? "top-8 left-1/2 -translate-x-1/2"
+                            : visualPosition === "left"
+                              ? "left-8 top-1/2 -translate-y-1/2"
+                              : "right-8 top-1/2 -translate-y-1/2"
+                      }`}
+                    >
+                      <PlayingCard
+                        suit={playedCard.suit}
+                        value={playedCard.value}
+                        size="md"
+                      />
+                    </div>
+                  );
+                })
               ) : (
                 <p className="text-muted-foreground text-sm">
-                  In attesa delle carte...
+                  {currentRound?.briscola === null
+                    ? "In attesa che venga scelta la briscola..."
+                    : "In attesa del turno del giocatore..."}
                 </p>
               )}
             </div>
@@ -432,16 +760,26 @@ const GameTable = () => {
         <div className="flex flex-col items-center gap-4 w-full">
           {/* Player's Hand */}
           <div className="flex gap-2 flex-wrap justify-center max-w-5xl">
-            {playerHand.map((card) => (
-              <PlayingCard
-                key={card.id}
-                suit={card.suit}
-                value={card.value}
-                onClick={() => handleCardClick(card.id)}
-                size="lg"
-                clickable
-              />
-            ))}
+            {myCards
+              .filter((c) => c.inHand)
+              .map((card) => {
+                const isPlayable = playableCards.some(
+                  (pc) => pc.suit === card.suit && pc.value === card.value,
+                );
+                const isMyTurn = currentTurnUserId === userId;
+
+                return (
+                  <PlayingCard
+                    key={card.id}
+                    suit={card.suit}
+                    value={card.value}
+                    onClick={() => handleCardClick(card)}
+                    size="lg"
+                    clickable={isMyTurn && isPlayable}
+                    disabled={!isMyTurn || !isPlayable}
+                  />
+                );
+              })}
           </div>
 
           {/* Local Player Info */}
@@ -450,7 +788,11 @@ const GameTable = () => {
             .map((player) => (
               <Card
                 key={player.id}
-                className="px-4 py-2 bg-card/80 backdrop-blur-sm"
+                className={`px-4 py-2 bg-card/80 backdrop-blur-sm transition-all ${
+                  currentTurnUserId === player.userId
+                    ? "ring-2 ring-primary shadow-lg"
+                    : ""
+                }`}
               >
                 <p className="text-sm font-semibold">{player.username}</p>
               </Card>
@@ -482,11 +824,33 @@ const GameTable = () => {
       <TrumpSuitDialog
         open={trumpDialogOpen}
         onSelectSuit={handleTrumpSelect}
+        myCards={myCards}
       />
       <LastTrickDialog
         open={lastTrickDialogOpen}
         onOpenChange={setLastTrickDialogOpen}
+        lastHand={lastHand}
+        players={playersWithPositions}
+        userId={userId}
       />
+      {roundEndData && (
+        <RoundEndDialog
+          open={roundEndDialogOpen}
+          onOpenChange={(open) => {
+            setRoundEndDialogOpen(open);
+            if (!open) {
+              setRoundEndData(null);
+            }
+          }}
+          roundNumber={roundEndData.roundNumber}
+          team0Points={roundEndData.team0Points}
+          team1Points={roundEndData.team1Points}
+          team0Figures={roundEndData.team0Figures}
+          team1Figures={roundEndData.team1Figures}
+          winnerTeam={roundEndData.winnerTeam}
+          myTeam={myPlayer?.team ?? null}
+        />
+      )}
     </div>
   );
 };

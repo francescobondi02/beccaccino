@@ -19,6 +19,7 @@ import {
   onReadyChanged,
   offReadyChanged,
   onGameStarted,
+  offGameStarted,
 } from "@/sockets/roomHandlers";
 
 interface Player {
@@ -227,6 +228,7 @@ const GameRoom = () => {
       offPlayerLeft(handlePlayerLeft);
       offTeamChosen(handleTeamChosen);
       offReadyChanged(handleReadyChanged);
+      offGameStarted();
       // 🔥 Lascia la room socket SOLO se la partita NON è iniziata
       if (!gameStarted) {
         leaveRoom(roomCode);
