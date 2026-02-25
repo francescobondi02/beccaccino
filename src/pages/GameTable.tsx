@@ -6,6 +6,7 @@ import PlayingCard from "@/components/PlayingCard";
 import TrumpSuitDialog from "@/components/TrumpSuitDialog";
 import LastTrickDialog from "@/components/LastTrickDialog";
 import RoundEndDialog from "@/components/RoundEndDialog";
+import GameFinishedDialog from "@/components/GameFinishedDialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -95,6 +96,19 @@ const GameTable = () => {
     team0Figures: number;
     team1Figures: number;
   }>({ team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 });
+  const [gameFinishedDialogOpen, setGameFinishedDialogOpen] = useState(false);
+  const [gameFinishedData, setGameFinishedData] = useState<{
+    winnerTeam: number;
+    totalRounds: number;
+    finalScores: {
+      team0: number;
+      team1: number;
+    };
+    roundsWon: {
+      team0: number;
+      team1: number;
+    };
+  } | null>(null);
 
   // Controlla autenticazione
   useEffect(() => {
@@ -436,12 +450,39 @@ const GameTable = () => {
       socket.on("round_ended", handleRoundEnded);
       socket.on("new_round_started", handleNewRoundStarted);
 
+      // Handler per fine partita
+      const handleGameFinished = (data: {
+        winnerTeam: number;
+        totalRounds: number;
+        finalScores: {
+          team0: number;
+          team1: number;
+        };
+        roundsWon: {
+          team0: number;
+          team1: number;
+        };
+      }) => {
+        console.log("🏆 Partita terminata:", data);
+
+        // Mostra il dialog di fine partita
+        setGameFinishedData(data);
+        setGameFinishedDialogOpen(true);
+
+        // Chiudi eventuali altri dialog aperti
+        setRoundEndDialogOpen(false);
+        setTrumpDialogOpen(false);
+      };
+
+      socket.on("game_finished", handleGameFinished);
+
       // Salva la funzione di cleanup
       socketCleanup = () => {
         socket.off("card_played", handleCardPlayed);
         socket.off("briscola_chosen", handleBriscolaChosen);
         socket.off("round_ended", handleRoundEnded);
         socket.off("new_round_started", handleNewRoundStarted);
+        socket.off("game_finished", handleGameFinished);
       };
     });
 
@@ -848,6 +889,16 @@ const GameTable = () => {
           team0Figures={roundEndData.team0Figures}
           team1Figures={roundEndData.team1Figures}
           winnerTeam={roundEndData.winnerTeam}
+          myTeam={myPlayer?.team ?? null}
+        />
+      )}
+      {gameFinishedData && (
+        <GameFinishedDialog
+          open={gameFinishedDialogOpen}
+          winnerTeam={gameFinishedData.winnerTeam}
+          totalRounds={gameFinishedData.totalRounds}
+          finalScores={gameFinishedData.finalScores}
+          roundsWon={gameFinishedData.roundsWon}
           myTeam={myPlayer?.team ?? null}
         />
       )}
