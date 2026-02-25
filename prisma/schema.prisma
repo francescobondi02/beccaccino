@@ -104,6 +104,10 @@ model Round {
   briscola    Suit?               // fissata a inizio round
   gameRoomId  Int
   winnerTeam  Int?                // 0 o 1 (oppure nullable finché non finisce)
+  team0Points Int       @default(0) // Punti team 0
+  team1Points Int       @default(0) // Punti team 1
+  team0Figures Int      @default(0) // Figure team 0 (1/3 di punto)
+  team1Figures Int      @default(0) // Figure team 1 (1/3 di punto)
   createdAt   DateTime  @default(now())
 
   gameRoom    GameRoom  @relation(fields: [gameRoomId], references: [id])

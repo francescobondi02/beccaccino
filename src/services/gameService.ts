@@ -4,6 +4,8 @@
 
 import { prisma } from "../db";
 import { determineHandWinner } from "../utils/determineHandWinner";
+import { computePoints } from "../utils/computePoints";
+import { getSocketInstance } from "../socketInstance";
 
 enum Suit {
   denara = "denara",
@@ -81,27 +83,29 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     throw new Error("There must be exactly 4 players to start the game");
   }
 
-  //^ Assegna i posti a sedere utilizzando i team scelti
+  //^ Assegna i posti a sedere solo al primo round
   //^ (team 0: seat 0 e 2, team 1: seat 1 e 3)
   //^ Questo garantisce che i membri del team siano seduti uno di fronte all'altro
-  const team0 = players.filter((p) => p.team === 0);
-  const team1 = players.filter((p) => p.team === 1);
-  if (team0.length !== 2 || team1.length !== 2) {
-    throw new Error("Teams must be complete with 2 players each");
-  }
+  if (roundNumber === 1) {
+    const team0 = players.filter((p) => p.team === 0);
+    const team1 = players.filter((p) => p.team === 1);
+    if (team0.length !== 2 || team1.length !== 2) {
+      throw new Error("Teams must be complete with 2 players each");
+    }
 
-  const seatAssignments = [
-    team0[0], // Seat 0
-    team1[0], // Seat 1
-    team0[1], // Seat 2
-    team1[1], // Seat 3
-  ];
+    const seatAssignments = [
+      team0[0], // Seat 0
+      team1[0], // Seat 1
+      team0[1], // Seat 2
+      team1[1], // Seat 3
+    ];
 
-  for (let seat = 0; seat < 4; seat++) {
-    await prisma.player.update({
-      where: { id: seatAssignments[seat].id },
-      data: { seat },
-    });
+    for (let seat = 0; seat < 4; seat++) {
+      await prisma.player.update({
+        where: { id: seatAssignments[seat].id },
+        data: { seat },
+      });
+    }
   }
 
   //^ Prendi il round precedente (se esiste) per determinare lo starter se non è il primo round
@@ -136,7 +140,7 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     //^ Trova il player con il 4 di Denara
     if (
       handCards.some(
-        (card) => card.suit === Suit.denara && card.value === Value.quattro
+        (card) => card.suit === Suit.denara && card.value === Value.quattro,
       )
     ) {
       playerWithQuattroDenara = playerId;
@@ -250,10 +254,10 @@ export async function playCard({
   const seatOrder = Array.from(
     { length: 4 },
     (_, i) =>
-      (room.players.find((p) => p.id === currentHand.starterId)!.seat! + i) % 4
+      (room.players.find((p) => p.id === currentHand.starterId)!.seat! + i) % 4,
   );
   const currentTurnPlayer = room.players.find(
-    (p) => p.seat === seatOrder[playedCards.length]
+    (p) => p.seat === seatOrder[playedCards.length],
   );
   if (!currentTurnPlayer || currentTurnPlayer.userId !== userId)
     throw new Error("It's not this player's turn");
@@ -290,7 +294,16 @@ export async function playCard({
     },
   });
 
-  //* NOTIFICA TRAMITE WEBSOCKET LA CARTA GIOCATA CON SUCCESSO
+  // Notifica tramite websocket la carta giocata
+  const io = getSocketInstance();
+  io.to(roomCode).emit("card_played", {
+    playerId: player.id,
+    userId: player.userId,
+    suit,
+    value,
+    position: playedCards.length,
+    handNumber: currentHand.number,
+  });
 
   //^ Ora dobbiamo controllare se la mano è completa e gestire il turno successivo
   //^ Lo facciamo ma aspettando qualche secondo (5 secondi === 5000 ms) => SARA' FATTO LATO CLIENT, IL SERVER NON PUO' ASPETTARE
@@ -298,7 +311,7 @@ export async function playCard({
     //^ Il player in questione era l'ultimo della mano corrente
     const winnerPlayerId = determineHandWinner(
       [...playedCards, played],
-      currentRound.briscola
+      currentRound.briscola,
     );
 
     await prisma.hand.update({
@@ -320,10 +333,92 @@ export async function playCard({
 
       //* NOTIFICA TRAMITE WEBSOCKET I GIOCATORI CHE INIZIA LA NUOVA MANO E CHI PARTE
     } else {
-      //^ Era l'ultima mano del round, bisogna creare un nuovo round
+      //^ Era l'ultima mano del round, calcola i punti e crea un nuovo round
+
+      // Recupera tutte le mani del round con le carte giocate
+      const allHands = await prisma.hand.findMany({
+        where: { roundId: currentRound.id },
+        include: {
+          cards: {
+            orderBy: { position: "asc" },
+            include: { player: true },
+          },
+        },
+      });
+
+      // Crea la mappa teamPlayers: playerId -> team
+      const teamPlayers: Record<number, number> = {};
+      for (const player of room.players) {
+        if (player.team !== null) {
+          teamPlayers[player.id] = player.team;
+        }
+      }
+
+      // Calcola i punti
+      const scores = computePoints(
+        allHands.map((h) => ({
+          winnerId: h.winnerId,
+          cards: h.cards.map((c) => ({
+            value: c.value,
+            suit: c.suit,
+            playerId: c.playerId,
+          })),
+        })),
+        teamPlayers,
+        currentRound.briscola!,
+      );
+
+      // Determina il team vincitore (chi ha più punti)
+      let winnerTeam: number;
+      if (scores.team0.points > scores.team1.points) {
+        winnerTeam = 0;
+      } else if (scores.team1.points > scores.team0.points) {
+        winnerTeam = 1;
+      } else {
+        // Parità di punti, vince chi ha più figure
+        if (scores.team0.figures > scores.team1.figures) {
+          winnerTeam = 0;
+        } else if (scores.team1.figures > scores.team0.figures) {
+          winnerTeam = 1;
+        } else {
+          // Parità anche nelle figure, di default vince team 0
+          winnerTeam = 0;
+        }
+      }
+
+      // Aggiorna il round con i punti
+      await prisma.round.update({
+        where: { id: currentRound.id },
+        data: {
+          team0Points: scores.team0.points,
+          team1Points: scores.team1.points,
+          team0Figures: scores.team0.figures,
+          team1Figures: scores.team1.figures,
+          winnerTeam,
+        },
+      });
+
+      // Notifica via socket il termine del round con i punteggi
+      io.to(roomCode).emit("round_ended", {
+        roundNumber: currentRound.number,
+        team0: {
+          points: scores.team0.points,
+          figures: scores.team0.figures,
+        },
+        team1: {
+          points: scores.team1.points,
+          figures: scores.team1.figures,
+        },
+        winnerTeam,
+      });
+
+      // Crea il nuovo round
       await setupRound(room.id, currentRound.number + 1);
 
-      //* NOTIFICA TRAMITE WEBSOCKET CHE IL ROUND E' FINITO E SI DEVE PARTIRE CON IL PROSSIMO (DI PIù DI COSì)
+      // Notifica il nuovo round
+      io.to(roomCode).emit("new_round_started", {
+        roundNumber: currentRound.number + 1,
+      });
     }
   }
 }

@@ -91,22 +91,23 @@ const generateUniqueRoomCode = async () => {
 
 export const getAvailableRooms = async (req: Request, res: Response) => {
   /**
-   * Recupera tutte le stanze di gioco disponibili che non sono piene (meno di 4 giocatori)
-   * e a cui l'utente specificato non ha ancora partecipato.
+   * Recupera due liste separate:
+   * 1. Stanze disponibili: non iniziate, non piene, utente non dentro
+   * 2. Giochi attivi: partite iniziate in cui l'utente è un giocatore
    *
    * @param userId ID dell'utente che cerca stanze (dal query param)
-   * @return Lista di stanze di gioco disponibili
+   * @return { availableRooms: [], activeGames: [] }
    *
-   * @note Una stanza è considerata disponibile se non è iniziata, non è finita,
-   *      ha meno di 4 giocatori e l'utente non è già un giocatore in quella stanza.
-   *     Una stanza piena (4 giocatori) non viene inclusa nei risultati.
+   * @note Una stanza disponibile ha meno di 4 giocatori e non è iniziata
+   * @note Un gioco attivo è una partita iniziata in cui l'utente è dentro
    */
   const userId = Number(req.query.userId);
 
   if (!userId) return res.status(400).json({ error: "User ID is required" });
 
   try {
-    const rooms = await prisma.gameRoom.findMany({
+    // 1. Stanze disponibili: non iniziate, non piene, utente non dentro
+    const availableRoomsRaw = await prisma.gameRoom.findMany({
       where: {
         started: false,
         finished: false,
@@ -122,17 +123,53 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
         },
       },
       include: {
-        players: true,
+        players: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+              },
+            },
+          },
+        },
       },
     });
 
-    //^ Filtra le stanze che non sono piene (meno di 4 giocatori)
-    const availableRooms = rooms.filter((room) => room.players.length < 4);
+    // Filtra le stanze che non sono piene (meno di 4 giocatori)
+    const availableRooms = availableRoomsRaw.filter(
+      (room) => room.players.length < 4,
+    );
 
-    return res.status(200).json(availableRooms);
+    // 2. Giochi attivi: partite iniziate in cui l'utente è un giocatore
+    const activeGames = await prisma.gameRoom.findMany({
+      where: {
+        started: true,
+        finished: false,
+        players: {
+          some: {
+            userId,
+          },
+        },
+      },
+      include: {
+        players: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return res.status(200).json({ availableRooms, activeGames });
   } catch (error) {
-    console.error("Error fetching available rooms:", error);
-    return res.status(500).json({ error: "Failed to fetch available rooms" });
+    console.error("Error fetching rooms:", error);
+    return res.status(500).json({ error: "Failed to fetch rooms" });
   }
 };
 
@@ -222,7 +259,7 @@ export const joinRoom = async (req: Request, res: Response) => {
 
     //^ Verifichiamo che l'utente non sia già un giocatore dentro quella stanza
     const alreadyInRoom = room.players.some(
-      (player) => player.userId === userId
+      (player) => player.userId === userId,
     );
     if (alreadyInRoom) {
       return res.status(400).json({ error: "User already in the room" });
@@ -266,7 +303,7 @@ export const joinRoom = async (req: Request, res: Response) => {
           currentPlayers: currentPlayers,
         });
         console.log(
-          `📢 Notified lobby: room ${roomCode} updated (${currentPlayers}/4)`
+          `📢 Notified lobby: room ${roomCode} updated (${currentPlayers}/4)`,
         );
       }
     } catch (socketError) {
