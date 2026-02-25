@@ -88,7 +88,7 @@ const GameRoom = () => {
           `${API_URL}/rooms/${roomCode}?userId=${userId}`,
           {
             credentials: "include",
-          }
+          },
         );
 
         if (!res.ok) {
@@ -152,7 +152,7 @@ const GameRoom = () => {
 
         // Evita duplicati
         const alreadyExists = prevRoom.players.some(
-          (p) => p.userId === joinedPlayer.userId
+          (p) => p.userId === joinedPlayer.userId,
         );
         if (alreadyExists) return prevRoom;
 
@@ -179,7 +179,7 @@ const GameRoom = () => {
       setRoom((prevRoom) => {
         if (!prevRoom) return prevRoom;
         const updatedPlayers = prevRoom.players.map((p) =>
-          p.userId === data.userId ? { ...p, team: data.team } : p
+          p.userId === data.userId ? { ...p, team: data.team } : p,
         );
         return { ...prevRoom, players: updatedPlayers };
       });
@@ -194,7 +194,7 @@ const GameRoom = () => {
       setRoom((prevRoom) => {
         if (!prevRoom) return prevRoom;
         const updatedPlayers = prevRoom.players.map((p) =>
-          p.userId === data.userId ? { ...p, isReady: data.isReady } : p
+          p.userId === data.userId ? { ...p, isReady: data.isReady } : p,
         );
         return { ...prevRoom, players: updatedPlayers };
       });
@@ -253,15 +253,15 @@ const GameRoom = () => {
 
       if (room) {
         const updatedPlayers = room.players.map((p) =>
-          p.userId === userId ? { ...p, isReady: newReadyState } : p
+          p.userId === userId ? { ...p, isReady: newReadyState } : p,
         );
         setRoom({ ...room, players: updatedPlayers });
       }
 
       toast.success(newReadyState ? "Sei pronto!" : "Non più pronto");
 
-      // Se tutti sono pronti, la partita inizia
-      if (data.allReady) {
+      // Se tutti sono pronti (e il numero di giocatori è 4), la partita inizia
+      if (data.allReady && room && room.players.length === 4) {
         toast.success("Tutti pronti! La partita sta per iniziare...");
       }
     } catch (error) {
@@ -269,7 +269,7 @@ const GameRoom = () => {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Errore nell'impostare lo stato"
+          : "Errore nell'impostare lo stato",
       );
     }
   };
@@ -340,7 +340,7 @@ const GameRoom = () => {
 
       if (room) {
         const updatedPlayers = room.players.map((p) =>
-          p.userId === userId ? { ...p, team } : p
+          p.userId === userId ? { ...p, team } : p,
         );
         setRoom({ ...room, players: updatedPlayers });
       }
@@ -349,7 +349,7 @@ const GameRoom = () => {
     } catch (error) {
       console.error("Error choosing team:", error);
       toast.error(
-        error instanceof Error ? error.message : "Errore nella scelta del team"
+        error instanceof Error ? error.message : "Errore nella scelta del team",
       );
     }
   };
