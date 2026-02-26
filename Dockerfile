@@ -2,11 +2,16 @@ FROM node:24-alpine3.21
 
 WORKDIR /app
 
-RUN apk update && apk upgrade
+# 1) Install deps (cached better)
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci
 
-COPY . . 
-
-RUN npm install
+# 2) Copy source and build
+COPY tsconfig.json ./
+COPY src ./src
 RUN npx prisma generate
+RUN npm run build
 
-CMD ["npm", "run", "dev"]
+# 3) Runtime command: migrate then start
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
