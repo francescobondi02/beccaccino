@@ -1,16 +1,12 @@
 {
   "dependencies": {
     "@prisma/client": "^6.16.3",
-    "@types/express": "^5.0.3",
-    "@types/node": "^24.7.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
-    "socket.io": "^4.8.1",
-    "ts-node-dev": "^2.0.0",
-    "typescript": "^5.9.3"
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -22,10 +18,17 @@
     "jest": "^30.2.0",
     "prisma": "^6.16.3",
     "supertest": "^7.1.4",
-    "ts-jest": "^29.4.4"
+    "ts-jest": "^29.4.4",
+    "ts-node-dev": "^2.0.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.7.0",
+    "typescript": "^5.9.3"
   },
   "scripts": {
     "dev": "npx prisma generate && npx prisma migrate deploy && ts-node-dev src/index.ts",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "build": "npx prisma generate && tsc",
+    "start": "node dist/index.js",
+    "migrate": "npx prisma migrate deploy"
   }
 }

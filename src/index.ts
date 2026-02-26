@@ -33,7 +33,7 @@ app.use(
   cors({
     origin: process.env.FRONTEND_URL || "http://localhost:8081",
     credentials: true, // Permette invio cookies
-  })
+  }),
 );
 
 app.use(express.json());
@@ -42,6 +42,9 @@ app.use(cookieParser()); // Parse cookies
 app.use("/api/users", userRouter);
 app.use("/api/rooms", roomRouter);
 app.use("/api/games", gameRouter);
+
+// Endpoint di test
+app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
 
 // WebSocket logic
 io.on("connection", (socket) => {
@@ -54,5 +57,5 @@ io.on("connection", (socket) => {
   registerGameSocket(socket, io);
 });
 
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

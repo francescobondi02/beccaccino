@@ -12,4 +12,3 @@ coverage/
 
 prisma/dev.db
 prisma/test.db
-prisma/migrations/
