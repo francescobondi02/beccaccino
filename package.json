@@ -27,6 +27,8 @@
   "scripts": {
     "dev": "npx prisma generate && npx prisma migrate deploy && ts-node-dev src/index.ts",
     "test": "jest --runInBand",
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration --runInBand",
     "build": "npx prisma generate && tsc",
     "start": "node dist/index.js",
     "migrate": "npx prisma migrate deploy"

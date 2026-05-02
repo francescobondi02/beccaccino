@@ -2,13 +2,29 @@ const { createDefaultPreset } = require("ts-jest");
 
 const tsJestTransformCfg = createDefaultPreset().transform;
 
+const sharedConfig = {
+  testEnvironment: "node",
+  transform: { ...tsJestTransformCfg },
+};
+
 /** @type {import("jest").Config} **/
 module.exports = {
-  preset: "ts-jest",
-  testEnvironment: "node",
-  transform: {
-    ...tsJestTransformCfg,
-  },
-  globalTeardown: "./tests/teardown.ts",
-  setupFilesAfterEnv: ["./tests/setup.ts"],
+  projects: [
+    {
+      ...sharedConfig,
+      displayName: "unit",
+      testMatch: ["<rootDir>/tests/unit/**/*.test.ts"],
+      setupFilesAfterEnv: ["<rootDir>/tests/setup.ts"],
+    },
+    {
+      ...sharedConfig,
+      displayName: "integration",
+      testMatch: ["<rootDir>/tests/integration/**/*.test.ts"],
+      // setupFiles runs before any module is imported, so PrismaClient picks up
+      // the test DATABASE_URL before it is instantiated.
+      setupFiles: ["<rootDir>/tests/loadTestEnv.ts"],
+      setupFilesAfterEnv: ["<rootDir>/tests/setup.ts"],
+    },
+  ],
+  globalTeardown: "<rootDir>/tests/teardown.ts",
 };
