@@ -8,6 +8,7 @@ import {
   getUserStats,
   updateCurrentUser,
   deleteCurrentUser,
+  getLeaderboard,
 } from "../controllers/userController";
 import { authenticateToken } from "../middleware/auth";
 
@@ -20,5 +21,6 @@ router.get("/me", authenticateToken, getCurrentUser);
 router.get("/me/stats", authenticateToken, getUserStats);
 router.patch("/me", authenticateToken, updateCurrentUser);
 router.delete("/me", authenticateToken, deleteCurrentUser);
+router.get("/leaderboard", getLeaderboard); // Public — no auth required
 
 export default router;

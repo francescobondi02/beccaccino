@@ -4,3 +4,4 @@ process.env.DATABASE_URL =
   "postgresql://postgres:postgres@localhost:5432/becca_test?connection_limit=5";
 process.env.JWT_SECRET = "test-secret";
 process.env.NODE_ENV = "test";
+process.env.GAME_WIN_POINTS = "5";

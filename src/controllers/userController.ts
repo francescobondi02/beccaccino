@@ -397,3 +397,110 @@ export const deleteCurrentUser = async (req: Request, res: Response) => {
   }
 };
 
+// Simple in-memory cache for leaderboard (avoids hammering the DB on every request)
+const leaderboardCacheStore: { data: any; expiry: number } = { data: null, expiry: 0 };
+const LEADERBOARD_CACHE_TTL_MS = 60_000; // 60 seconds
+
+export const getLeaderboard = async (req: Request, res: Response) => {
+  /**
+   * Returns global leaderboard: top players ranked by wins, win rate, and total points.
+   * Only includes players who have completed at least 1 game.
+   * No authentication required (public endpoint).
+   * Cached for 60 seconds to reduce DB load.
+   */
+  try {
+    // Return cached response if still valid (skip cache in test environment)
+    if (process.env.NODE_ENV !== "test" && leaderboardCacheStore.data && Date.now() < leaderboardCacheStore.expiry) {
+      return res.status(200).json(leaderboardCacheStore.data);
+    }
+    // Get all users who have played in finished games
+    const users = await prisma.user.findMany({
+      where: {
+        players: {
+          some: {
+            gameRoom: { finished: true },
+          },
+        },
+      },
+      include: {
+        players: {
+          where: {
+            gameRoom: { finished: true },
+          },
+          include: {
+            gameRoom: {
+              include: {
+                rounds: {
+                  where: { winnerTeam: { not: null } },
+                  select: {
+                    team0Points: true,
+                    team1Points: true,
+                    winnerTeam: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const leaderboard = users.map((user) => {
+      let totalGames = 0;
+      let wins = 0;
+      let totalPoints = 0;
+
+      for (const player of user.players) {
+        totalGames++;
+        const myTeam = player.team;
+
+        let myTeamTotalPoints = 0;
+        let opponentTeamTotalPoints = 0;
+
+        for (const round of player.gameRoom.rounds) {
+          if (myTeam === 0) {
+            myTeamTotalPoints += round.team0Points;
+            opponentTeamTotalPoints += round.team1Points;
+          } else {
+            myTeamTotalPoints += round.team1Points;
+            opponentTeamTotalPoints += round.team0Points;
+          }
+        }
+
+        if (myTeamTotalPoints > opponentTeamTotalPoints) {
+          wins++;
+        }
+        totalPoints += myTeamTotalPoints;
+      }
+
+      const winRate =
+        totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
+
+      return {
+        username: user.username,
+        totalGames,
+        wins,
+        winRate,
+        totalPoints,
+      };
+    });
+
+    // Sort by wins desc, then winRate desc, then totalPoints desc
+    leaderboard.sort((a, b) => {
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+      return b.totalPoints - a.totalPoints;
+    });
+
+    // Build response and cache it
+    const responseData = { leaderboard: leaderboard.slice(0, 50) };
+    leaderboardCacheStore.data = responseData;
+    leaderboardCacheStore.expiry = Date.now() + LEADERBOARD_CACHE_TTL_MS;
+
+    return res.status(200).json(responseData);
+  } catch (error) {
+    console.error("Error fetching leaderboard:", error);
+    return res.status(500).json({ error: "Failed to fetch leaderboard" });
+  }
+};
+

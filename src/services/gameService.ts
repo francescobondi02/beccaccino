@@ -8,6 +8,22 @@ import { computePoints } from "../utils/computePoints";
 import { getSocketInstance } from "../socketInstance";
 import { getRng } from "../utils/random";
 
+/**
+ * Points required to win the game.
+ * Defaults to 41 (standard Beccaccino rules).
+ * Can be overridden via GAME_WIN_POINTS env var (e.g., 5 for fast testing).
+ */
+const GAME_WIN_POINTS = (() => {
+  const parsed = parseInt(process.env.GAME_WIN_POINTS || "41", 10);
+  if (isNaN(parsed) || parsed < 1) {
+    console.warn(
+      `⚠️ Invalid GAME_WIN_POINTS value "${process.env.GAME_WIN_POINTS}", defaulting to 41`,
+    );
+    return 41;
+  }
+  return parsed;
+})();
+
 enum Suit {
   denara = "denara",
   spade = "spade",
@@ -436,12 +452,15 @@ export async function playCard({
         0,
       );
 
-      // Controlla se una squadra ha raggiunto 5 punti o più (41 in production)
-      const gameFinished = totalTeam0Points >= 5 || totalTeam1Points >= 5;
+      // Controlla se una squadra ha raggiunto la soglia di punti per vincere
+      const gameFinished =
+        totalTeam0Points >= GAME_WIN_POINTS ||
+        totalTeam1Points >= GAME_WIN_POINTS;
 
       if (gameFinished) {
         // Determina il vincitore finale
-        const finalWinnerTeam = totalTeam0Points >= 5 ? 0 : 1;
+        const finalWinnerTeam =
+          totalTeam0Points >= GAME_WIN_POINTS ? 0 : 1;
 
         // Segna la partita come finita
         await prisma.gameRoom.update({

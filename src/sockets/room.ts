@@ -225,6 +225,64 @@ export function registerRoomSocket(socket: Socket, io: Server) {
     }
   });
 
+  // Chat rate limiting: max 5 messages per 3 seconds per socket
+  const chatRateLimit = { count: 0, resetTime: Date.now() };
+  const CHAT_RATE_MAX = 5;
+  const CHAT_RATE_WINDOW_MS = 3000;
+
+  /**
+   * SEND_CHAT_MESSAGE - Un giocatore invia un messaggio nella chat della room
+   * Broadcast a tutti nella room (incluso il mittente per conferma).
+   * Uses socket.data.roomCode (set on join_room) to prevent cross-room spoofing.
+   * Rate-limited to prevent spam.
+   */
+  socket.on(
+    "send_chat_message",
+    (data: { roomCode?: string; message: string }) => {
+      const { message } = data;
+      const userId = socket.data.user?.id;
+      const username = socket.data.user?.username;
+      const roomCode = socket.data.roomCode; // Use trusted server-side value
+
+      if (!userId || !username || !roomCode) {
+        socket.emit("error", { message: "Not authenticated in room" });
+        return;
+      }
+
+      // Rate limiting check
+      const now = Date.now();
+      if (now - chatRateLimit.resetTime > CHAT_RATE_WINDOW_MS) {
+        chatRateLimit.count = 0;
+        chatRateLimit.resetTime = now;
+      }
+      chatRateLimit.count++;
+      if (chatRateLimit.count > CHAT_RATE_MAX) {
+        socket.emit("error", { message: "Too many messages. Slow down!" });
+        return;
+      }
+
+      // Validate input exists
+      if (!message || typeof message !== "string") return;
+
+      // Sanitize: trim, limit length, strip control characters
+      const sanitized = message
+        .trim()
+        .slice(0, 200)
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+      if (!sanitized) return;
+
+      // Broadcast to all in room
+      io.to(roomCode).emit("chat_message", {
+        userId,
+        username,
+        message: sanitized,
+        timestamp: new Date().toISOString(),
+      });
+
+      console.log(`💬 [${roomCode}] ${username}: ${sanitized}`);
+    },
+  );
+
   /**
    * LEAVE_ROOM - Un giocatore lascia la stanza socket
    * Rimuove il socket dalla room così non riceve più eventi
