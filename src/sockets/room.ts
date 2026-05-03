@@ -83,8 +83,10 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         return;
       }
 
-      // Unisce l'utente alla room socket
+      // Unisce l'utente alla room socket e salva il riferimento per il disconnect handler
       socket.join(roomCode);
+      socket.data.roomCode = roomCode;
+      socket.data.user = { id: userId, username };
 
       // Notifica tutti gli altri nella room che un nuovo player si è unito
       socket.to(roomCode).emit("player_joined", {
@@ -224,10 +226,30 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   });
 
   /**
+   * LEAVE_ROOM - Un giocatore lascia la stanza socket
+   * Rimuove il socket dalla room così non riceve più eventi
+   */
+  socket.on("leave_room", (data: { roomCode: string }) => {
+    const { roomCode } = data;
+    socket.leave(roomCode);
+    console.log(`🚪 Socket ${socket.id} left room ${roomCode}`);
+  });
+
+  /**
    * DISCONNECT - Quando un client si disconnette
-   * Gestisce la disconnessione pulita (opzionale)
+   * Notifica gli altri nella room e pulisce lo stato
    */
   socket.on("disconnect", () => {
-    console.log("🔌 Socket client disconnected:", socket.id);
+    const userId = socket.data.user?.id;
+    const username = socket.data.user?.username;
+    console.log("🔌 Socket client disconnected:", socket.id, "user:", username);
+
+    // Se abbiamo l'informazione dell'utente e della room, notifica gli altri
+    if (userId && socket.data.roomCode) {
+      socket.to(socket.data.roomCode).emit("player_disconnected", {
+        userId,
+        username: username ?? "Unknown",
+      });
+    }
   });
 }
