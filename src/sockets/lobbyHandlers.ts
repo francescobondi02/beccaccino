@@ -9,19 +9,25 @@ export type Room = {
 };
 
 // Registrazione dei callback
-const roomCreatedCallbacks: ((room: Room) => void)[] = [];
-const roomUpdatedCallbacks: ((data: {
+let roomCreatedCallbacks: ((room: Room) => void)[] = [];
+let roomUpdatedCallbacks: ((data: {
   roomCode: string;
   currentPlayers: number;
 }) => void)[] = [];
-const roomFullCallbacks: ((data: { roomCode: string }) => void)[] = [];
-const roomDeletedCallbacks: ((data: { roomCode: string }) => void)[] = [];
+let roomFullCallbacks: ((data: { roomCode: string }) => void)[] = [];
+let roomDeletedCallbacks: ((data: { roomCode: string }) => void)[] = [];
 
 /**
  * Inizializza e registra tutti gli handler socket relativi alla lobby.
  * Da chiamare una sola volta (es: al mount della pagina Lobby).
  */
 export const registerLobbyHandlers = (userId: number) => {
+  // Clear previous callbacks to prevent duplicates on re-mount
+  roomCreatedCallbacks = [];
+  roomUpdatedCallbacks = [];
+  roomFullCallbacks = [];
+  roomDeletedCallbacks = [];
+
   const socket = getSocket();
   if (!isSocketConnected()) {
     socket.connect();
