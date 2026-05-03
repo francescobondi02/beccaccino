@@ -23,6 +23,16 @@ app.use(
 app.use(express.json());
 app.use(cookieParser()); // Parse cookies
 
+// Disable keep-alive in test mode to prevent flaky "Parse Error: Expected HTTP/"
+if (process.env.NODE_ENV === "test") {
+  app.set("trust proxy", false);
+  app.use((req, res, next) => {
+    res.set("Connection", "close");
+    res.set("Keep-Alive", "timeout=0");
+    next();
+  });
+}
+
 app.use("/api/users", userRouter);
 app.use("/api/rooms", roomRouter);
 app.use("/api/games", gameRouter);

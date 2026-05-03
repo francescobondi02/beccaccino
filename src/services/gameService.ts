@@ -6,6 +6,7 @@ import { prisma } from "../db";
 import { determineHandWinner } from "../utils/determineHandWinner";
 import { computePoints } from "../utils/computePoints";
 import { getSocketInstance } from "../socketInstance";
+import { getRng } from "../utils/random";
 
 enum Suit {
   denara = "denara",
@@ -49,15 +50,17 @@ function generateDeck(): Card[] {
 
 function shuffleDeck<T>(deck: T[]): T[] {
   /**
-   * Mescola un array di elementi (carte).
-   *
-   * @param deck Array di elementi da mescolare
-   * @return Array mescolato
-   *
-   * @note Questo è un metodo di mescolamento semplice e non perfetto.
-   *       Per un'applicazione reale, considera l'uso di un algoritmo di Fisher-Yates.
+   * Mescola un array di elementi (carte) usando l'algoritmo Fisher-Yates.
+   * Usa il generatore di numeri casuali centralizzato (getRng()) così i test
+   * possono iniettare un seed deterministico.
    */
-  return [...deck].sort(() => Math.random() - 0.5);
+  const rng = getRng();
+  const out = [...deck];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 export async function setupRound(gameRoomId: number, roundNumber: number) {

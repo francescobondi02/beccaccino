@@ -1,9 +1,48 @@
 import request from "supertest";
+import http from "http";
 import { prisma } from "../../src/db";
 import app from "../../src/app";
 import { computePoints } from "../../src/utils/computePoints";
 import { Suit } from "@prisma/client";
 import { PlayerCard, Round } from "@prisma/client";
+
+// Shared HTTP server — avoids "Parse Error: Expected HTTP/" that occurs when
+// supertest repeatedly creates and tears down servers under Express 5.
+// The server is started once and reused for all requests within the test run.
+let server: http.Server | null = null;
+let baseUrl: string = "";
+
+export function getServer(): http.Server {
+  if (!server) {
+    server = app.listen(0); // random available port
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    baseUrl = `http://127.0.0.1:${port}`;
+  }
+  return server;
+}
+
+export function getBaseUrl(): string {
+  getServer(); // ensure started
+  return baseUrl;
+}
+
+export function closeServer(): Promise<void> {
+  return new Promise((resolve) => {
+    if (server) {
+      server.close(() => resolve());
+      server = null;
+      baseUrl = "";
+    } else {
+      resolve();
+    }
+  });
+}
+
+// Convenience wrapper — sends requests to the shared server
+export function api() {
+  return request(getServer());
+}
 
 export async function clearDatabase() {
   await prisma.$transaction([
@@ -18,16 +57,17 @@ export async function clearDatabase() {
 }
 
 export async function setupGame() {
-  const users = await Promise.all(
-    ["A", "B", "C", "D"].map((name) =>
-      request(app)
-        .post("/api/users/register")
-        .send({ username: name, password: "test123" })
-    )
-  );
-  const userIds = users.map((res) => res.body.id);
+  // Register users sequentially to avoid race conditions on the DB
+  const userIds: number[] = [];
+  for (const name of ["A", "B", "C", "D"]) {
+    const res = await api()
+      .post("/api/users/register")
+      .send({ username: name, password: "test123" });
+    expect(res.statusCode).toBe(201);
+    userIds.push(res.body.id);
+  }
 
-  const createRoomRes = await request(app)
+  const createRoomRes = await api()
     .post("/api/rooms")
     .send({ userId: userIds[0] });
   expect(createRoomRes.statusCode).toBe(201);
@@ -37,29 +77,28 @@ export async function setupGame() {
   expect(roomCode.length).toBeGreaterThanOrEqual(6);
 
   for (let i = 1; i < 4; i++) {
-    const joinRes = await request(app)
+    const joinRes = await api()
       .post("/api/rooms/join")
       .send({ roomCode, userId: userIds[i] });
     expect(joinRes.statusCode).toBe(200);
   }
 
-  await Promise.all([
-    request(app)
+  // Choose teams sequentially to avoid race conditions on team-full checks
+  const teamAssignments = [
+    { userId: userIds[0], team: 0 },
+    { userId: userIds[1], team: 1 },
+    { userId: userIds[2], team: 0 },
+    { userId: userIds[3], team: 1 },
+  ];
+  for (const assignment of teamAssignments) {
+    const res = await api()
       .post(`/api/rooms/${roomCode}/choose-team`)
-      .send({ userId: userIds[0], team: 0 }),
-    request(app)
-      .post(`/api/rooms/${roomCode}/choose-team`)
-      .send({ userId: userIds[1], team: 1 }),
-    request(app)
-      .post(`/api/rooms/${roomCode}/choose-team`)
-      .send({ userId: userIds[2], team: 0 }),
-    request(app)
-      .post(`/api/rooms/${roomCode}/choose-team`)
-      .send({ userId: userIds[3], team: 1 }),
-  ]);
+      .send(assignment);
+    expect(res.statusCode).toBe(200);
+  }
 
   for (let i = 0; i < 4; i++) {
-    const res = await request(app)
+    const res = await api()
       .post(`/api/rooms/${roomCode}/ready`)
       .send({ userId: userIds[i], isReady: true });
     expect(res.statusCode).toBe(200);
@@ -141,11 +180,12 @@ export async function chooseBriscola(
     cardsBySuit[card.suit] = (cardsBySuit[card.suit] || 0) + 1;
   }
 
+  // Sort by count descending, break ties alphabetically for determinism
   const mostCommonSuit = Object.entries(cardsBySuit).sort(
-    (a, b) => b[1] - a[1]
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
   )[0][0];
 
-  const chooseBriscolaRes = await request(app)
+  const chooseBriscolaRes = await api()
     .post("/api/games/choose-briscola")
     .send({
       gameRoomId: room!.id,
@@ -188,7 +228,7 @@ export async function oneHand(
   ).map((seat) => updatedRoom!.players.find((p) => p.seat === seat)!);
 
   for (const player of playerOrder) {
-    const playableRes = await request(app)
+    const playableRes = await api()
       .get(`/api/games/playable-cards/${roomCode}`)
       .query({ userId: player.userId });
 
@@ -200,7 +240,7 @@ export async function oneHand(
     const card = playableCards[0];
     expect(card).not.toBeNull();
 
-    const playRes = await request(app).post("/api/games/play-card").send({
+    const playRes = await api().post("/api/games/play-card").send({
       roomCode,
       userId: player.userId,
       suit: card!.suit,

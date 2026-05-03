@@ -1,6 +1,4 @@
-import request from "supertest";
 import { prisma } from "../../src/db";
-import app from "../../src/app";
 import {
   clearDatabase,
   setupGame,
@@ -8,6 +6,7 @@ import {
   oneRound,
   computeRoundPoints,
   prepareNextRound,
+  api,
 } from "../helpers/gameHelpers";
 
 // Game service ends the game at 5 points (see gameService.ts).
@@ -91,7 +90,7 @@ describe("Full Beccaccino game", () => {
     });
 
     // Verify initial state via API
-    const initialState = await request(app)
+    const initialState = await api()
       .get(`/api/games/${roomCode}/state`)
       .query({ userId: room!.players[0].userId });
 
@@ -106,7 +105,7 @@ describe("Full Beccaccino game", () => {
     await chooseBriscola(roomCode, firstRound, cards);
 
     // Verify state after briscola
-    const afterBriscola = await request(app)
+    const afterBriscola = await api()
       .get(`/api/games/${roomCode}/state`)
       .query({ userId: room!.players[0].userId });
 
@@ -118,7 +117,7 @@ describe("Full Beccaccino game", () => {
     await oneRound(roomCode, firstRound);
 
     // Verify state after round completion
-    const afterRound = await request(app)
+    const afterRound = await api()
       .get(`/api/games/${roomCode}/state`)
       .query({ userId: room!.players[0].userId });
 
@@ -153,7 +152,7 @@ describe("Full Beccaccino game", () => {
 
     // Verify each player has 10 cards
     for (const player of room!.players) {
-      const stateRes = await request(app)
+      const stateRes = await api()
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: player.userId });
 
@@ -161,24 +160,24 @@ describe("Full Beccaccino game", () => {
     }
 
     // Play one hand (4 cards total — 1 per player)
-    const stateRes = await request(app)
+    const stateRes = await api()
       .get(`/api/games/${roomCode}/state`)
       .query({ userId: room!.players[0].userId });
 
     // Play 4 cards (one full hand)
     for (let i = 0; i < 4; i++) {
-      const currentState = await request(app)
+      const currentState = await api()
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: room!.players[0].userId });
 
       const turnUserId = currentState.body.currentTurnUserId;
 
-      const playableRes = await request(app)
+      const playableRes = await api()
         .get(`/api/games/playable-cards/${roomCode}`)
         .query({ userId: turnUserId });
 
       const card = playableRes.body.playableCards[0];
-      await request(app).post("/api/games/play-card").send({
+      await api().post("/api/games/play-card").send({
         roomCode,
         userId: turnUserId,
         suit: card.suit,
@@ -188,7 +187,7 @@ describe("Full Beccaccino game", () => {
 
     // After one hand, each player should have 9 cards
     for (const player of room!.players) {
-      const stateRes = await request(app)
+      const stateRes = await api()
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: player.userId });
 

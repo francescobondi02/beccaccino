@@ -1,4 +1,5 @@
 import { generateRoomCode } from "../../src/utils/generateRoomCode";
+import { setRng, createSeededRng } from "../../src/utils/random";
 
 describe("generateRoomCode", () => {
   it("generates a code of default length 6", () => {
@@ -13,19 +14,32 @@ describe("generateRoomCode", () => {
   });
 
   it("only contains uppercase letters and digits", () => {
-    // Run multiple times to reduce flakiness
     for (let i = 0; i < 100; i++) {
       const code = generateRoomCode();
       expect(code).toMatch(/^[A-Z0-9]+$/);
     }
   });
 
-  it("generates unique codes (no collisions in 1000 runs)", () => {
+  it("produces the same code sequence given the same seed", () => {
+    // Reset to a known seed and generate codes
+    const restore = setRng(createSeededRng(123));
+    const first = generateRoomCode();
+    const second = generateRoomCode();
+    restore();
+
+    // Reset to the same seed — should produce identical codes
+    const restore2 = setRng(createSeededRng(123));
+    expect(generateRoomCode()).toBe(first);
+    expect(generateRoomCode()).toBe(second);
+    restore2();
+  });
+
+  it("generates unique codes with default (seeded) RNG over 1000 runs", () => {
+    // With a seeded RNG this is fully deterministic, no luck involved
     const codes = new Set<string>();
     for (let i = 0; i < 1000; i++) {
       codes.add(generateRoomCode());
     }
-    // With 36^6 = ~2.1 billion possibilities, collisions in 1000 are nearly impossible
     expect(codes.size).toBe(1000);
   });
 });

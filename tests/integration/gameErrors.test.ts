@@ -1,7 +1,7 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
-import app from "../../src/app";
-import { clearDatabase, setupGame, chooseBriscola } from "../helpers/gameHelpers";
+
+import { clearDatabase, setupGame, chooseBriscola, getServer } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -20,7 +20,7 @@ describe("Game Error Cases", () => {
       });
 
       // Try choosing briscola again
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/games/choose-briscola")
         .send({
           gameRoomId: room!.id,
@@ -39,7 +39,7 @@ describe("Game Error Cases", () => {
         where: { code: roomCode },
       });
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/games/choose-briscola")
         .send({
           gameRoomId: room!.id,
@@ -79,7 +79,7 @@ describe("Game Error Cases", () => {
       });
 
       // Try to play with the wrong player
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/games/play-card")
         .send({
           roomCode,
@@ -109,44 +109,54 @@ describe("Game Error Cases", () => {
 
       const starter = room!.players.find((p) => p.id === currentHand!.starterId);
 
-      // Get cards this player does NOT have
+      // Get all cards the starter has
       const starterCards = await prisma.playerCard.findMany({
         where: { playerId: starter!.id, roundId: round.id },
       });
 
-      // Find a card from another player
-      const otherPlayer = room!.players.find((p) => p.id !== starter!.id);
-      const otherCard = await prisma.playerCard.findFirst({
-        where: {
-          playerId: otherPlayer!.id,
-          roundId: round.id,
-        },
-      });
+      // Find a card from another player that the starter definitely does NOT have.
+      // We iterate until we find one that doesn't collide (guaranteed since each
+      // card exists only once in the deck).
+      const otherPlayers = room!.players.filter((p) => p.id !== starter!.id);
+      let otherCard: { suit: string; value: string } | null = null;
 
-      // Verify the starter doesn't have this card
-      const starterHasCard = starterCards.some(
-        (c) => c.suit === otherCard!.suit && c.value === otherCard!.value
-      );
-
-      if (!starterHasCard) {
-        const res = await request(app)
-          .post("/api/games/play-card")
-          .send({
-            roomCode,
-            userId: starter!.userId,
-            suit: otherCard!.suit,
-            value: otherCard!.value,
-          });
-
-        expect(res.statusCode).toBe(500);
-        expect(res.body.error).toMatch(/does not have/i);
+      for (const otherPlayer of otherPlayers) {
+        const otherCards = await prisma.playerCard.findMany({
+          where: { playerId: otherPlayer.id, roundId: round.id },
+        });
+        for (const candidate of otherCards) {
+          const starterHasIt = starterCards.some(
+            (c) => c.suit === candidate.suit && c.value === candidate.value
+          );
+          if (!starterHasIt) {
+            otherCard = { suit: candidate.suit, value: candidate.value };
+            break;
+          }
+        }
+        if (otherCard) break;
       }
+
+      // With 40 unique cards split among 4 players (10 each), there is always
+      // a card that belongs to another player and not the starter.
+      expect(otherCard).not.toBeNull();
+
+      const res = await request(getServer())
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          userId: starter!.userId,
+          suit: otherCard!.suit,
+          value: otherCard!.value,
+        });
+
+      expect(res.statusCode).toBe(500);
+      expect(res.body.error).toMatch(/does not have/i);
     });
   });
 
   describe("Play Card - Game State Validation", () => {
     it("rejects playing in a non-existent room", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/games/play-card")
         .send({
           roomCode: "XXXXXX",
@@ -171,7 +181,7 @@ describe("Game Error Cases", () => {
 
       const player = room!.players[0];
 
-      const res = await request(app)
+      const res = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: player.userId });
 
@@ -195,7 +205,7 @@ describe("Game Error Cases", () => {
 
       const player = room!.players[0];
 
-      const res = await request(app)
+      const res = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: player.userId });
 
@@ -210,11 +220,11 @@ describe("Game Error Cases", () => {
       const { roomCode } = await setupGame();
 
       // Create an outsider user
-      const outsider = await request(app)
+      const outsider = await request(getServer())
         .post("/api/users/register")
         .send({ username: "outsider", password: "test123" });
 
-      const res = await request(app)
+      const res = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: outsider.body.id });
 
@@ -232,7 +242,7 @@ describe("Game Error Cases", () => {
 
       const player = room!.players[0];
 
-      const res = await request(app)
+      const res = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: player.userId });
 
@@ -255,7 +265,7 @@ describe("Game Error Cases", () => {
       });
 
       // Get current state to find whose turn it is
-      const stateRes = await request(app)
+      const stateRes = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: room!.players[0].userId });
 
@@ -263,7 +273,7 @@ describe("Game Error Cases", () => {
       const turnPlayer = room!.players.find((p) => p.userId === currentTurnUserId);
 
       // Get playable cards
-      const playableRes = await request(app)
+      const playableRes = await request(getServer())
         .get(`/api/games/playable-cards/${roomCode}`)
         .query({ userId: currentTurnUserId });
 
@@ -273,7 +283,7 @@ describe("Game Error Cases", () => {
 
       // Play the first playable card
       const cardToPlay = playableCards[0];
-      const playRes = await request(app)
+      const playRes = await request(getServer())
         .post("/api/games/play-card")
         .send({
           roomCode,
@@ -285,7 +295,7 @@ describe("Game Error Cases", () => {
       expect(playRes.statusCode).toBe(200);
 
       // Verify state updated
-      const newState = await request(app)
+      const newState = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: room!.players[0].userId });
 
@@ -309,13 +319,13 @@ describe("Game Error Cases", () => {
       });
 
       // Get whose turn it is
-      const stateRes = await request(app)
+      const stateRes = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: room!.players[0].userId });
 
       const currentTurnUserId = stateRes.body.currentTurnUserId;
 
-      const res = await request(app)
+      const res = await request(getServer())
         .get(`/api/games/playable-cards/${roomCode}`)
         .query({ userId: currentTurnUserId });
 
@@ -334,18 +344,18 @@ describe("Game Error Cases", () => {
       });
 
       // Get whose turn + play the first card
-      const stateRes = await request(app)
+      const stateRes = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: room!.players[0].userId });
 
       const firstTurnUserId = stateRes.body.currentTurnUserId;
 
-      const playableRes = await request(app)
+      const playableRes = await request(getServer())
         .get(`/api/games/playable-cards/${roomCode}`)
         .query({ userId: firstTurnUserId });
 
       const firstCard = playableRes.body.playableCards[0];
-      await request(app).post("/api/games/play-card").send({
+      await request(getServer()).post("/api/games/play-card").send({
         roomCode,
         userId: firstTurnUserId,
         suit: firstCard.suit,
@@ -353,13 +363,13 @@ describe("Game Error Cases", () => {
       });
 
       // Now get the second player's playable cards
-      const newState = await request(app)
+      const newState = await request(getServer())
         .get(`/api/games/${roomCode}/state`)
         .query({ userId: room!.players[0].userId });
 
       const secondTurnUserId = newState.body.currentTurnUserId;
 
-      const secondPlayable = await request(app)
+      const secondPlayable = await request(getServer())
         .get(`/api/games/playable-cards/${roomCode}`)
         .query({ userId: secondTurnUserId });
 

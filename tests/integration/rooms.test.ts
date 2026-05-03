@@ -1,14 +1,13 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
-import app from "../../src/app";
-import { clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase, getServer } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
   await clearDatabase();
 });
 
 async function createUser(username: string) {
-  const res = await request(app)
+  const res = await request(getServer())
     .post("/api/users/register")
     .send({ username, password: "test123" });
   expect(res.statusCode).toBe(201);
@@ -20,7 +19,7 @@ describe("Room API", () => {
     it("creates a room and assigns the creator as seat 0", async () => {
       const userId = await createUser("creator");
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/rooms/")
         .send({ userId });
 
@@ -33,7 +32,7 @@ describe("Room API", () => {
     });
 
     it("returns 400 without userId", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/rooms/")
         .send({});
 
@@ -46,12 +45,12 @@ describe("Room API", () => {
       const creatorId = await createUser("creator");
       const joinerId = await createUser("joiner");
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId: creatorId });
       const roomCode = createRes.body.code;
 
-      const joinRes = await request(app)
+      const joinRes = await request(getServer())
         .post("/api/rooms/join")
         .send({ roomCode, userId: joinerId });
 
@@ -62,7 +61,7 @@ describe("Room API", () => {
     it("rejects joining a non-existent room", async () => {
       const userId = await createUser("lonely");
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/rooms/join")
         .send({ roomCode: "ZZZZZZ", userId });
 
@@ -72,12 +71,12 @@ describe("Room API", () => {
     it("rejects joining the same room twice", async () => {
       const creatorId = await createUser("creator");
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId: creatorId });
       const roomCode = createRes.body.code;
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/rooms/join")
         .send({ roomCode, userId: creatorId });
 
@@ -90,20 +89,20 @@ describe("Room API", () => {
         ["A", "B", "C", "D", "E"].map((n) => createUser(n))
       );
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId: ids[0] });
       const roomCode = createRes.body.code;
 
       // Fill the room
       for (let i = 1; i < 4; i++) {
-        await request(app)
+        await request(getServer())
           .post("/api/rooms/join")
           .send({ roomCode, userId: ids[i] });
       }
 
       // 5th player should be rejected
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/rooms/join")
         .send({ roomCode, userId: ids[4] });
 
@@ -115,12 +114,12 @@ describe("Room API", () => {
   describe("POST /api/rooms/:roomCode/choose-team", () => {
     it("allows choosing a valid team", async () => {
       const userId = await createUser("player");
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId });
       const roomCode = createRes.body.code;
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId, team: 0 });
 
@@ -129,12 +128,12 @@ describe("Room API", () => {
 
     it("rejects invalid team numbers", async () => {
       const userId = await createUser("player");
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId });
       const roomCode = createRes.body.code;
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId, team: 5 });
 
@@ -146,28 +145,28 @@ describe("Room API", () => {
         ["A", "B", "C"].map((n) => createUser(n))
       );
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId: ids[0] });
       const roomCode = createRes.body.code;
 
-      await request(app)
+      await request(getServer())
         .post("/api/rooms/join")
         .send({ roomCode, userId: ids[1] });
-      await request(app)
+      await request(getServer())
         .post("/api/rooms/join")
         .send({ roomCode, userId: ids[2] });
 
       // First two join team 0
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[0], team: 0 });
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[1], team: 0 });
 
       // Third should be rejected from team 0
-      const res = await request(app)
+      const res = await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[2], team: 0 });
 
@@ -179,12 +178,12 @@ describe("Room API", () => {
   describe("POST /api/rooms/:roomCode/ready", () => {
     it("requires team selection before readying", async () => {
       const userId = await createUser("player");
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId });
       const roomCode = createRes.body.code;
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post(`/api/rooms/${roomCode}/ready`)
         .send({ userId, isReady: true });
 
@@ -194,16 +193,16 @@ describe("Room API", () => {
 
     it("allows readying after choosing a team", async () => {
       const userId = await createUser("player");
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId });
       const roomCode = createRes.body.code;
 
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId, team: 0 });
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post(`/api/rooms/${roomCode}/ready`)
         .send({ userId, isReady: true });
 
@@ -218,34 +217,34 @@ describe("Room API", () => {
         ["P1", "P2", "P3", "P4"].map((n) => createUser(n))
       );
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId: ids[0] });
       const roomCode = createRes.body.code;
 
       for (let i = 1; i < 4; i++) {
-        await request(app)
+        await request(getServer())
           .post("/api/rooms/join")
           .send({ roomCode, userId: ids[i] });
       }
 
       // Assign teams (2v2)
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[0], team: 0 });
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[1], team: 1 });
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[2], team: 0 });
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[3], team: 1 });
 
       // Ready up all players
       for (const id of ids) {
-        const res = await request(app)
+        const res = await request(getServer())
           .post(`/api/rooms/${roomCode}/ready`)
           .send({ userId: id, isReady: true });
         expect(res.statusCode).toBe(200);
@@ -270,26 +269,26 @@ describe("Room API", () => {
         ["P1", "P2", "P3", "P4"].map((n) => createUser(n))
       );
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId: ids[0] });
       const roomCode = createRes.body.code;
 
       for (let i = 1; i < 4; i++) {
-        await request(app)
+        await request(getServer())
           .post("/api/rooms/join")
           .send({ roomCode, userId: ids[i] });
       }
 
       // Unbalanced teams: 3 on team 0, 1 on team 1
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[0], team: 0 });
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[1], team: 0 });
       // Third player tries team 0 but it's full — should fail
-      const res = await request(app)
+      const res = await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[2], team: 0 });
 
@@ -301,38 +300,38 @@ describe("Room API", () => {
         ["P1", "P2", "P3", "P4", "P5"].map((n) => createUser(n))
       );
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId: ids[0] });
       const roomCode = createRes.body.code;
 
       // Fill room with 4 players and start
       for (let i = 1; i < 4; i++) {
-        await request(app)
+        await request(getServer())
           .post("/api/rooms/join")
           .send({ roomCode, userId: ids[i] });
       }
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[0], team: 0 });
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[1], team: 1 });
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[2], team: 0 });
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/choose-team`)
         .send({ userId: ids[3], team: 1 });
 
       for (let i = 0; i < 4; i++) {
-        await request(app)
+        await request(getServer())
           .post(`/api/rooms/${roomCode}/ready`)
           .send({ userId: ids[i], isReady: true });
       }
 
       // 5th player tries to join started room
-      const joinRes = await request(app)
+      const joinRes = await request(getServer())
         .post("/api/rooms/join")
         .send({ roomCode, userId: ids[4] });
 
@@ -345,16 +344,16 @@ describe("Room API", () => {
       const creatorId = await createUser("creator");
       const joinerId = await createUser("joiner");
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId: creatorId });
       const roomCode = createRes.body.code;
 
-      await request(app)
+      await request(getServer())
         .post("/api/rooms/join")
         .send({ roomCode, userId: joinerId });
 
-      const leaveRes = await request(app)
+      const leaveRes = await request(getServer())
         .post(`/api/rooms/${roomCode}/leave`)
         .send({ userId: joinerId });
 
@@ -371,12 +370,12 @@ describe("Room API", () => {
     it("deletes the room when last player leaves", async () => {
       const userId = await createUser("lonely");
 
-      const createRes = await request(app)
+      const createRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId });
       const roomCode = createRes.body.code;
 
-      await request(app)
+      await request(getServer())
         .post(`/api/rooms/${roomCode}/leave`)
         .send({ userId });
 

@@ -1,11 +1,11 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
-import app from "../../src/app";
 import {
   clearDatabase,
   setupGame,
   chooseBriscola,
   oneRound,
+  getServer,
 } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
@@ -15,7 +15,7 @@ beforeEach(async () => {
 describe("Profile API", () => {
   describe("GET /api/users/me/stats", () => {
     it("returns zero stats for a user with no finished games", async () => {
-      const registerRes = await request(app)
+      const registerRes = await request(getServer())
         .post("/api/users/register")
         .send({ username: "newplayer", password: "test123" });
 
@@ -25,7 +25,7 @@ describe("Profile API", () => {
       // We need to test via the controller logic directly or accept this limitation
 
       // For this test, we verify the endpoint returns 401 without req.user
-      const res = await request(app).get("/api/users/me/stats");
+      const res = await request(getServer()).get("/api/users/me/stats");
       expect(res.statusCode).toBe(401);
     });
 
@@ -61,7 +61,7 @@ describe("Profile API", () => {
 
   describe("PATCH /api/users/me", () => {
     it("rejects update without req.user (auth required)", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .patch("/api/users/me")
         .send({ username: "newname" });
 
@@ -69,7 +69,7 @@ describe("Profile API", () => {
     });
 
     it("rejects empty username", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .patch("/api/users/me")
         .send({ username: "" });
 
@@ -80,14 +80,14 @@ describe("Profile API", () => {
 
   describe("DELETE /api/users/me", () => {
     it("rejects delete without auth", async () => {
-      const res = await request(app).delete("/api/users/me");
+      const res = await request(getServer()).delete("/api/users/me");
       expect(res.statusCode).toBe(401);
     });
   });
 
   describe("Username update (direct DB test)", () => {
     it("can update a username via the database", async () => {
-      const registerRes = await request(app)
+      const registerRes = await request(getServer())
         .post("/api/users/register")
         .send({ username: "original", password: "test123" });
 
@@ -104,11 +104,11 @@ describe("Profile API", () => {
     });
 
     it("rejects duplicate username at DB level", async () => {
-      await request(app)
+      await request(getServer())
         .post("/api/users/register")
         .send({ username: "user1", password: "test123" });
 
-      await request(app)
+      await request(getServer())
         .post("/api/users/register")
         .send({ username: "user2", password: "test123" });
 
@@ -128,14 +128,14 @@ describe("Profile API", () => {
 
   describe("Account deletion (direct DB test)", () => {
     it("deletes user and their player records in non-started rooms", async () => {
-      const registerRes = await request(app)
+      const registerRes = await request(getServer())
         .post("/api/users/register")
         .send({ username: "deleteme", password: "test123" });
 
       const userId = registerRes.body.id;
 
       // Create a room (user becomes a player)
-      const roomRes = await request(app)
+      const roomRes = await request(getServer())
         .post("/api/rooms/")
         .send({ userId });
 

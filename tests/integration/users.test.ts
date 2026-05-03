@@ -1,7 +1,7 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
-import app from "../../src/app";
-import { clearDatabase } from "../helpers/gameHelpers";
+
+import { clearDatabase, getServer } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -9,7 +9,7 @@ beforeEach(async () => {
 
 describe("User API", () => {
   it("registers a new user", async () => {
-    const res = await request(app)
+    const res = await request(getServer())
       .post("/api/users/register")
       .send({ username: "Francesco", password: "test123" });
 
@@ -23,11 +23,11 @@ describe("User API", () => {
   });
 
   it("rejects duplicate username", async () => {
-    await request(app)
+    await request(getServer())
       .post("/api/users/register")
       .send({ username: "Francesco", password: "test123" });
 
-    const res = await request(app)
+    const res = await request(getServer())
       .post("/api/users/register")
       .send({ username: "Francesco", password: "test456" });
 
@@ -35,7 +35,7 @@ describe("User API", () => {
   });
 
   it("rejects short password", async () => {
-    const res = await request(app)
+    const res = await request(getServer())
       .post("/api/users/register")
       .send({ username: "Francesco", password: "abc" });
 

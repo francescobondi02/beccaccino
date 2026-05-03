@@ -1,6 +1,6 @@
 import request from "supertest";
-import app from "../../src/app";
-import { clearDatabase } from "../helpers/gameHelpers";
+
+import { clearDatabase, getServer } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -11,7 +11,7 @@ describe("Auth Lifecycle", () => {
 
   describe("Registration", () => {
     it("registers successfully and returns user without password", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/register")
         .send(credentials);
 
@@ -22,7 +22,7 @@ describe("Auth Lifecycle", () => {
     });
 
     it("sets an httpOnly auth cookie on registration", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/register")
         .send(credentials);
 
@@ -33,7 +33,7 @@ describe("Auth Lifecycle", () => {
     });
 
     it("rejects registration with missing username", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/register")
         .send({ password: "123456" });
 
@@ -41,7 +41,7 @@ describe("Auth Lifecycle", () => {
     });
 
     it("rejects registration with missing password", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/register")
         .send({ username: "user" });
 
@@ -49,7 +49,7 @@ describe("Auth Lifecycle", () => {
     });
 
     it("rejects registration with short password (< 6 chars)", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/register")
         .send({ username: "user", password: "abc" });
 
@@ -58,9 +58,9 @@ describe("Auth Lifecycle", () => {
     });
 
     it("rejects duplicate username", async () => {
-      await request(app).post("/api/users/register").send(credentials);
+      await request(getServer()).post("/api/users/register").send(credentials);
 
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/register")
         .send({ username: "testuser", password: "different" });
 
@@ -71,11 +71,11 @@ describe("Auth Lifecycle", () => {
 
   describe("Login", () => {
     beforeEach(async () => {
-      await request(app).post("/api/users/register").send(credentials);
+      await request(getServer()).post("/api/users/register").send(credentials);
     });
 
     it("logs in successfully with correct credentials", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/login")
         .send(credentials);
 
@@ -85,7 +85,7 @@ describe("Auth Lifecycle", () => {
     });
 
     it("sets auth cookie on login", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/login")
         .send(credentials);
 
@@ -95,7 +95,7 @@ describe("Auth Lifecycle", () => {
     });
 
     it("rejects login with wrong password", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/login")
         .send({ username: "testuser", password: "wrongpass" });
 
@@ -104,7 +104,7 @@ describe("Auth Lifecycle", () => {
     });
 
     it("rejects login with non-existent username", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/login")
         .send({ username: "ghost", password: "nope123" });
 
@@ -112,7 +112,7 @@ describe("Auth Lifecycle", () => {
     });
 
     it("rejects login with missing fields", async () => {
-      const res = await request(app)
+      const res = await request(getServer())
         .post("/api/users/login")
         .send({ username: "testuser" });
 
@@ -125,14 +125,14 @@ describe("Auth Lifecycle", () => {
       // In test env, auth middleware is bypassed, but we still test the endpoint logic
       // We need to set req.user manually — in test mode auth is skipped
       // So this test verifies the endpoint itself works
-      const registerRes = await request(app)
+      const registerRes = await request(getServer())
         .post("/api/users/register")
         .send(credentials);
 
       // In test mode, auth is bypassed so /me won't have req.user set
       // This is a known limitation of the test setup — the endpoint itself is tested
       // by verifying it doesn't crash
-      const res = await request(app).get("/api/users/me");
+      const res = await request(getServer()).get("/api/users/me");
       // Without req.user, should return 401
       expect(res.statusCode).toBe(401);
     });
@@ -140,9 +140,9 @@ describe("Auth Lifecycle", () => {
 
   describe("POST /api/users/logout", () => {
     it("clears the auth cookie", async () => {
-      await request(app).post("/api/users/register").send(credentials);
+      await request(getServer()).post("/api/users/register").send(credentials);
 
-      const res = await request(app).post("/api/users/logout");
+      const res = await request(getServer()).post("/api/users/logout");
 
       // In test mode, auth is bypassed so logout endpoint is accessible
       expect(res.statusCode).toBe(200);
