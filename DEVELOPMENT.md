@@ -99,13 +99,22 @@ npm run test:coverage
 frontend/
 ├── src/
 │   ├── __tests__/
-│   │   ├── utils.test.ts           # cn() utility
-│   │   ├── socketClient.test.ts    # Socket singleton
-│   │   ├── lobbyHandlers.test.ts   # Lobby event handling
-│   │   └── components/
-│   │       ├── PlayingCard.test.tsx
-│   │       └── AuthDialog.test.tsx
+│   │   ├── setup.ts                # Test setup (jest-dom, env mocks)
+│   │   ├── utils.test.ts           # cn() utility (5 tests)
+│   │   ├── socketClient.test.ts    # Socket singleton (7 tests)
+│   │   ├── lobbyHandlers.test.ts   # Lobby event handling (7 tests)
+│   │   ├── roomHandlers.test.ts    # Room event handling (18 tests)
+│   │   ├── components/
+│   │   │   ├── PlayingCard.test.tsx # Card rendering & interaction (8 tests)
+│   │   │   ├── Header.test.tsx     # Navigation & avatar (7 tests)
+│   │   │   └── AuthDialog.test.tsx # Login/register form (12 tests)
+│   │   └── pages/
+│   │       └── NotFound.test.tsx   # 404 page (3 tests)
 ```
+
+### Coverage
+
+Run `npm run test:coverage` to generate a coverage report. The HTML report is written to `coverage/` and the terminal shows a summary table. Coverage excludes auto-generated shadcn/ui components and `main.tsx`.
 
 ## Scripts Reference
 

@@ -1,9 +1,18 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import Header from "@/components/Header";
 
-// Wrap with MemoryRouter since Header may use Link/NavLink
+// Mock useNavigate
+const mockNavigate = vi.fn();
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
+
 function renderHeader(props: { username?: string; onLogout?: () => void }) {
   return render(
     <MemoryRouter>
@@ -13,27 +22,45 @@ function renderHeader(props: { username?: string; onLogout?: () => void }) {
 }
 
 describe("Header", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("renders the brand title", () => {
     renderHeader({});
     expect(screen.getByText(/beccaccino/i)).toBeInTheDocument();
   });
 
+  it("navigates to home when clicking the brand title", () => {
+    renderHeader({});
+    fireEvent.click(screen.getByText(/beccaccino/i));
+    expect(mockNavigate).toHaveBeenCalledWith("/");
+  });
+
   it("shows user avatar when username is provided", () => {
     renderHeader({ username: "Francesco" });
-    // The avatar should show the first letter(s)
+    // Single word username → first letter only (getInitials slices to 2 max)
     expect(screen.getByText("F")).toBeInTheDocument();
   });
 
-  it("does not show avatar when no username", () => {
-    const { container } = renderHeader({});
-    // No avatar dropdown should be present
-    expect(container.querySelector("[data-testid=user-avatar]")).toBeNull();
+  it("shows single initial for single-name username", () => {
+    renderHeader({ username: "Mario" });
+    expect(screen.getByText("M")).toBeInTheDocument();
   });
 
-  it("calls onLogout callback", () => {
-    const onLogout = vi.fn();
-    renderHeader({ username: "Test", onLogout });
-    // The logout option is in a dropdown — we can at least verify the component renders
-    expect(screen.getByText("T")).toBeInTheDocument();
+  it("shows two initials for two-word username", () => {
+    renderHeader({ username: "Mario Rossi" });
+    expect(screen.getByText("MR")).toBeInTheDocument();
+  });
+
+  it("does not show avatar when no username", () => {
+    renderHeader({});
+    // No trigger button with avatar should be present
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("shows username text on larger screens", () => {
+    renderHeader({ username: "TestPlayer" });
+    expect(screen.getByText("TestPlayer")).toBeInTheDocument();
   });
 });

@@ -10,6 +10,17 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/__tests__/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "text-summary", "html"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/__tests__/**",
+        "src/main.tsx",
+        "src/vite-env.d.ts",
+        "src/components/ui/**", // shadcn auto-generated
+      ],
+    },
   },
   resolve: {
     alias: {
