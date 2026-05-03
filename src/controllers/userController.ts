@@ -167,3 +167,233 @@ export const getCurrentUser = async (req: Request, res: Response) => {
   }
 };
 
+export const getUserStats = async (req: Request, res: Response) => {
+  /**
+   * Ritorna le statistiche dell'utente corrente:
+   * - totalGames, wins, winRate, totalPoints
+   * - recentGames (last 10 finished games)
+   */
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const userId = req.user.userId;
+
+    // Find all Player records for this user in finished games
+    const players = await prisma.player.findMany({
+      where: {
+        userId,
+        gameRoom: { finished: true },
+      },
+      include: {
+        gameRoom: {
+          include: {
+            rounds: {
+              orderBy: { number: "asc" },
+              select: {
+                team0Points: true,
+                team1Points: true,
+                winnerTeam: true,
+              },
+            },
+            players: {
+              include: { user: { select: { username: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    const totalGames = players.length;
+
+    let wins = 0;
+    let totalPoints = 0;
+
+    const recentGames: {
+      id: number;
+      code: string;
+      date: string;
+      result: "Vittoria" | "Sconfitta";
+      myTeamPoints: number;
+      opponentTeamPoints: number;
+      teammates: string[];
+      opponents: string[];
+    }[] = [];
+
+    for (const player of players) {
+      const room = player.gameRoom;
+      const myTeam = player.team;
+
+      // Compute total points for each team across all rounds of this game
+      let myTeamTotalPoints = 0;
+      let opponentTeamTotalPoints = 0;
+
+      for (const round of room.rounds) {
+        if (round.winnerTeam !== null) {
+          if (myTeam === 0) {
+            myTeamTotalPoints += round.team0Points;
+            opponentTeamTotalPoints += round.team1Points;
+          } else {
+            myTeamTotalPoints += round.team1Points;
+            opponentTeamTotalPoints += round.team0Points;
+          }
+        }
+      }
+
+      // Determine if user's team won the game overall
+      const didWin = myTeamTotalPoints > opponentTeamTotalPoints;
+      if (didWin) wins++;
+      totalPoints += myTeamTotalPoints;
+
+      // Build recent game entry
+      const teammates = room.players
+        .filter((p) => p.team === myTeam && p.userId !== userId)
+        .map((p) => p.user.username);
+      const opponents = room.players
+        .filter((p) => p.team !== myTeam)
+        .map((p) => p.user.username);
+
+      recentGames.push({
+        id: room.id,
+        code: room.code,
+        date: room.createdAt.toISOString(),
+        result: didWin ? "Vittoria" : "Sconfitta",
+        myTeamPoints: myTeamTotalPoints,
+        opponentTeamPoints: opponentTeamTotalPoints,
+        teammates,
+        opponents,
+      });
+    }
+
+    // Sort by date descending, take last 10
+    recentGames.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    const recent = recentGames.slice(0, 10);
+
+    const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
+
+    return res.status(200).json({
+      totalGames,
+      wins,
+      winRate,
+      totalPoints,
+      recentGames: recent,
+    });
+  } catch (error) {
+    console.error("Error fetching user stats:", error);
+    return res.status(500).json({ error: "Failed to fetch stats" });
+  }
+};
+
+export const updateCurrentUser = async (req: Request, res: Response) => {
+  /**
+   * Aggiorna il profilo dell'utente corrente (username)
+   */
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const { username } = req.body;
+
+    if (!username || typeof username !== "string") {
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const trimmed = username.trim();
+    if (trimmed.length < 3) {
+      return res
+        .status(400)
+        .json({ error: "Username must be at least 3 characters" });
+    }
+
+    // Check uniqueness (unless it's the same user keeping the same name)
+    const existing = await prisma.user.findUnique({
+      where: { username: trimmed },
+    });
+
+    if (existing && existing.id !== req.user.userId) {
+      return res.status(409).json({ error: "Username already taken" });
+    }
+
+    // Update user
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { username: trimmed },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    // Regenerate JWT with new username
+    const token = generateToken({
+      userId: updatedUser.id,
+      username: updatedUser.username,
+    });
+    res.cookie("authToken", token, COOKIE_OPTIONS);
+
+    return res.status(200).json(updatedUser);
+  } catch (error) {
+    console.error("Error updating user:", error);
+    return res.status(500).json({ error: "Failed to update user" });
+  }
+};
+
+export const deleteCurrentUser = async (req: Request, res: Response) => {
+  /**
+   * Elimina l'account dell'utente corrente.
+   * Rifiuta se l'utente è in una partita attiva (non finita).
+   */
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    const userId = req.user.userId;
+
+    // Check if user is in any active (non-finished) game
+    const activeGames = await prisma.player.findMany({
+      where: {
+        userId,
+        gameRoom: { finished: false, started: true },
+      },
+    });
+
+    if (activeGames.length > 0) {
+      return res.status(400).json({
+        error:
+          "Cannot delete account while in an active game. Finish or leave your games first.",
+      });
+    }
+
+    // Delete player records in non-started rooms (leave rooms)
+    await prisma.player.deleteMany({
+      where: {
+        userId,
+        gameRoom: { started: false },
+      },
+    });
+
+    // Delete the user (cascading will handle finished-game player records)
+    // Note: we keep Player records in finished games for data integrity
+    // But we need to delete the user itself
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    // Clear auth cookie
+    res.clearCookie("authToken", COOKIE_OPTIONS);
+
+    return res.status(200).json({ message: "Account deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    return res.status(500).json({ error: "Failed to delete account" });
+  }
+};
+
