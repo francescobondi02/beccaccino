@@ -7,6 +7,7 @@ import TrumpSuitDialog from "@/components/TrumpSuitDialog";
 import LastTrickDialog from "@/components/LastTrickDialog";
 import RoundEndDialog from "@/components/RoundEndDialog";
 import GameFinishedDialog from "@/components/GameFinishedDialog";
+import GameChat from "@/components/GameChat";
 import { Loader2, WifiOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -784,10 +785,20 @@ const GameTable = () => {
                   );
                   const visualPosition = player?.position ?? "bottom";
 
+                  // Animation class based on player direction
+                  const animationClass =
+                    visualPosition === "bottom"
+                      ? "animate-card-from-bottom"
+                      : visualPosition === "top"
+                        ? "animate-card-from-top"
+                        : visualPosition === "left"
+                          ? "animate-card-from-left"
+                          : "animate-card-from-right";
+
                   return (
                     <div
                       key={`${playedCard.userId}-${playedCard.suit}-${playedCard.value}`}
-                      className={`absolute ${
+                      className={`absolute ${animationClass} ${
                         visualPosition === "bottom"
                           ? "bottom-8 left-1/2 -translate-x-1/2"
                           : visualPosition === "top"
@@ -862,6 +873,11 @@ const GameTable = () => {
 
       {/* Game Action Buttons */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+        <GameChat
+          roomCode={gameRoomCode ?? ""}
+          userId={userId}
+          username={username}
+        />
         <Button
           variant="secondary"
           size="sm"

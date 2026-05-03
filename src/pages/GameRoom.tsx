@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Check, X, LogOut, Copy, Loader2 } from "lucide-react";
+import { Users, Check, X, LogOut, Share2, Loader2, WifiOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import Header from "@/components/Header";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,10 @@ import {
   onGameStarted,
   offGameStarted,
 } from "@/sockets/roomHandlers";
+import {
+  onConnectionStatusChange,
+  getConnectionStatus,
+} from "@/sockets/socketClient";
 
 interface Player {
   id: number;
@@ -50,6 +54,77 @@ const GameRoom = () => {
   const [room, setRoom] = useState<Room | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [myPlayer, setMyPlayer] = useState<Player | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connected" | "disconnected" | "reconnecting"
+  >(getConnectionStatus());
+
+  // Refs for stable references in callbacks
+  const userIdRef = useRef<number | null>(null);
+  const roomCodeRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
+
+  useEffect(() => {
+    roomCodeRef.current = roomCode;
+  }, [roomCode]);
+
+  // Helper: refetch room data from backend (used on reconnect)
+  const refetchRoom = useCallback(async () => {
+    const uid = userIdRef.current;
+    const code = roomCodeRef.current;
+    if (!uid || !code) return;
+
+    try {
+      const res = await fetch(`${API_URL}/rooms/${code}?userId=${uid}`, {
+        credentials: "include",
+      });
+
+      if (!res.ok) return;
+
+      const roomData: Room = await res.json();
+      const players: Player[] = roomData.players.map((p: any) => ({
+        id: p.id,
+        userId: p.userId,
+        username: p.user?.username ?? "Sconosciuto",
+        seat: p.seat,
+        team: p.team,
+        isReady: p.isReady,
+      }));
+
+      setRoom({ ...roomData, players });
+
+      const me = roomData.players.find((p: any) => p.userId === uid);
+      setMyPlayer(me || null);
+    } catch (error) {
+      console.error("Error refetching room on reconnect:", error);
+    }
+  }, []);
+
+  // Connection status tracking + refetch on reconnect (skip initial connect)
+  useEffect(() => {
+    let isInitialConnect = true;
+
+    const unsubscribe = onConnectionStatusChange((status) => {
+      setConnectionStatus(status);
+
+      // When socket reconnects (not initial connect), refetch room state
+      if (status === "connected") {
+        if (isInitialConnect) {
+          isInitialConnect = false;
+          return; // Skip — initial fetch is handled by the fetchRoom useEffect
+        }
+        console.log("🔄 Reconnected in lobby — refetching room state");
+        refetchRoom();
+      } else {
+        // Any disconnect/reconnecting resets the flag so next connect triggers refetch
+        isInitialConnect = false;
+      }
+    });
+
+    return unsubscribe;
+  }, [refetchRoom]);
 
   // Controlla autenticazione
   useEffect(() => {
@@ -303,9 +378,10 @@ const GameRoom = () => {
     }
   };
 
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(roomCode || "");
-    toast.success("Codice copiato!");
+  const handleShareLink = () => {
+    const inviteUrl = `${window.location.origin}/room/${roomCode}`;
+    navigator.clipboard.writeText(inviteUrl);
+    toast.success("Link di invito copiato!");
   };
 
   const handleLeaveRoom = async () => {
@@ -405,6 +481,23 @@ const GameRoom = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Connection Status Banner */}
+      {connectionStatus !== "connected" && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-destructive/90 text-destructive-foreground px-4 py-2 flex items-center justify-center gap-2 text-sm font-medium backdrop-blur-sm">
+          {connectionStatus === "reconnecting" ? (
+            <>
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Riconnessione in corso...
+            </>
+          ) : (
+            <>
+              <WifiOff className="h-4 w-4" />
+              Connessione persa. Riconnessione automatica...
+            </>
+          )}
+        </div>
+      )}
+
       <Header username={username} onLogout={handleLogout} />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
@@ -420,11 +513,11 @@ const GameRoom = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleCopyCode}
+                  onClick={handleShareLink}
                   className="gap-2"
                 >
-                  <Copy className="h-4 w-4" />
-                  Copia codice
+                  <Share2 className="h-4 w-4" />
+                  Condividi link
                 </Button>
               </CardTitle>
             </CardHeader>

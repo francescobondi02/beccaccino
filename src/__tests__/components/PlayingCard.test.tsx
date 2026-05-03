@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import PlayingCard from "@/components/PlayingCard";
 
 describe("PlayingCard", () => {
@@ -57,5 +57,68 @@ describe("PlayingCard", () => {
   it("applies custom className", () => {
     const { container } = render(<PlayingCard className="my-custom-class" />);
     expect(container.firstElementChild).toHaveClass("my-custom-class");
+  });
+
+  describe("fallback placeholder", () => {
+    it("shows fallback with suit symbol when image fails to load", () => {
+      render(<PlayingCard suit="denara" value="asso" />);
+      const img = screen.getByAltText("asso di denara");
+
+      // Simulate image load failure
+      act(() => {
+        fireEvent.error(img);
+      });
+
+      // Image should be gone, fallback should show
+      expect(screen.queryByAltText("asso di denara")).not.toBeInTheDocument();
+
+      // Fallback should show the suit symbol
+      expect(screen.getByText("♦")).toBeInTheDocument();
+      // Fallback should show the card value
+      expect(screen.getByText("asso")).toBeInTheDocument();
+    });
+
+    it("shows correct symbol for each suit in fallback", () => {
+      const suitMap = [
+        { suit: "denara", symbol: "♦" },
+        { suit: "coppe", symbol: "♥" },
+        { suit: "spade", symbol: "♠" },
+        { suit: "bastoni", symbol: "♣" },
+      ];
+
+      for (const { suit, symbol } of suitMap) {
+        const { unmount } = render(<PlayingCard suit={suit} value="re" />);
+        const img = screen.getByAltText(`re di ${suit}`);
+
+        act(() => {
+          fireEvent.error(img);
+        });
+
+        expect(screen.getByText(symbol)).toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("resets fallback when suit/value props change", () => {
+      const { rerender } = render(<PlayingCard suit="coppe" value="asso" />);
+      const img = screen.getByAltText("asso di coppe");
+
+      // Trigger error
+      act(() => {
+        fireEvent.error(img);
+      });
+
+      // Fallback should be visible
+      expect(screen.queryByAltText("asso di coppe")).not.toBeInTheDocument();
+      expect(screen.getByText("♥")).toBeInTheDocument();
+
+      // Change props — should reset to showing the image again
+      rerender(<PlayingCard suit="spade" value="re" />);
+
+      // Should render new image (not fallback)
+      const newImg = screen.getByAltText("re di spade");
+      expect(newImg).toBeInTheDocument();
+      expect(newImg).toHaveAttribute("src", "/images/cards/re_spade.png");
+    });
   });
 });

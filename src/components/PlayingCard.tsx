@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
 type PlayingCardProps = {
@@ -18,6 +19,22 @@ const suitFileMap: Record<string, string> = {
   bastoni: "bastoni",
 };
 
+// Mappa suit -> colore per il fallback
+const suitColorMap: Record<string, string> = {
+  denara: "text-yellow-500",
+  coppe: "text-red-500",
+  spade: "text-blue-500",
+  bastoni: "text-green-500",
+};
+
+// Mappa suit -> simbolo emoji per il fallback
+const suitSymbolMap: Record<string, string> = {
+  denara: "♦",
+  coppe: "♥",
+  spade: "♠",
+  bastoni: "♣",
+};
+
 const PlayingCard = ({
   suit = "bastoni",
   value = "asso",
@@ -27,6 +44,13 @@ const PlayingCard = ({
   disabled = false,
   className,
 }: PlayingCardProps) => {
+  const [imgError, setImgError] = useState(false);
+
+  // Reset error state when card identity changes (prevents stale error from reused component)
+  useEffect(() => {
+    setImgError(false);
+  }, [suit, value]);
+
   const sizeClasses = {
     sm: "w-12 h-16",
     md: "w-16 h-24",
@@ -49,15 +73,24 @@ const PlayingCard = ({
       )}
       onClick={clickable && !disabled ? onClick : undefined}
     >
-      <img
-        src={imgSrc}
-        alt={`${value} di ${suit}`}
-        className="w-full h-full object-cover"
-        onError={(e) => {
-          // Fallback se l'immagine non esiste
-          (e.target as HTMLImageElement).style.display = "none";
-        }}
-      />
+      {imgError ? (
+        // Styled fallback placeholder when image fails to load
+        <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-secondary to-card p-1">
+          <span className={cn("text-lg font-bold", suitColorMap[suit] ?? "text-foreground")}>
+            {suitSymbolMap[suit] ?? "?"}
+          </span>
+          <span className="text-[9px] text-muted-foreground text-center leading-tight capitalize truncate w-full px-0.5">
+            {value}
+          </span>
+        </div>
+      ) : (
+        <img
+          src={imgSrc}
+          alt={`${value} di ${suit}`}
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      )}
     </div>
   );
 };

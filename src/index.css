@@ -103,3 +103,64 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Card play animations - fly in from each player's direction */
+@keyframes card-fly-from-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(80px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes card-fly-from-top {
+  from {
+    opacity: 0;
+    transform: translateY(-80px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes card-fly-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-80px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes card-fly-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(80px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.animate-card-from-bottom {
+  animation: card-fly-from-bottom 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-card-from-top {
+  animation: card-fly-from-top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-card-from-left {
+  animation: card-fly-from-left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.animate-card-from-right {
+  animation: card-fly-from-right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}

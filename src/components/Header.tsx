@@ -72,9 +72,9 @@ const Header = ({ username, onLogout }: HeaderProps) => {
                 <User className="mr-2 h-4 w-4" />
                 <span>Profilo</span>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/stats")}>
+              <DropdownMenuItem onClick={() => navigate("/leaderboard")}>
                 <Trophy className="mr-2 h-4 w-4" />
-                <span>Statistiche</span>
+                <span>Classifica</span>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate("/settings")}>
                 <Settings className="mr-2 h-4 w-4" />
