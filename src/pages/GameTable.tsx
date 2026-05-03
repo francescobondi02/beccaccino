@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import TrumpSuitDialog from "@/components/TrumpSuitDialog";
 import LastTrickDialog from "@/components/LastTrickDialog";
 import RoundEndDialog from "@/components/RoundEndDialog";
 import GameFinishedDialog from "@/components/GameFinishedDialog";
-import { Loader2 } from "lucide-react";
+import { Loader2, WifiOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   registerRoomHandlers,
@@ -15,6 +15,11 @@ import {
   onPlayerLeft,
   offPlayerLeft,
 } from "@/sockets/roomHandlers";
+import {
+  getSocket,
+  onConnectionStatusChange,
+  getConnectionStatus,
+} from "@/sockets/socketClient";
 
 type PlayerPosition = "bottom" | "top" | "left" | "right";
 
@@ -109,6 +114,24 @@ const GameTable = () => {
       team1: number;
     };
   } | null>(null);
+
+  // Connection status & play lock
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connected" | "disconnected" | "reconnecting"
+  >(getConnectionStatus());
+  const [isPlayingCard, setIsPlayingCard] = useState(false);
+
+  // Refs for values needed in socket handlers without causing re-registration
+  const userIdRef = useRef<number | null>(null);
+  const gameRoomCodeRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
+
+  useEffect(() => {
+    gameRoomCodeRef.current = gameRoomCode;
+  }, [gameRoomCode]);
 
   // Controlla autenticazione
   useEffect(() => {
@@ -294,12 +317,65 @@ const GameTable = () => {
     return () => clearTimeout(timer);
   }, [playedCards.length, userId, gameRoomCode]);
 
+  // Helper: refetch full game state from backend
+  const refetchGameState = useCallback(async () => {
+    const uid = userIdRef.current;
+    const code = gameRoomCodeRef.current;
+    if (!uid || !code) return;
+
+    try {
+      const res = await fetch(
+        `${API_URL}/games/${code}/state?userId=${uid}`,
+        { credentials: "include" },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentRound(data.round);
+        setCallerUserId(data.callerUserId);
+        setMyCards(data.myCards ?? []);
+        setCurrentTurnUserId(data.currentTurnUserId ?? null);
+        setPlayedCards(data.playedCards ?? []);
+        setLastHand(data.lastHandCards ?? []);
+        setTotalPoints(
+          data.totalPoints ?? {
+            team0Points: 0,
+            team1Points: 0,
+            team0Figures: 0,
+            team1Figures: 0,
+          },
+        );
+
+        // Se sono il caller e briscola non è ancora scelta, apri il dialog
+        if (data.round?.briscola === null && data.callerUserId === uid) {
+          setTrumpDialogOpen(true);
+        }
+      }
+    } catch (error) {
+      console.error("Error refetching game state:", error);
+    }
+  }, []);
+
+  // Connection status tracking + refetch on reconnect
+  useEffect(() => {
+    const unsubscribe = onConnectionStatusChange((status) => {
+      setConnectionStatus(status);
+
+      // When socket reconnects, refetch state to catch any missed events
+      if (status === "connected") {
+        console.log("🔄 Reconnected — refetching game state");
+        refetchGameState();
+      }
+    });
+
+    return unsubscribe;
+  }, [refetchGameState]);
+
   // Gestione WebSocket: mantieni la connessione alla room durante la partita
+  // NOTE: Dependencies do NOT include `room` to avoid constant re-registration
   useEffect(() => {
     if (!userId || !username || !gameRoomCode) return;
 
-    // Ri-registra gli handler senza emettere join_room se già connessi,
-    // oppure ri-joina la room se per qualche motivo la connessione si è persa
+    // Register room handlers (joins socket room, sets up reconnect auto-rejoin)
     registerRoomHandlers(gameRoomCode, { userId, username });
 
     const handlePlayerLeft = (leftUserId: number) => {
@@ -316,182 +392,102 @@ const GameTable = () => {
 
     onPlayerLeft(handlePlayerLeft);
 
-    // Importa getSocket per ascoltare card_played
-    let socketCleanup: (() => void) | undefined;
+    const socket = getSocket();
 
-    import("@/sockets/socketClient").then(({ getSocket }) => {
-      const socket = getSocket();
+    const handleCardPlayed = (data: PlayedCardData) => {
+      console.log("🃏 Carta giocata:", data);
 
-      const handleCardPlayed = async (data: PlayedCardData) => {
-        console.log("🃏 Carta giocata:", data);
+      // Optimistic update: add card to played cards
+      setPlayedCards((prev) => [...prev, data]);
 
-        // Ottimistic update: aggiungi la carta alle carte giocate
-        setPlayedCards((prev) => [...prev, data]);
+      // If the card is mine, remove it from hand
+      if (data.userId === userIdRef.current) {
+        setMyCards((prev) =>
+          prev.filter(
+            (c) => !(c.suit === data.suit && c.value === data.value),
+          ),
+        );
+      }
 
-        // Se la carta è mia, rimuovila dalla mano
-        if (data.userId === userId) {
-          setMyCards((prev) =>
-            prev.filter(
-              (c) => !(c.suit === data.suit && c.value === data.value),
-            ),
-          );
-        }
+      // Sync with backend after a short delay for consistency
+      setTimeout(() => refetchGameState(), 300);
+    };
 
-        // Refetch dello stato per sincronizzare con il backend
-        // Questo garantisce che anche in caso di disconnessioni il dato sia corretto
-        setTimeout(async () => {
-          if (userId && gameRoomCode) {
-            try {
-              const res = await fetch(
-                `${API_URL}/games/${gameRoomCode}/state?userId=${userId}`,
-                { credentials: "include" },
-              );
-              if (res.ok) {
-                const stateData = await res.json();
-                setCurrentRound(stateData.round);
-                setCallerUserId(stateData.callerUserId);
-                setMyCards(stateData.myCards ?? []);
-                setCurrentTurnUserId(stateData.currentTurnUserId ?? null);
-                setPlayedCards(stateData.playedCards ?? []);
-                setLastHand(stateData.lastHandCards ?? []);
-              }
-            } catch (error) {
-              console.error("Error syncing state after card played:", error);
-            }
-          }
-        }, 300);
-      };
+    const handleBriscolaChosen = (data: {
+      briscola: string;
+      roundNumber: number;
+      starterId: number;
+    }) => {
+      console.log("🎺 Briscola scelta:", data);
+      setCurrentRound((prev) => {
+        if (!prev) return prev;
+        return { ...prev, briscola: data.briscola };
+      });
+      // Refetch to get updated turn info
+      setTimeout(() => refetchGameState(), 300);
+    };
 
-      socket.on("card_played", handleCardPlayed);
+    const handleRoundEnded = (data: {
+      roundNumber: number;
+      team0: { points: number; figures: number };
+      team1: { points: number; figures: number };
+      winnerTeam: number;
+    }) => {
+      console.log("🏁 Round terminato:", data);
+      setRoundEndData({
+        roundNumber: data.roundNumber,
+        team0Points: data.team0.points,
+        team1Points: data.team1.points,
+        team0Figures: data.team0.figures,
+        team1Figures: data.team1.figures,
+        winnerTeam: data.winnerTeam,
+      });
+      setRoundEndDialogOpen(true);
+    };
 
-      // Handler per scelta briscola
-      const handleBriscolaChosen = (data: {
-        briscola: string;
-        roundNumber: number;
-        starterId: number;
-      }) => {
-        console.log("🎺 Briscola scelta:", data);
+    const handleNewRoundStarted = () => {
+      console.log("🆕 Nuovo round iniziato");
+      toast.success("Nuovo round iniziato!");
+      refetchGameState();
+    };
 
-        // Aggiorna lo stato del round corrente per mostrare il badge a tutti
-        setCurrentRound((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            briscola: data.briscola,
-          };
-        });
-      };
+    const handleGameFinished = (data: {
+      winnerTeam: number;
+      totalRounds: number;
+      finalScores: { team0: number; team1: number };
+      roundsWon: { team0: number; team1: number };
+    }) => {
+      console.log("🏆 Partita terminata:", data);
+      setGameFinishedData(data);
+      setGameFinishedDialogOpen(true);
+      setRoundEndDialogOpen(false);
+      setTrumpDialogOpen(false);
+    };
 
-      socket.on("briscola_chosen", handleBriscolaChosen);
+    // Handler for opponent disconnect notification
+    const handlePlayerDisconnected = (data: { userId: number; username: string }) => {
+      console.log("⚠️ Giocatore disconnesso:", data.username);
+      toast.warning(`${data.username} si è disconnesso`);
+    };
 
-      // Handler per fine round
-      const handleRoundEnded = (data: {
-        roundNumber: number;
-        team0: { points: number; figures: number };
-        team1: { points: number; figures: number };
-        winnerTeam: number;
-      }) => {
-        console.log("🏁 Round terminato:", data);
-
-        // Mostra il dialog di fine round
-        setRoundEndData({
-          roundNumber: data.roundNumber,
-          team0Points: data.team0.points,
-          team1Points: data.team1.points,
-          team0Figures: data.team0.figures,
-          team1Figures: data.team1.figures,
-          winnerTeam: data.winnerTeam,
-        });
-        setRoundEndDialogOpen(true);
-      };
-
-      const handleNewRoundStarted = async () => {
-        console.log("🆕 Nuovo round iniziato");
-        toast.success("Nuovo round iniziato!");
-
-        // Refetch completo dello stato
-        if (userId && gameRoomCode) {
-          try {
-            const res = await fetch(
-              `${API_URL}/games/${gameRoomCode}/state?userId=${userId}`,
-              { credentials: "include" },
-            );
-            if (res.ok) {
-              const stateData = await res.json();
-              setCurrentRound(stateData.round);
-              setCallerUserId(stateData.callerUserId);
-              setMyCards(stateData.myCards ?? []);
-              setCurrentTurnUserId(stateData.currentTurnUserId ?? null);
-              setPlayedCards(stateData.playedCards ?? []);
-              setLastHand(stateData.lastHandCards ?? []);
-              setTotalPoints(
-                stateData.totalPoints ?? {
-                  team0Points: 0,
-                  team1Points: 0,
-                  team0Figures: 0,
-                  team1Figures: 0,
-                },
-              );
-
-              // Se sono il caller, apri il dialog briscola
-              if (
-                stateData.round.briscola === null &&
-                stateData.callerUserId === userId
-              ) {
-                setTrumpDialogOpen(true);
-              }
-            }
-          } catch (error) {
-            console.error("Error refetching after new round:", error);
-          }
-        }
-      };
-
-      socket.on("round_ended", handleRoundEnded);
-      socket.on("new_round_started", handleNewRoundStarted);
-
-      // Handler per fine partita
-      const handleGameFinished = (data: {
-        winnerTeam: number;
-        totalRounds: number;
-        finalScores: {
-          team0: number;
-          team1: number;
-        };
-        roundsWon: {
-          team0: number;
-          team1: number;
-        };
-      }) => {
-        console.log("🏆 Partita terminata:", data);
-
-        // Mostra il dialog di fine partita
-        setGameFinishedData(data);
-        setGameFinishedDialogOpen(true);
-
-        // Chiudi eventuali altri dialog aperti
-        setRoundEndDialogOpen(false);
-        setTrumpDialogOpen(false);
-      };
-
-      socket.on("game_finished", handleGameFinished);
-
-      // Salva la funzione di cleanup
-      socketCleanup = () => {
-        socket.off("card_played", handleCardPlayed);
-        socket.off("briscola_chosen", handleBriscolaChosen);
-        socket.off("round_ended", handleRoundEnded);
-        socket.off("new_round_started", handleNewRoundStarted);
-        socket.off("game_finished", handleGameFinished);
-      };
-    });
+    socket.on("card_played", handleCardPlayed);
+    socket.on("briscola_chosen", handleBriscolaChosen);
+    socket.on("round_ended", handleRoundEnded);
+    socket.on("new_round_started", handleNewRoundStarted);
+    socket.on("game_finished", handleGameFinished);
+    socket.on("player_disconnected", handlePlayerDisconnected);
 
     return () => {
       offPlayerLeft(handlePlayerLeft);
-      if (socketCleanup) socketCleanup();
-      // NON chiamare leaveRoom qui: lo farà solo il bottone "Lascia la partita"
+      socket.off("card_played", handleCardPlayed);
+      socket.off("briscola_chosen", handleBriscolaChosen);
+      socket.off("round_ended", handleRoundEnded);
+      socket.off("new_round_started", handleNewRoundStarted);
+      socket.off("game_finished", handleGameFinished);
+      socket.off("player_disconnected", handlePlayerDisconnected);
+      // Do NOT call leaveRoom here — only the "Leave" button should do that
     };
-  }, [userId, username, gameRoomCode, room]);
+  }, [userId, username, gameRoomCode, refetchGameState]);
 
   // Calcola le posizioni relative dei giocatori
   const getPlayersWithPositions = (): Player[] => {
@@ -547,6 +543,9 @@ const GameTable = () => {
       return;
     }
 
+    // Prevent double-click / rapid fire
+    if (isPlayingCard) return;
+
     // Verifica che la carta sia tra quelle giocabili
     const isPlayable = playableCards.some(
       (c) => c.suit === card.suit && c.value === card.value,
@@ -556,6 +555,7 @@ const GameTable = () => {
       return;
     }
 
+    setIsPlayingCard(true);
     try {
       const res = await fetch(`${API_URL}/games/play-card`, {
         method: "POST",
@@ -580,6 +580,8 @@ const GameTable = () => {
     } catch (error) {
       console.error("Error playing card:", error);
       toast.error("Errore nel giocare la carta");
+    } finally {
+      setIsPlayingCard(false);
     }
   };
 
@@ -637,6 +639,23 @@ const GameTable = () => {
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 relative overflow-hidden">
       {/* Background decorative elements */}
       <div className="absolute inset-0 bg-gradient-warm opacity-20 pointer-events-none" />
+
+      {/* Connection Status Banner */}
+      {connectionStatus !== "connected" && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-destructive/90 text-destructive-foreground px-4 py-2 flex items-center justify-center gap-2 text-sm font-medium backdrop-blur-sm">
+          {connectionStatus === "reconnecting" ? (
+            <>
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Riconnessione in corso...
+            </>
+          ) : (
+            <>
+              <WifiOff className="h-4 w-4" />
+              Connessione persa. Riconnessione automatica...
+            </>
+          )}
+        </div>
+      )}
 
       <div className="absolute top-4 right-4 text-sm text-muted-foreground">
         Room:{" "}

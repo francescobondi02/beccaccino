@@ -17,6 +17,9 @@ let roomUpdatedCallbacks: ((data: {
 let roomFullCallbacks: ((data: { roomCode: string }) => void)[] = [];
 let roomDeletedCallbacks: ((data: { roomCode: string }) => void)[] = [];
 
+// Store userId for reconnection
+let currentLobbyUserId: number | null = null;
+
 /**
  * Inizializza e registra tutti gli handler socket relativi alla lobby.
  * Da chiamare una sola volta (es: al mount della pagina Lobby).
@@ -28,13 +31,29 @@ export const registerLobbyHandlers = (userId: number) => {
   roomFullCallbacks = [];
   roomDeletedCallbacks = [];
 
+  currentLobbyUserId = userId;
+
   const socket = getSocket();
   if (!isSocketConnected()) {
     socket.connect();
   }
 
-  socket.emit("join_lobby", { userId });
-  console.log("🏠 [SOCKET] Joined global lobby as", userId);
+  const joinLobby = () => {
+    socket.emit("join_lobby", { userId });
+    console.log("🏠 [SOCKET] Joined global lobby as", userId);
+  };
+
+  // Join immediately
+  joinLobby();
+
+  // Re-join on reconnect so lobby events resume after a network drop
+  socket.off("connect");
+  socket.on("connect", () => {
+    if (currentLobbyUserId !== null) {
+      console.log("🔄 [SOCKET] Reconnected, re-joining lobby");
+      joinLobby();
+    }
+  });
 
   socket.off("room_created");
   socket.on("room_created", (data: { room: Room }) => {
@@ -73,6 +92,7 @@ export const registerLobbyHandlers = (userId: number) => {
 export const leaveLobby = () => {
   const socket = getSocket();
   socket.emit("leave_lobby");
+  currentLobbyUserId = null;
   console.log("🚪 [SOCKET] Left lobby");
 };
 
