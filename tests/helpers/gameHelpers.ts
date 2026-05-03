@@ -20,7 +20,9 @@ export async function clearDatabase() {
 export async function setupGame() {
   const users = await Promise.all(
     ["A", "B", "C", "D"].map((name) =>
-      request(app).post("/api/users").send({ username: name })
+      request(app)
+        .post("/api/users/register")
+        .send({ username: name, password: "test123" })
     )
   );
   const userIds = users.map((res) => res.body.id);

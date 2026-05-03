@@ -213,37 +213,8 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         isReady,
       });
 
-      // Controlla se tutti sono pronti
-      const updatedRoom = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: { players: true },
-      });
-
-      if (updatedRoom) {
-        const allReady = updatedRoom.players.every((p) => p.isReady === true);
-        const team0Count = updatedRoom.players.filter(
-          (p) => p.team === 0
-        ).length;
-        const team1Count = updatedRoom.players.filter(
-          (p) => p.team === 1
-        ).length;
-
-        // Se tutti sono pronti e i team sono completi
-        if (allReady && team0Count === 2 && team1Count === 2) {
-          console.log(`🎮 Room ${roomCode} is ready to start!`);
-
-          // Imposta la room come iniziata
-          await prisma.gameRoom.update({
-            where: { id: room.id },
-            data: { started: true },
-          });
-
-          // Notifica tutti che la partita sta per iniziare
-          io.to(roomCode).emit("game_starting", {
-            message: "All players ready! Game starting...",
-          });
-        }
-      }
+      // Game-start logic is handled by the REST endpoint (POST /:roomCode/ready)
+      // to avoid race conditions with dual paths.
 
       console.log(`✅ User ${userId} ready state: ${isReady}`);
     } catch (error) {

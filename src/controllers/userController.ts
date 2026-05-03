@@ -167,33 +167,3 @@ export const getCurrentUser = async (req: Request, res: Response) => {
   }
 };
 
-// Mantieni la vecchia funzione per compatibilità (deprecata)
-export const createUser = async (req: Request, res: Response) => {
-  /**
-   * @deprecated Use register or login instead
-   * Crea un nuovo utente con uno username o fa il login se esiste già.
-   */
-  const { username } = req.body;
-
-  if (!username) {
-    return res.status(400).json({ error: "Username is required" });
-  }
-
-  try {
-    let user = await prisma.user.findUnique({
-      where: { username },
-    });
-
-    if (!user) {
-      user = await prisma.user.create({
-        data: { username },
-      });
-      return res.status(201).json(user);
-    }
-
-    return res.status(200).json(user);
-  } catch (error) {
-    console.error("Error creating/fetching user:", error);
-    return res.status(500).json({ error: "User operation failed" });
-  }
-};
