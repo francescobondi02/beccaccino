@@ -11,16 +11,17 @@ import {
   getLeaderboard,
 } from "../controllers/userController";
 import { authenticateToken } from "../middleware/auth";
+import { authRateLimiter, generalRateLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
-router.post("/register", register);
-router.post("/login", login);
+router.post("/register", authRateLimiter, register);
+router.post("/login", authRateLimiter, login);
 router.post("/logout", authenticateToken, logout);
 router.get("/me", authenticateToken, getCurrentUser);
 router.get("/me/stats", authenticateToken, getUserStats);
 router.patch("/me", authenticateToken, updateCurrentUser);
 router.delete("/me", authenticateToken, deleteCurrentUser);
-router.get("/leaderboard", getLeaderboard); // Public — no auth required
+router.get("/leaderboard", generalRateLimiter, getLeaderboard); // Public — no auth required
 
 export default router;

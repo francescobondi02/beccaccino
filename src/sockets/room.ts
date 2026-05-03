@@ -55,7 +55,17 @@ export function registerRoomSocket(socket: Socket, io: Server) {
    * e notifica tutti gli altri utenti nella stanza
    */
   socket.on("join_room", async (data: JoinRoomData) => {
-    const { roomCode, userId, username } = data;
+    const { roomCode } = data;
+
+    // Use verified identity from JWT handshake when available (production).
+    // Fall back to client-sent data only in test mode where JWT handshake is skipped.
+    const userId = socket.data.user?.userId ?? data.userId;
+    const username = socket.data.user?.username ?? data.username;
+
+    if (!userId || !username) {
+      socket.emit("error", { message: "Not authenticated" });
+      return;
+    }
 
     console.log(`👤 ${username} (${userId}) joining room ${roomCode}`);
 
@@ -86,7 +96,9 @@ export function registerRoomSocket(socket: Socket, io: Server) {
       // Unisce l'utente alla room socket e salva il riferimento per il disconnect handler
       socket.join(roomCode);
       socket.data.roomCode = roomCode;
-      socket.data.user = { id: userId, username };
+      // Store user info for use by other handlers (chat, disconnect, etc.)
+      // In production this comes from JWT; in test from client data.
+      socket.data.user = { userId, username, id: userId };
 
       // Notifica tutti gli altri nella room che un nuovo player si è unito
       socket.to(roomCode).emit("player_joined", {
