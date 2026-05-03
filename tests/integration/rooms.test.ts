@@ -212,6 +212,134 @@ describe("Room API", () => {
     });
   });
 
+  describe("Game Start Trigger (all ready with 2+2 teams)", () => {
+    it("starts the game when all 4 players are ready with valid teams", async () => {
+      const ids = await Promise.all(
+        ["P1", "P2", "P3", "P4"].map((n) => createUser(n))
+      );
+
+      const createRes = await request(app)
+        .post("/api/rooms/")
+        .send({ userId: ids[0] });
+      const roomCode = createRes.body.code;
+
+      for (let i = 1; i < 4; i++) {
+        await request(app)
+          .post("/api/rooms/join")
+          .send({ roomCode, userId: ids[i] });
+      }
+
+      // Assign teams (2v2)
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[0], team: 0 });
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[1], team: 1 });
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[2], team: 0 });
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[3], team: 1 });
+
+      // Ready up all players
+      for (const id of ids) {
+        const res = await request(app)
+          .post(`/api/rooms/${roomCode}/ready`)
+          .send({ userId: id, isReady: true });
+        expect(res.statusCode).toBe(200);
+      }
+
+      // Verify game started
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { rounds: true, players: true },
+      });
+
+      expect(room!.started).toBe(true);
+      expect(room!.rounds.length).toBe(1);
+      // Players should have assigned seats
+      for (const player of room!.players) {
+        expect(player.seat).not.toBeNull();
+      }
+    });
+
+    it("does not start if teams are unbalanced (3v1)", async () => {
+      const ids = await Promise.all(
+        ["P1", "P2", "P3", "P4"].map((n) => createUser(n))
+      );
+
+      const createRes = await request(app)
+        .post("/api/rooms/")
+        .send({ userId: ids[0] });
+      const roomCode = createRes.body.code;
+
+      for (let i = 1; i < 4; i++) {
+        await request(app)
+          .post("/api/rooms/join")
+          .send({ roomCode, userId: ids[i] });
+      }
+
+      // Unbalanced teams: 3 on team 0, 1 on team 1
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[0], team: 0 });
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[1], team: 0 });
+      // Third player tries team 0 but it's full — should fail
+      const res = await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[2], team: 0 });
+
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("rejects joining a room that has already started", async () => {
+      const ids = await Promise.all(
+        ["P1", "P2", "P3", "P4", "P5"].map((n) => createUser(n))
+      );
+
+      const createRes = await request(app)
+        .post("/api/rooms/")
+        .send({ userId: ids[0] });
+      const roomCode = createRes.body.code;
+
+      // Fill room with 4 players and start
+      for (let i = 1; i < 4; i++) {
+        await request(app)
+          .post("/api/rooms/join")
+          .send({ roomCode, userId: ids[i] });
+      }
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[0], team: 0 });
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[1], team: 1 });
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[2], team: 0 });
+      await request(app)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ userId: ids[3], team: 1 });
+
+      for (let i = 0; i < 4; i++) {
+        await request(app)
+          .post(`/api/rooms/${roomCode}/ready`)
+          .send({ userId: ids[i], isReady: true });
+      }
+
+      // 5th player tries to join started room
+      const joinRes = await request(app)
+        .post("/api/rooms/join")
+        .send({ roomCode, userId: ids[4] });
+
+      expect(joinRes.statusCode).toBe(400);
+    });
+  });
+
   describe("POST /api/rooms/:roomCode/leave", () => {
     it("removes the player from the room", async () => {
       const creatorId = await createUser("creator");
