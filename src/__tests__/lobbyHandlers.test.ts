@@ -49,6 +49,7 @@ describe("lobbyHandlers", () => {
       expect(mockSocket.off).toHaveBeenCalledWith("room_deleted");
       expect(mockSocket.off).toHaveBeenCalledWith("error");
 
+      expect(mockSocket.on).toHaveBeenCalledWith("connect", expect.any(Function));
       expect(mockSocket.on).toHaveBeenCalledWith("room_created", expect.any(Function));
       expect(mockSocket.on).toHaveBeenCalledWith("room_updated", expect.any(Function));
       expect(mockSocket.on).toHaveBeenCalledWith("room_full", expect.any(Function));

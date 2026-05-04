@@ -20,6 +20,9 @@ let roomDeletedCallbacks: ((data: { roomCode: string }) => void)[] = [];
 // Store userId for reconnection
 let currentLobbyUserId: number | null = null;
 
+// Track our own reconnect handler so we can remove it without nuking other listeners
+let lobbyReconnectHandler: (() => void) | null = null;
+
 /**
  * Inizializza e registra tutti gli handler socket relativi alla lobby.
  * Da chiamare una sola volta (es: al mount della pagina Lobby).
@@ -46,14 +49,20 @@ export const registerLobbyHandlers = (userId: number) => {
   // Join immediately
   joinLobby();
 
+  // Remove only our previous reconnect handler (not all connect listeners!)
+  if (lobbyReconnectHandler) {
+    socket.off("connect", lobbyReconnectHandler);
+  }
+
   // Re-join on reconnect so lobby events resume after a network drop
-  socket.off("connect");
-  socket.on("connect", () => {
+  lobbyReconnectHandler = () => {
     if (currentLobbyUserId !== null) {
       console.log("🔄 [SOCKET] Reconnected, re-joining lobby");
       joinLobby();
     }
-  });
+  };
+
+  socket.on("connect", lobbyReconnectHandler);
 
   socket.off("room_created");
   socket.on("room_created", (data: { room: Room }) => {
@@ -67,7 +76,7 @@ export const registerLobbyHandlers = (userId: number) => {
     (data: { roomCode: string; currentPlayers: number }) => {
       console.log("🔄 Room updated:", data);
       roomUpdatedCallbacks.forEach((cb) => cb(data));
-    }
+    },
   );
 
   socket.off("room_full");
@@ -93,6 +102,13 @@ export const leaveLobby = () => {
   const socket = getSocket();
   socket.emit("leave_lobby");
   currentLobbyUserId = null;
+
+  // Remove our reconnect handler when leaving lobby
+  if (lobbyReconnectHandler) {
+    socket.off("connect", lobbyReconnectHandler);
+    lobbyReconnectHandler = null;
+  }
+
   console.log("🚪 [SOCKET] Left lobby");
 };
 
@@ -104,7 +120,7 @@ export const onRoomCreated = (callback: (room: Room) => void) => {
 };
 
 export const onRoomUpdated = (
-  callback: (data: { roomCode: string; currentPlayers: number }) => void
+  callback: (data: { roomCode: string; currentPlayers: number }) => void,
 ) => {
   roomUpdatedCallbacks.push(callback);
 };
@@ -114,7 +130,7 @@ export const onRoomFull = (callback: (data: { roomCode: string }) => void) => {
 };
 
 export const onRoomDeleted = (
-  callback: (data: { roomCode: string }) => void
+  callback: (data: { roomCode: string }) => void,
 ) => {
   roomDeletedCallbacks.push(callback);
 };

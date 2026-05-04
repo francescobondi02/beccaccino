@@ -398,9 +398,6 @@ const GameTable = () => {
     const handleCardPlayed = (data: PlayedCardData) => {
       console.log("🃏 Carta giocata:", data);
 
-      // Optimistic update: add card to played cards
-      setPlayedCards((prev) => [...prev, data]);
-
       // If the card is mine, remove it from hand
       if (data.userId === userIdRef.current) {
         setMyCards((prev) =>
@@ -410,8 +407,17 @@ const GameTable = () => {
         );
       }
 
-      // Sync with backend after a short delay for consistency
-      setTimeout(() => refetchGameState(), 300);
+      // Optimistic update: add card to played cards
+      setPlayedCards((prev) => {
+        const next = [...prev, data];
+        // Only refetch immediately if hand is NOT complete (< 4 cards).
+        // For complete hands (4 cards), the dedicated 3-second timer handles
+        // the refetch, giving the backend time to create the new hand.
+        if (next.length < 4) {
+          setTimeout(() => refetchGameState(), 300);
+        }
+        return next;
+      });
     };
 
     const handleBriscolaChosen = (data: {
@@ -795,18 +801,20 @@ const GameTable = () => {
                           ? "animate-card-from-left"
                           : "animate-card-from-right";
 
+                  // Cards are placed near center with small offsets toward their player's side
+                  const positionClass =
+                    visualPosition === "bottom"
+                      ? "top-1/2 left-1/2 -translate-x-1/2 translate-y-2"
+                      : visualPosition === "top"
+                        ? "top-1/2 left-1/2 -translate-x-1/2 -translate-y-full"
+                        : visualPosition === "left"
+                          ? "top-1/2 left-1/2 -translate-y-1/2 -translate-x-full"
+                          : "top-1/2 left-1/2 -translate-y-1/2 translate-x-2";
+
                   return (
                     <div
                       key={`${playedCard.userId}-${playedCard.suit}-${playedCard.value}`}
-                      className={`absolute ${animationClass} ${
-                        visualPosition === "bottom"
-                          ? "bottom-8 left-1/2 -translate-x-1/2"
-                          : visualPosition === "top"
-                            ? "top-8 left-1/2 -translate-x-1/2"
-                            : visualPosition === "left"
-                              ? "left-8 top-1/2 -translate-y-1/2"
-                              : "right-8 top-1/2 -translate-y-1/2"
-                      }`}
+                      className={`absolute ${animationClass} ${positionClass}`}
                     >
                       <PlayingCard
                         suit={playedCard.suit}

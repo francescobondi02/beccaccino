@@ -29,6 +29,9 @@ const readyChangedCallbacks: ((data: {
 }) => void)[] = [];
 let onGameStartedCallbacks: (() => void) | null = null;
 
+// Track our own reconnect handler so we can remove it without nuking other listeners
+let reconnectHandler: (() => void) | null = null;
+
 /**
  * Inizializza e registra tutti gli handler socket relativi alla stanza.
  * Da chiamare una sola volta (es: quando entri nella GameRoom).
@@ -51,13 +54,18 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
   // Entra nella stanza subito
   joinRoom();
 
-  // Se il socket si riconnette (es. dopo un drop di rete), re-joina la room automaticamente
-  // così non si perdono gli eventi come game_started
-  socket.off("connect");
-  socket.on("connect", () => {
+  // Remove only our previous reconnect handler (not all connect listeners!)
+  if (reconnectHandler) {
+    socket.off("connect", reconnectHandler);
+  }
+
+  // Create a new handler that re-joins on reconnect
+  reconnectHandler = () => {
     console.log("🔄 [SOCKET] Reconnected, re-joining room", roomCode);
     joinRoom();
-  });
+  };
+
+  socket.on("connect", reconnectHandler);
 
   // Handler: player joined
   socket.off("player_joined");
@@ -121,6 +129,7 @@ export const leaveRoom = (roomCode: string) => {
 
 export const disconnectRoomSocket = () => {
   disconnectSocket();
+  reconnectHandler = null;
   console.log("❌ [SOCKET] Room socket disconnected");
 };
 

@@ -10,7 +10,8 @@ type ConnectionStatus = "connected" | "disconnected" | "reconnecting";
 let connectionStatus: ConnectionStatus = "disconnected";
 const statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
 
-function notifyStatusListeners(status: ConnectionStatus) {
+function setStatus(status: ConnectionStatus) {
+  if (connectionStatus === status) return; // Avoid duplicate notifications
   connectionStatus = status;
   statusListeners.forEach((listener) => {
     try {
@@ -38,33 +39,43 @@ export function getSocket(): Socket {
     // Track connection status
     socket.on("connect", () => {
       console.log("🟢 Socket connected:", socket?.id);
-      notifyStatusListeners("connected");
+      setStatus("connected");
     });
 
     socket.on("disconnect", (reason) => {
       console.log("🔴 Socket disconnected:", reason);
-      notifyStatusListeners("disconnected");
+      // If the server closed the connection or transport was closed,
+      // socket.io will auto-reconnect → mark as reconnecting immediately
+      if (reason === "io server disconnect") {
+        // Server forced disconnect — won't auto-reconnect, try manually
+        setStatus("disconnected");
+        socket?.connect();
+      } else {
+        // All other reasons (transport close, ping timeout) → auto-reconnect
+        setStatus("reconnecting");
+      }
     });
 
     socket.io.on("reconnect_attempt", (attempt) => {
       console.log(`🟡 Socket reconnecting... attempt ${attempt}`);
-      notifyStatusListeners("reconnecting");
+      setStatus("reconnecting");
     });
 
     socket.io.on("reconnect", (attempt) => {
       console.log(`🟢 Socket reconnected after ${attempt} attempts`);
-      notifyStatusListeners("connected");
+      setStatus("connected");
     });
 
     socket.io.on("reconnect_failed", () => {
       console.log("🔴 Socket reconnection failed permanently");
-      notifyStatusListeners("disconnected");
+      setStatus("disconnected");
     });
 
     socket.on("connect_error", (error) => {
       console.error("🔴 Socket connection error:", error.message);
     });
   }
+
   return socket;
 }
 
@@ -73,11 +84,15 @@ export function isSocketConnected(): boolean {
 }
 
 export function getConnectionStatus(): ConnectionStatus {
+  // If socket exists and is connected but status is stale, correct it
+  if (socket?.connected && connectionStatus !== "connected") {
+    connectionStatus = "connected";
+  }
   return connectionStatus;
 }
 
 export function onConnectionStatusChange(
-  listener: (status: ConnectionStatus) => void
+  listener: (status: ConnectionStatus) => void,
 ): () => void {
   statusListeners.add(listener);
   // Return unsubscribe function
@@ -90,6 +105,6 @@ export function disconnectSocket() {
   if (socket) {
     socket.disconnect();
     socket = null;
-    notifyStatusListeners("disconnected");
+    setStatus("disconnected");
   }
 }

@@ -104,63 +104,63 @@ All colors MUST be HSL.
   }
 }
 
-/* Card play animations - fly in from each player's direction */
+/* Card play animations - fly in from each player's direction toward center */
 @keyframes card-fly-from-bottom {
   from {
     opacity: 0;
-    transform: translateY(80px) scale(0.7);
+    transform: translate(-50%, 60px) scale(0.7);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate(-50%, 0.5rem) scale(1);
   }
 }
 
 @keyframes card-fly-from-top {
   from {
     opacity: 0;
-    transform: translateY(-80px) scale(0.7);
+    transform: translate(-50%, calc(-100% - 60px)) scale(0.7);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate(-50%, -100%) scale(1);
   }
 }
 
 @keyframes card-fly-from-left {
   from {
     opacity: 0;
-    transform: translateX(-80px) scale(0.7);
+    transform: translate(calc(-100% - 60px), -50%) scale(0.7);
   }
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translate(-100%, -50%) scale(1);
   }
 }
 
 @keyframes card-fly-from-right {
   from {
     opacity: 0;
-    transform: translateX(80px) scale(0.7);
+    transform: translate(60px, -50%) scale(0.7);
   }
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translate(0.5rem, -50%) scale(1);
   }
 }
 
 .animate-card-from-bottom {
-  animation: card-fly-from-bottom 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: card-fly-from-bottom 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 .animate-card-from-top {
-  animation: card-fly-from-top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: card-fly-from-top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 .animate-card-from-left {
-  animation: card-fly-from-left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: card-fly-from-left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
 .animate-card-from-right {
-  animation: card-fly-from-right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: card-fly-from-right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }

@@ -66,7 +66,6 @@ describe("roomHandlers", () => {
     it("registers socket event listeners", () => {
       registerRoomHandlers("ROOM1", { userId: 1, username: "Test" });
 
-      expect(mockSocket.off).toHaveBeenCalledWith("connect");
       expect(mockSocket.off).toHaveBeenCalledWith("player_joined");
       expect(mockSocket.off).toHaveBeenCalledWith("player_left");
       expect(mockSocket.off).toHaveBeenCalledWith("team_chosen");
