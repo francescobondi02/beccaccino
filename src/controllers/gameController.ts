@@ -50,6 +50,48 @@ export const chooseBriscola = async (req: Request, res: Response) => {
       .json({ error: "Briscola already set for this round" });
   }
 
+  //^ Controllo che sia il turno del giocatore corretto per scegliere la briscola
+  let callerPlayerId: number | null = null;
+
+  if (lastRound.number === 1) {
+    // Round 1: chi ha il quattro di denara sceglie la briscola
+    const quattroDenara = await prisma.playerCard.findFirst({
+      where: {
+        roundId: lastRound.id,
+        suit: "denara",
+        value: "quattro",
+      },
+    });
+    callerPlayerId = quattroDenara?.playerId ?? null;
+  } else {
+    // Round 2+: il giocatore con seat = (previousCaller.seat + 1) % 4
+    const previousRound = await prisma.round.findFirst({
+      where: { gameRoomId: gameRoom.id, number: lastRound.number - 1 },
+      include: {
+        hands: {
+          orderBy: { number: "asc" },
+          take: 1,
+        },
+      },
+    });
+    if (previousRound && previousRound.hands.length > 0) {
+      const prevCaller = gameRoom.players.find(
+        (p) => p.id === previousRound.hands[0].starterId,
+      );
+      if (prevCaller && prevCaller.seat !== null) {
+        const nextSeat = (prevCaller.seat + 1) % 4;
+        const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
+        callerPlayerId = nextPlayer?.id ?? null;
+      }
+    }
+  }
+
+  if (playerId !== callerPlayerId) {
+    return res
+      .status(403)
+      .json({ error: "It's not your turn to choose briscola" });
+  }
+
   //^ Imposto la briscola nel round corrente
   const currentRound = await prisma.round.findFirst({
     where: { gameRoomId: gameRoom.id },

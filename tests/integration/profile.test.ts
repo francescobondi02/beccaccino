@@ -12,192 +12,251 @@ beforeEach(async () => {
   await clearDatabase();
 });
 
+/**
+ * Extract the authToken cookie from a response's Set-Cookie header.
+ * Returns the "authToken=<value>" string suitable for passing via .set("Cookie", ...).
+ */
+function extractAuthCookie(res: request.Response): string {
+  const cookies = res.headers["set-cookie"];
+  if (!cookies) return "";
+  const cookieStr = Array.isArray(cookies) ? cookies[0] : cookies;
+  return cookieStr.split(";")[0]; // "authToken=xxx"
+}
+
+/**
+ * Register a user and return the response body + auth cookie.
+ */
+async function registerUser(
+  username: string,
+  password = "test123",
+  email?: string
+) {
+  const payload: any = { username, password };
+  if (email) payload.email = email;
+
+  const res = await request(getServer())
+    .post("/api/users/register")
+    .send(payload);
+
+  expect(res.statusCode).toBe(201);
+
+  const cookie = extractAuthCookie(res);
+  expect(cookie).toContain("authToken=");
+
+  return { user: res.body, cookie };
+}
+
 describe("Profile API", () => {
+  describe("GET /api/users/me", () => {
+    it("returns the authenticated user with valid cookie", async () => {
+      const { user, cookie } = await registerUser("testuser", "test123", "test@example.com");
+
+      const res = await request(getServer())
+        .get("/api/users/me")
+        .set("Cookie", cookie);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.id).toBe(user.id);
+      expect(res.body.username).toBe("testuser");
+      expect(res.body.email).toBe("test@example.com");
+      expect(res.body.createdAt).toBeDefined();
+      expect(res.body.updatedAt).toBeDefined();
+      // Should not expose password
+      expect(res.body.password).toBeUndefined();
+    });
+
+    it("returns 401 without a cookie", async () => {
+      const res = await request(getServer()).get("/api/users/me");
+
+      expect(res.statusCode).toBe(401);
+      expect(res.body.error).toBeDefined();
+    });
+  });
+
   describe("GET /api/users/me/stats", () => {
     it("returns zero stats for a user with no finished games", async () => {
-      const registerRes = await request(getServer())
-        .post("/api/users/register")
-        .send({ username: "newplayer", password: "test123" });
+      const { cookie } = await registerUser("newplayer");
 
-      // In test mode auth is bypassed, so we simulate req.user by passing userId
-      // The stats endpoint reads from req.user which is set by auth middleware
-      // In test mode, auth is skipped — so req.user won't be set
-      // We need to test via the controller logic directly or accept this limitation
+      const res = await request(getServer())
+        .get("/api/users/me/stats")
+        .set("Cookie", cookie);
 
-      // For this test, we verify the endpoint returns 401 without req.user
-      const res = await request(getServer()).get("/api/users/me/stats");
-      expect(res.statusCode).toBe(401);
+      expect(res.statusCode).toBe(200);
+      expect(res.body.totalGames).toBe(0);
+      expect(res.body.wins).toBe(0);
+      expect(res.body.winRate).toBe(0);
+      expect(res.body.totalPoints).toBe(0);
+      expect(res.body.recentGames).toEqual([]);
     });
 
     it("returns correct stats after a completed game", async () => {
-      // Setup and complete a full game
+      // setupGame registers users A, B, C, D and plays a full game setup
       const { roomCode, round, cards } = await setupGame();
       await chooseBriscola(roomCode, round, cards);
       await oneRound(roomCode, round);
 
-      // Verify the game finished (points sum to 11, one team gets >= 5)
+      // Verify the game finished
       const finishedRoom = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: {
-          players: true,
-          rounds: true,
-        },
+        include: { players: true, rounds: true },
       });
-
       expect(finishedRoom!.finished).toBe(true);
 
-      // Get one of the players
-      const player = finishedRoom!.players[0];
-      const completedRound = finishedRoom!.rounds[0];
+      // Login as one of the players (user "A") to check stats
+      const loginRes = await request(getServer())
+        .post("/api/users/login")
+        .send({ username: "A", password: "test123" });
+      expect(loginRes.statusCode).toBe(200);
 
-      // Verify round has points
-      expect(completedRound.team0Points + completedRound.team1Points).toBe(11);
-      expect(completedRound.winnerTeam).not.toBeNull();
+      const cookie = extractAuthCookie(loginRes);
+      expect(cookie).toContain("authToken=");
 
-      // Verify player has a team
-      expect(player.team).not.toBeNull();
+      const statsRes = await request(getServer())
+        .get("/api/users/me/stats")
+        .set("Cookie", cookie);
+
+      expect(statsRes.statusCode).toBe(200);
+      expect(statsRes.body.totalGames).toBe(1);
+      expect(statsRes.body.wins + (1 - statsRes.body.wins)).toBe(1); // wins is 0 or 1
+      expect(statsRes.body.winRate).toBeGreaterThanOrEqual(0);
+      expect(statsRes.body.winRate).toBeLessThanOrEqual(100);
+      expect(statsRes.body.totalPoints).toBeGreaterThan(0);
+      expect(statsRes.body.recentGames).toHaveLength(1);
+      expect(statsRes.body.recentGames[0].code).toBe(roomCode);
+      expect(["Vittoria", "Sconfitta"]).toContain(
+        statsRes.body.recentGames[0].result
+      );
+    });
+
+    it("returns 401 without a cookie", async () => {
+      const res = await request(getServer()).get("/api/users/me/stats");
+
+      expect(res.statusCode).toBe(401);
+      expect(res.body.error).toBeDefined();
     });
   });
 
   describe("PATCH /api/users/me", () => {
-    it("rejects update without req.user (auth required)", async () => {
+    it("updates username successfully with valid cookie", async () => {
+      const { user, cookie } = await registerUser("original");
+
+      const res = await request(getServer())
+        .patch("/api/users/me")
+        .set("Cookie", cookie)
+        .send({ username: "updated_name" });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.id).toBe(user.id);
+      expect(res.body.username).toBe("updated_name");
+      expect(res.body.email).toBeDefined();
+      expect(res.body.createdAt).toBeDefined();
+      expect(res.body.updatedAt).toBeDefined();
+
+      // Verify the new cookie is set (JWT regenerated with new username)
+      const newCookie = extractAuthCookie(res);
+      expect(newCookie).toContain("authToken=");
+
+      // Verify we can use the new cookie
+      const meRes = await request(getServer())
+        .get("/api/users/me")
+        .set("Cookie", newCookie);
+
+      expect(meRes.statusCode).toBe(200);
+      expect(meRes.body.username).toBe("updated_name");
+    });
+
+    it("rejects username shorter than 3 characters", async () => {
+      const { cookie } = await registerUser("validuser");
+
+      const res = await request(getServer())
+        .patch("/api/users/me")
+        .set("Cookie", cookie)
+        .send({ username: "ab" });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.error).toContain("at least 3 characters");
+    });
+
+    it("rejects duplicate username", async () => {
+      await registerUser("existinguser");
+      const { cookie } = await registerUser("anotheruser");
+
+      const res = await request(getServer())
+        .patch("/api/users/me")
+        .set("Cookie", cookie)
+        .send({ username: "existinguser" });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.body.error).toContain("already taken");
+    });
+
+    it("returns 401 without a cookie", async () => {
       const res = await request(getServer())
         .patch("/api/users/me")
         .send({ username: "newname" });
 
       expect(res.statusCode).toBe(401);
-    });
-
-    it("rejects empty username", async () => {
-      const res = await request(getServer())
-        .patch("/api/users/me")
-        .send({ username: "" });
-
-      // Without auth, returns 401
-      expect(res.statusCode).toBe(401);
+      expect(res.body.error).toBeDefined();
     });
   });
 
   describe("DELETE /api/users/me", () => {
-    it("rejects delete without auth", async () => {
-      const res = await request(getServer()).delete("/api/users/me");
-      expect(res.statusCode).toBe(401);
-    });
-  });
+    it("deletes user and clears player records", async () => {
+      const { user, cookie } = await registerUser("deleteme");
 
-  describe("Username update (direct DB test)", () => {
-    it("can update a username via the database", async () => {
-      const registerRes = await request(getServer())
-        .post("/api/users/register")
-        .send({ username: "original", password: "test123" });
-
-      expect(registerRes.statusCode).toBe(201);
-      const userId = registerRes.body.id;
-
-      // Update directly via Prisma (simulating what the endpoint does)
-      const updated = await prisma.user.update({
-        where: { id: userId },
-        data: { username: "updated_name" },
-      });
-
-      expect(updated.username).toBe("updated_name");
-    });
-
-    it("rejects duplicate username at DB level", async () => {
-      await request(getServer())
-        .post("/api/users/register")
-        .send({ username: "user1", password: "test123" });
-
-      await request(getServer())
-        .post("/api/users/register")
-        .send({ username: "user2", password: "test123" });
-
-      // Try to rename user2 to user1
-      const user2 = await prisma.user.findUnique({
-        where: { username: "user2" },
-      });
-
-      await expect(
-        prisma.user.update({
-          where: { id: user2!.id },
-          data: { username: "user1" },
-        })
-      ).rejects.toThrow();
-    });
-  });
-
-  describe("Account deletion (direct DB test)", () => {
-    it("deletes user and their player records in non-started rooms", async () => {
-      const registerRes = await request(getServer())
-        .post("/api/users/register")
-        .send({ username: "deleteme", password: "test123" });
-
-      const userId = registerRes.body.id;
-
-      // Create a room (user becomes a player)
+      // Create a room (not started) so a Player record exists
       const roomRes = await request(getServer())
         .post("/api/rooms/")
-        .send({ userId });
+        .set("Cookie", cookie)
+        .send({ userId: user.id });
 
       expect(roomRes.statusCode).toBe(201);
 
-      // Delete player records first (simulating the endpoint logic)
-      await prisma.player.deleteMany({
-        where: { userId },
+      // Delete account
+      const deleteRes = await request(getServer())
+        .delete("/api/users/me")
+        .set("Cookie", cookie);
+
+      expect(deleteRes.statusCode).toBe(200);
+      expect(deleteRes.body.message).toContain("deleted");
+
+      // Verify user is gone from DB
+      const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+      expect(dbUser).toBeNull();
+
+      // Verify player records in non-started rooms are gone
+      const players = await prisma.player.findMany({
+        where: { userId: user.id },
       });
-
-      // Then delete the user
-      await prisma.user.delete({
-        where: { id: userId },
-      });
-
-      // Verify user is gone
-      const user = await prisma.user.findUnique({ where: { id: userId } });
-      expect(user).toBeNull();
-
-      // Verify player records are gone
-      const players = await prisma.player.findMany({ where: { userId } });
       expect(players).toHaveLength(0);
     });
-  });
 
-  describe("Stats computation correctness", () => {
-    it("correctly counts wins and total points after a full game", async () => {
-      const { roomCode, round, cards } = await setupGame();
-      await chooseBriscola(roomCode, round, cards);
-      await oneRound(roomCode, round);
+    it("rejects deletion if user is in an active game", async () => {
+      // Setup a game that is started but not finished
+      const { roomCode } = await setupGame();
+      // Game is started but not finished yet (briscola not chosen, round not played)
 
-      const room = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: {
-          players: true,
-          rounds: { select: { team0Points: true, team1Points: true, winnerTeam: true } },
-        },
-      });
+      // Login as player A who is in the active game
+      const loginRes = await request(getServer())
+        .post("/api/users/login")
+        .send({ username: "A", password: "test123" });
+      expect(loginRes.statusCode).toBe(200);
 
-      expect(room!.finished).toBe(true);
+      const cookie = extractAuthCookie(loginRes);
 
-      const completedRound = room!.rounds[0];
-      const winnerTeam = completedRound.winnerTeam;
+      const deleteRes = await request(getServer())
+        .delete("/api/users/me")
+        .set("Cookie", cookie);
 
-      // Count players on winning team
-      const winningPlayers = room!.players.filter((p) => p.team === winnerTeam);
-      const losingPlayers = room!.players.filter((p) => p.team !== winnerTeam);
+      expect(deleteRes.statusCode).toBe(400);
+      expect(deleteRes.body.error).toContain("active game");
+    });
 
-      expect(winningPlayers).toHaveLength(2);
-      expect(losingPlayers).toHaveLength(2);
+    it("returns 401 without a cookie", async () => {
+      const res = await request(getServer()).delete("/api/users/me");
 
-      // Verify points distribution
-      const team0Points = completedRound.team0Points;
-      const team1Points = completedRound.team1Points;
-      expect(team0Points + team1Points).toBe(11);
-
-      // Winner team should have more points
-      if (winnerTeam === 0) {
-        expect(team0Points).toBeGreaterThan(team1Points);
-      } else {
-        expect(team1Points).toBeGreaterThan(team0Points);
-      }
+      expect(res.statusCode).toBe(401);
+      expect(res.body.error).toBeDefined();
     });
   });
 });

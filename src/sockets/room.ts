@@ -120,22 +120,28 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   });
 
   /**
-   * CHOOSE_TEAM - Un giocatore sceglie una squadra
-   * Notifica tutti gli altri nella room della scelta
+   * CHOOSE_TEAM — Deprecated socket handler.
+   * The authoritative path is POST /api/rooms/:roomCode/choose-team which
+   * validates, persists, and broadcasts team_chosen via the global io instance.
+   * This handler exists only to give a clear error to any client that tries
+   * the socket path directly.
    */
   socket.on("choose_team", async (data: ChooseTeamData) => {
-    const { roomCode, userId, team } = data;
+    const { roomCode, team } = data;
 
-    console.log(`🎯 User ${userId} choosing team ${team} in room ${roomCode}`);
+    const userId = socket.data.user?.userId ?? data.userId;
+
+    if (!userId) {
+      socket.emit("error", { message: "Not authenticated" });
+      return;
+    }
 
     try {
-      // Verifica che il team sia valido (0 o 1)
       if (![0, 1].includes(team)) {
         socket.emit("error", { message: "Invalid team" });
         return;
       }
 
-      // Trova la room e il player
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
         include: { players: true },
@@ -152,27 +158,22 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         return;
       }
 
-      // Verifica che il team non sia pieno
       const teamCount = room.players.filter((p) => p.team === team).length;
       if (teamCount >= 2) {
         socket.emit("error", { message: "Team is full" });
         return;
       }
 
-      // Aggiorna il team nel database
       await prisma.player.update({
         where: { id: player.id },
         data: { team },
       });
 
-      // Notifica tutti nella room (incluso chi ha fatto l'azione)
       io.to(roomCode).emit("team_chosen", {
         userId,
         playerId: player.id,
         team,
       });
-
-      console.log(`✅ User ${userId} joined team ${team}`);
     } catch (error) {
       console.error("Error choosing team:", error);
       socket.emit("error", { message: "Failed to choose team" });
@@ -180,18 +181,23 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   });
 
   /**
-   * SET_READY - Un giocatore si mette pronto/non pronto
-   * Notifica tutti nella room e controlla se tutti sono pronti per iniziare
+   * SET_READY — Deprecated socket handler.
+   * The authoritative path is POST /api/rooms/:roomCode/ready which
+   * validates, persists, broadcasts ready_changed, and triggers game start.
+   * This handler updates ready state but does NOT trigger game start to
+   * avoid race conditions with the REST path.
    */
   socket.on("set_ready", async (data: ReadyData) => {
-    const { roomCode, userId, isReady } = data;
+    const { roomCode, isReady } = data;
 
-    console.log(
-      `⏳ User ${userId} setting ready to ${isReady} in room ${roomCode}`
-    );
+    const userId = socket.data.user?.userId ?? data.userId;
+
+    if (!userId) {
+      socket.emit("error", { message: "Not authenticated" });
+      return;
+    }
 
     try {
-      // Trova la room e il player
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
         include: { players: true },
@@ -208,29 +214,21 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         return;
       }
 
-      // Controlla che abbia scelto un team
       if (player.team === null) {
         socket.emit("error", { message: "Choose a team first" });
         return;
       }
 
-      // Aggiorna lo stato ready nel database
       await prisma.player.update({
         where: { id: player.id },
         data: { isReady },
       });
 
-      // Notifica tutti nella room
       io.to(roomCode).emit("ready_changed", {
         userId,
         playerId: player.id,
         isReady,
       });
-
-      // Game-start logic is handled by the REST endpoint (POST /:roomCode/ready)
-      // to avoid race conditions with dual paths.
-
-      console.log(`✅ User ${userId} ready state: ${isReady}`);
     } catch (error) {
       console.error("Error setting ready:", error);
       socket.emit("error", { message: "Failed to set ready" });

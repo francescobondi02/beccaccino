@@ -1,7 +1,7 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
 
-import { clearDatabase, setupGame, chooseBriscola, getServer } from "../helpers/gameHelpers";
+import { clearDatabase, setupGame, chooseBriscola, api, getServer } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -305,6 +305,74 @@ describe("Game Error Cases", () => {
 
       // The turn should have moved to the next player
       expect(newState.body.currentTurnUserId).not.toBe(currentTurnUserId);
+    });
+  });
+
+  describe("Choose Briscola - Caller Validation", () => {
+    it("rejects a player who is not the correct briscola caller", async () => {
+      const { roomCode, round, cards } = await setupGame();
+
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
+      });
+
+      // Find the correct caller (who has quattro di denara in round 1)
+      let correctCallerPlayerId: number | null = null;
+      for (const card of cards) {
+        if (card.value === "quattro" && card.suit === "denara") {
+          correctCallerPlayerId = card.playerId;
+          break;
+        }
+      }
+      expect(correctCallerPlayerId).not.toBeNull();
+
+      // Find a player who is NOT the correct caller
+      const wrongPlayer = room!.players.find(
+        (p) => p.id !== correctCallerPlayerId,
+      );
+      expect(wrongPlayer).toBeDefined();
+
+      // Try to choose briscola with the wrong player
+      const res = await api()
+        .post("/api/games/choose-briscola")
+        .send({
+          gameRoomId: room!.id,
+          playerId: wrongPlayer!.id,
+          suit: "coppe",
+        });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.body.error).toMatch(/not your turn to choose briscola/i);
+    });
+
+    it("allows the correct caller to choose briscola", async () => {
+      const { roomCode, round, cards } = await setupGame();
+
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
+      });
+
+      // Find the correct caller (who has quattro di denara in round 1)
+      let correctCallerPlayerId: number | null = null;
+      for (const card of cards) {
+        if (card.value === "quattro" && card.suit === "denara") {
+          correctCallerPlayerId = card.playerId;
+          break;
+        }
+      }
+      expect(correctCallerPlayerId).not.toBeNull();
+
+      const res = await api()
+        .post("/api/games/choose-briscola")
+        .send({
+          gameRoomId: room!.id,
+          playerId: correctCallerPlayerId,
+          suit: "coppe",
+        });
+
+      expect(res.statusCode).toBe(200);
     });
   });
 

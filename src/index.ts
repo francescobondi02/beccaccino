@@ -17,6 +17,7 @@ const io = new Server(server, {
     credentials: true,
   },
   path: "/socket.io/",
+  maxHttpBufferSize: 10_240, // 10 KB — card game payloads are tiny
 });
 
 // Inizializza l'istanza socket globale
