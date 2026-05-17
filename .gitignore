@@ -12,3 +12,4 @@ coverage/
 
 prisma/dev.db
 prisma/test.db
+test-results/

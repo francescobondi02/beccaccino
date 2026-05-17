@@ -42,8 +42,8 @@ export function rateLimiter(options: RateLimiterOptions) {
   cleanupInterval.unref();
 
   return (req: Request, res: Response, next: NextFunction) => {
-    // Skip rate limiting in test environment
-    if (process.env.NODE_ENV === "test") {
+    // Skip rate limiting in test and development environments
+    if (process.env.NODE_ENV === "test" || process.env.NODE_ENV === "development") {
       return next();
     }
 

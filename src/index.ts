@@ -1,14 +1,14 @@
 // src/index.ts
+import dotenv from "dotenv";
+dotenv.config();
+
 import http from "http";
 import { Server } from "socket.io";
-import dotenv from "dotenv";
 
 import app from "./app";
 import { registerRoomSocket } from "./sockets/room";
 import { setSocketInstance } from "./socketInstance";
 import { verifyToken } from "./utils/jwt";
-
-dotenv.config();
 
 const server = http.createServer(app);
 const io = new Server(server, {
