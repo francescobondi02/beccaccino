@@ -3,10 +3,18 @@
 ## Quick Start
 
 ```sh
-# 1. Start backend + database
+# 0. Clone with submodules
+git clone --recursive https://github.com/francescobondi02/beccaccino.git
+cd beccaccino
+
+# 1. Copy env files and fill in values
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+
+# 2. Start backend + database
 docker compose up
 
-# 2. Start frontend (separate terminal)
+# 3. Start frontend (separate terminal)
 cd frontend && npm install && npm run dev
 ```
 
