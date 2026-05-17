@@ -7,8 +7,11 @@
 
 ## Environment Setup
 
-Create `frontend/.env`:
+```sh
+cp .env.example .env
+```
 
+This gives you:
 ```env
 VITE_API_URL=http://localhost:8000/api
 VITE_SOCKET_URL=http://localhost:8000
@@ -124,7 +127,7 @@ End-to-end tests use **Playwright** to simulate 4 real browser sessions playing 
 #### Prerequisites
 
 - Docker DB running (`docker compose up -d db` from project root)
-- Backend running (`cd backend && npm run dev`)
+- Backend running with `GAME_WIN_POINTS=12` in `backend/.env` (or use `backend/.env.e2e`)
 - Frontend running (`cd frontend && npm run dev`)
 
 Or let Playwright auto-start them (configured in `playwright.config.ts`).
