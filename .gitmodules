@@ -1,0 +1,6 @@
+[submodule "backend"]
+	path = backend
+	url = https://github.com/francescobondi02/beccaccino-server.git
+[submodule "frontend"]
+	path = frontend
+	url = https://github.com/francescobondi02/playful-lobby-hub.git

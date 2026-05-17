@@ -1,0 +1,2 @@
+CREATE DATABASE becca;
+CREATE DATABASE becca_test;
