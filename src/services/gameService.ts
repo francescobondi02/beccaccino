@@ -7,6 +7,7 @@ import { determineHandWinner } from "../utils/determineHandWinner";
 import { computePoints } from "../utils/computePoints";
 import { getSocketInstance } from "../socketInstance";
 import { getRng } from "../utils/random";
+import { startTurnTimer, clearTurnTimer, clearRoomTimerData } from "./turnTimer";
 
 /**
  * Points required to win the game.
@@ -175,23 +176,16 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     });
   }
 
-  /*
-
+  // Determine the briscola caller for this round
   if (newRoundNumber === 1) {
-    //^ Primo round, chi ha il 4 di Denara in mano inizia
     starterId = playerWithQuattroDenara!;
   } else {
-    //^ Nei round successivi, cambia chiamante. Prendo l'ultimo starter
-    let lastStarterId = previousRound!.hands[0].starterId;
-
-    //^ Ora computa il nuovo starterId, facendo rotazione antiorario fra i player
+    const lastStarterId = previousRound!.hands[0].starterId;
     const lastStarterPlayer = players.find((p) => p.id === lastStarterId);
     if (!lastStarterPlayer || lastStarterPlayer.seat === null) {
       throw new Error("Invalid previous starter or seat not assigned");
     }
-    const lastSeat = lastStarterPlayer.seat;
-    const newStarterSeat = (lastSeat + 1) % 4;
-
+    const newStarterSeat = (lastStarterPlayer.seat + 1) % 4;
     const newStarter = players.find((p) => p.seat === newStarterSeat);
     if (!newStarter) {
       throw new Error("New starter not found");
@@ -199,17 +193,98 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     starterId = newStarter.id;
   }
 
-  //^ Creo la prima mano
-  await prisma.hand.create({
+  return { callerPlayerId: starterId, roundId: round.id };
+}
+
+/**
+ * Set briscola for the current round and create the first hand.
+ * Extracted as a service so it can be called from both the REST controller and auto-play.
+ */
+export async function setBriscola({
+  gameRoomId,
+  playerId,
+  suit,
+}: {
+  gameRoomId: number;
+  playerId: number;
+  suit: Suit;
+}) {
+  const gameRoom = await prisma.gameRoom.findUnique({
+    where: { id: gameRoomId },
+    include: { players: true },
+  });
+  if (!gameRoom) throw new Error("Game room not found");
+
+  // Clear timer before processing (prevents race with auto-play)
+  clearTurnTimer(gameRoom.code);
+
+  const player = gameRoom.players.find((p) => p.id === playerId);
+  if (!player) throw new Error("Player not in this game room");
+
+  const currentRound = await prisma.round.findFirst({
+    where: { gameRoomId },
+    orderBy: { number: "desc" },
+  });
+  if (!currentRound) throw new Error("No active round found");
+  if (currentRound.briscola !== null)
+    throw new Error("Briscola already set for this round");
+
+  // Verify it's the correct player's turn to choose
+  let callerPlayerId: number | null = null;
+
+  if (currentRound.number === 1) {
+    const quattroDenara = await prisma.playerCard.findFirst({
+      where: { roundId: currentRound.id, suit: "denara", value: "quattro" },
+    });
+    callerPlayerId = quattroDenara?.playerId ?? null;
+  } else {
+    const previousRound = await prisma.round.findFirst({
+      where: { gameRoomId, number: currentRound.number - 1 },
+      include: { hands: { orderBy: { number: "asc" }, take: 1 } },
+    });
+    if (previousRound && previousRound.hands.length > 0) {
+      const prevCaller = gameRoom.players.find(
+        (p) => p.id === previousRound.hands[0].starterId,
+      );
+      if (prevCaller && prevCaller.seat !== null) {
+        const nextSeat = (prevCaller.seat + 1) % 4;
+        const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
+        callerPlayerId = nextPlayer?.id ?? null;
+      }
+    }
+  }
+
+  if (playerId !== callerPlayerId) {
+    throw new Error("It's not your turn to choose briscola");
+  }
+
+  const updatedRound = await prisma.round.update({
+    where: { id: currentRound.id },
+    data: { briscola: suit },
+  });
+
+  const firstHand = await prisma.hand.create({
     data: {
-      roundId: round.id,
+      roundId: currentRound.id,
       number: 1,
-      starterId: starterId, // Nuovo starter computato
+      starterId: playerId,
     },
   });
-  */
 
-  //* Qui dovresti notificare tramite websocket il player che deve scegliere briscola (starterId)
+  const io = getSocketInstance();
+  io.to(gameRoom.code).emit("briscola_chosen", {
+    briscola: suit,
+    roundNumber: currentRound.number,
+    starterId: playerId,
+  });
+
+  // Start timer for the first card play (caller plays first)
+  const callerPlayer = gameRoom.players.find((p) => p.id === playerId);
+  if (callerPlayer) {
+    startTurnTimer(gameRoom.code, callerPlayer.userId, "play_card");
+  }
+
+  return { round: updatedRound, hand: firstHand, roomCode: gameRoom.code };
 }
 
 export async function playCard({
@@ -234,6 +309,9 @@ export async function playCard({
    *
    * @note Questa funzione controlla anche la validità della mossa
    */
+
+  // Clear timer before processing (prevents race with auto-play)
+  clearTurnTimer(roomCode);
 
   //^ 1. Trova la room in cui si sta giocando
   const room = await prisma.gameRoom.findUnique({
@@ -325,7 +403,21 @@ export async function playCard({
   });
 
   //^ Ora dobbiamo controllare se la mano è completa e gestire il turno successivo
-  //^ Lo facciamo ma aspettando qualche secondo (5 secondi === 5000 ms) => SARA' FATTO LATO CLIENT, IL SERVER NON PUO' ASPETTARE
+  if (playedCards.length + 1 < 4) {
+    // Hand not complete — start timer for next player
+    const seatOrder = Array.from(
+      { length: 4 },
+      (_, i) =>
+        (room.players.find((p) => p.id === currentHand.starterId)!.seat! + i) %
+        4,
+    );
+    const nextSeat = seatOrder[playedCards.length + 1];
+    const nextPlayer = room.players.find((p) => p.seat === nextSeat);
+    if (nextPlayer) {
+      startTurnTimer(roomCode, nextPlayer.userId, "play_card");
+    }
+  }
+
   if (playedCards.length + 1 === 4) {
     //^ Il player in questione era l'ultimo della mano corrente
     const winnerPlayerId = determineHandWinner(
@@ -350,7 +442,11 @@ export async function playCard({
         },
       });
 
-      //* NOTIFICA TRAMITE WEBSOCKET I GIOCATORI CHE INIZIA LA NUOVA MANO E CHI PARTE
+      // Start timer for the trick winner (who starts the new hand)
+      const winnerPlayer = room.players.find((p) => p.id === winnerPlayerId);
+      if (winnerPlayer) {
+        startTurnTimer(roomCode, winnerPlayer.userId, "play_card");
+      }
     } else {
       //^ Era l'ultima mano del round, calcola i punti e crea un nuovo round
 
@@ -489,17 +585,28 @@ export async function playCard({
           },
         });
 
+        clearRoomTimerData(roomCode);
+
         console.log(
           `🏆 Partita ${roomCode} terminata! Vincitore: Team ${finalWinnerTeam}`,
         );
       } else {
         // Crea il nuovo round
-        await setupRound(room.id, currentRound.number + 1);
+        const { callerPlayerId: newCallerPlayerId } = await setupRound(
+          room.id,
+          currentRound.number + 1,
+        );
 
         // Notifica il nuovo round
         io.to(roomCode).emit("new_round_started", {
           roundNumber: currentRound.number + 1,
         });
+
+        // Start briscola timer for the new caller
+        const newCaller = room.players.find((p) => p.id === newCallerPlayerId);
+        if (newCaller) {
+          startTurnTimer(roomCode, newCaller.userId, "choose_briscola");
+        }
       }
     }
   }

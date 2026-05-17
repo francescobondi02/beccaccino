@@ -5,6 +5,7 @@ import { prisma } from "../db";
 import { generateRoomCode } from "../utils/generateRoomCode";
 import { setupRound } from "../services/gameService";
 import { getSocketInstance } from "../socketInstance";
+import { startTurnTimer } from "../services/turnTimer";
 
 export const createRoom = async (req: Request, res: Response) => {
   /**
@@ -25,6 +26,22 @@ export const createRoom = async (req: Request, res: Response) => {
   }
 
   try {
+    // Check if user is already in an active game
+    const existingActiveGame = await prisma.player.findFirst({
+      where: {
+        userId,
+        gameRoom: { started: true, finished: false },
+      },
+      include: { gameRoom: true },
+    });
+
+    if (existingActiveGame) {
+      return res.status(409).json({
+        error: "Sei già in una partita attiva",
+        activeRoomCode: existingActiveGame.gameRoom.code,
+      });
+    }
+
     //^ Genera un codice univoco per la stanza e crea la stanza
     const code = await generateUniqueRoomCode();
     const room = await prisma.gameRoom.create({
@@ -239,6 +256,22 @@ export const joinRoom = async (req: Request, res: Response) => {
   }
 
   try {
+    // Check if user is already in an active game
+    const existingActiveGame = await prisma.player.findFirst({
+      where: {
+        userId,
+        gameRoom: { started: true, finished: false },
+      },
+      include: { gameRoom: true },
+    });
+
+    if (existingActiveGame) {
+      return res.status(409).json({
+        error: "Sei già in una partita attiva",
+        activeRoomCode: existingActiveGame.gameRoom.code,
+      });
+    }
+
     //^ Troviamo la stanza a cui l'utente vuole unirsi
     const room = await prisma.gameRoom.findUnique({
       where: { code: roomCode },
@@ -406,7 +439,15 @@ export const setPlayerReady = async (req: Request, res: Response) => {
 
       try {
         //^ Chiama setupRound per creare il primo round
-        await setupRound(room.id, 1);
+        const { callerPlayerId } = await setupRound(room.id, 1);
+
+        // Start briscola timer for the caller
+        const callerPlayer = room.players.find(
+          (p: any) => p.id === callerPlayerId,
+        );
+        if (callerPlayer) {
+          startTurnTimer(roomCode, callerPlayer.userId, "choose_briscola");
+        }
       } catch (error) {
         console.error("Error setting up the first round:", error);
       }

@@ -2,146 +2,33 @@
 
 import { Request, Response } from "express";
 import { prisma } from "../db";
-import { Suit, Value } from "@prisma/client";
-import { playCard } from "../services/gameService";
+import { Suit } from "@prisma/client";
+import { playCard, setBriscola } from "../services/gameService";
 import { playableCards } from "../services/cardService";
-import { getSocketInstance } from "../socketInstance";
+import { getTurnTimerState } from "../services/turnTimer";
 
 export const chooseBriscola = async (req: Request, res: Response) => {
-  /**
-   * Funzione per scegliere la briscola in una partita di carte all'inizio del round.
-   *
-   * @param req Request contenente il body con:
-   *  - gameRoomId: ID della stanza di gioco
-   *  - playerId: ID del giocatore che sceglie la briscola
-   *  - suit: Seme scelto come briscola (denari, coppe, spade, bastoni)
-   *
-   * @return void
-   */
   const { gameRoomId, playerId, suit } = req.body;
 
-  //^ Controlli preliminari
-  const gameRoom = await prisma.gameRoom.findUnique({
-    where: { id: gameRoomId },
-    include: { players: true },
-  });
-  if (!gameRoom) {
-    return res.status(404).json({ error: "Game room not found" });
-  }
-
-  const player = gameRoom.players.find((p) => p.id === playerId);
-  if (!player) {
-    return res.status(403).json({ error: "Player not in this game room" });
-  }
-
-  //^ Controllo che non sia già stata scelta una briscola per questo round
-  const lastRound = await prisma.round.findFirst({
-    where: { gameRoomId: gameRoom.id },
-    orderBy: { number: "desc" },
-  });
-
-  if (!lastRound) {
-    return res.status(500).json({ error: "No active round found" });
-  }
-
-  if (lastRound.briscola !== null) {
-    return res
-      .status(400)
-      .json({ error: "Briscola already set for this round" });
-  }
-
-  //^ Controllo che sia il turno del giocatore corretto per scegliere la briscola
-  let callerPlayerId: number | null = null;
-
-  if (lastRound.number === 1) {
-    // Round 1: chi ha il quattro di denara sceglie la briscola
-    const quattroDenara = await prisma.playerCard.findFirst({
-      where: {
-        roundId: lastRound.id,
-        suit: "denara",
-        value: "quattro",
-      },
-    });
-    callerPlayerId = quattroDenara?.playerId ?? null;
-  } else {
-    // Round 2+: il giocatore con seat = (previousCaller.seat + 1) % 4
-    const previousRound = await prisma.round.findFirst({
-      where: { gameRoomId: gameRoom.id, number: lastRound.number - 1 },
-      include: {
-        hands: {
-          orderBy: { number: "asc" },
-          take: 1,
-        },
-      },
-    });
-    if (previousRound && previousRound.hands.length > 0) {
-      const prevCaller = gameRoom.players.find(
-        (p) => p.id === previousRound.hands[0].starterId,
-      );
-      if (prevCaller && prevCaller.seat !== null) {
-        const nextSeat = (prevCaller.seat + 1) % 4;
-        const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
-        callerPlayerId = nextPlayer?.id ?? null;
-      }
-    }
-  }
-
-  if (playerId !== callerPlayerId) {
-    return res
-      .status(403)
-      .json({ error: "It's not your turn to choose briscola" });
-  }
-
-  //^ Imposto la briscola nel round corrente
-  const currentRound = await prisma.round.findFirst({
-    where: { gameRoomId: gameRoom.id },
-    orderBy: { number: "desc" },
-  });
-
-  if (!currentRound) {
-    return res.status(500).json({ error: "No active round found" });
-  }
-
-  if (currentRound.briscola !== null) {
-    return res
-      .status(400)
-      .json({ error: "Briscola already set for this round" });
-  }
-
-  const updatedRound = await prisma.round.update({
-    where: { id: currentRound.id },
-    data: { briscola: suit },
-  });
-
-  if (!updatedRound) {
-    return res.status(500).json({ error: "Failed to set briscola" });
-  }
-
-  //^ Creiamo la prima mano del round ora che la briscola è stata scelta
   try {
-    const firstHand = await prisma.hand.create({
-      data: {
-        roundId: currentRound.id,
-        number: 1,
-        starterId: playerId, // Chi ha scelto la briscola inizia
-      },
-    });
-
-    // Notifica tramite websocket la scelta della briscola + inizio prima mano
-    const io = getSocketInstance();
-    io.to(gameRoom.code).emit("briscola_chosen", {
-      briscola: suit,
-      roundNumber: currentRound.number,
-      starterId: playerId,
-    });
-
+    const result = await setBriscola({ gameRoomId, playerId, suit });
     return res.status(200).json({
       message: "Briscola set successfully",
-      round: updatedRound,
-      hand: firstHand,
+      round: result.round,
+      hand: result.hand,
     });
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    const message = (error as Error).message;
+    if (message.includes("not found")) {
+      return res.status(404).json({ error: message });
+    }
+    if (message.includes("not your turn") || message.includes("not in this")) {
+      return res.status(403).json({ error: message });
+    }
+    if (message.includes("already set")) {
+      return res.status(400).json({ error: message });
+    }
+    return res.status(500).json({ error: message });
   }
 };
 
@@ -378,5 +265,6 @@ export const getGameState = async (req: Request, res: Response) => {
     playedCards,
     lastHandCards,
     totalPoints,
+    turnTimer: getTurnTimerState(roomCode),
   });
 };
