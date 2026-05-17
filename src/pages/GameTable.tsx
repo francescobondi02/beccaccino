@@ -87,6 +87,9 @@ const GameTable = () => {
   const [playedCards, setPlayedCards] = useState<PlayedCardData[]>([]);
   const [playableCards, setPlayableCards] = useState<PlayerCard[]>([]);
   const [lastHand, setLastHand] = useState<PlayedCardData[]>([]);
+  const [currentHandNumber, setCurrentHandNumber] = useState<number | null>(
+    null,
+  );
   const [roundEndDialogOpen, setRoundEndDialogOpen] = useState(false);
   const [roundEndData, setRoundEndData] = useState<{
     roundNumber: number;
@@ -250,6 +253,7 @@ const GameTable = () => {
         setCurrentTurnUserId(data.currentTurnUserId ?? null);
         setPlayedCards(data.playedCards ?? []);
         setLastHand(data.lastHandCards ?? []);
+        setCurrentHandNumber(data.currentHandNumber ?? null);
         setTotalPoints(
           data.totalPoints ?? {
             team0Points: 0,
@@ -313,6 +317,7 @@ const GameTable = () => {
         setCurrentTurnUserId(data.currentTurnUserId ?? null);
         setPlayedCards(data.playedCards ?? []);
         setLastHand(data.lastHandCards ?? []);
+        setCurrentHandNumber(data.currentHandNumber ?? null);
         setTotalPoints(
           data.totalPoints ?? {
             team0Points: 0,
@@ -396,7 +401,6 @@ const GameTable = () => {
 
       // When socket reconnects, refetch state to catch any missed events
       if (status === "connected") {
-        console.log("🔄 Reconnected — refetching game state");
         refetchGameState();
       }
     });
@@ -413,7 +417,6 @@ const GameTable = () => {
     registerRoomHandlers(gameRoomCode, { userId, username });
 
     const handlePlayerLeft = (leftUserId: number) => {
-      console.log("👋 Giocatore uscito durante la partita:", leftUserId);
       toast.warning("Un giocatore ha abbandonato la partita");
       setRoom((prev) => {
         if (!prev) return prev;
@@ -474,7 +477,6 @@ const GameTable = () => {
       team1: { points: number; figures: number };
       winnerTeam: number;
     }) => {
-      console.log("🏁 Round terminato:", data);
       setRoundEndData({
         roundNumber: data.roundNumber,
         team0Points: data.team0.points,
@@ -487,7 +489,6 @@ const GameTable = () => {
     };
 
     const handleNewRoundStarted = () => {
-      console.log("🆕 Nuovo round iniziato");
       toast.success("Nuovo round iniziato!");
       refetchGameState();
     };
@@ -498,7 +499,6 @@ const GameTable = () => {
       finalScores: { team0: number; team1: number };
       roundsWon: { team0: number; team1: number };
     }) => {
-      console.log("🏆 Partita terminata:", data);
       setGameFinishedData(data);
       setGameFinishedDialogOpen(true);
       setRoundEndDialogOpen(false);
@@ -757,6 +757,11 @@ const GameTable = () => {
 
       {/* Team Points Panel */}
       <Card className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm" data-testid="team-points-panel">
+        {currentHandNumber && currentRound && (
+          <div className="text-center text-xs text-muted-foreground mb-2 border-b border-border pb-1">
+            Round {currentRound.number} &middot; Mano {currentHandNumber}/10
+          </div>
+        )}
         <div className="flex items-center gap-6">
           <div className="text-center">
             <div className="text-xs text-muted-foreground mb-1">

@@ -43,7 +43,6 @@ export const registerLobbyHandlers = (userId: number) => {
 
   const joinLobby = () => {
     socket.emit("join_lobby", { userId });
-    console.log("🏠 [SOCKET] Joined global lobby as", userId);
   };
 
   // Join immediately
@@ -57,7 +56,6 @@ export const registerLobbyHandlers = (userId: number) => {
   // Re-join on reconnect so lobby events resume after a network drop
   lobbyReconnectHandler = () => {
     if (currentLobbyUserId !== null) {
-      console.log("🔄 [SOCKET] Reconnected, re-joining lobby");
       joinLobby();
     }
   };
@@ -66,7 +64,6 @@ export const registerLobbyHandlers = (userId: number) => {
 
   socket.off("room_created");
   socket.on("room_created", (data: { room: Room }) => {
-    console.log("🆕 New room created:", data.room);
     roomCreatedCallbacks.forEach((cb) => cb(data.room));
   });
 
@@ -74,20 +71,17 @@ export const registerLobbyHandlers = (userId: number) => {
   socket.on(
     "room_updated",
     (data: { roomCode: string; currentPlayers: number }) => {
-      console.log("🔄 Room updated:", data);
       roomUpdatedCallbacks.forEach((cb) => cb(data));
     },
   );
 
   socket.off("room_full");
   socket.on("room_full", (data: { roomCode: string }) => {
-    console.log("🔒 Room full:", data.roomCode);
     roomFullCallbacks.forEach((cb) => cb(data));
   });
 
   socket.off("room_deleted");
   socket.on("room_deleted", (data: { roomCode: string }) => {
-    console.log("❌ [SOCKET] Room deleted:", data.roomCode);
     roomDeletedCallbacks.forEach((cb) => cb(data));
   });
 
@@ -109,7 +103,6 @@ export const leaveLobby = () => {
     lobbyReconnectHandler = null;
   }
 
-  console.log("🚪 [SOCKET] Left lobby");
 };
 
 /**

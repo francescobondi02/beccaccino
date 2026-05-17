@@ -48,7 +48,6 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
       userId: user.userId,
       username: user.username,
     });
-    console.log("🎮 [SOCKET] Joined room", roomCode, "as", user.username);
   };
 
   // Entra nella stanza subito
@@ -61,7 +60,6 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
 
   // Create a new handler that re-joins on reconnect
   reconnectHandler = () => {
-    console.log("🔄 [SOCKET] Reconnected, re-joining room", roomCode);
     joinRoom();
   };
 
@@ -70,7 +68,6 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
   // Handler: player joined
   socket.off("player_joined");
   socket.on("player_joined", (payload: PlayerJoinedPayload) => {
-    console.log("➕ Player joined:", payload.player);
     playerJoinedCallbacks.forEach((cb) => {
       try {
         cb(payload.player);
@@ -83,13 +80,11 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
   // Handler: player left
   socket.off("player_left");
   socket.on("player_left", (payload: { userId: number }) => {
-    console.log("👋 Player left:", payload.userId);
     playerLeftCallbacks.forEach((cb) => cb(payload.userId));
   });
 
   socket.off("team_chosen");
   socket.on("team_chosen", (data: { userId: number; team: number }) => {
-    console.log("🏳️‍🌈 Team chosen:", data);
     teamChosenCallbacks.forEach((cb) => {
       try {
         cb(data);
@@ -101,7 +96,6 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
 
   socket.off("ready_changed");
   socket.on("ready_changed", (data: { userId: number; isReady: boolean }) => {
-    console.log("✅ Ready changed:", data);
     readyChangedCallbacks.forEach((cb) => {
       try {
         cb(data);
@@ -113,7 +107,6 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
 
   socket.off("game_started");
   socket.on("game_started", () => {
-    console.log("🚀 Room started!");
     if (onGameStartedCallbacks) onGameStartedCallbacks();
   });
 };
@@ -124,13 +117,11 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
 export const leaveRoom = (roomCode: string) => {
   const socket = getSocket();
   socket.emit("leave_room", { roomCode });
-  console.log("🚪 [SOCKET] Left room", roomCode);
 };
 
 export const disconnectRoomSocket = () => {
   disconnectSocket();
   reconnectHandler = null;
-  console.log("❌ [SOCKET] Room socket disconnected");
 };
 
 /**

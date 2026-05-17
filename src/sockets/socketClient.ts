@@ -38,12 +38,10 @@ export function getSocket(): Socket {
 
     // Track connection status
     socket.on("connect", () => {
-      console.log("🟢 Socket connected:", socket?.id);
       setStatus("connected");
     });
 
     socket.on("disconnect", (reason) => {
-      console.log("🔴 Socket disconnected:", reason);
       // If the server closed the connection or transport was closed,
       // socket.io will auto-reconnect → mark as reconnecting immediately
       if (reason === "io server disconnect") {
@@ -57,17 +55,14 @@ export function getSocket(): Socket {
     });
 
     socket.io.on("reconnect_attempt", (attempt) => {
-      console.log(`🟡 Socket reconnecting... attempt ${attempt}`);
       setStatus("reconnecting");
     });
 
     socket.io.on("reconnect", (attempt) => {
-      console.log(`🟢 Socket reconnected after ${attempt} attempts`);
       setStatus("connected");
     });
 
     socket.io.on("reconnect_failed", () => {
-      console.log("🔴 Socket reconnection failed permanently");
       setStatus("disconnected");
     });
 

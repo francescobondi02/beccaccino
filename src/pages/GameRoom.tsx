@@ -115,7 +115,6 @@ const GameRoom = () => {
           isInitialConnect = false;
           return; // Skip — initial fetch is handled by the fetchRoom useEffect
         }
-        console.log("🔄 Reconnected in lobby — refetching room state");
         refetchRoom();
       } else {
         // Any disconnect/reconnecting resets the flag so next connect triggers refetch
@@ -221,11 +220,8 @@ const GameRoom = () => {
 
     // Callback per quando un nuovo player si unisce
     const handlePlayerJoined = (joinedPlayer: Player) => {
-      console.log("👥 Nuovo giocatore:", joinedPlayer);
 
       setRoom((prevRoom) => {
-        // console.log("Giocatori attuali:", prevRoom.players);
-        // console.log("Nuovo giocatore:", joinedPlayer);
         if (!prevRoom) return prevRoom;
 
         // Evita duplicati
@@ -242,7 +238,6 @@ const GameRoom = () => {
     };
 
     const handlePlayerLeft = (leftUserId: number) => {
-      console.log("👋 Giocatore uscito:", leftUserId);
       setRoom((prevRoom) => {
         if (!prevRoom) return prevRoom;
         return {
@@ -253,7 +248,6 @@ const GameRoom = () => {
     };
 
     const handleTeamChosen = (data: { userId: number; team: number }) => {
-      console.log("🏳️‍🌈 Team scelto:", data);
       setRoom((prevRoom) => {
         if (!prevRoom) return prevRoom;
         const updatedPlayers = prevRoom.players.map((p) =>
@@ -268,7 +262,6 @@ const GameRoom = () => {
     };
 
     const handleReadyChanged = (data: { userId: number; isReady: boolean }) => {
-      console.log("✅ Stato pronto cambiato:", data);
       setRoom((prevRoom) => {
         if (!prevRoom) return prevRoom;
         const updatedPlayers = prevRoom.players.map((p) =>
