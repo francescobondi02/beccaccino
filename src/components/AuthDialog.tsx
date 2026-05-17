@@ -88,7 +88,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-card">
+      <DialogContent className="sm:max-w-md bg-card" data-testid="auth-dialog">
         <DialogHeader>
           <DialogTitle className="text-center text-2xl">
             {isLogin ? "Accedi" : "Registrati"}
@@ -105,6 +105,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
             <Label htmlFor="username">Nome utente</Label>
             <Input
               id="username"
+              data-testid="username-input"
               placeholder="Il tuo nome utente"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -116,6 +117,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
             <Label htmlFor="password">Password</Label>
             <Input
               id="password"
+              data-testid="password-input"
               type="password"
               placeholder="La tua password"
               value={password}
@@ -130,6 +132,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
             className="w-full"
             size="lg"
             disabled={isLoading}
+            data-testid="auth-submit-button"
           >
             {isLoading ? (
               <>
@@ -168,6 +171,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
               type="button"
               onClick={() => setIsLogin(!isLogin)}
               className="text-primary hover:underline"
+              data-testid="toggle-auth-mode"
             >
               {isLogin
                 ? "Non hai un account? Registrati"

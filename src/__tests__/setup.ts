@@ -7,3 +7,6 @@ Object.defineProperty(import.meta, "env", {
     VITE_SOCKET_URL: "http://localhost:8000",
   },
 });
+
+// jsdom doesn't implement scrollIntoView
+Element.prototype.scrollIntoView = () => {};

@@ -9,6 +9,7 @@ type PlayingCardProps = {
   clickable?: boolean;
   disabled?: boolean;
   className?: string;
+  "data-testid"?: string;
 };
 
 // Mappa suit DB (denara) -> nome file immagine (denari)
@@ -43,6 +44,7 @@ const PlayingCard = ({
   clickable = false,
   disabled = false,
   className,
+  "data-testid": dataTestId,
 }: PlayingCardProps) => {
   const [imgError, setImgError] = useState(false);
 
@@ -72,6 +74,8 @@ const PlayingCard = ({
         className,
       )}
       onClick={clickable && !disabled ? onClick : undefined}
+      data-testid={dataTestId ?? `card-${suit}-${value}`}
+      data-playable={clickable && !disabled ? "true" : "false"}
     >
       {imgError ? (
         // Styled fallback placeholder when image fails to load

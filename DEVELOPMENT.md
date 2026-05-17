@@ -76,14 +76,14 @@ frontend/
 
 ## Testing
 
-Tests use **Vitest** + **React Testing Library** + **jsdom**.
+### Unit Tests (Vitest)
 
-### Commands
+Tests use **Vitest** + **React Testing Library** + **jsdom**.
 
 ```sh
 cd frontend
 
-# Run all tests
+# Run all unit tests
 npm test
 
 # Run tests in watch mode (development)
@@ -93,28 +93,111 @@ npm run test:watch
 npm run test:coverage
 ```
 
-### Test Structure
+#### Unit Test Structure
 
 ```
-frontend/
-├── src/
-│   ├── __tests__/
-│   │   ├── setup.ts                # Test setup (jest-dom, env mocks)
-│   │   ├── utils.test.ts           # cn() utility (5 tests)
-│   │   ├── socketClient.test.ts    # Socket singleton (7 tests)
-│   │   ├── lobbyHandlers.test.ts   # Lobby event handling (7 tests)
-│   │   ├── roomHandlers.test.ts    # Room event handling (18 tests)
-│   │   ├── components/
-│   │   │   ├── PlayingCard.test.tsx # Card rendering & interaction (8 tests)
-│   │   │   ├── Header.test.tsx     # Navigation & avatar (7 tests)
-│   │   │   └── AuthDialog.test.tsx # Login/register form (12 tests)
-│   │   └── pages/
-│   │       └── NotFound.test.tsx   # 404 page (3 tests)
+frontend/src/__tests__/
+├── setup.ts                # Test setup (jest-dom, env mocks, scrollIntoView polyfill)
+├── utils.test.ts           # cn() utility (5 tests)
+├── socketClient.test.ts    # Socket singleton (7 tests)
+├── lobbyHandlers.test.ts   # Lobby event handling (7 tests)
+├── roomHandlers.test.ts    # Room event handling (18 tests)
+├── components/
+│   ├── PlayingCard.test.tsx # Card rendering & interaction (8 tests)
+│   ├── GameChat.test.tsx   # Chat component (14 tests)
+│   ├── Header.test.tsx     # Navigation & avatar (7 tests)
+│   └── AuthDialog.test.tsx # Login/register form (12 tests)
+└── pages/
+    └── NotFound.test.tsx   # 404 page (3 tests)
 ```
 
-### Coverage
+#### Coverage
 
-Run `npm run test:coverage` to generate a coverage report. The HTML report is written to `coverage/` and the terminal shows a summary table. Coverage excludes auto-generated shadcn/ui components and `main.tsx`.
+Run `npm run test:coverage` to generate a coverage report. The HTML report is written to `coverage/` and the terminal shows a summary table.
+
+---
+
+### E2E Tests (Playwright)
+
+End-to-end tests use **Playwright** to simulate 4 real browser sessions playing together. Each player gets an isolated browser context (independent cookies/sessions), coordinated via `async/await`.
+
+#### Prerequisites
+
+- Docker DB running (`docker compose up -d db` from project root)
+- Backend running (`cd backend && npm run dev`)
+- Frontend running (`cd frontend && npm run dev`)
+
+Or let Playwright auto-start them (configured in `playwright.config.ts`).
+
+#### Commands
+
+```sh
+cd frontend
+
+# Run E2E tests (headless)
+npm run test:e2e
+
+# Run E2E tests in headed mode (watch the bots play in real browsers)
+npm run test:e2e:headed
+
+# Run E2E tests with Playwright's interactive UI
+npm run test:e2e:ui
+```
+
+#### E2E Test Structure
+
+```
+frontend/e2e/
+├── helpers/
+│   ├── BotPlayer.ts        # Player abstraction (register, join, play cards, etc.)
+│   └── fixtures.ts         # Playwright fixtures with createBot factory
+├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
+└── full-game.spec.ts       # Complete game played to victory
+```
+
+#### How It Works
+
+The `BotPlayer` class encapsulates one player's browser session:
+
+```typescript
+const alice = await createBot("Alice");
+await alice.register();
+const roomCode = await alice.createRoom();
+
+// Other players join
+await bob.joinRoomByCode(roomCode);
+
+// Game flow
+await alice.chooseTeam(0);
+await alice.setReady();
+await alice.waitForGameStart();
+await alice.waitForMyTurn();
+await alice.playFirstAvailableCard();
+```
+
+Key patterns:
+- **Turn detection**: `data-current-turn-userid` attribute on the page root
+- **Card playability**: `data-playable="true"` on clickable cards
+- **Game state**: `data-briscola`, `data-game-finished` attributes for assertions
+- **Cross-player sync**: Each bot polls its own view; WebSocket events update the DOM
+
+#### Configuration
+
+`playwright.config.ts` configures:
+- **webServer**: Auto-starts backend (port 8000) and frontend (port 8081)
+- **reuseExistingServer**: Skips auto-start if servers are already running
+- **trace/video**: Recorded on first retry for debugging failures
+- **timeout**: 60s per test (full game can take 30-60s)
+
+#### Debugging Failed E2E Tests
+
+```sh
+# Show the HTML report with traces and screenshots
+npx playwright show-report
+
+# Run a specific test in headed mode with slowMo
+npx playwright test lobby-to-game --headed --timeout=120000
+```
 
 ## Scripts Reference
 
@@ -125,9 +208,12 @@ Run `npm run test:coverage` to generate a coverage report. The HTML report is wr
 | `npm run build:dev` | Development build |
 | `npm run preview` | Preview production build locally |
 | `npm run lint` | Run ESLint |
-| `npm test` | Run Vitest |
+| `npm test` | Run Vitest (unit tests) |
 | `npm run test:watch` | Vitest in watch mode |
 | `npm run test:coverage` | Vitest with coverage |
+| `npm run test:e2e` | Run Playwright E2E tests (headless) |
+| `npm run test:e2e:headed` | Run Playwright E2E tests (visible browsers) |
+| `npm run test:e2e:ui` | Run Playwright with interactive UI |
 
 ## Styling Conventions
 

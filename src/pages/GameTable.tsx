@@ -283,40 +283,7 @@ const GameTable = () => {
     };
 
     fetchPlayableCards();
-  }, [currentTurnUserId, userId, gameRoomCode, currentRound?.briscola]);
-
-  // Gestione completamento mano (4 carte giocate) - refetch dopo 3 secondi
-  useEffect(() => {
-    if (playedCards.length !== 4) return;
-
-    // Aspetta 3 secondi per mostrare l'ultima carta, poi refetch
-    const timer = setTimeout(async () => {
-      console.log("🏁 Mano completata, aggiorno stato dal backend");
-
-      // Refetch dello stato per ottenere la nuova mano dal backend
-      if (userId && gameRoomCode) {
-        try {
-          const res = await fetch(
-            `${API_URL}/games/${gameRoomCode}/state?userId=${userId}`,
-            { credentials: "include" },
-          );
-          if (res.ok) {
-            const data = await res.json();
-            setCurrentRound(data.round);
-            setCallerUserId(data.callerUserId);
-            setMyCards(data.myCards ?? []);
-            setCurrentTurnUserId(data.currentTurnUserId ?? null);
-            setPlayedCards(data.playedCards ?? []);
-            setLastHand(data.lastHandCards ?? []);
-          }
-        } catch (error) {
-          console.error("Error refetching game state:", error);
-        }
-      }
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [playedCards.length, userId, gameRoomCode]);
+  }, [currentTurnUserId, userId, gameRoomCode, currentRound?.briscola, playedCards.length, myCards.length]);
 
   // Helper: refetch full game state from backend
   const refetchGameState = useCallback(async () => {
@@ -350,11 +317,34 @@ const GameTable = () => {
         if (data.round?.briscola === null && data.callerUserId === uid) {
           setTrumpDialogOpen(true);
         }
+
+        // Fetch playable cards immediately if it's our turn
+        if (data.currentTurnUserId === uid && data.round?.briscola) {
+          const pcRes = await fetch(
+            `${API_URL}/games/playable-cards/${code}?userId=${uid}`,
+            { credentials: "include" },
+          );
+          if (pcRes.ok) {
+            const pcData = await pcRes.json();
+            setPlayableCards(pcData.playableCards ?? []);
+          }
+        }
       }
     } catch (error) {
       console.error("Error refetching game state:", error);
     }
   }, []);
+
+  // Gestione completamento mano (4 carte giocate) - refetch dopo 3 secondi
+  useEffect(() => {
+    if (playedCards.length !== 4) return;
+
+    const timer = setTimeout(() => {
+      refetchGameState();
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [playedCards.length, refetchGameState]);
 
   // Connection status tracking + refetch on reconnect
   useEffect(() => {
@@ -643,7 +633,13 @@ const GameTable = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 relative overflow-hidden">
+    <div
+      className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 relative overflow-hidden"
+      data-testid="game-table-page"
+      data-current-turn-userid={currentTurnUserId ?? ""}
+      data-briscola={currentRound?.briscola ?? ""}
+      data-game-finished={gameFinishedDialogOpen}
+    >
       {/* Background decorative elements */}
       <div className="absolute inset-0 bg-gradient-warm opacity-20 pointer-events-none" />
 
@@ -689,13 +685,13 @@ const GameTable = () => {
       )}
 
       {/* Team Points Panel */}
-      <Card className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm">
+      <Card className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm" data-testid="team-points-panel">
         <div className="flex items-center gap-6">
           <div className="text-center">
             <div className="text-xs text-muted-foreground mb-1">
               La tua squadra (Team {(myPlayer.team ?? 0) + 1})
             </div>
-            <div className="text-2xl font-bold text-primary">
+            <div className="text-2xl font-bold text-primary" data-testid="my-team-points">
               {myTeamPoints.points}
             </div>
           </div>
@@ -704,7 +700,7 @@ const GameTable = () => {
             <div className="text-xs text-muted-foreground mb-1">
               Avversari (Team {((myPlayer.team ?? 0) === 0 ? 1 : 0) + 1})
             </div>
-            <div className="text-2xl font-bold text-accent">
+            <div className="text-2xl font-bold text-accent" data-testid="opponent-team-points">
               {opponentTeamPoints.points}
             </div>
           </div>
@@ -720,6 +716,9 @@ const GameTable = () => {
             .map((player) => (
               <Card
                 key={player.id}
+                data-testid={`player-seat-top`}
+                data-userid={player.userId}
+                data-is-turn={currentTurnUserId === player.userId}
                 className={`px-4 py-2 bg-card/80 backdrop-blur-sm transition-all ${
                   currentTurnUserId === player.userId
                     ? "ring-2 ring-primary shadow-lg"
@@ -782,7 +781,7 @@ const GameTable = () => {
             </div>
 
             {/* Central Table with Played Cards */}
-            <div className="relative w-80 h-80 rounded-full bg-gradient-to-br from-primary/5 to-accent/5 border-4 border-primary/20 shadow-2xl flex items-center justify-center">
+            <div className="relative w-80 h-80 rounded-full bg-gradient-to-br from-primary/5 to-accent/5 border-4 border-primary/20 shadow-2xl flex items-center justify-center" data-testid="game-table-center">
               {playedCards.length > 0 ? (
                 playedCards.map((playedCard, idx) => {
                   // Mappa userId a posizione visuale
@@ -838,7 +837,7 @@ const GameTable = () => {
         {/* Bottom: Local Player Info + Hand */}
         <div className="flex flex-col items-center gap-4 w-full">
           {/* Player's Hand */}
-          <div className="flex gap-2 flex-wrap justify-center max-w-5xl">
+          <div className="flex gap-2 flex-wrap justify-center max-w-5xl" data-testid="player-hand">
             {myCards
               .filter((c) => c.inHand)
               .map((card) => {
@@ -856,6 +855,7 @@ const GameTable = () => {
                     size="lg"
                     clickable={isMyTurn && isPlayable}
                     disabled={!isMyTurn || !isPlayable}
+                    data-testid={`hand-card-${card.suit}-${card.value}`}
                   />
                 );
               })}
@@ -867,6 +867,9 @@ const GameTable = () => {
             .map((player) => (
               <Card
                 key={player.id}
+                data-testid="player-seat-bottom"
+                data-userid={player.userId}
+                data-is-turn={currentTurnUserId === player.userId}
                 className={`px-4 py-2 bg-card/80 backdrop-blur-sm transition-all ${
                   currentTurnUserId === player.userId
                     ? "ring-2 ring-primary shadow-lg"
@@ -898,6 +901,7 @@ const GameTable = () => {
             variant="default"
             size="sm"
             onClick={() => setTrumpDialogOpen(true)}
+            data-testid="choose-trump-button"
           >
             Scegli Briscola
           </Button>

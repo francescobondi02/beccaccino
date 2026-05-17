@@ -454,6 +454,7 @@ const Index = () => {
                   variant="gradient"
                   size="lg"
                   onClick={() => setShowAuthDialog(true)}
+                  data-testid="open-auth-button"
                 >
                   Accedi / Registrati
                 </Button>
@@ -473,6 +474,7 @@ const Index = () => {
                     size="lg"
                     className="w-full"
                     onClick={handleCreateRoom}
+                    data-testid="create-room-button"
                   >
                     <Plus className="mr-2 h-5 w-5" />
                     Crea una nuova stanza
@@ -496,6 +498,7 @@ const Index = () => {
                         }
                         className="bg-secondary border-border focus:border-primary uppercase"
                         maxLength={6}
+                        data-testid="room-code-input"
                       />
                     </div>
 
@@ -504,6 +507,7 @@ const Index = () => {
                       size="lg"
                       className="w-full border-primary/50 hover:bg-primary/10"
                       onClick={handleJoinByCode}
+                      data-testid="join-by-code-button"
                     >
                       <Hash className="mr-2 h-5 w-5" />
                       Entra con il codice

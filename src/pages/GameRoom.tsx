@@ -508,7 +508,7 @@ const GameRoom = () => {
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Users className="h-6 w-6 text-primary" />
-                  <span>Stanza: {roomCode}</span>
+                  <span data-testid="room-code-display">Stanza: {roomCode}</span>
                 </div>
                 <Button
                   variant="outline"
@@ -641,6 +641,7 @@ const GameRoom = () => {
               onClick={handleReady}
               className="w-full"
               disabled={!myPlayer || myPlayer.team === null}
+              data-testid="ready-button"
             >
               <Check className="mr-2 h-5 w-5" />
               {myPlayer?.isReady ? "Non pronto" : "Sono pronto!"}
@@ -651,6 +652,7 @@ const GameRoom = () => {
               size="lg"
               className="w-full border-destructive/50 hover:bg-destructive/10 text-destructive"
               onClick={handleLeaveRoom}
+              data-testid="leave-room-button"
             >
               <LogOut className="mr-2 h-5 w-5" />
               Lascia la stanza
@@ -670,6 +672,7 @@ const GameRoom = () => {
                     disabled={
                       room.players.filter((p) => p.team === 0).length >= 2
                     }
+                    data-testid="team-0-button"
                   >
                     Team 1 ({room.players.filter((p) => p.team === 0).length}/2)
                   </Button>
@@ -679,6 +682,7 @@ const GameRoom = () => {
                     disabled={
                       room.players.filter((p) => p.team === 1).length >= 2
                     }
+                    data-testid="team-1-button"
                   >
                     Team 2 ({room.players.filter((p) => p.team === 1).length}/2)
                   </Button>

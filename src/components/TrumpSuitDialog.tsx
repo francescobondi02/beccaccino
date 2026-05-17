@@ -85,6 +85,7 @@ const TrumpSuitDialog = ({
                 size="lg"
                 className="h-24 flex flex-col gap-2 hover:bg-primary/10 hover:border-primary transition-all"
                 onClick={() => onSelectSuit(suit.value)}
+                data-testid={`suit-button-${suit.value}`}
               >
                 <img
                   src={suit.img}
