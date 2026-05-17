@@ -92,7 +92,7 @@ npm run test:e2e:ui           # Playwright interactive UI mode
 #### What the E2E tests cover
 
 - **lobby-to-game.spec.ts** — 4 players register, create room, join, choose teams, ready up, game starts, verify 10 cards dealt
-- **full-game.spec.ts** — Complete game: briscola selection → play cards in turn → rounds repeat → game finishes with a winner
+- **full-game.spec.ts** — Briscola selection → 4 players play a complete hand in correct turn order
 
 #### Debugging failures
 
