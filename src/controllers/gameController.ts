@@ -259,6 +259,7 @@ export const getGameState = async (req: Request, res: Response) => {
       number: currentRound.number,
       briscola: currentRound.briscola,
     },
+    currentHandNumber: currentHandInProgress?.number ?? null,
     callerUserId,
     myCards,
     currentTurnUserId,

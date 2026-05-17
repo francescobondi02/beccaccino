@@ -74,7 +74,6 @@ export const createRoom = async (req: Request, res: Response) => {
           maxPlayers: 4,
         },
       });
-      console.log(`📢 Notified lobby: new room ${room.code} created`);
     } catch (socketError) {
       // Socket non critico, logghiamo ma non blocchiamo la risposta
       console.error("Socket notification failed:", socketError);
@@ -328,16 +327,12 @@ export const joinRoom = async (req: Request, res: Response) => {
         io.to("lobby").emit("room_full", {
           roomCode: roomCode,
         });
-        console.log(`📢 Notified lobby: room ${roomCode} is now full`);
       } else {
         // Aggiorna il conteggio giocatori
         io.to("lobby").emit("room_updated", {
           roomCode: roomCode,
           currentPlayers: currentPlayers,
         });
-        console.log(
-          `📢 Notified lobby: room ${roomCode} updated (${currentPlayers}/4)`,
-        );
       }
     } catch (socketError) {
       console.error("Socket notification failed:", socketError);
@@ -496,7 +491,6 @@ export const leaveRoom = async (req: Request, res: Response) => {
         where: { id: room.id },
       });
 
-      console.log(`🗑️ Room ${roomCode} deleted (last player left)`);
 
       io.to("lobby").emit("room_deleted", { roomCode }); // opzionale, se vuoi aggiornare la lobby
 
@@ -509,7 +503,6 @@ export const leaveRoom = async (req: Request, res: Response) => {
 
       io.to(roomCode).emit("player_left", { userId });
 
-      console.log(`🚪 User ${userId} left room ${roomCode}`);
 
       return res.status(200).json({ success: true, deletedRoom: false });
     }

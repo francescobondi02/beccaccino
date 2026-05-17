@@ -335,6 +335,8 @@ export async function playCard({
   if (!room || !room.started)
     throw new Error("Room not found or game not started");
 
+  if (room.finished) throw new Error("Game is already finished");
+
   const currentRound = room.rounds[0];
   const currentHand = currentRound?.hands[0];
   if (!currentRound || !currentHand)
@@ -586,10 +588,6 @@ export async function playCard({
         });
 
         clearRoomTimerData(roomCode);
-
-        console.log(
-          `🏆 Partita ${roomCode} terminata! Vincitore: Team ${finalWinnerTeam}`,
-        );
       } else {
         // Crea il nuovo round
         const { callerPlayerId: newCallerPlayerId } = await setupRound(

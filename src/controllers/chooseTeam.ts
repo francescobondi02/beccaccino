@@ -42,6 +42,12 @@ export const chooseTeam = async (req: Request, res: Response) => {
         .json({ error: "User is not a player in this room" });
     }
 
+    if (player.isReady) {
+      return res
+        .status(400)
+        .json({ error: "Non puoi cambiare team dopo esserti messo pronto" });
+    }
+
     //^ Controlla che la squadra non sia già piena (2 player)
     const teamCount = room.players.filter((p) => p.team === team).length;
     if (teamCount >= 2) {

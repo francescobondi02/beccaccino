@@ -64,3 +64,16 @@ io.on("connection", (socket) => {
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// Graceful shutdown
+const shutdown = (signal: string) => {
+  console.log(`${signal} received. Shutting down...`);
+  io.close();
+  server.close(() => {
+    console.log("Server closed.");
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000);
+};
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

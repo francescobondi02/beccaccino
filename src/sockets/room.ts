@@ -27,7 +27,6 @@ interface ReadyData {
 }
 
 export function registerRoomSocket(socket: Socket, io: Server) {
-  console.log("🔌 Socket client connected:", socket.id);
 
   /**
    * JOIN_LOBBY - Un utente loggato entra nella pagina principale
@@ -35,7 +34,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
    */
   socket.on("join_lobby", (data: { userId: number }) => {
     const { userId } = data;
-    console.log(`🏠 User ${userId} joined global lobby`);
 
     // Unisce l'utente alla lobby globale
     socket.join("lobby");
@@ -45,7 +43,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
    * LEAVE_LOBBY - Un utente lascia la pagina principale
    */
   socket.on("leave_lobby", () => {
-    console.log(`🏠 User left global lobby`);
     socket.leave("lobby");
   });
 
@@ -67,7 +64,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
       return;
     }
 
-    console.log(`👤 ${username} (${userId}) joining room ${roomCode}`);
 
     try {
       // Verifica che la room esista e l'utente sia un player
@@ -112,7 +108,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         },
       });
 
-      console.log(`✅ ${username} joined room ${roomCode}`);
     } catch (error) {
       console.error("Error joining room:", error);
       socket.emit("error", { message: "Failed to join room" });
@@ -155,6 +150,13 @@ export function registerRoomSocket(socket: Socket, io: Server) {
       const player = room.players.find((p) => p.userId === userId);
       if (!player) {
         socket.emit("error", { message: "Player not found" });
+        return;
+      }
+
+      if (player.isReady) {
+        socket.emit("error", {
+          message: "Non puoi cambiare team dopo esserti messo pronto",
+        });
         return;
       }
 
@@ -289,7 +291,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         timestamp: new Date().toISOString(),
       });
 
-      console.log(`💬 [${roomCode}] ${username}: ${sanitized}`);
     },
   );
 
@@ -300,7 +301,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   socket.on("leave_room", (data: { roomCode: string }) => {
     const { roomCode } = data;
     socket.leave(roomCode);
-    console.log(`🚪 Socket ${socket.id} left room ${roomCode}`);
   });
 
   /**
@@ -310,7 +310,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   socket.on("disconnect", () => {
     const userId = socket.data.user?.id;
     const username = socket.data.user?.username;
-    console.log("🔌 Socket client disconnected:", socket.id, "user:", username);
 
     // Se abbiamo l'informazione dell'utente e della room, notifica gli altri
     if (userId && socket.data.roomCode) {

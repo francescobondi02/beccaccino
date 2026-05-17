@@ -2,6 +2,7 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
 import dotenv from "dotenv";
 
 import userRouter from "./routes/users";
@@ -12,16 +13,19 @@ dotenv.config();
 
 const app = express();
 
+// Security headers
+app.use(helmet());
+
 // CORS configuration per permettere cookies
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || "http://localhost:8081",
-    credentials: true, // Permette invio cookies
+    credentials: true,
   })
 );
 
 app.use(express.json());
-app.use(cookieParser()); // Parse cookies
+app.use(cookieParser());
 
 // Disable keep-alive in test mode to prevent flaky "Parse Error: Expected HTTP/"
 if (process.env.NODE_ENV === "test") {

@@ -64,6 +64,8 @@ model Player {
   playedCards PlayedCard[]
   playerCards PlayerCard[]
   @@unique([gameRoomId, seat])
+  @@index([userId])
+  @@index([gameRoomId])
 }
 
 // ===========
@@ -93,6 +95,7 @@ model Hand {
 
   round      Round     @relation(fields: [roundId], references: [id])
   cards      PlayedCard[]
+  @@index([roundId])
 }
 
 // ===========
@@ -113,6 +116,7 @@ model Round {
   gameRoom    GameRoom  @relation(fields: [gameRoomId], references: [id])
   hands       Hand[]
   playerCards PlayerCard[]
+  @@index([gameRoomId])
 }
 
 // ===========
@@ -128,6 +132,8 @@ model PlayedCard {
 
   hand     Hand   @relation(fields: [handId], references: [id])
   player   Player @relation(fields: [playerId], references: [id])
+  @@index([handId])
+  @@index([playerId])
 }
 
 // ===========
@@ -143,4 +149,6 @@ model PlayerCard {
 
   player     Player @relation(fields: [playerId], references: [id])
   round      Round  @relation(fields: [roundId], references: [id])
+  @@index([playerId])
+  @@index([roundId])
 }
