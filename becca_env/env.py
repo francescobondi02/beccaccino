@@ -11,8 +11,8 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from becca_env.game import BeccaGame, GamePhase, TEAM_OF_SEAT
-from becca_env.observation import OBS_SIZE, encode_observation, encode_action_mask, decode_action
+from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase
+from becca_env.observation import OBS_SIZE, decode_action, encode_action_mask, encode_observation
 
 
 class BeccaEnv(gym.Env):
@@ -94,29 +94,34 @@ class BeccaEnv(gym.Env):
         }
 
     def _compute_reward(self, info: dict, team: int) -> float:
-        """Reward shaping:
+        """Reward shaping (cumulative — terminal steps include all components):
         - Per trick won by my team: +0.1
         - Per trick lost: -0.1
-        - Round win: +1.0
-        - Round loss: -1.0
-        - Game win: +5.0
-        - Game loss: -5.0
+        - Round win: +1.0, round loss: -1.0
+        - Game win: +5.0, game loss: -5.0
+
+        Events cascade: game_over implies round_end implies trick_complete.
+        We accumulate all applicable rewards so the terminal step isn't undersized.
         """
         reward = 0.0
-
         event = info.get("event")
 
-        if event == "trick_complete":
-            winner_seat = info["trick_winner"]
-            winner_team = TEAM_OF_SEAT[winner_seat]
-            reward = 0.1 if winner_team == team else -0.1
+        # Trick reward (applies to trick_complete, round_end, and game_over)
+        if event in ("trick_complete", "round_end", "game_over"):
+            winner_seat = info.get("trick_winner")
+            if winner_seat is not None:
+                winner_team = TEAM_OF_SEAT[winner_seat]
+                reward += 0.1 if winner_team == team else -0.1
 
-        elif event == "round_end":
-            round_winner = info["round_winner"]
-            reward = 1.0 if round_winner == team else -1.0
+        # Round reward (applies to round_end and game_over)
+        if event in ("round_end", "game_over"):
+            round_winner = info.get("round_winner")
+            if round_winner is not None:
+                reward += 1.0 if round_winner == team else -1.0
 
-        elif event == "game_over":
+        # Game reward
+        if event == "game_over":
             game_winner = info["game_winner"]
-            reward = 5.0 if game_winner == team else -5.0
+            reward += 5.0 if game_winner == team else -5.0
 
         return reward

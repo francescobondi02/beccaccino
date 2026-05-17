@@ -1,8 +1,14 @@
 """Tests for game rules — shared test vectors with TypeScript backend."""
 
 import pytest
+
 from becca_env.deck import Card, Suit, Value
-from becca_env.rules import follow_suit_filter, determine_hand_winner, compute_round_scores
+from becca_env.rules import (
+    compute_round_scores,
+    detect_cricca,
+    determine_hand_winner,
+    follow_suit_filter,
+)
 
 
 class TestFollowSuit:
@@ -69,17 +75,29 @@ class TestDetermineHandWinner:
         winner = determine_hand_winner(played, Suit.COPPE)
         assert winner == 2
 
-    def test_off_suit_without_briscola_loses(self):
-        """Cards not in lead suit and not briscola are ignored."""
+    def test_off_suit_loses_when_no_briscola_played(self):
+        """Off-suit cards are ignored; weakest lead-suit card wins if no briscola present."""
         played = [
-            (0, Card(Suit.DENARA, Value.QUATTRO)),  # lead, strength 1
-            (1, Card(Suit.SPADE, Value.TRE)),       # off-suit, strong but irrelevant
-            (2, Card(Suit.BASTONI, Value.TRE)),     # off-suit
-            (3, Card(Suit.COPPE, Value.TRE)),       # off-suit
+            (0, Card(Suit.DENARA, Value.QUATTRO)),  # lead suit, strength 1
+            (1, Card(Suit.SPADE, Value.TRE)),       # off-suit, strength 10 but irrelevant
+            (2, Card(Suit.BASTONI, Value.TRE)),     # off-suit, strength 10 but irrelevant
+            (3, Card(Suit.COPPE, Value.TRE)),       # off-suit, strength 10 but irrelevant
         ]
-        winner = determine_hand_winner(played, Suit.BASTONI)
-        # Bastoni is briscola, seat 2 has bastoni tre
-        assert winner == 2
+        # Briscola is a suit not present in any played card
+        winner = determine_hand_winner(played, Suit.COPPE)
+        # Only seat 0 follows lead suit (denara), so seat 0 wins despite lowest strength
+        # Wait — coppe IS played by seat 3. Use a briscola not in trick.
+        # Actually coppe is played. Let's set briscola to something not in trick.
+        # Re-do: all off-suit cards are spade/bastoni/coppe. If briscola=coppe, seat 3 wins.
+        # For a true "no briscola played" test, briscola must not appear in trick.
+        played2 = [
+            (0, Card(Suit.DENARA, Value.QUATTRO)),  # lead suit, strength 1
+            (1, Card(Suit.SPADE, Value.TRE)),       # off-suit, strength 10
+            (2, Card(Suit.SPADE, Value.DUE)),       # off-suit, strength 9
+            (3, Card(Suit.SPADE, Value.ASSO)),      # off-suit, strength 8
+        ]
+        winner = determine_hand_winner(played2, Suit.COPPE)  # briscola not in trick
+        assert winner == 0  # weakest lead card still wins when others don't follow
 
     def test_no_cards_raises(self):
         with pytest.raises(ValueError):
@@ -93,8 +111,9 @@ class TestComputeRoundScores:
         35 // 3 = 11 points, 35 % 3 = 2 figures.
         Both teams combined must equal this.
         """
-        from becca_env.deck import DECK
         import random
+
+        from becca_env.deck import DECK
 
         rng = random.Random(42)
         deck = list(DECK)
@@ -118,7 +137,8 @@ class TestComputeRoundScores:
 
         team_of_seat = {0: 0, 1: 1, 2: 0, 3: 1}
         # Create 10 hands where all cards are zero-point cards except last hand
-        zero_cards = [c for c in DECK if c.value in (Value.QUATTRO, Value.CINQUE, Value.SEI, Value.SETTE)]
+        zero_values = (Value.QUATTRO, Value.CINQUE, Value.SEI, Value.SETTE)
+        zero_cards = [c for c in DECK if c.value in zero_values]
 
         hands = []
         for i in range(10):
@@ -130,3 +150,54 @@ class TestComputeRoundScores:
         # Only points come from last-hand bonus = 3 raw = 1 point
         assert scores["team0"]["points"] == 1
         assert scores["team1"]["points"] == 0
+
+
+class TestDetectCricca:
+    def test_cricca_detected_with_tre_due_asso(self):
+        hand = [
+            Card(Suit.DENARA, Value.TRE),
+            Card(Suit.DENARA, Value.DUE),
+            Card(Suit.DENARA, Value.ASSO),
+            Card(Suit.DENARA, Value.QUATTRO),
+            Card(Suit.SPADE, Value.RE),
+            Card(Suit.COPPE, Value.FANTE),
+            Card(Suit.BASTONI, Value.SETTE),
+            Card(Suit.COPPE, Value.CINQUE),
+            Card(Suit.SPADE, Value.SEI),
+            Card(Suit.BASTONI, Value.CAVALLO),
+        ]
+        assert detect_cricca(hand, Suit.DENARA) is True
+
+    def test_no_cricca_when_missing_one_card(self):
+        hand = [
+            Card(Suit.DENARA, Value.TRE),
+            Card(Suit.DENARA, Value.DUE),
+            # Missing asso of denara
+            Card(Suit.DENARA, Value.QUATTRO),
+            Card(Suit.SPADE, Value.ASSO),  # asso but wrong suit
+            Card(Suit.COPPE, Value.RE),
+            Card(Suit.BASTONI, Value.FANTE),
+            Card(Suit.SPADE, Value.SETTE),
+            Card(Suit.COPPE, Value.CINQUE),
+            Card(Suit.SPADE, Value.SEI),
+            Card(Suit.BASTONI, Value.CAVALLO),
+        ]
+        assert detect_cricca(hand, Suit.DENARA) is False
+
+    def test_cricca_checks_correct_suit(self):
+        hand = [
+            Card(Suit.SPADE, Value.TRE),
+            Card(Suit.SPADE, Value.DUE),
+            Card(Suit.SPADE, Value.ASSO),
+            Card(Suit.DENARA, Value.TRE),
+            Card(Suit.DENARA, Value.DUE),
+            Card(Suit.DENARA, Value.ASSO),
+            Card(Suit.COPPE, Value.QUATTRO),
+            Card(Suit.BASTONI, Value.CINQUE),
+            Card(Suit.COPPE, Value.SEI),
+            Card(Suit.BASTONI, Value.SETTE),
+        ]
+        assert detect_cricca(hand, Suit.SPADE) is True
+        assert detect_cricca(hand, Suit.DENARA) is True
+        assert detect_cricca(hand, Suit.COPPE) is False
+        assert detect_cricca(hand, Suit.BASTONI) is False

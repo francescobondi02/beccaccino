@@ -7,11 +7,16 @@ Phases: CHOOSE_BRISCOLA -> PLAY_CARD (repeat 10 hands) -> ROUND_END -> ... -> GA
 from __future__ import annotations
 
 import random
-from enum import Enum
 from dataclasses import dataclass, field
+from enum import Enum
 
-from becca_env.deck import Card, Suit, Value, DECK
-from becca_env.rules import follow_suit_filter, determine_hand_winner, compute_round_scores
+from becca_env.deck import DECK, Card, Suit, Value
+from becca_env.rules import (
+    compute_round_scores,
+    detect_cricca,
+    determine_hand_winner,
+    follow_suit_filter,
+)
 
 
 class GamePhase(Enum):
@@ -32,11 +37,20 @@ WIN_POINTS = 41
 
 
 @dataclass
+class TrickRecord:
+    winner: int
+    cards: list[tuple[int, Card]]
+    signal: Signal | None = None  # signal declared by trick leader (if any)
+    signal_seat: int | None = None  # who declared
+
+
+@dataclass
 class RoundState:
     number: int
     briscola: Suit | None = None
+    cricca: bool = False
     caller_seat: int = 0
-    hands_played: list[tuple[int, list[tuple[int, Card]]]] = field(default_factory=list)
+    hands_played: list[TrickRecord] = field(default_factory=list)
     current_trick: list[tuple[int, Card]] = field(default_factory=list)
     trick_starter: int = 0
     trick_signals: list[tuple[int, Signal | None]] = field(default_factory=list)
@@ -154,7 +168,8 @@ class BeccaGame:
             "current_trick": list(r.current_trick),
             "trick_starter": r.trick_starter,
             "trick_signals": list(r.trick_signals),
-            "hands_played": list(r.hands_played),
+            "hands_played": [(tr.winner, tr.cards) for tr in r.hands_played],
+            "signals_history": [(tr.signal_seat, tr.signal) for tr in r.hands_played],
             "total_scores": dict(self.total_scores),
             "rounds_won": dict(self.rounds_won),
             "caller_seat": r.caller_seat,
@@ -202,7 +217,16 @@ class BeccaGame:
         self.round.trick_starter = self.round.caller_seat
         self.phase = GamePhase.PLAY_CARD
 
-        return {"event": "briscola_chosen", "suit": suit, "caller": self.round.caller_seat}
+        # Check for Cricca: caller has Tre + Due + Asso of chosen briscola suit
+        caller_hand = self.round.player_hands[self.round.caller_seat]
+        self.round.cricca = detect_cricca(caller_hand, suit)
+
+        return {
+            "event": "briscola_chosen",
+            "suit": suit,
+            "caller": self.round.caller_seat,
+            "cricca": self.round.cricca,
+        }
 
     def _play_card(self, action) -> dict:
         seat = self.current_seat
@@ -245,7 +269,19 @@ class BeccaGame:
         # Check if trick is complete
         if len(self.round.current_trick) == 4:
             winner_seat = determine_hand_winner(self.round.current_trick, self.round.briscola)
-            self.round.hands_played.append((winner_seat, list(self.round.current_trick)))
+
+            # Extract leader's signal from this trick
+            leader_signal = None
+            leader_seat = None
+            if self.round.trick_signals:
+                leader_seat, leader_signal = self.round.trick_signals[0]
+
+            self.round.hands_played.append(TrickRecord(
+                winner=winner_seat,
+                cards=list(self.round.current_trick),
+                signal=leader_signal,
+                signal_seat=leader_seat,
+            ))
 
             info["trick_winner"] = winner_seat
             info["event"] = "trick_complete"
@@ -262,7 +298,17 @@ class BeccaGame:
         return info
 
     def _end_round(self, info: dict) -> dict:
-        scores = compute_round_scores(self.round.hands_played, TEAM_OF_SEAT)
+        hands_for_scoring = [(tr.winner, tr.cards) for tr in self.round.hands_played]
+        scores = compute_round_scores(hands_for_scoring, TEAM_OF_SEAT)
+
+        # Apply Cricca bonus: +3 points (= +9 raw) to the caller's team
+        if self.round.cricca:
+            caller_team = TEAM_OF_SEAT[self.round.caller_seat]
+            team_key = f"team{caller_team}"
+            scores[team_key]["raw"] += 9
+            scores[team_key]["points"] += 3
+            info["cricca"] = True
+            info["cricca_team"] = caller_team
 
         # Accumulate
         self.total_scores[0] += scores["team0"]["raw"]
@@ -290,7 +336,18 @@ class BeccaGame:
         t0_pts = self.total_scores[0] // 3
         t1_pts = self.total_scores[1] // 3
         if t0_pts >= self.win_points or t1_pts >= self.win_points:
-            game_winner = 0 if t0_pts >= self.win_points else 1
+            # If both teams cross threshold, higher score wins.
+            # True tie: caller's team (briscola chooser) has advantage.
+            if t0_pts >= self.win_points and t1_pts >= self.win_points:
+                if t0_pts > t1_pts:
+                    game_winner = 0
+                elif t1_pts > t0_pts:
+                    game_winner = 1
+                else:
+                    caller_team = TEAM_OF_SEAT[self.round.caller_seat]
+                    game_winner = caller_team
+            else:
+                game_winner = 0 if t0_pts >= self.win_points else 1
             self.phase = GamePhase.GAME_OVER
             self.result = GameResult(
                 winner_team=game_winner,

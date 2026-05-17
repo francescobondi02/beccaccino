@@ -1,6 +1,16 @@
 """Core game rules: follow-suit, trick winner, scoring."""
 
-from becca_env.deck import Card, Suit, Value, card_strength, card_points
+from becca_env.deck import Card, Suit, Value, card_points, card_strength
+
+
+def detect_cricca(hand: list[Card], briscola_suit: Suit) -> bool:
+    """Detect Cricca: the caller holds Tre + Due + Asso of the briscola suit.
+
+    If true, the caller's team gets +3 points at end of the round.
+    """
+    required = {Value.TRE, Value.DUE, Value.ASSO}
+    briscola_values = {c.value for c in hand if c.suit == briscola_suit}
+    return required.issubset(briscola_values)
 
 
 def follow_suit_filter(hand: list[Card], lead_suit: Suit) -> list[Card]:

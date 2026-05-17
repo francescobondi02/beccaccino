@@ -1,8 +1,9 @@
 """Quick benchmark: how many games/second can the engine simulate?"""
 
 import time
-from becca_env.game import BeccaGame, GamePhase
+
 from becca_env.deck import Suit
+from becca_env.game import BeccaGame, GamePhase
 
 
 def play_random_game(seed: int) -> int:

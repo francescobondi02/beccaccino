@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from becca_env.deck import Card, Suit, Value, DECK
-from becca_env.game import BeccaGame, GamePhase, Signal, TEAM_OF_SEAT
+from becca_env.deck import DECK, Card, Suit
+from becca_env.game import BeccaGame, GamePhase, Signal
 
 # Card indexing: 40 cards total, ordered by suit then value
 CARD_INDEX: dict[Card, int] = {card: i for i, card in enumerate(DECK)}
@@ -50,8 +50,8 @@ def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
     offset += NUM_CARDS
 
     # Cards seen in previous tricks (40)
-    for _, trick_cards in r.hands_played:
-        for _, card in trick_cards:
+    for tr in r.hands_played:
+        for _, card in tr.cards:
             obs[offset + CARD_INDEX[card]] = 1.0
     offset += NUM_CARDS
 
@@ -91,16 +91,20 @@ def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
     offset += 2
 
     # Signals this round (10 hands * 3 signal types = 30)
-    for i, (_, trick_cards) in enumerate(r.hands_played):
+    signal_to_idx = {Signal.STRISCIO: 0, Signal.BUSSO: 1, Signal.VOLO: 2}
+    for i, tr in enumerate(r.hands_played):
         if i >= 10:
             break
-        # Find signal for this hand from trick_signals history
-        # Signals are stored per-trick in the played hands — we need to track them differently
-        # For now, signals are ephemeral per trick. We'll store them in a separate list.
-    # TODO: signals history needs to be accumulated in RoundState
+        if tr.signal is not None:
+            obs[offset + i * NUM_SIGNALS + signal_to_idx[tr.signal]] = 1.0
     offset += 30
 
     # Signal declarers (10 hands * 4 seats = 40)
+    for i, tr in enumerate(r.hands_played):
+        if i >= 10:
+            break
+        if tr.signal_seat is not None:
+            obs[offset + i * 4 + tr.signal_seat] = 1.0
     offset += 40
 
     assert offset == OBS_SIZE

@@ -1,6 +1,7 @@
 """Tests for the Gymnasium environment wrapper."""
 
 import numpy as np
+
 from becca_env.env import BeccaEnv
 from becca_env.observation import OBS_SIZE
 
