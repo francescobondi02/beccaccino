@@ -8,6 +8,7 @@ import LastTrickDialog from "@/components/LastTrickDialog";
 import RoundEndDialog from "@/components/RoundEndDialog";
 import GameFinishedDialog from "@/components/GameFinishedDialog";
 import GameChat from "@/components/GameChat";
+import SignalDialog from "@/components/SignalDialog";
 import { Loader2, WifiOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -59,6 +60,7 @@ interface PlayedCardData {
   suit: string;
   value: string;
   position: number;
+  signal?: string | null;
 }
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -117,6 +119,14 @@ const GameTable = () => {
       team0: number;
       team1: number;
     };
+  } | null>(null);
+
+  // Signal dialog state (pending card waiting for signal choice)
+  const [pendingCard, setPendingCard] = useState<PlayerCard | null>(null);
+  const [signalDialogOpen, setSignalDialogOpen] = useState(false);
+  const [currentSignal, setCurrentSignal] = useState<{
+    userId: number;
+    signal: string;
   } | null>(null);
 
   // Turn timer state
@@ -435,6 +445,14 @@ const GameTable = () => {
       // Clear countdown — new timer will arrive via turn_timer_started
       setTurnTimer(null);
 
+      // Track signal declaration (only on first card of a trick)
+      if (data.signal) {
+        setCurrentSignal({ userId: data.userId, signal: data.signal });
+      } else if (data.position === 0) {
+        // New trick started without signal — clear previous
+        setCurrentSignal(null);
+      }
+
       // If the card is mine, remove it from hand
       if (data.userId === userIdRef.current) {
         setMyCards((prev) =>
@@ -605,24 +623,10 @@ const GameTable = () => {
       ? { points: totalPoints.team1Points, figures: totalPoints.team1Figures }
       : { points: totalPoints.team0Points, figures: totalPoints.team0Figures };
 
-  const handleCardClick = async (card: PlayerCard) => {
-    if (!gameRoomCode || currentTurnUserId !== userId) {
-      toast.error("Non è il tuo turno!");
-      return;
-    }
-
-    // Prevent double-click / rapid fire
-    if (isPlayingCard) return;
-
-    // Verifica che la carta sia tra quelle giocabili
-    const isPlayable = playableCards.some(
-      (c) => c.suit === card.suit && c.value === card.value,
-    );
-    if (!isPlayable) {
-      toast.error("Non puoi giocare questa carta!");
-      return;
-    }
-
+  const sendPlayCard = async (
+    card: PlayerCard,
+    signal?: "striscio" | "busso" | "volo" | null,
+  ) => {
     setIsPlayingCard(true);
     try {
       const res = await fetch(`${API_URL}/games/play-card`, {
@@ -634,6 +638,7 @@ const GameTable = () => {
           userId,
           suit: card.suit,
           value: card.value,
+          signal: signal || null,
         }),
       });
 
@@ -642,14 +647,47 @@ const GameTable = () => {
         toast.error(data.error || "Errore nel giocare la carta");
         return;
       }
-
-      toast.success("Carta giocata!");
-      // Il socket event "card_played" aggiornerà lo stato automaticamente
     } catch (error) {
-      console.error("Error playing card:", error);
       toast.error("Errore nel giocare la carta");
     } finally {
       setIsPlayingCard(false);
+    }
+  };
+
+  const handleCardClick = async (card: PlayerCard) => {
+    if (!gameRoomCode || currentTurnUserId !== userId) {
+      toast.error("Non è il tuo turno!");
+      return;
+    }
+
+    if (isPlayingCard) return;
+
+    const isPlayable = playableCards.some(
+      (c) => c.suit === card.suit && c.value === card.value,
+    );
+    if (!isPlayable) {
+      toast.error("Non puoi giocare questa carta!");
+      return;
+    }
+
+    // If trick leader (no cards on table), show signal dialog
+    if (playedCards.length === 0) {
+      setPendingCard(card);
+      setSignalDialogOpen(true);
+      return;
+    }
+
+    // Not trick leader — play immediately
+    await sendPlayCard(card);
+  };
+
+  const handleSignalSelect = async (
+    signal: "striscio" | "busso" | "volo" | null,
+  ) => {
+    setSignalDialogOpen(false);
+    if (pendingCard) {
+      await sendPlayCard(pendingCard, signal);
+      setPendingCard(null);
     }
   };
 
@@ -811,6 +849,15 @@ const GameTable = () => {
                   <p className={`text-xs font-bold mt-0.5 ${countdown <= 10 ? "text-destructive animate-pulse" : "text-muted-foreground"}`}>
                     {countdown}s
                   </p>
+                )}
+                {currentSignal?.userId === player.userId && (
+                  <span className={`text-[10px] font-bold mt-1 px-2 py-0.5 rounded-full uppercase tracking-wide ${
+                    currentSignal.signal === "striscio" ? "bg-green-500/20 text-green-600" :
+                    currentSignal.signal === "busso" ? "bg-amber-500/20 text-amber-600" :
+                    "bg-red-500/20 text-red-600"
+                  }`}>
+                    {currentSignal.signal}
+                  </span>
                 )}
               </Card>
             ))}
@@ -999,6 +1046,10 @@ const GameTable = () => {
       </div>
 
       {/* Dialogs */}
+      <SignalDialog
+        open={signalDialogOpen}
+        onSelect={handleSignalSelect}
+      />
       <TrumpSuitDialog
         open={trumpDialogOpen}
         onSelectSuit={handleTrumpSelect}

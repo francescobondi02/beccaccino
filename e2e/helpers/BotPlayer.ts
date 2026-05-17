@@ -140,9 +140,17 @@ export class BotPlayer {
 
     await playableCard.click({ force: true });
 
-    // Wait for the play to be processed and turn to pass
-    // The card_played socket event triggers state update removing the card
-    // and clearing playableCards for this player
+    // If signal dialog appears (we're the trick leader), dismiss it with "Niente"
+    const signalNone = this.page.getByTestId("signal-button-none");
+    const hasSignalDialog = await signalNone
+      .waitFor({ state: "visible", timeout: 1000 })
+      .then(() => true)
+      .catch(() => false);
+    if (hasSignalDialog) {
+      await signalNone.click();
+    }
+
+    // Wait for the play to be processed
     await this.page.waitForTimeout(2000);
   }
 
