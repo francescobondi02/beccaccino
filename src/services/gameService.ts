@@ -292,11 +292,13 @@ export async function playCard({
   userId,
   suit,
   value,
+  signal,
 }: {
   roomCode: string;
   userId: number;
   suit: Suit;
   value: Value;
+  signal?: "striscio" | "busso" | "volo" | null;
 }) {
   /**
    * Funzione che gestisce la logica di gioco quando un giocatore gioca una carta.
@@ -383,6 +385,10 @@ export async function playCard({
     },
   });
 
+  // Only the trick leader (position 0) can declare a signal
+  const validSignal =
+    playedCards.length === 0 && signal ? signal : null;
+
   const played = await prisma.playedCard.create({
     data: {
       handId: currentHand.id,
@@ -390,6 +396,7 @@ export async function playCard({
       suit,
       value,
       position: playedCards.length,
+      signal: validSignal,
     },
   });
 
@@ -402,6 +409,7 @@ export async function playCard({
     value,
     position: playedCards.length,
     handNumber: currentHand.number,
+    signal: validSignal,
   });
 
   //^ Ora dobbiamo controllare se la mano è completa e gestire il turno successivo

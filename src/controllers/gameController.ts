@@ -34,8 +34,8 @@ export const chooseBriscola = async (req: Request, res: Response) => {
 
 export const handlePlayCard = async (req: Request, res: Response) => {
   try {
-    const { roomCode, userId, suit, value } = req.body;
-    await playCard({ roomCode, userId, suit, value });
+    const { roomCode, userId, suit, value, signal } = req.body;
+    await playCard({ roomCode, userId, suit, value, signal });
     return res.status(200).json({ message: "Card played successfully" });
   } catch (error) {
     return res.status(500).json({ error: (error as Error).message });

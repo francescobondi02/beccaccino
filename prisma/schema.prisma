@@ -129,6 +129,7 @@ model PlayedCard {
   suit     Suit       // "coppe", "denara", ...
   value    Value      // "asso", "due", "re", etc.
   position Int       // ordine di gioco: 0–3
+  signal   String?    // "striscio" | "busso" | "volo" | null
 
   hand     Hand   @relation(fields: [handId], references: [id])
   player   Player @relation(fields: [playerId], references: [id])
