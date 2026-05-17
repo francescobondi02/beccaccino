@@ -278,7 +278,13 @@ const Index = () => {
       });
 
       if (!res.ok) {
-        throw new Error("Errore nella creazione della stanza");
+        const data = await res.json();
+        if (res.status === 409 && data.activeRoomCode) {
+          toast.error("Sei già in una partita attiva");
+          navigate(`/game/${data.activeRoomCode}`);
+          return;
+        }
+        throw new Error(data.error || "Errore nella creazione della stanza");
       }
 
       const room = await res.json();
@@ -286,7 +292,11 @@ const Index = () => {
       navigate(`/room/${room.code}`);
     } catch (error) {
       console.error("Error creating room:", error);
-      toast.error("Impossibile creare la stanza");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Impossibile creare la stanza",
+      );
     }
   };
 
@@ -311,6 +321,11 @@ const Index = () => {
 
       if (!res.ok) {
         const data = await res.json();
+        if (res.status === 409 && data.activeRoomCode) {
+          toast.error("Sei già in una partita attiva");
+          navigate(`/game/${data.activeRoomCode}`);
+          return;
+        }
         throw new Error(data.error || "Errore nell'entrare nella stanza");
       }
 
@@ -351,6 +366,11 @@ const Index = () => {
 
       if (!res.ok) {
         const data = await res.json();
+        if (res.status === 409 && data.activeRoomCode) {
+          toast.error("Sei già in una partita attiva");
+          navigate(`/game/${data.activeRoomCode}`);
+          return;
+        }
         throw new Error(data.error || "Errore nell'entrare nella stanza");
       }
 

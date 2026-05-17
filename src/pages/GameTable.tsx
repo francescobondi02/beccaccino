@@ -116,6 +116,15 @@ const GameTable = () => {
     };
   } | null>(null);
 
+  // Turn timer state
+  const [turnTimer, setTurnTimer] = useState<{
+    turnUserId: number;
+    totalMs: number;
+    serverTimestamp: number;
+    phase: string;
+  } | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+
   // Connection status & play lock
   const [connectionStatus, setConnectionStatus] = useState<
     "connected" | "disconnected" | "reconnecting"
@@ -329,6 +338,19 @@ const GameTable = () => {
             setPlayableCards(pcData.playableCards ?? []);
           }
         }
+
+        // Sync turn timer from server state (for reconnecting players)
+        if (data.turnTimer) {
+          setTurnTimer({
+            turnUserId: data.turnTimer.turnUserId,
+            totalMs: data.turnTimer.totalMs,
+            serverTimestamp:
+              Date.now() - (data.turnTimer.totalMs - data.turnTimer.remainingMs),
+            phase: data.turnTimer.phase,
+          });
+        } else {
+          setTurnTimer(null);
+        }
       }
     } catch (error) {
       console.error("Error refetching game state:", error);
@@ -345,6 +367,27 @@ const GameTable = () => {
 
     return () => clearTimeout(timer);
   }, [playedCards.length, refetchGameState]);
+
+  // Countdown timer interval
+  useEffect(() => {
+    if (!turnTimer) {
+      setCountdown(null);
+      return;
+    }
+
+    const tick = () => {
+      const elapsed = Date.now() - turnTimer.serverTimestamp;
+      const remaining = Math.max(
+        0,
+        Math.ceil((turnTimer.totalMs - elapsed) / 1000),
+      );
+      setCountdown(remaining);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [turnTimer]);
 
   // Connection status tracking + refetch on reconnect
   useEffect(() => {
@@ -386,7 +429,8 @@ const GameTable = () => {
     const socket = getSocket();
 
     const handleCardPlayed = (data: PlayedCardData) => {
-      console.log("🃏 Carta giocata:", data);
+      // Clear countdown — new timer will arrive via turn_timer_started
+      setTurnTimer(null);
 
       // If the card is mine, remove it from hand
       if (data.userId === userIdRef.current) {
@@ -415,7 +459,7 @@ const GameTable = () => {
       roundNumber: number;
       starterId: number;
     }) => {
-      console.log("🎺 Briscola scelta:", data);
+      setTurnTimer(null);
       setCurrentRound((prev) => {
         if (!prev) return prev;
         return { ...prev, briscola: data.briscola };
@@ -463,8 +507,30 @@ const GameTable = () => {
 
     // Handler for opponent disconnect notification
     const handlePlayerDisconnected = (data: { userId: number; username: string }) => {
-      console.log("⚠️ Giocatore disconnesso:", data.username);
       toast.warning(`${data.username} si è disconnesso`);
+    };
+
+    const handleTurnTimerStarted = (data: {
+      turnUserId: number;
+      totalMs: number;
+      serverTimestamp: number;
+      phase: string;
+    }) => {
+      setTurnTimer(data);
+    };
+
+    const handleAutoPlayed = (data: { userId: number; phase: string }) => {
+      const playerName =
+        room?.players.find((p) => p.userId === data.userId)?.username ??
+        "Giocatore";
+      toast.info(`${playerName} ha giocato automaticamente (tempo scaduto)`);
+    };
+
+    const handlePlayerKickedTimeout = (data: {
+      userId: number;
+      username: string;
+    }) => {
+      toast.warning(`${data.username} è stato rimosso per inattività`);
     };
 
     socket.on("card_played", handleCardPlayed);
@@ -473,6 +539,9 @@ const GameTable = () => {
     socket.on("new_round_started", handleNewRoundStarted);
     socket.on("game_finished", handleGameFinished);
     socket.on("player_disconnected", handlePlayerDisconnected);
+    socket.on("turn_timer_started", handleTurnTimerStarted);
+    socket.on("auto_played", handleAutoPlayed);
+    socket.on("player_kicked_timeout", handlePlayerKickedTimeout);
 
     return () => {
       offPlayerLeft(handlePlayerLeft);
@@ -482,7 +551,9 @@ const GameTable = () => {
       socket.off("new_round_started", handleNewRoundStarted);
       socket.off("game_finished", handleGameFinished);
       socket.off("player_disconnected", handlePlayerDisconnected);
-      // Do NOT call leaveRoom here — only the "Leave" button should do that
+      socket.off("turn_timer_started", handleTurnTimerStarted);
+      socket.off("auto_played", handleAutoPlayed);
+      socket.off("player_kicked_timeout", handlePlayerKickedTimeout);
     };
   }, [userId, username, gameRoomCode, refetchGameState]);
 
@@ -731,6 +802,11 @@ const GameTable = () => {
                 <p className="text-xs text-muted-foreground">
                   {player.isTeammate ? "Socio" : "Avversario"}
                 </p>
+                {currentTurnUserId === player.userId && countdown !== null && (
+                  <p className={`text-xs font-bold mt-0.5 ${countdown <= 10 ? "text-destructive animate-pulse" : "text-muted-foreground"}`}>
+                    {countdown}s
+                  </p>
+                )}
               </Card>
             ))}
         </div>
@@ -824,11 +900,20 @@ const GameTable = () => {
                   );
                 })
               ) : (
-                <p className="text-muted-foreground text-sm">
-                  {currentRound?.briscola === null
-                    ? "In attesa che venga scelta la briscola..."
-                    : "In attesa del turno del giocatore..."}
-                </p>
+                <div className="text-center">
+                  <p className="text-muted-foreground text-sm">
+                    {currentRound?.briscola === null
+                      ? "In attesa che venga scelta la briscola..."
+                      : `In attesa di ${playersWithPositions.find((p) => p.userId === currentTurnUserId)?.username ?? "giocatore"}...`}
+                  </p>
+                  {countdown !== null && (
+                    <div
+                      className={`mt-2 text-2xl font-bold ${countdown <= 10 ? "text-destructive animate-pulse" : "text-primary"}`}
+                    >
+                      {countdown}s
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
