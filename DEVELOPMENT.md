@@ -8,14 +8,12 @@
 
 ## Environment Setup
 
-Create `backend/.env`:
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca"
-JWT_SECRET="your_secret_key"
-PORT=8000
-FRONTEND_URL="http://localhost:8081"
+```sh
+cp .env.example .env
+# Edit .env to set a real JWT_SECRET: openssl rand -hex 32
 ```
+
+The defaults work with Docker Compose out of the box. Only `JWT_SECRET` needs to be changed from the placeholder.
 
 For integration tests, a separate `.env.test` is already provided:
 
