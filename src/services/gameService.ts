@@ -5,6 +5,7 @@
 import { prisma } from "../db";
 import { determineHandWinner } from "../utils/determineHandWinner";
 import { computePoints } from "../utils/computePoints";
+import { detectCricca } from "../utils/detectCricca";
 import { getSocketInstance } from "../socketInstance";
 import { getRng } from "../utils/random";
 import { startTurnTimer, clearTurnTimer, clearRoomTimerData } from "./turnTimer";
@@ -258,9 +259,15 @@ export async function setBriscola({
     throw new Error("It's not your turn to choose briscola");
   }
 
+  // Check for Cricca: caller has Tre + Due + Asso of the chosen briscola suit
+  const callerCards = await prisma.playerCard.findMany({
+    where: { playerId, roundId: currentRound.id },
+  });
+  const hasCricca = detectCricca(callerCards, suit);
+
   const updatedRound = await prisma.round.update({
     where: { id: currentRound.id },
-    data: { briscola: suit },
+    data: { briscola: suit, cricca: hasCricca },
   });
 
   const firstHand = await prisma.hand.create({
@@ -276,6 +283,7 @@ export async function setBriscola({
     briscola: suit,
     roundNumber: currentRound.number,
     starterId: playerId,
+    cricca: hasCricca,
   });
 
   // Start timer for the first card play (caller plays first)
@@ -493,6 +501,17 @@ export async function playCard({
         currentRound.briscola!,
       );
 
+      // Apply Cricca bonus: +3 points to the caller's team
+      if (currentRound.cricca) {
+        const callerId = allHands[0].starterId;
+        const callerTeam = teamPlayers[callerId];
+        if (callerTeam === 0) {
+          scores.team0.points += 3;
+        } else if (callerTeam === 1) {
+          scores.team1.points += 3;
+        }
+      }
+
       // Determina il team vincitore (chi ha più punti)
       let winnerTeam: number;
       if (scores.team0.points > scores.team1.points) {
@@ -535,6 +554,7 @@ export async function playCard({
           figures: scores.team1.figures,
         },
         winnerTeam,
+        cricca: currentRound.cricca,
       });
 
       // Calcola i punteggi totali di tutti i round completati

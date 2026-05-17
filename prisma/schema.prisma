@@ -105,6 +105,7 @@ model Round {
   id          Int       @id @default(autoincrement())
   number      Int                 // 1, 2, 3, ...
   briscola    Suit?               // fissata a inizio round
+  cricca      Boolean   @default(false) // true se il caller ha Tre+Due+Asso di briscola
   gameRoomId  Int
   winnerTeam  Int?                // 0 o 1 (oppure nullable finché non finisce)
   team0Points Int       @default(0) // Punti team 0
