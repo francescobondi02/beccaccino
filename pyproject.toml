@@ -12,6 +12,7 @@ dependencies = [
 train = [
     "torch>=2.2",
     "tensorboard>=2.16",
+    "wandb>=0.16",
 ]
 serve = [
     "fastapi>=0.110",

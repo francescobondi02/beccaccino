@@ -11,14 +11,35 @@ becca_env/
   rules.py          Core rules: follow_suit_filter, determine_hand_winner, compute_round_scores
   game.py           Full game state machine (BeccaGame): phases, actions, step()
   observation.py    State → numpy tensor encoding (344 features), action mask (160 slots)
-training/           (Placeholder) RL training loops, PPO/MAPPO agents
-evaluation/         (Placeholder) Agent evaluation, Elo rating
-serving/            (Placeholder) FastAPI + ONNX inference server for online play
-scripts/            (Placeholder) CLI scripts for training runs
-checkpoints/        Saved model checkpoints (.gitkeep)
+  env.py            Gymnasium wrapper (BeccaEnv) — self-play, scaled rewards
+training/
+  config.py         TrainConfig dataclass (all hyperparameters)
+  network.py        BeccaNet (v1 legacy) + BeccaNetV2 (ReLU, LayerNorm, residuals)
+  ppo.py            PPO update with clipped surrogate, KL early stopping
+  rollout.py        Rollout buffer with per-seat GAE
+  trainer.py        Main training loop (wandb, curriculum, resume, entropy annealing)
+  self_play.py      OpponentPool — historical policy sampling for diversity
+  self_play_env.py  SelfPlayEnv wrapper (team-vs-opponent, learner-only observations)
+  curriculum.py     Auto-advancing difficulty stages
+  vec_env.py        Vectorized environment creation (AsyncVectorEnv)
+  normalization.py  Running mean/std for return normalization
+evaluation/
+  arena.py          Agent vs agent matches, evaluate_against_random()
+  elo.py            Elo rating tracker
+serving/
+  app.py            FastAPI inference endpoint (stateless: obs → action)
+  export_onnx.py    Export PyTorch checkpoint to ONNX
+scripts/
+  benchmark.py      Environment throughput benchmark
+checkpoints/        Saved model checkpoints (.pt files)
 tests/
-  test_deck.py      Deck integrity: 40 cards, 10/suit, 32 total raw points, unique strengths
-  test_rules.py     Follow-suit, trick winner, round scoring (mirrors backend test vectors)
+  test_deck.py      Deck integrity
+  test_rules.py     Game rules (mirrors backend test vectors)
+  test_env.py       Gymnasium env correctness
+  test_game.py      Game state machine
+  test_gae.py       Per-seat GAE computation
+  test_self_play.py Opponent pool + self-play env
+  test_curriculum.py Curriculum advancement logic
 ```
 
 ## Game Engine (game.py)
@@ -66,7 +87,33 @@ Action mask provided in observation dict for legal action filtering.
 `BeccaEnv(gym.Env)` — single-agent wrapper cycling through 4 seats (self-play):
 - `reset()` → obs dict with "obs", "action_mask", "current_seat"
 - `step(action)` → obs, reward, terminated, truncated, info
-- Reward shaping: trick ±0.1, round ±1.0, game ±5.0
+- Reward: trick ±(raw_pts/35) normalized, terminal ±1.0
+
+## Training (v2)
+
+PPO self-play with: per-seat GAE, BeccaNetV2 (ReLU + LayerNorm + residuals),
+opponent pool, curriculum learning, wandb tracking, entropy annealing.
+
+```bash
+# Quick training (short games, ~2h on Apple Silicon)
+python -m training.trainer --win-points 5 --steps 20000000 --device mps
+
+# Full curriculum training (~8-10h)
+python -m training.trainer --curriculum --steps 100000000 --device mps
+
+# Resume from checkpoint
+python -m training.trainer --resume checkpoints/ckpt_000500.pt --steps 50000000
+
+# Without wandb (offline)
+python -m training.trainer --no-wandb --win-points 5 --steps 5000000
+```
+
+Key hyperparameters (defaults in `training/config.py`):
+- 64 parallel envs × 512 steps = 32,768 batch size
+- GAE: gamma=0.995, lambda=0.95
+- Network: 3×512 ReLU+LayerNorm with residual connections (~500K params)
+- Entropy: annealed from 0.03 → 0.005
+- LR: 2.5e-4 with cosine schedule
 
 ## Scoring Notes
 
@@ -80,7 +127,7 @@ Points system uses raw×3 to avoid fractions (same as backend):
 
 ```bash
 pip install -e ".[dev]"     # Core + pytest + ruff
-pip install -e ".[train]"   # + torch + tensorboard
+pip install -e ".[train]"   # + torch + tensorboard + wandb
 pip install -e ".[serve]"   # + fastapi + uvicorn + onnxruntime
 ```
 

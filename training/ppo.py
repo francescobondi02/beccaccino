@@ -1,4 +1,10 @@
-"""PPO (Proximal Policy Optimization) training loop for Beccaccino self-play."""
+"""PPO update with standard stabilization techniques.
+
+- Clipped surrogate objective
+- Clipped value function
+- KL early stopping (halt epochs if policy diverges too much)
+- Advantage normalization
+"""
 
 from __future__ import annotations
 
@@ -16,16 +22,19 @@ def ppo_update(
     max_grad_norm: float = 0.5,
     num_epochs: int = 4,
     minibatch_size: int = 256,
+    target_kl: float | None = 0.015,
     device: torch.device = torch.device("cpu"),
 ) -> dict[str, float]:
-    """Run PPO update on a batch of transitions.
+    """PPO update with KL early stopping and value clipping.
 
-    Returns dict of training metrics (losses, entropy, clip fraction).
+    Args:
+        target_kl: if approx KL exceeds this, stop epoch early. None = disabled.
     """
     obs = batch["obs"].to(device)
-    masks = batch["action_masks"].to(device)
+    masks = batch["masks"].to(device)
     actions = batch["actions"].to(device)
-    old_log_probs = batch["old_log_probs"].to(device)
+    old_log_probs = batch["log_probs"].to(device)
+    old_values = batch["values"].to(device)
     advantages = batch["advantages"].to(device)
     returns = batch["returns"].to(device)
 
@@ -33,59 +42,67 @@ def ppo_update(
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
     n = obs.shape[0]
-    metrics = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_fraction": 0.0}
-    num_updates = 0
+    totals = {
+        "policy_loss": 0.0, "value_loss": 0.0,
+        "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0,
+    }
+    count = 0
+    early_stopped = False
 
     net.train()
-    for _ in range(num_epochs):
-        indices = torch.randperm(n, device=device)
-
+    for epoch in range(num_epochs):
+        idx = torch.randperm(n, device=device)
         for start in range(0, n, minibatch_size):
-            end = min(start + minibatch_size, n)
-            mb_idx = indices[start:end]
+            mb = idx[start : start + minibatch_size]
 
-            mb_obs = obs[mb_idx]
-            mb_masks = masks[mb_idx]
-            mb_actions = actions[mb_idx]
-            mb_old_lp = old_log_probs[mb_idx]
-            mb_adv = advantages[mb_idx]
-            mb_ret = returns[mb_idx]
-
-            _, new_log_prob, entropy, new_value = net.get_action_and_value(
-                mb_obs, mb_masks, mb_actions
+            _, new_lp, ent, new_val = net.get_action_and_value(
+                obs[mb], masks[mb], actions[mb]
             )
 
             # Policy loss (clipped surrogate)
-            ratio = torch.exp(new_log_prob - mb_old_lp)
-            surr1 = ratio * mb_adv
-            surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * mb_adv
-            policy_loss = -torch.min(surr1, surr2).mean()
+            log_ratio = new_lp - old_log_probs[mb]
+            ratio = torch.exp(log_ratio)
+            adv = advantages[mb]
+            surr1 = ratio * adv
+            surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * adv
+            pi_loss = -torch.min(surr1, surr2).mean()
 
             # Value loss (clipped)
-            value_loss = 0.5 * (new_value - mb_ret).pow(2).mean()
+            v_clipped = old_values[mb] + torch.clamp(
+                new_val - old_values[mb], -clip_eps, clip_eps
+            )
+            v_loss_unclipped = (new_val - returns[mb]).pow(2)
+            v_loss_clipped = (v_clipped - returns[mb]).pow(2)
+            v_loss = 0.5 * torch.max(v_loss_unclipped, v_loss_clipped).mean()
 
             # Entropy bonus
-            entropy_loss = -entropy.mean()
+            e_loss = -ent.mean()
 
-            loss = policy_loss + vf_coef * value_loss + ent_coef * entropy_loss
-
+            loss = pi_loss + vf_coef * v_loss + ent_coef * e_loss
             optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), max_grad_norm)
             optimizer.step()
 
-            # Track metrics
+            # Metrics
             with torch.no_grad():
-                clip_frac = ((ratio - 1.0).abs() > clip_eps).float().mean().item()
+                approx_kl = ((ratio - 1) - log_ratio).mean().item()
+                cf = ((ratio - 1.0).abs() > clip_eps).float().mean().item()
 
-            metrics["policy_loss"] += policy_loss.item()
-            metrics["value_loss"] += value_loss.item()
-            metrics["entropy"] += entropy.mean().item()
-            metrics["clip_fraction"] += clip_frac
-            num_updates += 1
+            totals["policy_loss"] += pi_loss.item()
+            totals["value_loss"] += v_loss.item()
+            totals["entropy"] += ent.mean().item()
+            totals["clip_frac"] += cf
+            totals["approx_kl"] += approx_kl
+            count += 1
 
-    # Average metrics
-    for k in metrics:
-        metrics[k] /= max(num_updates, 1)
+        # KL early stopping: if policy changed too much, halt remaining epochs
+        if target_kl is not None and count > 0:
+            avg_kl = totals["approx_kl"] / count
+            if avg_kl > target_kl:
+                early_stopped = True
+                break
 
+    metrics = {k: v / max(count, 1) for k, v in totals.items()}
+    metrics["epochs_used"] = epoch + 1 if early_stopped else num_epochs
     return metrics

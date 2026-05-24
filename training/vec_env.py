@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gymnasium as gym
+from gymnasium.vector import AutoresetMode
 
 from becca_env.env import BeccaEnv
 
@@ -15,25 +16,19 @@ def make_env(seed: int, win_points: int = 41):
 
 
 def create_vec_env(
-    num_envs: int = 8,
+    num_envs: int = 64,
     seed: int = 0,
     win_points: int = 41,
     sync: bool = False,
 ) -> gym.vector.VectorEnv:
     """Create a vectorized environment with num_envs parallel games.
 
-    Args:
-        num_envs: number of parallel environments
-        seed: base seed (each env gets seed + i)
-        win_points: game win threshold
-        sync: if True, use SyncVectorEnv (no subprocess overhead, good for debugging)
-
-    Returns:
-        Gymnasium VectorEnv running num_envs games in parallel
+    Defaults to AsyncVectorEnv (subprocess-based) for actual parallelism.
+    Use sync=True only for debugging.
     """
     env_fns = [make_env(seed + i, win_points) for i in range(num_envs)]
 
     if sync:
-        return gym.vector.SyncVectorEnv(env_fns)
+        return gym.vector.SyncVectorEnv(env_fns, autoreset_mode=AutoresetMode.SAME_STEP)
     else:
-        return gym.vector.AsyncVectorEnv(env_fns)
+        return gym.vector.AsyncVectorEnv(env_fns, autoreset_mode=AutoresetMode.SAME_STEP)

@@ -1,8 +1,4 @@
-"""Rollout buffer and episode generation for self-play PPO.
-
-Supports both single-env and vectorized (multi-env) collection.
-All 4 seats use the same policy network (self-play).
-"""
+"""Rollout buffer with per-seat GAE for multi-agent self-play PPO."""
 
 from __future__ import annotations
 
@@ -11,193 +7,152 @@ import numpy as np
 import torch
 
 from becca_env.env import BeccaEnv
-from training.network import BeccaNet
+from becca_env.observation import OBS_SIZE
+from training.network import BeccaNet, BeccaNetV2
+
+ACTION_SIZE = 160
 
 
 class RolloutBuffer:
-    """Fixed-size buffer storing transitions as contiguous numpy arrays."""
+    """Fixed-size buffer with per-seat Generalized Advantage Estimation."""
 
-    def __init__(self, size: int, obs_size: int, action_size: int):
-        self.size = size
-        self.obs = np.zeros((size, obs_size), dtype=np.float32)
-        self.action_masks = np.zeros((size, action_size), dtype=np.float32)
+    def __init__(self, size: int):
+        self.obs = np.zeros((size, OBS_SIZE), dtype=np.float32)
+        self.masks = np.zeros((size, ACTION_SIZE), dtype=np.float32)
         self.actions = np.zeros(size, dtype=np.int64)
         self.log_probs = np.zeros(size, dtype=np.float32)
         self.values = np.zeros(size, dtype=np.float32)
         self.rewards = np.zeros(size, dtype=np.float32)
         self.dones = np.zeros(size, dtype=np.float32)
+        self.seats = np.zeros(size, dtype=np.int32)
+        self.size = size
         self.ptr = 0
-        self.games_completed = 0
+        self.games_done = 0
 
-    def add(
-        self,
-        obs: np.ndarray,
-        action_mask: np.ndarray,
-        action: int,
-        log_prob: float,
-        value: float,
-        reward: float,
-        done: bool,
-    ):
-        self.obs[self.ptr] = obs
-        self.action_masks[self.ptr] = action_mask
-        self.actions[self.ptr] = action
-        self.log_probs[self.ptr] = log_prob
-        self.values[self.ptr] = value
-        self.rewards[self.ptr] = reward
-        self.dones[self.ptr] = float(done)
+    def store(self, obs, mask, action, log_prob, value, reward, done, seat: int):
+        i = self.ptr
+        self.obs[i] = obs
+        self.masks[i] = mask
+        self.actions[i] = action
+        self.log_probs[i] = log_prob
+        self.values[i] = value
+        self.rewards[i] = reward
+        self.dones[i] = done
+        self.seats[i] = seat
         if done:
-            self.games_completed += 1
+            self.games_done += 1
         self.ptr += 1
 
-    def add_batch(
-        self,
-        obs: np.ndarray,
-        action_masks: np.ndarray,
-        actions: np.ndarray,
-        log_probs: np.ndarray,
-        values: np.ndarray,
-        rewards: np.ndarray,
-        dones: np.ndarray,
-    ):
-        """Add a batch of transitions (from vectorized env)."""
-        batch_size = obs.shape[0]
-        end = self.ptr + batch_size
-        self.obs[self.ptr:end] = obs
-        self.action_masks[self.ptr:end] = action_masks
-        self.actions[self.ptr:end] = actions
-        self.log_probs[self.ptr:end] = log_probs
-        self.values[self.ptr:end] = values
-        self.rewards[self.ptr:end] = rewards
-        self.dones[self.ptr:end] = dones
-        self.games_completed += int(dones.sum())
-        self.ptr += batch_size
+    def compute_gae(self, gamma: float, lam: float) -> tuple[np.ndarray, np.ndarray]:
+        """Per-seat GAE: compute advantages within each seat's own trajectory.
 
-    def compute_gae(
-        self, gamma: float = 0.99, lam: float = 0.95
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute GAE advantages and returns."""
+        For each step t where seat S acts:
+          delta_t = r_t + gamma * V(next step where S acts) * (1 - done_between) - V(t)
+          A_t = delta_t + gamma * lam * A(next step where S acts)
+
+        On game boundaries (done=True), all seats' running advantages reset to 0.
+        """
         n = self.ptr
         advantages = np.zeros(n, dtype=np.float32)
 
-        last_gae = 0.0
-        for i in reversed(range(n)):
-            if self.dones[i]:
-                next_value = 0.0
-                last_gae = 0.0
-            else:
-                next_value = self.values[i + 1] if i + 1 < n else 0.0
+        # Per-seat tracking: last seen advantage and value for GAE chaining
+        seat_last_adv = {s: 0.0 for s in range(4)}
+        seat_last_value = {s: 0.0 for s in range(4)}
+        seat_last_done = {s: True for s in range(4)}
 
-            delta = self.rewards[i] + gamma * next_value - self.values[i]
-            last_gae = delta + gamma * lam * last_gae
-            advantages[i] = last_gae
+        for t in reversed(range(n)):
+            seat = int(self.seats[t])
+
+            if self.dones[t]:
+                # Game ended at this step — reset ALL seats
+                for s in range(4):
+                    seat_last_adv[s] = 0.0
+                    seat_last_value[s] = 0.0
+                    seat_last_done[s] = True
+
+            # TD residual: r_t + gamma * V_next * (1 - done) - V_t
+            next_value = seat_last_value[seat]
+            next_nonterminal = 1.0 - float(seat_last_done[seat])
+            delta = self.rewards[t] + gamma * next_value * next_nonterminal - self.values[t]
+
+            # GAE accumulation within this seat's trajectory
+            advantages[t] = delta + gamma * lam * next_nonterminal * seat_last_adv[seat]
+
+            # Update seat's state for the next iteration (going backwards)
+            seat_last_adv[seat] = advantages[t]
+            seat_last_value[seat] = self.values[t]
+            seat_last_done[seat] = False  # this step wasn't terminal for earlier steps
 
         returns = advantages + self.values[:n]
-        return torch.from_numpy(advantages), torch.from_numpy(returns)
+        return advantages, returns
 
-    def to_tensors(self, gamma: float = 0.99, lam: float = 0.95) -> dict[str, torch.Tensor]:
-        """Convert buffer contents to tensors for PPO update."""
+    def get_batch(self, gamma: float = 0.995, lam: float = 0.95) -> dict[str, torch.Tensor]:
         n = self.ptr
-        advantages, returns = self.compute_gae(gamma, lam)
+        advs, rets = self.compute_gae(gamma, lam)
 
         return {
             "obs": torch.from_numpy(self.obs[:n]),
-            "action_masks": torch.from_numpy(self.action_masks[:n]),
+            "masks": torch.from_numpy(self.masks[:n]),
             "actions": torch.from_numpy(self.actions[:n]),
-            "old_log_probs": torch.from_numpy(self.log_probs[:n]),
-            "old_values": torch.from_numpy(self.values[:n]),
-            "advantages": advantages,
-            "returns": returns,
+            "log_probs": torch.from_numpy(self.log_probs[:n]),
+            "values": torch.from_numpy(self.values[:n]),
+            "advantages": torch.from_numpy(advs),
+            "returns": torch.from_numpy(rets),
         }
 
 
-def collect_rollout_single(
-    env: BeccaEnv,
-    net: BeccaNet,
-    num_steps: int,
-    device: torch.device = torch.device("cpu"),
+def collect_rollout(
+    env: BeccaEnv, net: BeccaNet | BeccaNetV2, num_steps: int, device: torch.device
 ) -> RolloutBuffer:
-    """Collect transitions from a single environment."""
-    from becca_env.observation import OBS_SIZE
-
-    buffer = RolloutBuffer(num_steps, OBS_SIZE, 160)
+    buf = RolloutBuffer(num_steps)
     obs, info = env.reset()
 
     net.eval()
     with torch.no_grad():
         for _ in range(num_steps):
-            obs_t = torch.from_numpy(obs["obs"]).unsqueeze(0).to(device)
-            mask_t = torch.from_numpy(obs["action_mask"]).unsqueeze(0).to(device)
+            seat = int(obs["current_seat"])
+            o = torch.from_numpy(obs["obs"]).unsqueeze(0).to(device)
+            m = torch.from_numpy(obs["action_mask"]).unsqueeze(0).to(device)
+            act, lp, _, val = net.get_action_and_value(o, m)
 
-            action, log_prob, _, value = net.get_action_and_value(obs_t, mask_t)
+            a = act.item()
+            next_obs, rew, done, _, step_info = env.step(a)
+            buf.store(obs["obs"], obs["action_mask"], a, lp.item(), val.item(), rew, done, seat)
 
-            action_int = action.item()
-            next_obs, reward, terminated, truncated, step_info = env.step(action_int)
+            obs = next_obs if not done else env.reset()[0]
 
-            buffer.add(
-                obs=obs["obs"],
-                action_mask=obs["action_mask"],
-                action=action_int,
-                log_prob=log_prob.item(),
-                value=value.item(),
-                reward=reward,
-                done=terminated,
-            )
-
-            if terminated:
-                obs, info = env.reset()
-            else:
-                obs = next_obs
-
-    return buffer
+    return buf
 
 
 def collect_rollout_vec(
-    vec_env: gym.vector.VectorEnv,
-    net: BeccaNet,
-    num_steps: int,
-    device: torch.device = torch.device("cpu"),
+    vec_env: gym.vector.VectorEnv, net: BeccaNet | BeccaNetV2, steps_per_env: int,
+    device: torch.device
 ) -> RolloutBuffer:
-    """Collect transitions from a vectorized environment (N parallel games).
-
-    Each step processes all N environments simultaneously, then stores
-    N transitions. Total transitions collected = num_steps * num_envs.
-    """
-    from becca_env.observation import OBS_SIZE
-
     num_envs = vec_env.num_envs
-    total_transitions = num_steps * num_envs
-    buffer = RolloutBuffer(total_transitions, OBS_SIZE, 160)
-
-    obs_dict, info = vec_env.reset()
+    buf = RolloutBuffer(steps_per_env * num_envs)
+    obs_dict, _ = vec_env.reset()
 
     net.eval()
     with torch.no_grad():
-        for _ in range(num_steps):
-            obs_batch = obs_dict["obs"]  # (num_envs, OBS_SIZE)
-            mask_batch = obs_dict["action_mask"]  # (num_envs, 160)
+        for _ in range(steps_per_env):
+            o = torch.from_numpy(obs_dict["obs"]).to(device)
+            m = torch.from_numpy(obs_dict["action_mask"]).to(device)
+            acts, lps, _, vals = net.get_action_and_value(o, m)
 
-            obs_t = torch.from_numpy(obs_batch).to(device)
-            mask_t = torch.from_numpy(mask_batch).to(device)
+            acts_np = acts.cpu().numpy()
+            lps_np = lps.cpu().numpy()
+            vals_np = vals.cpu().numpy()
+            seats_np = obs_dict["current_seat"]
 
-            actions, log_probs, _, values = net.get_action_and_value(obs_t, mask_t)
+            next_obs, rews, dones, _, _ = vec_env.step(acts_np)
 
-            actions_np = actions.cpu().numpy()
-            log_probs_np = log_probs.cpu().numpy()
-            values_np = values.cpu().numpy()
+            for i in range(num_envs):
+                buf.store(
+                    obs_dict["obs"][i], obs_dict["action_mask"][i],
+                    acts_np[i], lps_np[i], vals_np[i], rews[i], dones[i],
+                    int(seats_np[i]),
+                )
 
-            next_obs_dict, rewards, terminateds, truncateds, infos = vec_env.step(actions_np)
+            obs_dict = next_obs
 
-            buffer.add_batch(
-                obs=obs_batch,
-                action_masks=mask_batch,
-                actions=actions_np,
-                log_probs=log_probs_np,
-                values=values_np,
-                rewards=np.array(rewards, dtype=np.float32),
-                dones=np.array(terminateds, dtype=np.float32),
-            )
-
-            obs_dict = next_obs_dict
-
-    return buffer
+    return buf
