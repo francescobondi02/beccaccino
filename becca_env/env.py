@@ -71,7 +71,7 @@ class BeccaEnv(gym.Env):
 
         if event in ("trick_complete", "round_end", "game_over"):
             trick_winner_team = TEAM_OF_SEAT[info["trick_winner"]]
-            trick_cards = self.game.round.hands_played[-1].cards
+            trick_cards = info["trick_cards"]
             raw_pts = sum(card_points[c.value] for _, c in trick_cards)
             trick_reward = raw_pts / MAX_RAW_PER_ROUND
             for s in range(4):

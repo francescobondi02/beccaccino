@@ -70,8 +70,8 @@ Feature vector: 344 floats (OBS_SIZE = 344)
 | 252 | 10 | Hand number (one-hot, 1-10) |
 | 262 | 10 | Round number (one-hot, capped at 10) |
 | 272 | 2 | Normalized scores (team0, team1) |
-| 274 | 30 | Signals history (10 hands × 3 types) — TODO: not yet wired |
-| 304 | 40 | Signal declarers (10 hands × 4 seats) — TODO: not yet wired |
+| 274 | 30 | Signals history (10 hands × 3 types) |
+| 304 | 40 | Signal declarers (10 hands × 4 seats) |
 
 ## Action Space
 
@@ -111,7 +111,7 @@ python -m training.trainer --no-wandb --win-points 5 --steps 5000000
 Key hyperparameters (defaults in `training/config.py`):
 - 64 parallel envs × 512 steps = 32,768 batch size
 - GAE: gamma=0.995, lambda=0.95
-- Network: 3×512 ReLU+LayerNorm with residual connections (~500K params)
+- Network: 3×512 ReLU+LayerNorm with residual connections (~1M params)
 - Entropy: annealed from 0.03 → 0.005
 - LR: 2.5e-4 with cosine schedule
 
@@ -130,6 +130,25 @@ pip install -e ".[dev]"     # Core + pytest + ruff
 pip install -e ".[train]"   # + torch + tensorboard + wandb
 pip install -e ".[serve]"   # + fastapi + uvicorn + onnxruntime
 ```
+
+## W&B (Weights & Biases) Setup
+
+Training runs are logged to W&B Models for experiment tracking (loss curves, win rate, hyperparameters).
+
+```bash
+# 1. Install (included in [train] extra)
+pip install -e ".[train]"
+
+# 2. Login (one-time, stores key in ~/.netrc)
+wandb login
+# Paste API key from https://wandb.ai/authorize
+
+# 3. Runs auto-log to:
+#    Entity:  francesco-bondi02-eth-z-rich
+#    Project: BECCACCINO-RL
+```
+
+To disable wandb for a run: `python -m training.trainer --no-wandb`
 
 ## Running Tests
 

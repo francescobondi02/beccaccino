@@ -55,7 +55,8 @@ class TrainConfig:
 
     # Logging
     use_wandb: bool = True
-    wandb_project: str = "becca-ai"
+    wandb_entity: str = "francesco-bondi02-eth-z-rich"
+    wandb_project: str = "BECCACCINO-RL"
     wandb_run_name: str | None = None
     log_dir: str = "runs"
 

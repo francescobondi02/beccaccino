@@ -94,6 +94,7 @@ def train(config: TrainConfig):
         try:
             import wandb
             wandb_run = wandb.init(
+                entity=config.wandb_entity,
                 project=config.wandb_project,
                 name=config.wandb_run_name or f"ppo_{time.strftime('%Y%m%d_%H%M%S')}",
                 config=asdict(config),
@@ -148,6 +149,13 @@ def train(config: TrainConfig):
             var_ret = rets.var()
             explained_var = 1 - (rets - vals).var() / (var_ret + 1e-8) if var_ret > 0 else 0.0
 
+        # Rollout statistics
+        n = buf.ptr
+        mean_reward = float(buf.rewards[:n].mean())
+        mean_return = float(rets.mean())
+        mean_ep_len = n / max(buf.games_done, 1)
+        current_lr = opt.param_groups[0]["lr"]
+
         # Log metrics
         sps = step_count / (time.time() - t0)
         metrics = {
@@ -159,8 +167,15 @@ def train(config: TrainConfig):
             "train/epochs_used": m["epochs_used"],
             "train/ent_coef": ent_coef,
             "train/explained_variance": explained_var,
+            "train/learning_rate": current_lr,
+            "rollout/mean_reward": mean_reward,
+            "rollout/mean_return": mean_return,
+            "rollout/mean_episode_length": mean_ep_len,
+            "rollout/games_in_batch": buf.games_done,
             "perf/sps": sps,
-            "perf/games": game_count,
+            "perf/games_total": game_count,
+            "curriculum/stage": curriculum_stage,
+            "curriculum/win_points": win_points,
         }
 
         for k, v in metrics.items():
@@ -285,7 +300,8 @@ if __name__ == "__main__":
     p.add_argument("--resume", type=str, default=None)
     p.add_argument("--curriculum", action="store_true")
     p.add_argument("--no-wandb", action="store_true")
-    p.add_argument("--wandb-project", default="becca-ai")
+    p.add_argument("--wandb-entity", default="francesco-bondi02-eth-z-rich")
+    p.add_argument("--wandb-project", default="BECCACCINO-RL")
     p.add_argument("--network-version", type=int, default=2, choices=[1, 2])
     a = p.parse_args()
 
@@ -314,6 +330,7 @@ if __name__ == "__main__":
         resume_from=a.resume,
         use_curriculum=a.curriculum,
         use_wandb=not a.no_wandb,
+        wandb_entity=a.wandb_entity,
         wandb_project=a.wandb_project,
         network_version=a.network_version,
     )

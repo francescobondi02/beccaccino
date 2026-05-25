@@ -156,8 +156,8 @@ print(f"Agent A wins: {result.team0_wins}, Agent B wins: {result.team1_wins}")
 |-------|------|--------|
 | 1 | Game engine + Gymnasium env | Done |
 | 2 | PPO self-play training pipeline | Done |
-| 3 | Training overhaul (GAE, scale, self-play pool, curriculum) | In progress |
-| 4 | Train to >80% vs random on full 41-point games | Next |
+| 3 | Training overhaul (GAE, scale, self-play pool, curriculum) | Done |
+| 4 | Train to >80% vs random on full 41-point games | Ready to run |
 | 5 | Fine-tune with signals | Planned |
 | 6 | MCTS / search hybrid | Planned |
 | 7 | Serving API + web integration | Planned |
