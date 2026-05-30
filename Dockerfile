@@ -1,17 +1,31 @@
-FROM node:24-alpine3.21
+FROM node:24-alpine3.21 AS builder
 
 WORKDIR /app
 
-# 1) Install deps (cached better)
 COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci
 
-# 2) Copy source and build
 COPY tsconfig.json ./
 COPY src ./src
 RUN npx prisma generate
 RUN npm run build
+RUN npm prune --omit=dev
 
-# 3) Runtime command: migrate then start
+# --- Production image ---
+FROM node:24-alpine3.21
+
+RUN apk add --no-cache wget
+WORKDIR /app
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/package.json ./
+
+USER node
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -q -O- http://localhost:8000/health || exit 1
+
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]

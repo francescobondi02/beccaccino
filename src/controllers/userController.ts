@@ -5,10 +5,16 @@ import { prisma } from "../db";
 import { hashPassword, comparePassword } from "../utils/password";
 import { generateToken } from "../utils/jwt";
 
+const isProduction = process.env.NODE_ENV === "production";
+const isCrossOrigin =
+  isProduction &&
+  process.env.FRONTEND_URL &&
+  !process.env.FRONTEND_URL.includes(process.env.RENDER_EXTERNAL_HOSTNAME || "");
+
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production", // HTTPS in produzione
-  sameSite: "strict" as const,
+  secure: isProduction,
+  sameSite: (isCrossOrigin ? "none" : "strict") as "none" | "strict",
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 giorni
 };
 

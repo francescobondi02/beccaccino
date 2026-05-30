@@ -8,22 +8,7 @@ import { getSocketInstance } from "../socketInstance";
 import { startTurnTimer } from "../services/turnTimer";
 
 export const createRoom = async (req: Request, res: Response) => {
-  /**
-   * Crea una nuova stanza di gioco con un codice univoco e aggiunge il creatore come primo giocatore.
-   *
-   * @param userId ID dell'utente che crea la stanza (dal body della richiesta)
-   * @return La stanza di gioco creata
-   *
-   * @note Il codice della stanza è univoco e generato casualmente
-   * @note Il creatore della stanza è automaticamente il primo giocatore (seat 0)
-   */
-
-  const { userId } = req.body;
-  if (!userId) {
-    return res
-      .status(400)
-      .json({ error: "User ID is required to create a room" });
-  }
+  const userId = req.user!.userId;
 
   try {
     // Check if user is already in an active game
@@ -106,20 +91,7 @@ const generateUniqueRoomCode = async () => {
 };
 
 export const getAvailableRooms = async (req: Request, res: Response) => {
-  /**
-   * Recupera due liste separate:
-   * 1. Stanze disponibili: non iniziate, non piene, utente non dentro
-   * 2. Giochi attivi: partite iniziate in cui l'utente è un giocatore
-   *
-   * @param userId ID dell'utente che cerca stanze (dal query param)
-   * @return { availableRooms: [], activeGames: [] }
-   *
-   * @note Una stanza disponibile ha meno di 4 giocatori e non è iniziata
-   * @note Un gioco attivo è una partita iniziata in cui l'utente è dentro
-   */
-  const userId = Number(req.query.userId);
-
-  if (!userId) return res.status(400).json({ error: "User ID is required" });
+  const userId = req.user!.userId;
 
   try {
     // 1. Stanze disponibili: non iniziate, non piene, utente non dentro
@@ -190,20 +162,8 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
 };
 
 export const getRoomByCode = async (req: Request, res: Response) => {
-  /**
-   * Recupera i dati di una stanza specifica dato il suo codice.
-   * Verifica che l'utente richiedente sia un giocatore nella stanza.
-   *
-   * @param roomCode Codice della stanza di gioco (dal parametro URL)
-   * @param userId ID dell'utente che richiede i dati (dal query param)
-   * @return I dati della stanza di gioco con tutti i giocatori
-   *
-   * @note Controlla che l'utente sia un giocatore nella stanza prima di restituire i dati
-   */
   const { roomCode } = req.params;
-  const userId = Number(req.query.userId);
-
-  if (!userId) return res.status(400).json({ error: "User ID is required" });
+  const userId = req.user!.userId;
 
   try {
     const room = await prisma.gameRoom.findUnique({
@@ -237,21 +197,10 @@ export const getRoomByCode = async (req: Request, res: Response) => {
 };
 
 export const joinRoom = async (req: Request, res: Response) => {
-  /**
-   * Permette a un utente di unirsi a una stanza di gioco esistente se non è piena e non è iniziata.
-   *
-   * @param roomCode Codice della stanza di gioco (dal body della richiesta)
-   * @param userId ID dell'utente che vuole unirsi alla stanza (dal body della richiesta)
-   * @return La stanza di gioco aggiornata con il nuovo giocatore
-   *
-   * @note Controlla che la stanza esista, non sia iniziata, non sia piena (max 4 giocatori)
-   *      e che l'utente non sia già un giocatore in quella stanza.
-   */
-  const { roomCode, userId } = req.body;
-  if (!roomCode || !userId) {
-    return res
-      .status(400)
-      .json({ error: "Room code and User ID are required to join a room" });
+  const userId = req.user!.userId;
+  const { roomCode } = req.body;
+  if (!roomCode) {
+    return res.status(400).json({ error: "Room code is required to join a room" });
   }
 
   try {
@@ -362,12 +311,11 @@ export const setPlayerReady = async (req: Request, res: Response) => {
    */
 
   const { roomCode } = req.params;
-  const { userId, isReady } = req.body;
+  const userId = req.user!.userId;
+  const { isReady } = req.body;
 
-  if (typeof isReady !== "boolean" || !userId) {
-    return res
-      .status(400)
-      .json({ error: "User ID and ready status are required" });
+  if (typeof isReady !== "boolean") {
+    return res.status(400).json({ error: "Ready status is required" });
   }
 
   try {
@@ -459,11 +407,7 @@ export const setPlayerReady = async (req: Request, res: Response) => {
 
 export const leaveRoom = async (req: Request, res: Response) => {
   const { roomCode } = req.params;
-  const { userId } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: "User ID is required" });
-  }
+  const userId = req.user!.userId;
 
   try {
     const room = await prisma.gameRoom.findUnique({
@@ -513,10 +457,7 @@ export const leaveRoom = async (req: Request, res: Response) => {
 };
 
 export const getExitedRooms = async (req: Request, res: Response) => {
-  const userId = Number(req.query.userId);
-  if (!userId) {
-    return res.status(400).json({ error: "User ID is required" });
-  }
+  const userId = req.user!.userId;
 
   const rooms = await prisma.gameRoom.findMany({
     where: {

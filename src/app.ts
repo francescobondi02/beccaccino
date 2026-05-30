@@ -41,4 +41,17 @@ app.use("/api/users", userRouter);
 app.use("/api/rooms", roomRouter);
 app.use("/api/games", gameRouter);
 
+// Global error handler — catches unhandled errors from async routes (Express 5)
+app.use(
+  (
+    err: Error,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    console.error("Unhandled error:", err.message, err.stack);
+    res.status(500).json({ error: "Internal server error" });
+  },
+);
+
 export default app;

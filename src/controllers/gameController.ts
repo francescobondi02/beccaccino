@@ -34,21 +34,25 @@ export const chooseBriscola = async (req: Request, res: Response) => {
 
 export const handlePlayCard = async (req: Request, res: Response) => {
   try {
-    const { roomCode, userId, suit, value, signal } = req.body;
+    const userId = req.user!.userId;
+    const { roomCode, suit, value, signal } = req.body;
     await playCard({ roomCode, userId, suit, value, signal });
     return res.status(200).json({ message: "Card played successfully" });
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    const message = (error as Error).message;
+    if (message.includes("not your turn") || message.includes("not in this")) {
+      return res.status(403).json({ error: message });
+    }
+    if (message.includes("not found")) {
+      return res.status(404).json({ error: message });
+    }
+    return res.status(400).json({ error: message });
   }
 };
 
 export const getPlayableCards = async (req: Request, res: Response) => {
   const { roomCode } = req.params;
-  const userId = parseInt(req.query.userId as string);
-
-  if (!roomCode || isNaN(userId)) {
-    return res.status(400).json({ error: "roomCode and userId required" });
-  }
+  const userId = req.user!.userId;
 
   try {
     const cards = await playableCards({ roomCode, userId });
@@ -60,9 +64,8 @@ export const getPlayableCards = async (req: Request, res: Response) => {
 
 export const getGameState = async (req: Request, res: Response) => {
   const { roomCode } = req.params;
-  const userId = parseInt(req.query.userId as string);
+  const userId = req.user!.userId;
 
-  // Verifico che l'utente sia nella stanza
   const gameRoom = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
     include: {

@@ -109,6 +109,18 @@ export function clearRoomTimerData(roomCode: string): void {
   kickedPlayers.delete(roomCode);
 }
 
+// Periodic cleanup: remove timer data for rooms that have been idle too long (2 hours)
+const STALE_TIMER_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+const cleanupStaleTimers = setInterval(() => {
+  const now = Date.now();
+  for (const [roomCode, timer] of activeTimers.entries()) {
+    if (now - timer.startedAt > STALE_TIMER_THRESHOLD_MS) {
+      clearRoomTimerData(roomCode);
+    }
+  }
+}, 10 * 60 * 1000); // every 10 minutes
+cleanupStaleTimers.unref();
+
 async function executeAutoPlay(
   roomCode: string,
   userId: number,

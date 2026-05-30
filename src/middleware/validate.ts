@@ -50,17 +50,14 @@ export const validateChooseBriscola = (req: Request, res: Response, next: NextFu
 
 /**
  * Validates the body for POST /api/games/play-card
- * Required: roomCode (string), userId (number), suit (valid Suit), value (valid Value)
+ * Required: roomCode (string), suit (valid Suit), value (valid Value)
+ * userId comes from req.user (JWT auth)
  */
 export const validatePlayCard = (req: Request, res: Response, next: NextFunction) => {
-  const { roomCode, userId, suit, value } = req.body;
+  const { roomCode, suit, value } = req.body;
 
   if (!roomCode || typeof roomCode !== "string") {
     return res.status(400).json({ error: "roomCode must be a non-empty string" });
-  }
-
-  if (userId === undefined || typeof userId !== "number" || !Number.isInteger(userId)) {
-    return res.status(400).json({ error: "userId must be a valid integer" });
   }
 
   if (!isValidSuit(suit)) {
@@ -79,24 +76,14 @@ export const validatePlayCard = (req: Request, res: Response, next: NextFunction
 };
 
 /**
- * Validates query params for GET /api/games/playable-cards/:roomCode
- * Required: userId (numeric query param)
+ * Validates path params for GET /api/games/playable-cards/:roomCode
+ * userId comes from req.user (JWT auth)
  */
 export const validateGetPlayableCards = (req: Request, res: Response, next: NextFunction) => {
   const { roomCode } = req.params;
-  const userId = req.query.userId;
 
   if (!roomCode || typeof roomCode !== "string") {
     return res.status(400).json({ error: "roomCode path param is required" });
-  }
-
-  if (!userId) {
-    return res.status(400).json({ error: "userId query param is required" });
-  }
-
-  const parsed = parseInt(userId as string, 10);
-  if (isNaN(parsed) || parsed < 1) {
-    return res.status(400).json({ error: "userId must be a valid positive integer" });
   }
 
   next();

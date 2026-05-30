@@ -5,20 +5,9 @@ import { prisma } from "../db";
 import { getSocketInstance } from "../socketInstance";
 
 export const chooseTeam = async (req: Request, res: Response) => {
-  /**
-   * Permette a un player di scegliere una squadra (0 o 1) in una stanza di gioco.
-   * Ogni squadra deve avere 2 giocatori per iniziare la partita.
-   *
-   * @param roomCode Codice della stanza di gioco (dal parametro URL)
-   * @param userId ID dell'utente che sceglie la squadra (dal body della richiesta)
-   * @param team Squadra scelta (0 o 1) (dal body della richiesta)
-   * @return void
-   *
-   * @note Controlla che la squadra non sia già piena (2 giocatori per squadra)
-   * @note Controlla che l'utente sia effettivamente un player nella stanza
-   */
   const { roomCode } = req.params;
-  const { userId, team } = req.body;
+  const userId = req.user!.userId;
+  const { team } = req.body;
 
   //^ Controlla che il team sia valido (0 o 1)
   if (![0, 1].includes(team)) {
