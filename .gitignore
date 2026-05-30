@@ -13,3 +13,5 @@ runs/
 .pytest_cache/
 *.log
 .env
+.DS_Store
+wandb/
