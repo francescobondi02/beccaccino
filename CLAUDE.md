@@ -76,8 +76,10 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 | backend | GAME_WIN_POINTS | Points to win (default 41, lower for testing) |
 | backend | TURN_TIMEOUT_SECONDS | Card play timeout (default 60) |
 | backend | BRISCOLA_TIMEOUT_SECONDS | Briscola choice timeout (default 90) |
+| backend | SENTRY_DSN | Sentry error tracking DSN (optional, disables if unset) |
 | frontend | VITE_API_URL | Backend REST base URL (`/api`) |
 | frontend | VITE_SOCKET_URL | Backend WebSocket URL |
+| frontend | VITE_SENTRY_DSN | Sentry error tracking DSN (optional, disables if unset) |
 
 ## Deployment
 
