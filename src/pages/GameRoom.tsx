@@ -77,7 +77,7 @@ const GameRoom = () => {
     if (!uid || !code) return;
 
     try {
-      const res = await fetch(`${API_URL}/rooms/${code}?userId=${uid}`, {
+      const res = await fetch(`${API_URL}/rooms/${code}`, {
         credentials: "include",
       });
 
@@ -314,7 +314,7 @@ const GameRoom = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ userId, isReady: newReadyState }),
+        body: JSON.stringify({ isReady: newReadyState }),
       });
 
       if (!res.ok) {
@@ -383,7 +383,7 @@ const GameRoom = () => {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({}),
       });
 
       toast.success("Hai lasciato la stanza");
@@ -402,7 +402,7 @@ const GameRoom = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ userId, team }),
+        body: JSON.stringify({ team }),
       });
 
       if (!res.ok) {

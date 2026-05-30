@@ -116,11 +116,11 @@ const Index = () => {
     await fetchAvailableRooms(newUserId);
   };
 
-  const fetchAvailableRooms = async (userIdParam: number) => {
+  const fetchAvailableRooms = async (_userIdParam?: number) => {
     setIsLoadingRooms(true);
     try {
       const res = await fetch(
-        `${API_URL}/rooms/available?userId=${userIdParam}`,
+        `${API_URL}/rooms/available`,
         {
           credentials: "include",
         },
@@ -274,7 +274,7 @@ const Index = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({}),
       });
 
       if (!res.ok) {
@@ -316,7 +316,7 @@ const Index = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ roomCode: code, userId }),
+        body: JSON.stringify({ roomCode: code }),
       });
 
       if (!res.ok) {
@@ -361,7 +361,7 @@ const Index = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ roomCode: roomCode.trim(), userId }),
+        body: JSON.stringify({ roomCode: roomCode.trim() }),
       });
 
       if (!res.ok) {

@@ -191,7 +191,7 @@ const GameTable = () => {
       setIsLoading(true);
       try {
         const res = await fetch(
-          `${API_URL}/rooms/${gameRoomCode}?userId=${userId}`,
+          `${API_URL}/rooms/${gameRoomCode}`,
           {
             credentials: "include",
           },
@@ -252,7 +252,7 @@ const GameTable = () => {
     const fetchGameState = async () => {
       try {
         const res = await fetch(
-          `${API_URL}/games/${gameRoomCode}/state?userId=${userId}`,
+          `${API_URL}/games/${gameRoomCode}/state`,
           { credentials: "include" },
         );
         if (!res.ok) return;
@@ -294,7 +294,7 @@ const GameTable = () => {
     const fetchPlayableCards = async () => {
       try {
         const res = await fetch(
-          `${API_URL}/games/playable-cards/${gameRoomCode}?userId=${userId}`,
+          `${API_URL}/games/playable-cards/${gameRoomCode}`,
           { credentials: "include" },
         );
         if (!res.ok) return;
@@ -316,7 +316,7 @@ const GameTable = () => {
 
     try {
       const res = await fetch(
-        `${API_URL}/games/${code}/state?userId=${uid}`,
+        `${API_URL}/games/${code}/state`,
         { credentials: "include" },
       );
       if (res.ok) {
@@ -345,7 +345,7 @@ const GameTable = () => {
         // Fetch playable cards immediately if it's our turn
         if (data.currentTurnUserId === uid && data.round?.briscola) {
           const pcRes = await fetch(
-            `${API_URL}/games/playable-cards/${code}?userId=${uid}`,
+            `${API_URL}/games/playable-cards/${code}`,
             { credentials: "include" },
           );
           if (pcRes.ok) {
@@ -635,7 +635,6 @@ const GameTable = () => {
         credentials: "include",
         body: JSON.stringify({
           roomCode: gameRoomCode,
-          userId,
           suit: card.suit,
           value: card.value,
           signal: signal || null,
