@@ -33,9 +33,14 @@ Repo: github.com/francescobondi02/beccaccino (monorepo, no workspaces).
 ## Running Locally
 
 ```bash
-docker compose up -d              # Postgres on :5432, Adminer on :8080
-cd backend && npm install && npm run dev    # :8000 (auto-runs prisma generate + migrate)
+docker compose up -d              # Postgres on :5432, Adminer on :8080, Backend on :8000
 cd frontend && npm install && npm run dev   # :8081
+```
+
+Alternatively, run backend outside Docker for hot-reload:
+```bash
+docker compose up -d db adminer   # Postgres + Adminer only
+cd backend && npm install && npm run dev    # :8000 (auto-runs prisma generate + migrate)
 ```
 
 ## Testing
@@ -84,9 +89,16 @@ Cross-origin deploy requires cookie `sameSite: 'none'` + `secure: true`.
 ## Module Boundaries
 
 - `backend/src/services/gameService.ts` — core game logic (start round, set briscola, play card, score)
+- `backend/src/services/cardService.ts` — playable cards logic (legal moves based on hand/trick state)
 - `backend/src/services/turnTimer.ts` — timeout/auto-play/kick logic
 - `backend/src/sockets/room.ts` — all Socket.IO event handlers (lobby + game)
 - `frontend/src/sockets/socketClient.ts` — singleton socket with reconnection (Infinity attempts)
-- `frontend/src/pages/GameTable.tsx` — main game UI (~1000 lines, manages full game state)
+- `frontend/src/sockets/lobbyHandlers.ts` — lobby socket event handlers (room CRUD, player join/leave)
+- `frontend/src/sockets/roomHandlers.ts` — room socket event handlers (team choice, ready, game start)
+- `frontend/src/pages/GameTable.tsx` — main game UI (~1100 lines, manages full game state)
+- `frontend/src/pages/GameRoom.tsx` — pre-game room (team selection, ready state)
+- `frontend/src/pages/Leaderboard.tsx` — player rankings
+- `frontend/src/pages/Profile.tsx` — user profile page
 - `ai/becca_env/game.py` — pure Python game engine (mirrors backend rules exactly)
 - `ai/becca_env/observation.py` — state→tensor encoding for neural network input
+- `ai/CLAUDE.md` — detailed AI module docs (training, serving, evaluation, network architecture)
