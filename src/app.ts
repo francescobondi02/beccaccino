@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
+import * as Sentry from "@sentry/node";
 import dotenv from "dotenv";
 
 import userRouter from "./routes/users";
@@ -49,6 +50,7 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    Sentry.captureException(err);
     console.error("Unhandled error:", err.message, err.stack);
     res.status(500).json({ error: "Internal server error" });
   },
