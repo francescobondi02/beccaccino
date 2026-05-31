@@ -699,7 +699,6 @@ const GameTable = () => {
         credentials: "include",
         body: JSON.stringify({
           gameRoomId: room.id,
-          playerId: myPlayer.id,
           suit,
         }),
       });
