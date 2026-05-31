@@ -1,7 +1,9 @@
+import * as Sentry from "@sentry/node";
 import { getSocketInstance } from "../socketInstance";
 import { playCard, setBriscola } from "./gameService";
 import { playableCards } from "./cardService";
 import { prisma } from "../db";
+import { logger } from "../logger";
 
 const TURN_TIMEOUT_SECONDS = parseInt(
   process.env.TURN_TIMEOUT_SECONDS || "60",
@@ -162,7 +164,17 @@ async function executeAutoPlay(
 
     io.to(roomCode).emit("auto_played", { userId, phase });
   } catch (error) {
-    // Player might have already acted (race condition) — safe to ignore
+    // The most common cause is a benign race: the player already acted
+    // between the timer firing and our DB read. We still surface to Sentry
+    // (with a tag) so we can spot pathological auto-play loops.
+    Sentry.captureException(error, {
+      tags: { source: "auto_play_race" },
+      extra: { roomCode, userId, phase },
+    });
+    logger.warn(
+      { err: error, roomCode, userId, phase },
+      "auto_play_failed",
+    );
   }
 }
 

@@ -10,6 +10,7 @@ import { getSocketInstance } from "../socketInstance";
 import { getRng } from "../utils/random";
 import { startTurnTimer, clearTurnTimer, clearRoomTimerData } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
+import { logger } from "../logger";
 
 /**
  * Points required to win the game.
@@ -19,8 +20,9 @@ import { withRoomLock } from "../utils/roomLock";
 const GAME_WIN_POINTS = (() => {
   const parsed = parseInt(process.env.GAME_WIN_POINTS || "41", 10);
   if (isNaN(parsed) || parsed < 1) {
-    console.warn(
-      `⚠️ Invalid GAME_WIN_POINTS value "${process.env.GAME_WIN_POINTS}", defaulting to 41`,
+    logger.warn(
+      { value: process.env.GAME_WIN_POINTS },
+      "invalid_game_win_points_defaulting_to_41",
     );
     return 41;
   }
@@ -195,6 +197,16 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     starterId = newStarter.id;
   }
 
+  logger.info(
+    {
+      gameRoomId,
+      roundNumber: newRoundNumber,
+      roundId: round.id,
+      callerPlayerId: starterId,
+    },
+    "round_setup",
+  );
+
   return { callerPlayerId: starterId, roundId: round.id };
 }
 
@@ -311,6 +323,18 @@ async function setBriscolaUnlocked({
   if (callerPlayer) {
     startTurnTimer(gameRoom.code, callerPlayer.userId, "play_card");
   }
+
+  logger.info(
+    {
+      roomCode: gameRoom.code,
+      gameRoomId,
+      roundNumber: currentRound.number,
+      callerPlayerId: playerId,
+      briscola: suit,
+      cricca: hasCricca,
+    },
+    "briscola_set",
+  );
 
   return { round: updatedRound, hand: firstHand, roomCode: gameRoom.code };
 }
@@ -457,6 +481,21 @@ async function playCardUnlocked({
     signal: validSignal,
   });
 
+  logger.info(
+    {
+      roomCode,
+      userId,
+      playerId: player.id,
+      suit,
+      value,
+      position: playedCards.length,
+      handNumber: currentHand.number,
+      roundNumber: currentRound.number,
+      signal: validSignal,
+    },
+    "card_played",
+  );
+
   //^ Ora dobbiamo controllare se la mano è completa e gestire il turno successivo
   if (playedCards.length + 1 < 4) {
     // Hand not complete — start timer for next player
@@ -594,6 +633,20 @@ async function playCardUnlocked({
         cricca: currentRound.cricca,
       });
 
+      logger.info(
+        {
+          roomCode,
+          roundNumber: currentRound.number,
+          team0Points: scores.team0.points,
+          team1Points: scores.team1.points,
+          team0Figures: scores.team0.figures,
+          team1Figures: scores.team1.figures,
+          winnerTeam,
+          cricca: currentRound.cricca,
+        },
+        "round_ended",
+      );
+
       // Calcola i punteggi totali di tutti i round completati
       const allCompletedRounds = await prisma.round.findMany({
         where: {
@@ -651,6 +704,17 @@ async function playCardUnlocked({
             team1: team1Wins,
           },
         });
+
+        logger.info(
+          {
+            roomCode,
+            winnerTeam: finalWinnerTeam,
+            totalRounds,
+            totalTeam0Points,
+            totalTeam1Points,
+          },
+          "game_finished",
+        );
 
         clearRoomTimerData(roomCode);
       } else {

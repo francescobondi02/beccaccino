@@ -5,7 +5,9 @@
  */
 
 import { Server, Socket } from "socket.io";
+import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
+import { logger } from "../logger";
 
 // Interfacce per gli eventi
 interface JoinRoomData {
@@ -109,7 +111,10 @@ export function registerRoomSocket(socket: Socket, io: Server) {
       });
 
     } catch (error) {
-      console.error("Error joining room:", error);
+      Sentry.captureException(error, {
+        extra: { event: "join_room", roomCode, userId },
+      });
+      logger.error({ err: error, roomCode, userId }, "join_room_failed");
       socket.emit("error", { message: "Failed to join room" });
     }
   });
@@ -177,7 +182,13 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         team,
       });
     } catch (error) {
-      console.error("Error choosing team:", error);
+      Sentry.captureException(error, {
+        extra: { event: "choose_team", roomCode, userId, team },
+      });
+      logger.error(
+        { err: error, roomCode, userId, team },
+        "choose_team_failed",
+      );
       socket.emit("error", { message: "Failed to choose team" });
     }
   });
@@ -232,7 +243,13 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         isReady,
       });
     } catch (error) {
-      console.error("Error setting ready:", error);
+      Sentry.captureException(error, {
+        extra: { event: "set_ready", roomCode, userId, isReady },
+      });
+      logger.error(
+        { err: error, roomCode, userId, isReady },
+        "set_ready_failed",
+      );
       socket.emit("error", { message: "Failed to set ready" });
     }
   });

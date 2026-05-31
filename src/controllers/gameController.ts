@@ -5,7 +5,8 @@ import { prisma } from "../db";
 import { Suit } from "@prisma/client";
 import { playCard, setBriscola } from "../services/gameService";
 import { playableCards } from "../services/cardService";
-import { getTurnTimerState } from "../services/turnTimer";
+import { getTurnTimerState, startTurnTimer } from "../services/turnTimer";
+import { logger } from "../logger";
 
 export const chooseBriscola = async (req: Request, res: Response) => {
   const { gameRoomId, suit } = req.body;
@@ -276,6 +277,22 @@ export const getGameState = async (req: Request, res: Response) => {
     { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
   );
 
+  // Lazy timer recovery: if the server restarted mid-game, in-memory turn
+  // timers are gone. The first state fetch after restart restarts a timer
+  // for whoever's turn it is, so auto-play / kick-after-3-timeouts continue
+  // to work without manual intervention.
+  let timerState = getTurnTimerState(roomCode);
+  if (!timerState && !gameRoom.finished && currentTurnUserId !== null) {
+    const phase: "play_card" | "choose_briscola" =
+      currentRound.briscola === null ? "choose_briscola" : "play_card";
+    logger.info(
+      { roomCode, currentTurnUserId, phase },
+      "turn_timer_recovered_after_restart",
+    );
+    startTurnTimer(roomCode, currentTurnUserId, phase);
+    timerState = getTurnTimerState(roomCode);
+  }
+
   return res.status(200).json({
     round: {
       id: currentRound.id,
@@ -290,6 +307,6 @@ export const getGameState = async (req: Request, res: Response) => {
     playedCards,
     lastHandCards,
     totalPoints,
-    turnTimer: getTurnTimerState(roomCode),
+    turnTimer: timerState,
   });
 };

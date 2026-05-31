@@ -1,8 +1,10 @@
 // src/controllers/chooseTeam.ts
 
 import { Request, Response } from "express";
+import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { getSocketInstance } from "../socketInstance";
+import { logger } from "../logger";
 
 export const chooseTeam = async (req: Request, res: Response) => {
   const { roomCode } = req.params;
@@ -58,7 +60,13 @@ export const chooseTeam = async (req: Request, res: Response) => {
 
     return res.status(200).json({ success: true, player: updatedPlayer });
   } catch (error) {
-    console.error("Error choosing team:", error);
+    Sentry.captureException(error, {
+      extra: { op: "choose_team", roomCode, userId, team },
+    });
+    (req.log ?? logger).error(
+      { err: error, roomCode, userId, team },
+      "choose_team_failed",
+    );
     return res.status(500).json({ error: "Failed to choose team" });
   }
 };

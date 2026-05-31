@@ -1,9 +1,11 @@
 // src/controllers/userController.ts
 
 import { Request, Response } from "express";
+import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { hashPassword, comparePassword } from "../utils/password";
 import { generateToken } from "../utils/jwt";
+import { logger } from "../logger";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isCrossOrigin =
@@ -82,7 +84,8 @@ export const register = async (req: Request, res: Response) => {
     const { password: _, ...userWithoutPassword } = user;
     return res.status(201).json(userWithoutPassword);
   } catch (error) {
-    console.error("Error registering user:", error);
+    Sentry.captureException(error, { extra: { op: "register_user" } });
+    (req.log ?? logger).error({ err: error }, "register_user_failed");
     return res.status(500).json({ error: "Registration failed" });
   }
 };
@@ -129,7 +132,8 @@ export const login = async (req: Request, res: Response) => {
     const { password: _, ...userWithoutPassword } = user;
     return res.status(200).json(userWithoutPassword);
   } catch (error) {
-    console.error("Error logging in:", error);
+    Sentry.captureException(error, { extra: { op: "login" } });
+    (req.log ?? logger).error({ err: error }, "login_failed");
     return res.status(500).json({ error: "Login failed" });
   }
 };
@@ -168,7 +172,8 @@ export const getCurrentUser = async (req: Request, res: Response) => {
 
     return res.status(200).json(user);
   } catch (error) {
-    console.error("Error fetching current user:", error);
+    Sentry.captureException(error, { extra: { op: "get_me" } });
+    (req.log ?? logger).error({ err: error }, "get_me_failed");
     return res.status(500).json({ error: "Failed to fetch user" });
   }
 };
@@ -288,7 +293,8 @@ export const getUserStats = async (req: Request, res: Response) => {
       recentGames: recent,
     });
   } catch (error) {
-    console.error("Error fetching user stats:", error);
+    Sentry.captureException(error, { extra: { op: "get_user_stats" } });
+    (req.log ?? logger).error({ err: error }, "get_user_stats_failed");
     return res.status(500).json({ error: "Failed to fetch stats" });
   }
 };
@@ -346,7 +352,8 @@ export const updateCurrentUser = async (req: Request, res: Response) => {
 
     return res.status(200).json(updatedUser);
   } catch (error) {
-    console.error("Error updating user:", error);
+    Sentry.captureException(error, { extra: { op: "update_user" } });
+    (req.log ?? logger).error({ err: error }, "update_user_failed");
     return res.status(500).json({ error: "Failed to update user" });
   }
 };
@@ -398,7 +405,8 @@ export const deleteCurrentUser = async (req: Request, res: Response) => {
 
     return res.status(200).json({ message: "Account deleted successfully" });
   } catch (error) {
-    console.error("Error deleting user:", error);
+    Sentry.captureException(error, { extra: { op: "delete_user" } });
+    (req.log ?? logger).error({ err: error }, "delete_user_failed");
     return res.status(500).json({ error: "Failed to delete account" });
   }
 };
@@ -505,7 +513,8 @@ export const getLeaderboard = async (req: Request, res: Response) => {
 
     return res.status(200).json(responseData);
   } catch (error) {
-    console.error("Error fetching leaderboard:", error);
+    Sentry.captureException(error, { extra: { op: "leaderboard" } });
+    (req.log ?? logger).error({ err: error }, "leaderboard_failed");
     return res.status(500).json({ error: "Failed to fetch leaderboard" });
   }
 };

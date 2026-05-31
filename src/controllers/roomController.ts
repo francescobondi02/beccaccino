@@ -1,12 +1,14 @@
 // src/controllers/roomController.ts
 
 import { Request, Response } from "express";
+import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { generateRoomCode } from "../utils/generateRoomCode";
 import { setupRound } from "../services/gameService";
 import { getSocketInstance } from "../socketInstance";
 import { startTurnTimer } from "../services/turnTimer";
 import { withRoomLock } from "../utils/roomLock";
+import { logger } from "../logger";
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -61,13 +63,24 @@ export const createRoom = async (req: Request, res: Response) => {
         },
       });
     } catch (socketError) {
-      // Socket non critico, logghiamo ma non blocchiamo la risposta
-      console.error("Socket notification failed:", socketError);
+      // Socket failure is non-fatal — the room exists in the DB. Log but
+      // don't block the response.
+      Sentry.captureException(socketError, {
+        extra: { event: "room_created_broadcast", roomCode: room.code },
+      });
+      (req.log ?? logger).warn(
+        { err: socketError, roomCode: room.code },
+        "room_created_broadcast_failed",
+      );
     }
 
     return res.status(201).json(room);
   } catch (error) {
-    console.error("Error creating room:", error);
+    Sentry.captureException(error, { extra: { userId, op: "create_room" } });
+    (req.log ?? logger).error(
+      { err: error, userId },
+      "create_room_failed",
+    );
     return res.status(500).json({ error: "Room creation failed" });
   }
 };
@@ -157,7 +170,8 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
 
     return res.status(200).json({ availableRooms, activeGames });
   } catch (error) {
-    console.error("Error fetching rooms:", error);
+    Sentry.captureException(error, { extra: { op: "list_rooms" } });
+    (req.log ?? logger).error({ err: error }, "list_rooms_failed");
     return res.status(500).json({ error: "Failed to fetch rooms" });
   }
 };
@@ -192,7 +206,13 @@ export const getRoomByCode = async (req: Request, res: Response) => {
 
     return res.status(200).json(room);
   } catch (error) {
-    console.error("Error fetching room by code:", error);
+    Sentry.captureException(error, {
+      extra: { op: "get_room_by_code", roomCode, userId },
+    });
+    (req.log ?? logger).error(
+      { err: error, roomCode, userId },
+      "get_room_by_code_failed",
+    );
     return res.status(500).json({ error: "Failed to fetch room" });
   }
 };
@@ -285,12 +305,24 @@ export const joinRoom = async (req: Request, res: Response) => {
         });
       }
     } catch (socketError) {
-      console.error("Socket notification failed:", socketError);
+      Sentry.captureException(socketError, {
+        extra: { event: "join_room_broadcast", roomCode },
+      });
+      (req.log ?? logger).warn(
+        { err: socketError, roomCode },
+        "join_room_broadcast_failed",
+      );
     }
 
     return res.json(updatedRoom);
   } catch (error) {
-    console.error("Error joining room:", error);
+    Sentry.captureException(error, {
+      extra: { op: "join_room", roomCode, userId },
+    });
+    (req.log ?? logger).error(
+      { err: error, roomCode, userId },
+      "join_room_failed",
+    );
     return res.status(500).json({ error: "Failed to join room" });
   }
 };
@@ -412,7 +444,13 @@ export const setPlayerReady = async (req: Request, res: Response) => {
               );
             }
           } catch (error) {
-            console.error("Error setting up the first round:", error);
+            Sentry.captureException(error, {
+              extra: { event: "first_round_setup", roomCode, userId },
+            });
+            (req.log ?? logger).error(
+              { err: error, roomCode },
+              "first_round_setup_failed",
+            );
           }
         }
       }
@@ -425,7 +463,13 @@ export const setPlayerReady = async (req: Request, res: Response) => {
 
     return res.status(result.status).json(result.body);
   } catch (error) {
-    console.error("Error setting player ready:", error);
+    Sentry.captureException(error, {
+      extra: { op: "set_player_ready", roomCode, userId },
+    });
+    (req.log ?? logger).error(
+      { err: error, roomCode, userId },
+      "set_player_ready_failed",
+    );
     return res.status(500).json({ error: "Failed to set player ready" });
   }
 };
@@ -476,7 +520,13 @@ export const leaveRoom = async (req: Request, res: Response) => {
       return res.status(200).json({ success: true, deletedRoom: false });
     }
   } catch (error) {
-    console.error("Error while leaving room:", error);
+    Sentry.captureException(error, {
+      extra: { op: "leave_room", roomCode, userId },
+    });
+    (req.log ?? logger).error(
+      { err: error, roomCode, userId },
+      "leave_room_failed",
+    );
     return res.status(500).json({ error: "Failed to leave room" });
   }
 };
