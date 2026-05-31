@@ -10,14 +10,17 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from becca_env.env import BeccaEnv
 from training.config import TrainConfig
+from training.dual_rollout import collect_self_play_rollout_vec
 from training.network import create_network
+from training.normalization import ReturnNormalizer
 from training.ppo import ppo_update
-from training.rollout import collect_rollout, collect_rollout_vec
+from training.rollout import collect_rollout
 from training.self_play import OpponentPool
 from training.vec_env import create_vec_env
 
@@ -81,12 +84,33 @@ def train(config: TrainConfig):
     if use_vec:
         vec_env = create_vec_env(
             num_envs=config.num_envs, seed=config.seed, win_points=win_points, sync=False,
+            trick_shaping_coef=config.trick_shaping_coef,
         )
     else:
-        single_env = BeccaEnv(seed=config.seed, win_points=win_points)
+        single_env = BeccaEnv(seed=config.seed, win_points=win_points,
+                              trick_shaping_coef=config.trick_shaping_coef)
 
-    # Opponent pool
+    # Opponent pool + a frozen opponent net we reload on each rollout
     pool = OpponentPool(max_size=config.opponent_pool_size)
+    opponent_net = create_network(
+        version=config.network_version,
+        hidden_size=config.hidden_size,
+        num_layers=config.num_layers,
+        use_layer_norm=config.use_layer_norm,
+    ).to(dev)
+    opponent_net.load_state_dict(net.state_dict())  # start as a copy of learner
+
+    # Reward / return normalizer (kept across rollouts so the running std
+    # converges to a stable estimate)
+    return_normalizer = ReturnNormalizer(gamma=config.gamma) if config.normalize_returns else None
+
+    # Per-env learner team assignment (balanced)
+    if config.balance_learner_teams and use_vec:
+        learner_team_per_env = np.array(
+            [i % 2 for i in range(config.num_envs)], dtype=np.int64
+        )
+    else:
+        learner_team_per_env = np.zeros(config.num_envs, dtype=np.int64)
 
     # Logging
     wandb_run = None
@@ -119,17 +143,30 @@ def train(config: TrainConfig):
         _lr_schedule(config, opt, update)
         ent_coef = _ent_coef_schedule(config, update)
 
-        # Collect rollout
+        # Pick opponent for this rollout. p_latest -> use current learner
+        # (vanilla self-play); else sample a frozen historical policy.
         if use_vec:
-            buf = collect_rollout_vec(vec_env, net, config.steps_per_env, dev)
+            sampled = pool.sample(p_latest=config.p_latest_opponent)
+            if sampled is None:
+                opponent_net.load_state_dict(net.state_dict())
+                opponent_source = "latest"
+            else:
+                opponent_net.load_state_dict(sampled)
+                opponent_source = "pool"
+            buf = collect_self_play_rollout_vec(
+                vec_env, net, opponent_net, learner_team_per_env,
+                config.steps_per_env, dev,
+            )
         else:
             buf = collect_rollout(single_env, net, config.batch_size, dev)
+            opponent_source = "self"
 
         step_count += buf.ptr
         game_count += buf.games_done
 
-        # PPO update with per-seat GAE
-        batch = buf.get_batch(gamma=config.gamma, lam=config.gae_lambda)
+        # PPO update with per-seat GAE; rewards normalized in-flight for stability.
+        batch = buf.get_batch(gamma=config.gamma, lam=config.gae_lambda,
+                              return_normalizer=return_normalizer)
         m = ppo_update(
             net, opt, batch,
             clip_eps=config.clip_eps,
@@ -176,6 +213,8 @@ def train(config: TrainConfig):
             "perf/games_total": game_count,
             "curriculum/stage": curriculum_stage,
             "curriculum/win_points": win_points,
+            "selfplay/pool_size": len(pool),
+            "selfplay/opponent_is_pool": 1.0 if opponent_source == "pool" else 0.0,
         }
 
         for k, v in metrics.items():
@@ -198,13 +237,20 @@ def train(config: TrainConfig):
         # Evaluation
         if update % config.eval_every == 0:
             from evaluation.arena import evaluate_against_random
+            from evaluation.heuristic import evaluate_against_heuristic
             wr = evaluate_against_random(net, num_games=config.eval_games, device=dev,
                                          seed=config.seed + update)
+            eval_wp = config.eval_win_points if config.eval_win_points is not None else win_points
+            wr_h = evaluate_against_heuristic(net, num_games=config.eval_games, device=dev,
+                                              seed=config.seed + update,
+                                              win_points=eval_wp)
             writer.add_scalar("eval/vs_random", wr, step_count)
+            writer.add_scalar("eval/vs_heuristic", wr_h, step_count)
             if wandb_run:
                 import wandb
-                wandb.log({"eval/vs_random": wr}, step=step_count)
-            print(f"  eval: {wr:.1%} vs random (win_points={win_points})")
+                wandb.log({"eval/vs_random": wr, "eval/vs_heuristic": wr_h}, step=step_count)
+            print(f"  eval: {wr:.1%} vs random | {wr_h:.1%} vs heuristic "
+                  f"(win_points={win_points})")
 
             # Curriculum advancement
             if config.use_curriculum and curriculum_stage < len(config.curriculum_stages) - 1:
@@ -223,9 +269,13 @@ def train(config: TrainConfig):
                             vec_env = create_vec_env(
                                 num_envs=config.num_envs, seed=config.seed,
                                 win_points=win_points, sync=False,
+                                trick_shaping_coef=config.trick_shaping_coef,
                             )
                         else:
-                            single_env = BeccaEnv(seed=config.seed, win_points=win_points)
+                            single_env = BeccaEnv(
+                                seed=config.seed, win_points=win_points,
+                                trick_shaping_coef=config.trick_shaping_coef,
+                            )
                 else:
                     curriculum_confirm = 0
 
@@ -290,6 +340,12 @@ if __name__ == "__main__":
     p.add_argument("--ent-coef", type=float, default=0.03)
     p.add_argument("--ent-coef-final", type=float, default=0.005)
     p.add_argument("--win-points", type=int, default=41)
+    p.add_argument("--trick-shaping-coef", type=float, default=0.0,
+                   help="0.0 = round-end only (default). >0 adds biased per-trick "
+                        "shaping; only useful as a curriculum hint.")
+    p.add_argument("--p-latest-opponent", type=float, default=0.5,
+                   help="Probability that opponent is current learner (vanilla "
+                        "self-play). 1-p draws from historical opponent pool.")
     p.add_argument("--device", default="cpu")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--eval-every", type=int, default=25)
@@ -320,6 +376,8 @@ if __name__ == "__main__":
         ent_coef=a.ent_coef,
         ent_coef_final=a.ent_coef_final,
         win_points=a.win_points,
+        trick_shaping_coef=a.trick_shaping_coef,
+        p_latest_opponent=a.p_latest_opponent,
         device=a.device,
         seed=a.seed,
         eval_every=a.eval_every,

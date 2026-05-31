@@ -307,10 +307,13 @@ class TestObservation:
         assert len(signals) == 1
         assert signals[0] == (leader, Signal.STRISCIO)
 
-    def test_signal_encoded_in_tensor(self):
-        """Signal features in the numpy observation are non-zero after a signal."""
-        from becca_env.observation import encode_observation
+    def test_signal_recorded_on_completed_trick(self):
+        """The engine must persist the leader's signal on the TrickRecord.
 
+        Note: as of obs-v3 the observation tensor no longer encodes signals
+        (planned to be re-added in a later iteration). The engine bookkeeping
+        is unchanged and remains the source of truth for who declared what.
+        """
         game = BeccaGame(seed=1)
         game.step(Suit.DENARA)
 
@@ -321,12 +324,11 @@ class TestObservation:
             actions = game.legal_actions()
             game.step(actions[0])
 
-        obs = encode_observation(game, 0)
-        # Signal features are at offset 274 (30 signal slots + 40 declarer slots)
-        signal_region = obs[274:304]
-        declarer_region = obs[304:344]
-        assert signal_region.sum() > 0, "Signal features should be non-zero"
-        assert declarer_region.sum() > 0, "Declarer features should be non-zero"
+        # Trick is complete; should be recorded with the signal
+        assert len(game.round.hands_played) == 1
+        rec = game.round.hands_played[0]
+        assert rec.signal == Signal.BUSSO
+        assert rec.signal_seat == leader
 
 
 def _play_one_trick(game: BeccaGame):

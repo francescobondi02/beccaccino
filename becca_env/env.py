@@ -3,10 +3,25 @@
 Multi-agent turn-based game exposed as single-agent env (self-play).
 All 4 seats share the same policy network.
 
-Reward design (v2 — properly scaled):
-  - Trick completion: ±(raw_pts / 35) — normalized by max round total.
-  - Game terminal: ±1.0 for winning/losing team.
-  - Per-seat deferred delivery ensures all seats get learning signal.
+Reward design (v3 — round-end shaping, terminal-dominated):
+  - Round end:  ±(team_raw - opp_raw) / MAX_RAW_PER_ROUND for each seat,
+                where MAX_RAW_PER_ROUND=35 is the max raw points obtainable
+                in a single round (32 cards + 3 last-trick bonus). Range ≈ ±1.
+  - Game terminal: ±1.0 for winning/losing team (acting seat only — others
+                already received their share via the final round-end reward).
+  - Optional trick shaping: ±(raw_pts/35) × trick_shaping_coef per trick.
+                Default coef=0.0 (off). Useful as a curriculum hint:
+                non-zero early, annealed to 0.
+
+  Why round-end (not per-trick) by default? Per-trick reward is biased
+  shaping that pushes the agent toward greedy trick-grabbing — which is
+  often *wrong* in Beccaccino (e.g. dumping a low card on partner's Asso,
+  letting opponents waste briscole early, etc.). Round-end shaping is
+  unbiased w.r.t. correct play and dense enough for stable PPO learning
+  via GAE propagation.
+
+  All rewards are delivered via deferred per-seat queues so every seat
+  gets credited even though only one seat acts per env step.
 """
 
 from __future__ import annotations
@@ -26,11 +41,17 @@ class BeccaEnv(gym.Env):
 
     metadata = {"render_modes": []}
 
-    def __init__(self, seed: int | None = None, win_points: int = 41):
+    def __init__(
+        self,
+        seed: int | None = None,
+        win_points: int = 41,
+        trick_shaping_coef: float = 0.0,
+    ):
         super().__init__()
         self._base_seed = seed
         self._game_count = 0
         self._win_points = win_points
+        self.trick_shaping_coef = float(trick_shaping_coef)
         self.game: BeccaGame | None = None
         self._pending_rewards: dict[int, float] = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
 
@@ -40,6 +61,10 @@ class BeccaEnv(gym.Env):
             "action_mask": spaces.Box(low=0.0, high=1.0, shape=(160,), dtype=np.float32),
             "current_seat": spaces.Discrete(4),
         })
+
+    def set_trick_shaping_coef(self, coef: float) -> None:
+        """Adjust the trick-shaping coefficient (e.g. for annealing)."""
+        self.trick_shaping_coef = float(coef)
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         if seed is not None:
@@ -69,27 +94,66 @@ class BeccaEnv(gym.Env):
 
         terminated = self.game.phase == GamePhase.GAME_OVER
 
-        if event in ("trick_complete", "round_end", "game_over"):
-            trick_winner_team = TEAM_OF_SEAT[info["trick_winner"]]
-            trick_cards = info["trick_cards"]
-            raw_pts = sum(card_points[c.value] for _, c in trick_cards)
-            trick_reward = raw_pts / MAX_RAW_PER_ROUND
-            for s in range(4):
-                s_team = TEAM_OF_SEAT[s]
-                r = trick_reward if trick_winner_team == s_team else -trick_reward
-                self._pending_rewards[s] += r
-            reward += self._pending_rewards[seat]
-            self._pending_rewards[seat] = 0.0
+        # Optional per-trick shaping (off by default).
+        # Note: round_end / game_over events also include the final trick's
+        # data (trick_winner, trick_cards), so we apply shaping there too.
+        if (
+            self.trick_shaping_coef != 0.0
+            and event in ("trick_complete", "round_end", "game_over")
+        ):
+            self._distribute_trick_shaping(info)
 
+        # Round-end shaping: dense, unbiased, fires every ~40 env steps.
+        if event in ("round_end", "game_over"):
+            self._distribute_round_end(info)
+
+        # Game terminal: ±1.0 for the team that won. Only deliver to seats
+        # other than acting seat; acting seat we add directly to `reward`
+        # so it's part of THIS step's return (terminal step has no "next").
         if event == "game_over":
-            reward += 1.0 if info["game_winner"] == team else -1.0
+            self._distribute_game_terminal(info["game_winner"])
+
+        # Drain whatever now belongs to the acting seat (round-end + terminal
+        # for this seat both flow through _pending_rewards).
+        reward += self._pending_rewards[seat]
+        self._pending_rewards[seat] = 0.0
 
         obs = self._get_obs() if not terminated else self._terminal_obs()
         info["acting_seat"] = seat
         info["acting_team"] = team
         info["current_seat"] = -1 if terminated else self.game.current_seat
 
+        # On terminal: the other 3 seats won't act again, so their pending
+        # reward (final round-end + game terminal) would otherwise be lost.
+        # Surface it to the rollout buffer via info so it can be credited
+        # to each seat's last transition.
+        if terminated:
+            info["terminal_rewards_by_seat"] = dict(self._pending_rewards)
+            self._pending_rewards = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
+
         return obs, reward, terminated, False, info
+
+    # ---------------- reward distribution helpers ----------------
+
+    def _distribute_trick_shaping(self, info: dict) -> None:
+        trick_winner_team = TEAM_OF_SEAT[info["trick_winner"]]
+        raw_pts = sum(card_points[c.value] for _, c in info["trick_cards"])
+        magnitude = (raw_pts / MAX_RAW_PER_ROUND) * self.trick_shaping_coef
+        for s in range(4):
+            sign = 1.0 if TEAM_OF_SEAT[s] == trick_winner_team else -1.0
+            self._pending_rewards[s] += sign * magnitude
+
+    def _distribute_round_end(self, info: dict) -> None:
+        scores = info["round_scores"]
+        diff_raw = scores["team0"]["raw"] - scores["team1"]["raw"]
+        magnitude = diff_raw / MAX_RAW_PER_ROUND  # in [-1, 1] approx
+        for s in range(4):
+            sign = 1.0 if TEAM_OF_SEAT[s] == 0 else -1.0
+            self._pending_rewards[s] += sign * magnitude
+
+    def _distribute_game_terminal(self, winner_team: int) -> None:
+        for s in range(4):
+            self._pending_rewards[s] += 1.0 if TEAM_OF_SEAT[s] == winner_team else -1.0
 
     def _get_obs(self) -> dict:
         seat = self.game.current_seat

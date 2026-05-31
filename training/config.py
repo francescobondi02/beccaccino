@@ -11,6 +11,13 @@ class TrainConfig:
     num_envs: int = 64
     steps_per_env: int = 512
     win_points: int = 41
+    # Used in eval matches; if None falls back to win_points. Train short
+    # for fast credit assignment, eval at full length for honest skill numbers.
+    eval_win_points: int | None = None
+    # Optional per-trick reward shaping. 0.0 = pure round-end + terminal
+    # (recommended). Non-zero adds ±(raw_pts/35)*coef per trick — biased
+    # shaping, useful only as a curriculum hint early in training.
+    trick_shaping_coef: float = 0.0
 
     # PPO
     lr: float = 2.5e-4
@@ -24,6 +31,10 @@ class TrainConfig:
     num_epochs: int = 4
     minibatch_size: int = 2048
     target_kl: float = 0.02
+    # Per-(env, seat) running discounted-return reward scaling. Standard
+    # CleanRL/SB3 trick — keeps value-function targets O(1) even when game
+    # length / reward magnitude varies across the curriculum.
+    normalize_returns: bool = True
 
     # Network
     hidden_size: int = 512
@@ -35,7 +46,13 @@ class TrainConfig:
     # Self-play
     opponent_pool_size: int = 10
     pool_save_every: int = 50
-    p_latest_opponent: float = 0.8
+    # Probability that a rollout uses the LATEST policy as opponent.
+    # 1 - p_latest_opponent goes to a uniformly-random pool sample.
+    # Lower p_latest = more diverse opponents = stronger but slower training.
+    p_latest_opponent: float = 0.5
+    # If True, half of envs have learner_team=0 and half =1 (balanced).
+    # Otherwise all envs use learner_team=0.
+    balance_learner_teams: bool = True
 
     # Training
     total_timesteps: int = 100_000_000

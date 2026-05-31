@@ -17,7 +17,7 @@ _session = None
 
 
 class GameState(BaseModel):
-    """Observation from the backend (pre-encoded 344-dim vector + action mask)."""
+    """Observation from the backend (pre-encoded OBS_SIZE vector + action mask)."""
     obs: list[float]
     action_mask: list[float]
 
