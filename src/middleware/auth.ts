@@ -11,6 +11,12 @@ declare global {
   }
 }
 
+// Test auth bypass requires BOTH NODE_ENV=test AND an explicit opt-in env var,
+// so a misconfigured production deploy can never disable auth.
+const isTestAuthBypassEnabled =
+  process.env.NODE_ENV === "test" &&
+  process.env.ALLOW_TEST_AUTH_BYPASS === "true";
+
 export const authenticateToken = (
   req: Request,
   res: Response,
@@ -19,7 +25,7 @@ export const authenticateToken = (
   // In test environment, allow requests that carry a valid x-test-user-id header
   // as a lightweight alternative to managing cookies across every supertest request.
   // This still validates the header is present — it does NOT blindly skip auth.
-  if (process.env.NODE_ENV === "test") {
+  if (isTestAuthBypassEnabled) {
     const testUserId = req.headers["x-test-user-id"];
     const testUsername = req.headers["x-test-username"];
 

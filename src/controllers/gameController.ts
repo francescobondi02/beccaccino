@@ -8,10 +8,26 @@ import { playableCards } from "../services/cardService";
 import { getTurnTimerState } from "../services/turnTimer";
 
 export const chooseBriscola = async (req: Request, res: Response) => {
-  const { gameRoomId, playerId, suit } = req.body;
+  const { gameRoomId, suit } = req.body;
+  const userId = req.user?.userId;
+
+  if (!userId) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+
+  // Derive playerId server-side from the authenticated userId so a user cannot
+  // pass an arbitrary playerId in the request body and impersonate another player.
+  const player = await prisma.player.findFirst({
+    where: { gameRoomId, userId },
+    select: { id: true },
+  });
+
+  if (!player) {
+    return res.status(403).json({ error: "Player not in this game room" });
+  }
 
   try {
-    const result = await setBriscola({ gameRoomId, playerId, suit });
+    const result = await setBriscola({ gameRoomId, playerId: player.id, suit });
     return res.status(200).json({
       message: "Briscola set successfully",
       round: result.round,
@@ -40,7 +56,11 @@ export const handlePlayCard = async (req: Request, res: Response) => {
     return res.status(200).json({ message: "Card played successfully" });
   } catch (error) {
     const message = (error as Error).message;
-    if (message.includes("not your turn") || message.includes("not in this")) {
+    if (
+      message.includes("not your turn") ||
+      message.includes("not this player's turn") ||
+      message.includes("not in this")
+    ) {
       return res.status(403).json({ error: message });
     }
     if (message.includes("not found")) {

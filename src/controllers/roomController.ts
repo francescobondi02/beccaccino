@@ -6,6 +6,7 @@ import { generateRoomCode } from "../utils/generateRoomCode";
 import { setupRound } from "../services/gameService";
 import { getSocketInstance } from "../socketInstance";
 import { startTurnTimer } from "../services/turnTimer";
+import { withRoomLock } from "../utils/roomLock";
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -319,86 +320,110 @@ export const setPlayerReady = async (req: Request, res: Response) => {
   }
 
   try {
-    //^ Cerca la stanza attuale
-    const room = await prisma.gameRoom.findUnique({
-      where: { code: roomCode },
-      include: { players: true },
-    });
-
-    if (!room) return res.status(404).json({ error: "Room not found" });
-
-    //^ Trova il player nella stanza
-    const player = room.players.find((p) => p.userId === userId);
-    if (!player) {
-      return res
-        .status(403)
-        .json({ error: "User is not a player in this room" });
-    }
-
-    //^ Controlla che abbia scelto un team (non può mettersi Ready se non ha un team)
-    if (player.team === null) {
-      return res
-        .status(403)
-        .json({ error: "Player must choose a team before readying up" });
-    }
-
-    //^ Aggiorna lo stato di Ready del player
-    const updatedPlayer = await prisma.player.update({
-      where: { id: player.id },
-      data: { isReady },
-    });
-
-    //^ Prendiamo la stanza aggiornata con il nuovo stato di Ready del player
-    const updatedRoom = await prisma.gameRoom.findUnique({
-      where: { code: roomCode },
-      include: { players: true },
-    });
-
-    if (!updatedRoom) {
-      return res.status(404).json({ error: "Room not found after update" });
-    }
-
-    const allReady = updatedRoom.players.every((p) => p.isReady === true);
-
-    const team0Count = updatedRoom.players.filter((p) => p.team === 0).length;
-    const team1Count = updatedRoom.players.filter((p) => p.team === 1).length;
-
-    //^ Notifica tutti nella room del cambiamento di stato Ready
-    const io = getSocketInstance();
-    io.to(roomCode).emit("ready_changed", {
-      userId,
-      isReady,
-    });
-
-    //^ Se tutti i Player sono pronti e i team sono pieni e scelti, imposta la stanza come iniziata
-    if (allReady && team0Count === 2 && team1Count === 2) {
-      await prisma.gameRoom.update({
-        where: { id: room.id },
-        data: { started: true },
+    // Serialize the read-update-start-game flow per room so two simultaneous
+    // ready-up requests can't both observe allReady=true and both start the game.
+    const result = await withRoomLock(roomCode, async () => {
+      //^ Cerca la stanza attuale
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
       });
 
-      // Notifico tutti nella room che la partita sta iniziando
-      io.to(roomCode).emit("game_started", {});
+      if (!room) return { status: 404, body: { error: "Room not found" } };
 
-      try {
-        //^ Chiama setupRound per creare il primo round
-        const { callerPlayerId } = await setupRound(room.id, 1);
-
-        // Start briscola timer for the caller
-        const callerPlayer = room.players.find(
-          (p: any) => p.id === callerPlayerId,
-        );
-        if (callerPlayer) {
-          startTurnTimer(roomCode, callerPlayer.userId, "choose_briscola");
-        }
-      } catch (error) {
-        console.error("Error setting up the first round:", error);
+      //^ Trova il player nella stanza
+      const player = room.players.find((p) => p.userId === userId);
+      if (!player) {
+        return {
+          status: 403,
+          body: { error: "User is not a player in this room" },
+        };
       }
-    }
 
-    return res
-      .status(200)
-      .json({ success: true, player: updatedPlayer, allReady });
+      //^ Controlla che abbia scelto un team (non può mettersi Ready se non ha un team)
+      if (player.team === null) {
+        return {
+          status: 403,
+          body: { error: "Player must choose a team before readying up" },
+        };
+      }
+
+      //^ Aggiorna lo stato di Ready del player
+      const updatedPlayer = await prisma.player.update({
+        where: { id: player.id },
+        data: { isReady },
+      });
+
+      //^ Prendiamo la stanza aggiornata con il nuovo stato di Ready del player
+      const updatedRoom = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
+      });
+
+      if (!updatedRoom) {
+        return {
+          status: 404,
+          body: { error: "Room not found after update" },
+        };
+      }
+
+      const allReady = updatedRoom.players.every((p) => p.isReady === true);
+
+      const team0Count = updatedRoom.players.filter((p) => p.team === 0).length;
+      const team1Count = updatedRoom.players.filter((p) => p.team === 1).length;
+
+      //^ Notifica tutti nella room del cambiamento di stato Ready
+      const io = getSocketInstance();
+      io.to(roomCode).emit("ready_changed", {
+        userId,
+        isReady,
+      });
+
+      //^ Se tutti i Player sono pronti, i team pieni, e la partita non è già iniziata,
+      //^ atomicamente imposta started=true e fai partire il primo round.
+      if (
+        allReady &&
+        team0Count === 2 &&
+        team1Count === 2 &&
+        !updatedRoom.started
+      ) {
+        // Conditional update: only flip to started=true if it's still false.
+        // Prevents a second concurrent caller from re-starting the game.
+        const flip = await prisma.gameRoom.updateMany({
+          where: { id: room.id, started: false },
+          data: { started: true },
+        });
+
+        if (flip.count === 1) {
+          // We were the one that started the game.
+          io.to(roomCode).emit("game_started", {});
+
+          try {
+            const { callerPlayerId } = await setupRound(room.id, 1);
+
+            const callerPlayer = updatedRoom.players.find(
+              (p) => p.id === callerPlayerId,
+            );
+            if (callerPlayer) {
+              startTurnTimer(
+                roomCode,
+                callerPlayer.userId,
+                "choose_briscola",
+              );
+            }
+          } catch (error) {
+            console.error("Error setting up the first round:", error);
+          }
+        }
+      }
+
+      return {
+        status: 200,
+        body: { success: true, player: updatedPlayer, allReady },
+      };
+    });
+
+    return res.status(result.status).json(result.body);
   } catch (error) {
     console.error("Error setting player ready:", error);
     return res.status(500).json({ error: "Failed to set player ready" });

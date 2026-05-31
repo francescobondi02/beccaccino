@@ -9,6 +9,7 @@ import { detectCricca } from "../utils/detectCricca";
 import { getSocketInstance } from "../socketInstance";
 import { getRng } from "../utils/random";
 import { startTurnTimer, clearTurnTimer, clearRoomTimerData } from "./turnTimer";
+import { withRoomLock } from "../utils/roomLock";
 
 /**
  * Points required to win the game.
@@ -200,8 +201,27 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
 /**
  * Set briscola for the current round and create the first hand.
  * Extracted as a service so it can be called from both the REST controller and auto-play.
+ *
+ * Wraps the implementation in a per-room mutex so two simultaneous calls
+ * (e.g. caller hitting the button + auto-play timer firing in the same tick)
+ * cannot both pass the "briscola === null" check.
  */
-export async function setBriscola({
+export async function setBriscola(args: {
+  gameRoomId: number;
+  playerId: number;
+  suit: Suit;
+}) {
+  // We need the roomCode to key the lock. Look it up once; the inner function
+  // will re-fetch the full room with players for correctness.
+  const room = await prisma.gameRoom.findUnique({
+    where: { id: args.gameRoomId },
+    select: { code: true },
+  });
+  if (!room) throw new Error("Game room not found");
+  return withRoomLock(room.code, () => setBriscolaUnlocked(args));
+}
+
+async function setBriscolaUnlocked({
   gameRoomId,
   playerId,
   suit,
@@ -295,7 +315,24 @@ export async function setBriscola({
   return { round: updatedRound, hand: firstHand, roomCode: gameRoom.code };
 }
 
-export async function playCard({
+/**
+ * Play a card in the current hand.
+ *
+ * Wraps the implementation in a per-room mutex so two simultaneous plays
+ * (network retry, double-click, manual-play colliding with auto-play timer)
+ * cannot both pass the turn / hand-not-full / has-card checks.
+ */
+export async function playCard(args: {
+  roomCode: string;
+  userId: number;
+  suit: Suit;
+  value: Value;
+  signal?: "striscio" | "busso" | "volo" | null;
+}) {
+  return withRoomLock(args.roomCode, () => playCardUnlocked(args));
+}
+
+async function playCardUnlocked({
   roomCode,
   userId,
   suit,

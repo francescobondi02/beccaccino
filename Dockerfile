@@ -18,10 +18,14 @@ FROM node:24-alpine3.21
 RUN apk add --no-cache wget
 WORKDIR /app
 
+ENV NODE_ENV=production
+
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./
+
+EXPOSE 8000
 
 USER node
 

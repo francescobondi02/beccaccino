@@ -5,6 +5,7 @@ import { closeServer } from "./helpers/gameHelpers";
 
 // Set environment to test
 process.env.NODE_ENV = "test";
+process.env.ALLOW_TEST_AUTH_BYPASS = "true";
 process.env.JWT_SECRET = "test-secret";
 
 // Create a mock Socket.io instance

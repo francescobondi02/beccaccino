@@ -22,10 +22,19 @@ for (const key of REQUIRED_ENV) {
   }
 }
 
+// In production, FRONTEND_URL MUST be set explicitly so CORS doesn't silently
+// fall back to localhost (which would block all real cross-origin requests).
+if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
+  console.error("FATAL: FRONTEND_URL is required in production");
+  process.exit(1);
+}
+
+const corsOrigin = process.env.FRONTEND_URL || "http://localhost:8081";
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:8081",
+    origin: corsOrigin,
     credentials: true,
   },
   path: "/socket.io/",
@@ -34,9 +43,15 @@ const io = new Server(server, {
 
 setSocketInstance(io);
 
+// Test auth bypass requires BOTH NODE_ENV=test AND an explicit opt-in env var,
+// so a misconfigured production deploy can never disable auth.
+const isTestAuthBypassEnabled =
+  process.env.NODE_ENV === "test" &&
+  process.env.ALLOW_TEST_AUTH_BYPASS === "true";
+
 // Socket.IO authentication middleware
 io.use((socket, next) => {
-  if (process.env.NODE_ENV === "test") {
+  if (isTestAuthBypassEnabled) {
     return next();
   }
 

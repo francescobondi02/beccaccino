@@ -26,17 +26,14 @@ export function isValidValue(value: unknown): value is ValidValue {
 
 /**
  * Validates the body for POST /api/games/choose-briscola
- * Required: gameRoomId (number), playerId (number), suit (valid Suit enum)
+ * Required: gameRoomId (number), suit (valid Suit enum).
+ * playerId is derived server-side from req.user — never trust the client.
  */
 export const validateChooseBriscola = (req: Request, res: Response, next: NextFunction) => {
-  const { gameRoomId, playerId, suit } = req.body;
+  const { gameRoomId, suit } = req.body;
 
   if (gameRoomId === undefined || typeof gameRoomId !== "number" || !Number.isInteger(gameRoomId)) {
     return res.status(400).json({ error: "gameRoomId must be a valid integer" });
-  }
-
-  if (playerId === undefined || typeof playerId !== "number" || !Number.isInteger(playerId)) {
-    return res.status(400).json({ error: "playerId must be a valid integer" });
   }
 
   if (!isValidSuit(suit)) {
@@ -48,13 +45,16 @@ export const validateChooseBriscola = (req: Request, res: Response, next: NextFu
   next();
 };
 
+const VALID_SIGNALS = ["striscio", "busso", "volo"] as const;
+
 /**
  * Validates the body for POST /api/games/play-card
  * Required: roomCode (string), suit (valid Suit), value (valid Value)
+ * Optional: signal (one of striscio/busso/volo, or null/undefined)
  * userId comes from req.user (JWT auth)
  */
 export const validatePlayCard = (req: Request, res: Response, next: NextFunction) => {
-  const { roomCode, suit, value } = req.body;
+  const { roomCode, suit, value, signal } = req.body;
 
   if (!roomCode || typeof roomCode !== "string") {
     return res.status(400).json({ error: "roomCode must be a non-empty string" });
@@ -69,6 +69,16 @@ export const validatePlayCard = (req: Request, res: Response, next: NextFunction
   if (!isValidValue(value)) {
     return res.status(400).json({
       error: `Invalid value: "${value}". Must be one of: ${VALID_VALUES.join(", ")}`,
+    });
+  }
+
+  if (
+    signal !== undefined &&
+    signal !== null &&
+    !VALID_SIGNALS.includes(signal)
+  ) {
+    return res.status(400).json({
+      error: `Invalid signal: "${signal}". Must be one of: ${VALID_SIGNALS.join(", ")} (or null)`,
     });
   }
 
