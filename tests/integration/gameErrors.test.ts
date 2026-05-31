@@ -1,7 +1,6 @@
-import request from "supertest";
 import { prisma } from "../../src/db";
 
-import { clearDatabase, setupGame, chooseBriscola, api, getServer } from "../helpers/gameHelpers";
+import { clearDatabase, setupGame, chooseBriscola, api, apiAs } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -16,15 +15,15 @@ describe("Game Error Cases", () => {
       // Get room info
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
-      // Try choosing briscola again
-      const res = await request(getServer())
+      // Try choosing briscola again as an authenticated player in the room
+      const someplayer = room!.players[0];
+      const res = await apiAs(someplayer.userId, someplayer.user.username)
         .post("/api/games/choose-briscola")
         .send({
           gameRoomId: room!.id,
-          playerId: room!.players[0].id,
           suit: "coppe",
         });
 
@@ -33,17 +32,21 @@ describe("Game Error Cases", () => {
     });
 
     it("rejects a player not in the game room", async () => {
-      const { roomCode, round } = await setupGame();
+      const { roomCode } = await setupGame();
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
       });
 
-      const res = await request(getServer())
+      // Create a fresh user that is NOT in this game room
+      const outsider = await prisma.user.create({
+        data: { username: "outsider", password: "x" },
+      });
+
+      const res = await apiAs(outsider.id, outsider.username)
         .post("/api/games/choose-briscola")
         .send({
           gameRoomId: room!.id,
-          playerId: 99999, // non-existent player
           suit: "spade",
         });
 
@@ -56,39 +59,31 @@ describe("Game Error Cases", () => {
       const { roomCode, round, cards } = await setupGame();
       await chooseBriscola(roomCode, round, cards);
 
-      // Get the room with players
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
-      // Find the current hand to know who starts
       const currentHand = await prisma.hand.findFirst({
         where: { roundId: round.id },
         orderBy: { number: "desc" },
       });
 
-      // Find who should play (starter)
-      const starter = room!.players.find((p) => p.id === currentHand!.starterId);
-      // Find a player who is NOT the starter
-      const wrongPlayer = room!.players.find((p) => p.id !== currentHand!.starterId);
+      const wrongPlayer = room!.players.find((p) => p.id !== currentHand!.starterId)!;
 
-      // Get a card that wrongPlayer has
       const wrongPlayerCard = await prisma.playerCard.findFirst({
-        where: { playerId: wrongPlayer!.id, roundId: round.id },
+        where: { playerId: wrongPlayer.id, roundId: round.id },
       });
 
-      // Try to play with the wrong player
-      const res = await request(getServer())
+      const res = await apiAs(wrongPlayer.userId, wrongPlayer.user.username)
         .post("/api/games/play-card")
         .send({
           roomCode,
-          userId: wrongPlayer!.userId,
           suit: wrongPlayerCard!.suit,
           value: wrongPlayerCard!.value,
         });
 
-      expect(res.statusCode).toBe(500);
+      expect(res.statusCode).toBe(403);
       expect(res.body.error).toMatch(/turn/i);
     });
 
@@ -96,7 +91,6 @@ describe("Game Error Cases", () => {
       const { roomCode, round, cards } = await setupGame();
       await chooseBriscola(roomCode, round, cards);
 
-      // Find who should play first
       const currentHand = await prisma.hand.findFirst({
         where: { roundId: round.id },
         orderBy: { number: "desc" },
@@ -104,20 +98,17 @@ describe("Game Error Cases", () => {
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
-      const starter = room!.players.find((p) => p.id === currentHand!.starterId);
+      const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
 
-      // Get all cards the starter has
       const starterCards = await prisma.playerCard.findMany({
-        where: { playerId: starter!.id, roundId: round.id },
+        where: { playerId: starter.id, roundId: round.id },
       });
 
-      // Find a card from another player that the starter definitely does NOT have.
-      // We iterate until we find one that doesn't collide (guaranteed since each
-      // card exists only once in the deck).
-      const otherPlayers = room!.players.filter((p) => p.id !== starter!.id);
+      // Find a card from another player that the starter does NOT have.
+      const otherPlayers = room!.players.filter((p) => p.id !== starter.id);
       let otherCard: { suit: string; value: string } | null = null;
 
       for (const otherPlayer of otherPlayers) {
@@ -126,7 +117,7 @@ describe("Game Error Cases", () => {
         });
         for (const candidate of otherCards) {
           const starterHasIt = starterCards.some(
-            (c) => c.suit === candidate.suit && c.value === candidate.value
+            (c) => c.suit === candidate.suit && c.value === candidate.value,
           );
           if (!starterHasIt) {
             otherCard = { suit: candidate.suit, value: candidate.value };
@@ -136,59 +127,58 @@ describe("Game Error Cases", () => {
         if (otherCard) break;
       }
 
-      // With 40 unique cards split among 4 players (10 each), there is always
-      // a card that belongs to another player and not the starter.
       expect(otherCard).not.toBeNull();
 
-      const res = await request(getServer())
+      const res = await apiAs(starter.userId, starter.user.username)
         .post("/api/games/play-card")
         .send({
           roomCode,
-          userId: starter!.userId,
           suit: otherCard!.suit,
           value: otherCard!.value,
         });
 
-      expect(res.statusCode).toBe(500);
+      expect(res.statusCode).toBe(400);
       expect(res.body.error).toMatch(/does not have/i);
     });
   });
 
   describe("Play Card - Game State Validation", () => {
     it("rejects playing in a non-existent room", async () => {
-      const res = await request(getServer())
+      // Need any authenticated user to reach the controller
+      const user = await prisma.user.create({
+        data: { username: "ghost", password: "x" },
+      });
+      const res = await apiAs(user.id, user.username)
         .post("/api/games/play-card")
         .send({
           roomCode: "XXXXXX",
-          userId: 1,
           suit: "coppe",
           value: "asso",
         });
 
-      expect(res.statusCode).toBe(500);
+      expect(res.statusCode).toBe(404);
       expect(res.body.error).toMatch(/not found|not started/i);
     });
   });
 
   describe("Game State Endpoint", () => {
     it("returns correct game state after setup", async () => {
-      const { roomCode, round, cards } = await setupGame();
+      const { roomCode } = await setupGame();
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
       const player = room!.players[0];
 
-      const res = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: player.userId });
+      const res = await apiAs(player.userId, player.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       expect(res.statusCode).toBe(200);
       expect(res.body.round).toBeDefined();
       expect(res.body.round.number).toBe(1);
-      expect(res.body.round.briscola).toBeNull(); // Not yet chosen
+      expect(res.body.round.briscola).toBeNull();
       expect(res.body.myCards).toBeDefined();
       expect(res.body.myCards.length).toBe(10);
       expect(res.body.callerUserId).toBeDefined();
@@ -200,33 +190,30 @@ describe("Game Error Cases", () => {
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
       const player = room!.players[0];
 
-      const res = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: player.userId });
+      const res = await apiAs(player.userId, player.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       expect(res.statusCode).toBe(200);
       expect(res.body.round.briscola).not.toBeNull();
       expect(["denara", "coppe", "spade", "bastoni"]).toContain(
-        res.body.round.briscola
+        res.body.round.briscola,
       );
     });
 
     it("rejects state request for non-player", async () => {
       const { roomCode } = await setupGame();
 
-      // Create an outsider user
-      const outsider = await request(getServer())
+      const outsiderRes = await api()
         .post("/api/users/register")
         .send({ username: "outsider", password: "test123" });
 
-      const res = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: outsider.body.id });
+      const res = await apiAs(outsiderRes.body.id, "outsider")
+        .get(`/api/games/${roomCode}/state`);
 
       expect(res.statusCode).toBe(403);
     });
@@ -237,20 +224,18 @@ describe("Game Error Cases", () => {
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
       const player = room!.players[0];
 
-      const res = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: player.userId });
+      const res = await apiAs(player.userId, player.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       expect(res.statusCode).toBe(200);
       expect(res.body.currentTurnUserId).toBeDefined();
       expect(typeof res.body.currentTurnUserId).toBe("number");
 
-      // The current turn user should be one of the players in the room
       const playerUserIds = room!.players.map((p) => p.userId);
       expect(playerUserIds).toContain(res.body.currentTurnUserId);
     });
@@ -261,63 +246,55 @@ describe("Game Error Cases", () => {
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
-      // Get current state to find whose turn it is
-      const stateRes = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: room!.players[0].userId });
+      const p0 = room!.players[0];
+
+      const stateRes = await apiAs(p0.userId, p0.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       const currentTurnUserId = stateRes.body.currentTurnUserId;
-      const turnPlayer = room!.players.find((p) => p.userId === currentTurnUserId);
+      const turnPlayer = room!.players.find((p) => p.userId === currentTurnUserId)!;
 
-      // Get playable cards
-      const playableRes = await request(getServer())
-        .get(`/api/games/playable-cards/${roomCode}`)
-        .query({ userId: currentTurnUserId });
+      const playableRes = await apiAs(turnPlayer.userId, turnPlayer.user.username)
+        .get(`/api/games/playable-cards/${roomCode}`);
 
       expect(playableRes.statusCode).toBe(200);
       const playableCards = playableRes.body.playableCards;
       expect(playableCards.length).toBeGreaterThan(0);
 
-      // Play the first playable card
       const cardToPlay = playableCards[0];
-      const playRes = await request(getServer())
+      const playRes = await apiAs(turnPlayer.userId, turnPlayer.user.username)
         .post("/api/games/play-card")
         .send({
           roomCode,
-          userId: currentTurnUserId,
           suit: cardToPlay.suit,
           value: cardToPlay.value,
         });
 
       expect(playRes.statusCode).toBe(200);
 
-      // Verify state updated
-      const newState = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: room!.players[0].userId });
+      const newState = await apiAs(p0.userId, p0.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       expect(newState.body.playedCards.length).toBe(1);
       expect(newState.body.playedCards[0].suit).toBe(cardToPlay.suit);
       expect(newState.body.playedCards[0].value).toBe(cardToPlay.value);
 
-      // The turn should have moved to the next player
       expect(newState.body.currentTurnUserId).not.toBe(currentTurnUserId);
     });
   });
 
   describe("Choose Briscola - Caller Validation", () => {
     it("rejects a player who is not the correct briscola caller", async () => {
-      const { roomCode, round, cards } = await setupGame();
+      const { roomCode, cards } = await setupGame();
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
-      // Find the correct caller (who has quattro di denara in round 1)
       let correctCallerPlayerId: number | null = null;
       for (const card of cards) {
         if (card.value === "quattro" && card.suit === "denara") {
@@ -327,18 +304,14 @@ describe("Game Error Cases", () => {
       }
       expect(correctCallerPlayerId).not.toBeNull();
 
-      // Find a player who is NOT the correct caller
       const wrongPlayer = room!.players.find(
         (p) => p.id !== correctCallerPlayerId,
-      );
-      expect(wrongPlayer).toBeDefined();
+      )!;
 
-      // Try to choose briscola with the wrong player
-      const res = await api()
+      const res = await apiAs(wrongPlayer.userId, wrongPlayer.user.username)
         .post("/api/games/choose-briscola")
         .send({
           gameRoomId: room!.id,
-          playerId: wrongPlayer!.id,
           suit: "coppe",
         });
 
@@ -347,14 +320,13 @@ describe("Game Error Cases", () => {
     });
 
     it("allows the correct caller to choose briscola", async () => {
-      const { roomCode, round, cards } = await setupGame();
+      const { roomCode, cards } = await setupGame();
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
-      // Find the correct caller (who has quattro di denara in round 1)
       let correctCallerPlayerId: number | null = null;
       for (const card of cards) {
         if (card.value === "quattro" && card.suit === "denara") {
@@ -364,11 +336,14 @@ describe("Game Error Cases", () => {
       }
       expect(correctCallerPlayerId).not.toBeNull();
 
-      const res = await api()
+      const correctCaller = room!.players.find(
+        (p) => p.id === correctCallerPlayerId,
+      )!;
+
+      const res = await apiAs(correctCaller.userId, correctCaller.user.username)
         .post("/api/games/choose-briscola")
         .send({
           gameRoomId: room!.id,
-          playerId: correctCallerPlayerId,
           suit: "coppe",
         });
 
@@ -383,22 +358,21 @@ describe("Game Error Cases", () => {
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
-      // Get whose turn it is
-      const stateRes = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: room!.players[0].userId });
+      const p0 = room!.players[0];
+
+      const stateRes = await apiAs(p0.userId, p0.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       const currentTurnUserId = stateRes.body.currentTurnUserId;
+      const turnPlayer = room!.players.find((p) => p.userId === currentTurnUserId)!;
 
-      const res = await request(getServer())
-        .get(`/api/games/playable-cards/${roomCode}`)
-        .query({ userId: currentTurnUserId });
+      const res = await apiAs(turnPlayer.userId, turnPlayer.user.username)
+        .get(`/api/games/playable-cards/${roomCode}`);
 
       expect(res.statusCode).toBe(200);
-      // First player of the hand can play any card → all 10 cards
       expect(res.body.playableCards.length).toBe(10);
     });
 
@@ -408,44 +382,42 @@ describe("Game Error Cases", () => {
 
       const room = await prisma.gameRoom.findUnique({
         where: { code: roomCode },
-        include: { players: true },
+        include: { players: { include: { user: true } } },
       });
 
-      // Get whose turn + play the first card
-      const stateRes = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: room!.players[0].userId });
+      const p0 = room!.players[0];
+
+      const stateRes = await apiAs(p0.userId, p0.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       const firstTurnUserId = stateRes.body.currentTurnUserId;
+      const firstTurnPlayer = room!.players.find((p) => p.userId === firstTurnUserId)!;
 
-      const playableRes = await request(getServer())
-        .get(`/api/games/playable-cards/${roomCode}`)
-        .query({ userId: firstTurnUserId });
+      const playableRes = await apiAs(firstTurnPlayer.userId, firstTurnPlayer.user.username)
+        .get(`/api/games/playable-cards/${roomCode}`);
 
       const firstCard = playableRes.body.playableCards[0];
-      await request(getServer()).post("/api/games/play-card").send({
-        roomCode,
-        userId: firstTurnUserId,
-        suit: firstCard.suit,
-        value: firstCard.value,
-      });
+      await apiAs(firstTurnPlayer.userId, firstTurnPlayer.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: firstCard.suit,
+          value: firstCard.value,
+        });
 
-      // Now get the second player's playable cards
-      const newState = await request(getServer())
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: room!.players[0].userId });
+      const newState = await apiAs(p0.userId, p0.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       const secondTurnUserId = newState.body.currentTurnUserId;
+      const secondTurnPlayer = room!.players.find((p) => p.userId === secondTurnUserId)!;
 
-      const secondPlayable = await request(getServer())
-        .get(`/api/games/playable-cards/${roomCode}`)
-        .query({ userId: secondTurnUserId });
+      const secondPlayable = await apiAs(secondTurnPlayer.userId, secondTurnPlayer.user.username)
+        .get(`/api/games/playable-cards/${roomCode}`);
 
       expect(secondPlayable.statusCode).toBe(200);
       const secondCards = secondPlayable.body.playableCards;
       expect(secondCards.length).toBeGreaterThan(0);
 
-      // If the second player has cards of the lead suit, they must play one
       const secondPlayerAllCards = await prisma.playerCard.findMany({
         where: {
           roundId: round.id,
@@ -454,16 +426,14 @@ describe("Game Error Cases", () => {
       });
 
       const hasLeadSuit = secondPlayerAllCards.some(
-        (c) => c.suit === firstCard.suit
+        (c) => c.suit === firstCard.suit,
       );
 
       if (hasLeadSuit) {
-        // All playable cards should be of the lead suit
         for (const card of secondCards) {
           expect(card.suit).toBe(firstCard.suit);
         }
       } else {
-        // Can play anything — all remaining cards are playable
         expect(secondCards.length).toBe(secondPlayerAllCards.length);
       }
     });

@@ -208,7 +208,7 @@ describe("Profile API", () => {
       const roomRes = await request(getServer())
         .post("/api/rooms/")
         .set("Cookie", cookie)
-        .send({ userId: user.id });
+        .send({});
 
       expect(roomRes.statusCode).toBe(201);
 

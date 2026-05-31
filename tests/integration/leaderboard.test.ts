@@ -6,6 +6,8 @@ import {
   chooseBriscola,
   oneRound,
   getServer,
+  api,
+  apiAs,
 } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
@@ -98,13 +100,13 @@ describe("Leaderboard API", () => {
 
     it("does not include players who only have unfinished games", async () => {
       // Create a user in a room that hasn't started
-      const registerRes = await request(getServer())
+      const registerRes = await api()
         .post("/api/users/register")
         .send({ username: "lonely_player", password: "test123" });
 
       const userId = registerRes.body.id;
 
-      await request(getServer()).post("/api/rooms/").send({ userId });
+      await apiAs(userId, "lonely_player").post("/api/rooms/").send({});
 
       // Leaderboard should be empty (no finished games)
       const res = await request(getServer()).get("/api/users/leaderboard");

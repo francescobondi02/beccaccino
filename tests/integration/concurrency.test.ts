@@ -3,7 +3,7 @@ import {
   clearDatabase,
   setupGame,
   chooseBriscola,
-  api,
+  apiAs,
 } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
@@ -15,10 +15,9 @@ describe("Concurrent play-card requests", () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);
 
-    // Get game state to determine whose turn it is
     const room = await prisma.gameRoom.findUnique({
       where: { code: roomCode },
-      include: { players: true },
+      include: { players: { include: { user: true } } },
     });
 
     const currentHand = await prisma.hand.findFirst({
@@ -26,44 +25,37 @@ describe("Concurrent play-card requests", () => {
       orderBy: { number: "desc" },
     });
 
-    // Determine the starter (has the turn) and another player (does not)
-    const starter = room!.players.find(
-      (p) => p.id === currentHand!.starterId,
-    );
-    const otherPlayer = room!.players.find(
-      (p) => p.id !== currentHand!.starterId,
-    );
+    const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
+    const otherPlayer = room!.players.find((p) => p.id !== currentHand!.starterId)!;
 
-    // Get a card for each player
     const starterCard = await prisma.playerCard.findFirst({
-      where: { playerId: starter!.id, roundId: round.id },
+      where: { playerId: starter.id, roundId: round.id },
     });
     const otherCard = await prisma.playerCard.findFirst({
-      where: { playerId: otherPlayer!.id, roundId: round.id },
+      where: { playerId: otherPlayer.id, roundId: round.id },
     });
 
-    // Fire both requests simultaneously
     const [res1, res2] = await Promise.all([
-      api().post("/api/games/play-card").send({
-        roomCode,
-        userId: starter!.userId,
-        suit: starterCard!.suit,
-        value: starterCard!.value,
-      }),
-      api().post("/api/games/play-card").send({
-        roomCode,
-        userId: otherPlayer!.userId,
-        suit: otherCard!.suit,
-        value: otherCard!.value,
-      }),
+      apiAs(starter.userId, starter.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: starterCard!.suit,
+          value: starterCard!.value,
+        }),
+      apiAs(otherPlayer.userId, otherPlayer.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: otherCard!.suit,
+          value: otherCard!.value,
+        }),
     ]);
 
-    // One should succeed, the other should fail with turn error
     const statuses = [res1.statusCode, res2.statusCode].sort();
-    expect(statuses).toEqual([200, 500]);
+    expect(statuses).toEqual([200, 403]);
 
-    // The failure should be a turn-related error
-    const failedRes = res1.statusCode === 500 ? res1 : res2;
+    const failedRes = res1.statusCode !== 200 ? res1 : res2;
     expect(failedRes.body.error).toMatch(/turn/i);
   });
 
@@ -71,10 +63,9 @@ describe("Concurrent play-card requests", () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);
 
-    // Determine whose turn it is
     const room = await prisma.gameRoom.findUnique({
       where: { code: roomCode },
-      include: { players: true },
+      include: { players: { include: { user: true } } },
     });
 
     const currentHand = await prisma.hand.findFirst({
@@ -82,36 +73,37 @@ describe("Concurrent play-card requests", () => {
       orderBy: { number: "desc" },
     });
 
-    const starter = room!.players.find(
-      (p) => p.id === currentHand!.starterId,
-    );
+    const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
 
     const starterCard = await prisma.playerCard.findFirst({
-      where: { playerId: starter!.id, roundId: round.id },
+      where: { playerId: starter.id, roundId: round.id },
     });
 
-    // Fire two identical requests simultaneously
     const [res1, res2] = await Promise.all([
-      api().post("/api/games/play-card").send({
-        roomCode,
-        userId: starter!.userId,
-        suit: starterCard!.suit,
-        value: starterCard!.value,
-      }),
-      api().post("/api/games/play-card").send({
-        roomCode,
-        userId: starter!.userId,
-        suit: starterCard!.suit,
-        value: starterCard!.value,
-      }),
+      apiAs(starter.userId, starter.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: starterCard!.suit,
+          value: starterCard!.value,
+        }),
+      apiAs(starter.userId, starter.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: starterCard!.suit,
+          value: starterCard!.value,
+        }),
     ]);
 
-    // One should succeed, the other should fail
+    // Either: 200 + 400 ("does not have this card" — winner already deleted it)
+    // or:     200 + 403 ("not your turn"  — winner already advanced the turn)
+    // Both are acceptable: the second request is rejected, no double-play.
     const statuses = [res1.statusCode, res2.statusCode].sort();
-    expect(statuses).toEqual([200, 500]);
+    expect(statuses[0]).toBe(200);
+    expect([400, 403]).toContain(statuses[1]);
 
-    // The failure should be about not having the card or not the player's turn
-    const failedRes = res1.statusCode === 500 ? res1 : res2;
+    const failedRes = res1.statusCode !== 200 ? res1 : res2;
     expect(failedRes.body.error).toMatch(/does not have|turn/i);
   });
 
@@ -119,10 +111,9 @@ describe("Concurrent play-card requests", () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);
 
-    // Determine whose turn it is
     const room = await prisma.gameRoom.findUnique({
       where: { code: roomCode },
-      include: { players: true },
+      include: { players: { include: { user: true } } },
     });
 
     const currentHand = await prisma.hand.findFirst({
@@ -130,52 +121,45 @@ describe("Concurrent play-card requests", () => {
       orderBy: { number: "desc" },
     });
 
-    const starter = room!.players.find(
-      (p) => p.id === currentHand!.starterId,
-    );
-    const otherPlayer = room!.players.find(
-      (p) => p.id !== currentHand!.starterId,
-    );
+    const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
+    const otherPlayer = room!.players.find((p) => p.id !== currentHand!.starterId)!;
 
-    // Get cards for both players
     const starterCard = await prisma.playerCard.findFirst({
-      where: { playerId: starter!.id, roundId: round.id },
+      where: { playerId: starter.id, roundId: round.id },
     });
     const otherCard = await prisma.playerCard.findFirst({
-      where: { playerId: otherPlayer!.id, roundId: round.id },
+      where: { playerId: otherPlayer.id, roundId: round.id },
     });
 
-    // Fire both simultaneously
     await Promise.all([
-      api().post("/api/games/play-card").send({
-        roomCode,
-        userId: starter!.userId,
-        suit: starterCard!.suit,
-        value: starterCard!.value,
-      }),
-      api().post("/api/games/play-card").send({
-        roomCode,
-        userId: otherPlayer!.userId,
-        suit: otherCard!.suit,
-        value: otherCard!.value,
-      }),
+      apiAs(starter.userId, starter.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: starterCard!.suit,
+          value: starterCard!.value,
+        }),
+      apiAs(otherPlayer.userId, otherPlayer.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: otherCard!.suit,
+          value: otherCard!.value,
+        }),
     ]);
 
-    // Verify: exactly one card should be in played_cards for this hand
     const playedCards = await prisma.playedCard.findMany({
       where: { handId: currentHand!.id },
     });
     expect(playedCards.length).toBe(1);
 
-    // Verify: the starter should have exactly 9 cards remaining
     const starterRemainingCards = await prisma.playerCard.findMany({
-      where: { playerId: starter!.id, roundId: round.id },
+      where: { playerId: starter.id, roundId: round.id },
     });
     expect(starterRemainingCards.length).toBe(9);
 
-    // Verify: the other player should still have all 10 cards (their play was rejected)
     const otherRemainingCards = await prisma.playerCard.findMany({
-      where: { playerId: otherPlayer!.id, roundId: round.id },
+      where: { playerId: otherPlayer.id, roundId: round.id },
     });
     expect(otherRemainingCards.length).toBe(10);
   });

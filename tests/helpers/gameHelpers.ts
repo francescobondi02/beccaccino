@@ -44,6 +44,48 @@ export function api() {
   return request(getServer());
 }
 
+/**
+ * Auth-aware request helper.
+ *
+ * The auth middleware (in test mode with ALLOW_TEST_AUTH_BYPASS=true) reads
+ * `x-test-user-id` and `x-test-username` headers and populates `req.user`.
+ * This wraps supertest so every request from the helper is authenticated as
+ * a specific user without needing to manage cookies.
+ *
+ * Usage:
+ *   apiAs(userId, username).post("/api/rooms").send({});
+ */
+export function apiAs(userId: number, username: string) {
+  const agent = request(getServer());
+  return {
+    get: (url: string) =>
+      agent
+        .get(url)
+        .set("x-test-user-id", String(userId))
+        .set("x-test-username", username),
+    post: (url: string) =>
+      agent
+        .post(url)
+        .set("x-test-user-id", String(userId))
+        .set("x-test-username", username),
+    put: (url: string) =>
+      agent
+        .put(url)
+        .set("x-test-user-id", String(userId))
+        .set("x-test-username", username),
+    delete: (url: string) =>
+      agent
+        .delete(url)
+        .set("x-test-user-id", String(userId))
+        .set("x-test-username", username),
+    patch: (url: string) =>
+      agent
+        .patch(url)
+        .set("x-test-user-id", String(userId))
+        .set("x-test-username", username),
+  };
+}
+
 export async function clearDatabase() {
   await prisma.$transaction([
     prisma.playedCard.deleteMany(),
@@ -58,8 +100,9 @@ export async function clearDatabase() {
 
 export async function setupGame() {
   // Register users sequentially to avoid race conditions on the DB
+  const usernames = ["A", "B", "C", "D"];
   const userIds: number[] = [];
-  for (const name of ["A", "B", "C", "D"]) {
+  for (const name of usernames) {
     const res = await api()
       .post("/api/users/register")
       .send({ username: name, password: "test123" });
@@ -67,9 +110,9 @@ export async function setupGame() {
     userIds.push(res.body.id);
   }
 
-  const createRoomRes = await api()
+  const createRoomRes = await apiAs(userIds[0], usernames[0])
     .post("/api/rooms")
-    .send({ userId: userIds[0] });
+    .send({});
   expect(createRoomRes.statusCode).toBe(201);
 
   const roomCode = createRoomRes.body.code;
@@ -77,30 +120,30 @@ export async function setupGame() {
   expect(roomCode.length).toBeGreaterThanOrEqual(6);
 
   for (let i = 1; i < 4; i++) {
-    const joinRes = await api()
+    const joinRes = await apiAs(userIds[i], usernames[i])
       .post("/api/rooms/join")
-      .send({ roomCode, userId: userIds[i] });
+      .send({ roomCode });
     expect(joinRes.statusCode).toBe(200);
   }
 
   // Choose teams sequentially to avoid race conditions on team-full checks
   const teamAssignments = [
-    { userId: userIds[0], team: 0 },
-    { userId: userIds[1], team: 1 },
-    { userId: userIds[2], team: 0 },
-    { userId: userIds[3], team: 1 },
+    { idx: 0, team: 0 },
+    { idx: 1, team: 1 },
+    { idx: 2, team: 0 },
+    { idx: 3, team: 1 },
   ];
-  for (const assignment of teamAssignments) {
-    const res = await api()
+  for (const { idx, team } of teamAssignments) {
+    const res = await apiAs(userIds[idx], usernames[idx])
       .post(`/api/rooms/${roomCode}/choose-team`)
-      .send(assignment);
+      .send({ team });
     expect(res.statusCode).toBe(200);
   }
 
   for (let i = 0; i < 4; i++) {
-    const res = await api()
+    const res = await apiAs(userIds[i], usernames[i])
       .post(`/api/rooms/${roomCode}/ready`)
-      .send({ userId: userIds[i], isReady: true });
+      .send({ isReady: true });
     expect(res.statusCode).toBe(200);
   }
 
@@ -137,7 +180,7 @@ export async function chooseBriscola(
 ) {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
-    include: { players: true },
+    include: { players: { include: { user: true } } },
   });
   expect(room).not.toBeNull();
 
@@ -185,11 +228,14 @@ export async function chooseBriscola(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
   )[0][0];
 
+  const callerPlayer = room!.players.find((p) => p.id === callerPlayerId)!;
+
   const chooseBriscolaRes = await api()
     .post("/api/games/choose-briscola")
+    .set("x-test-user-id", String(callerPlayer.userId))
+    .set("x-test-username", callerPlayer.user.username)
     .send({
       gameRoomId: room!.id,
-      playerId: callerPlayerId,
       suit: mostCommonSuit,
     });
 
@@ -209,7 +255,7 @@ export async function oneHand(
 ) {
   const updatedRoom = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
-    include: { players: true },
+    include: { players: { include: { user: true } } },
   });
   expect(updatedRoom).not.toBeNull();
 
@@ -228,9 +274,8 @@ export async function oneHand(
   ).map((seat) => updatedRoom!.players.find((p) => p.seat === seat)!);
 
   for (const player of playerOrder) {
-    const playableRes = await api()
-      .get(`/api/games/playable-cards/${roomCode}`)
-      .query({ userId: player.userId });
+    const playableRes = await apiAs(player.userId, player.user.username)
+      .get(`/api/games/playable-cards/${roomCode}`);
 
     expect(playableRes.statusCode).toBe(200);
     const playableCards = playableRes.body.playableCards;
@@ -240,12 +285,13 @@ export async function oneHand(
     const card = playableCards[0];
     expect(card).not.toBeNull();
 
-    const playRes = await api().post("/api/games/play-card").send({
-      roomCode,
-      userId: player.userId,
-      suit: card!.suit,
-      value: card!.value,
-    });
+    const playRes = await apiAs(player.userId, player.user.username)
+      .post("/api/games/play-card")
+      .send({
+        roomCode,
+        suit: card!.suit,
+        value: card!.value,
+      });
 
     if (playRes.statusCode !== 200) {
       console.log("Play card error:", playRes.body, "Card:", card);

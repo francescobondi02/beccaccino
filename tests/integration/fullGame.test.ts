@@ -6,7 +6,7 @@ import {
   oneRound,
   computeRoundPoints,
   prepareNextRound,
-  api,
+  apiAs,
 } from "../helpers/gameHelpers";
 
 // Game service ends the game at 5 points (see gameService.ts).
@@ -86,13 +86,14 @@ describe("Full Beccaccino game", () => {
 
     const room = await prisma.gameRoom.findUnique({
       where: { code: roomCode },
-      include: { players: true },
+      include: { players: { include: { user: true } } },
     });
 
+    const p0 = room!.players[0];
+
     // Verify initial state via API
-    const initialState = await api()
-      .get(`/api/games/${roomCode}/state`)
-      .query({ userId: room!.players[0].userId });
+    const initialState = await apiAs(p0.userId, p0.user.username)
+      .get(`/api/games/${roomCode}/state`);
 
     expect(initialState.statusCode).toBe(200);
     expect(initialState.body.round.number).toBe(1);
@@ -105,9 +106,8 @@ describe("Full Beccaccino game", () => {
     await chooseBriscola(roomCode, firstRound, cards);
 
     // Verify state after briscola
-    const afterBriscola = await api()
-      .get(`/api/games/${roomCode}/state`)
-      .query({ userId: room!.players[0].userId });
+    const afterBriscola = await apiAs(p0.userId, p0.user.username)
+      .get(`/api/games/${roomCode}/state`);
 
     expect(afterBriscola.body.round.briscola).not.toBeNull();
     expect(afterBriscola.body.currentTurnUserId).toBeDefined();
@@ -117,9 +117,8 @@ describe("Full Beccaccino game", () => {
     await oneRound(roomCode, firstRound);
 
     // Verify state after round completion
-    const afterRound = await api()
-      .get(`/api/games/${roomCode}/state`)
-      .query({ userId: room!.players[0].userId });
+    const afterRound = await apiAs(p0.userId, p0.user.username)
+      .get(`/api/games/${roomCode}/state`);
 
     // After a round ends, either the game is finished or a new round started
     const gameRoom = await prisma.gameRoom.findUnique({
@@ -147,49 +146,44 @@ describe("Full Beccaccino game", () => {
 
     const room = await prisma.gameRoom.findUnique({
       where: { code: roomCode },
-      include: { players: true },
+      include: { players: { include: { user: true } } },
     });
 
     // Verify each player has 10 cards
     for (const player of room!.players) {
-      const stateRes = await api()
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: player.userId });
+      const stateRes = await apiAs(player.userId, player.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       expect(stateRes.body.myCards.length).toBe(10);
     }
 
-    // Play one hand (4 cards total — 1 per player)
-    const stateRes = await api()
-      .get(`/api/games/${roomCode}/state`)
-      .query({ userId: room!.players[0].userId });
+    const p0 = room!.players[0];
 
     // Play 4 cards (one full hand)
     for (let i = 0; i < 4; i++) {
-      const currentState = await api()
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: room!.players[0].userId });
+      const currentState = await apiAs(p0.userId, p0.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       const turnUserId = currentState.body.currentTurnUserId;
+      const turnPlayer = room!.players.find((p) => p.userId === turnUserId)!;
 
-      const playableRes = await api()
-        .get(`/api/games/playable-cards/${roomCode}`)
-        .query({ userId: turnUserId });
+      const playableRes = await apiAs(turnPlayer.userId, turnPlayer.user.username)
+        .get(`/api/games/playable-cards/${roomCode}`);
 
       const card = playableRes.body.playableCards[0];
-      await api().post("/api/games/play-card").send({
-        roomCode,
-        userId: turnUserId,
-        suit: card.suit,
-        value: card.value,
-      });
+      await apiAs(turnPlayer.userId, turnPlayer.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: card.suit,
+          value: card.value,
+        });
     }
 
     // After one hand, each player should have 9 cards
     for (const player of room!.players) {
-      const stateRes = await api()
-        .get(`/api/games/${roomCode}/state`)
-        .query({ userId: player.userId });
+      const stateRes = await apiAs(player.userId, player.user.username)
+        .get(`/api/games/${roomCode}/state`);
 
       expect(stateRes.body.myCards.length).toBe(9);
     }
