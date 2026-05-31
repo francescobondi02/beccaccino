@@ -22,6 +22,7 @@ import {
   onConnectionStatusChange,
   getConnectionStatus,
 } from "@/sockets/socketClient";
+import { setSentryUser } from "@/lib/sentryUser";
 
 type PlayerPosition = "bottom" | "top" | "left" | "right";
 
@@ -169,6 +170,7 @@ const GameTable = () => {
           setUsername(user.username);
           setUserId(user.id);
           setIsAuthenticated(true);
+          setSentryUser({ id: user.id, username: user.username });
         } else {
           toast.error("Devi effettuare l'accesso");
           navigate("/");

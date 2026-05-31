@@ -8,6 +8,10 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({
     dsn: import.meta.env.VITE_SENTRY_DSN,
     environment: import.meta.env.MODE,
+    // Tag every event with the deployed release so source maps line up.
+    // Vercel injects VERCEL_GIT_COMMIT_SHA into VITE_SENTRY_RELEASE at build
+    // time (set in vercel.json/dashboard); falls back to undefined locally.
+    release: import.meta.env.VITE_SENTRY_RELEASE,
     tracesSampleRate: 0.2,
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: 1.0,

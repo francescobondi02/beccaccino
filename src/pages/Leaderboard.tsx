@@ -5,6 +5,7 @@ import { Trophy, Medal, Users, Loader2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 import { toast } from "sonner";
+import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -32,6 +33,7 @@ const Leaderboard = () => {
         if (res.ok) {
           const user = await res.json();
           setUsername(user.username);
+          setSentryUser({ id: user.id, username: user.username });
         }
       } catch {
         // Not logged in — that's fine, leaderboard is public
@@ -69,6 +71,7 @@ const Leaderboard = () => {
         credentials: "include",
       });
       setUsername(undefined);
+      clearSentryUser();
       toast.success("Logout effettuato");
       navigate("/");
     } catch {

@@ -25,6 +25,7 @@ import {
   onConnectionStatusChange,
   getConnectionStatus,
 } from "@/sockets/socketClient";
+import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 
 interface Player {
   id: number;
@@ -138,6 +139,7 @@ const GameRoom = () => {
           setUsername(user.username);
           setUserId(user.id);
           setIsAuthenticated(true);
+          setSentryUser({ id: user.id, username: user.username });
         } else {
           toast.error("Devi effettuare l'accesso");
           navigate("/");
@@ -363,6 +365,7 @@ const GameRoom = () => {
 
       setUsername("");
       setIsAuthenticated(false);
+      clearSentryUser();
       toast.success("Logout effettuato");
       navigate("/");
     } catch (error) {

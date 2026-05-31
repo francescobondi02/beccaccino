@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import Header from "@/components/Header";
 import { Trophy, Users, Star, Clock, Edit2, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +72,7 @@ const Profile = () => {
           setNewUsername(user.username);
           setUserId(user.id);
           setIsAuthenticated(true);
+          setSentryUser({ id: user.id, username: user.username });
 
           // Fetch stats
           await fetchStats();
@@ -171,6 +173,7 @@ const Profile = () => {
         method: "POST",
         credentials: "include",
       });
+      clearSentryUser();
       toast.success("Logout effettuato");
       navigate("/");
     } catch (error) {

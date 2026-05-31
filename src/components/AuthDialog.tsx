@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Mail, Loader2 } from "lucide-react";
+import { setSentryUser } from "@/lib/sentryUser";
 
 interface AuthDialogProps {
   open: boolean;
@@ -64,6 +65,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
       toast.success(
         isLogin ? "Accesso effettuato!" : "Registrazione completata!"
       );
+      setSentryUser({ id: data.id, username: data.username });
       onAuthSuccess(data.username, data.id);
       onOpenChange(false);
 

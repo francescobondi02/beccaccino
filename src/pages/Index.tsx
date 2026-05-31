@@ -17,6 +17,7 @@ import {
   onRoomDeleted,
 } from "@/sockets/lobbyHandlers";
 import { getSocket, isSocketConnected } from "@/sockets/socketClient";
+import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 
 // Lista delle 40 carte italiane
 const cardFilenames = [
@@ -175,6 +176,7 @@ const Index = () => {
 
       setUsername("");
       setIsAuthenticated(false);
+      clearSentryUser();
       toast.success("Logout effettuato");
     } catch (error) {
       console.error("Logout error:", error);
@@ -195,6 +197,7 @@ const Index = () => {
           setUsername(user.username);
           setUserId(user.id);
           setIsAuthenticated(true);
+          setSentryUser({ id: user.id, username: user.username });
 
           // Carica le stanze disponibili
           await fetchAvailableRooms(user.id);
@@ -202,6 +205,7 @@ const Index = () => {
           setIsAuthenticated(false);
           setUsername("");
           setUserId(null);
+          clearSentryUser();
         }
       } catch (error) {
         console.error("Auth check error:", error);
