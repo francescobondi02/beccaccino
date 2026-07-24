@@ -59,6 +59,14 @@ class RunningMeanStd:
     def std(self) -> float:
         return float(np.sqrt(self.var))
 
+    def to_dict(self) -> dict:
+        return {"mean": self.mean, "var": self.var, "count": self.count}
+
+    def from_dict(self, state: dict) -> None:
+        self.mean = state["mean"]
+        self.var = state["var"]
+        self.count = state["count"]
+
 
 class ReturnNormalizer:
     """Per-(env, seat) discounted-return tracker for reward scaling.
@@ -109,3 +117,14 @@ class ReturnNormalizer:
                 int(env_indices[i]), int(seats[i]), float(rewards[i]), bool(dones[i])
             )
         return scaled.astype(np.float32)
+
+    def to_dict(self) -> dict:
+        """Serialize the load-bearing running-std state. The transient per-(env,
+        seat) _returns dict is NOT persisted — it's rebuilt within a rollout and
+        carries no cross-run information."""
+        return {"gamma": self.gamma, "epsilon": self.epsilon, "rms": self.rms.to_dict()}
+
+    def from_dict(self, state: dict) -> None:
+        self.gamma = state["gamma"]
+        self.epsilon = state["epsilon"]
+        self.rms.from_dict(state["rms"])

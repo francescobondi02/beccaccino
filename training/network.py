@@ -142,28 +142,37 @@ class BeccaNetV2(nn.Module):
 
 def create_network(version: int = 2, **kwargs) -> BeccaNet | BeccaNetV2:
     if version == 1:
-        return BeccaNet(
-            hidden_size=kwargs.get("hidden_size", 256),
-            num_layers=kwargs.get("num_layers", 2),
-        )
-    if version == 3:
-        return BeccaNetV3(
-            hidden_size=kwargs.get("hidden_size", 512),
-            num_layers=kwargs.get("num_layers", 3),
-            use_layer_norm=kwargs.get("use_layer_norm", True),
-        )
-    if version == 4:
-        return BeccaNetV4(
-            d_model=kwargs.get("d_model", 128),
-            nhead=kwargs.get("nhead", 4),
-            num_layers=kwargs.get("num_layers", 3),
-            dim_feedforward=kwargs.get("dim_feedforward", 256),
-        )
-    return BeccaNetV2(
-        hidden_size=kwargs.get("hidden_size", 512),
-        num_layers=kwargs.get("num_layers", 3),
-        use_layer_norm=kwargs.get("use_layer_norm", True),
-    )
+        resolved = {
+            "hidden_size": kwargs.get("hidden_size", 256),
+            "num_layers": kwargs.get("num_layers", 2),
+        }
+        net = BeccaNet(**resolved)
+    elif version == 3:
+        resolved = {
+            "hidden_size": kwargs.get("hidden_size", 512),
+            "num_layers": kwargs.get("num_layers", 3),
+            "use_layer_norm": kwargs.get("use_layer_norm", True),
+        }
+        net = BeccaNetV3(**resolved)
+    elif version == 4:
+        resolved = {
+            "d_model": kwargs.get("d_model", 128),
+            "nhead": kwargs.get("nhead", 4),
+            "num_layers": kwargs.get("num_layers", 3),
+            "dim_feedforward": kwargs.get("dim_feedforward", 256),
+        }
+        net = BeccaNetV4(**resolved)
+    else:
+        resolved = {
+            "hidden_size": kwargs.get("hidden_size", 512),
+            "num_layers": kwargs.get("num_layers", 3),
+            "use_layer_norm": kwargs.get("use_layer_norm", True),
+        }
+        net = BeccaNetV2(**resolved)
+    # Stamp the exact rebuild kwargs so create_network(**net.config) reproduces
+    # this architecture bit-for-bit — the single source of truth for checkpoints.
+    net.config = {"version": version, **resolved}
+    return net
 
 
 # ---------- V4 (transformer over card tokens + global token) ----------

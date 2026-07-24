@@ -42,6 +42,10 @@ class TrainConfig:
     activation: str = "relu"
     use_layer_norm: bool = True
     network_version: int = 2
+    # V4 transformer dims (ignored unless network_version == 4)
+    d_model: int = 128
+    nhead: int = 4
+    dim_feedforward: int = 256
 
     # Self-play
     opponent_pool_size: int = 10
@@ -83,6 +87,25 @@ class TrainConfig:
     eval_games: int = 200
     ckpt_every: int = 50
     resume_from: str | None = None
+
+    def net_kwargs(self) -> dict:
+        """Map this config to create_network(**kwargs). Single source of truth
+        for building the net from a TrainConfig (V4 takes transformer dims,
+        everything else takes MLP dims)."""
+        if self.network_version == 4:
+            return {
+                "version": 4,
+                "d_model": self.d_model,
+                "nhead": self.nhead,
+                "num_layers": self.num_layers,
+                "dim_feedforward": self.dim_feedforward,
+            }
+        return {
+            "version": self.network_version,
+            "hidden_size": self.hidden_size,
+            "num_layers": self.num_layers,
+            "use_layer_norm": self.use_layer_norm,
+        }
 
     @property
     def batch_size(self) -> int:
