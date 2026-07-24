@@ -10,36 +10,39 @@ becca_env/
   deck.py           Card/Suit/Value definitions, 40-card deck, strength and points tables
   rules.py          Core rules: follow_suit_filter, determine_hand_winner, compute_round_scores
   game.py           Full game state machine (BeccaGame): phases, actions, step()
-  observation.py    State → numpy tensor encoding (344 features), action mask (160 slots)
+  observation.py    State → numpy tensor encoding (462 features), action mask (160 slots)
+                    + encode_full_state (582) for the centralized CTDE critic
   env.py            Gymnasium wrapper (BeccaEnv) — self-play, scaled rewards
 training/
-  config.py         TrainConfig dataclass (all hyperparameters)
-  network.py        BeccaNet (v1 legacy) + BeccaNetV2 (ReLU, LayerNorm, residuals)
-  ppo.py            PPO update with clipped surrogate, KL early stopping
-  rollout.py        Rollout buffer with per-seat GAE
-  trainer.py        Main training loop (wandb, curriculum, resume, entropy annealing)
-  self_play.py      OpponentPool — historical policy sampling for diversity
+  config.py         TrainConfig dataclass (all hyperparameters) + net_kwargs()
+  network.py        BeccaNet V1/V2/V3/V4 (V4 = transformer) + CentralizedCritic;
+                    create_network stamps net.config for exact rebuild
+  ppo.py            PPO update: clipped surrogate, per-epoch KL early stop, critic hook
+  rollout.py        Rollout buffer with per-(env,seat) GAE + full_obs (critic)
+  trainer.py        PPO loop (wandb, curriculum, resume, --max-hours, seed, CTDE)
+  imitation.py      Behavioral cloning on the heuristic (policy-only warm-start)
+  checkpoint.py     Unified save/load, build_net, seed_everything, RNG state
+  self_play.py      OpponentPool — FIFO snapshots + permanent anchors
   self_play_env.py  SelfPlayEnv wrapper (team-vs-opponent, learner-only observations)
   curriculum.py     Auto-advancing difficulty stages
   vec_env.py        Vectorized environment creation (AsyncVectorEnv)
-  normalization.py  Running mean/std for return normalization
+  normalization.py  Running mean/std for return normalization (to/from_dict)
 evaluation/
-  arena.py          Agent vs agent matches, evaluate_against_random()
+  arena.py          Agent-vs-agent matches, evaluate_against_random(), elo_ladder(), EVAL_SEED_BASE
+  heuristic.py      HeuristicAgent baseline + evaluate_against_heuristic()
+  stats.py          wilson_interval() confidence bounds
   elo.py            Elo rating tracker
 serving/
-  app.py            FastAPI inference endpoint (stateless: obs → action)
-  export_onnx.py    Export PyTorch checkpoint to ONNX
+  app.py            FastAPI inference endpoint (stateless: obs → action, input-validated)
+  export_onnx.py    Export any checkpoint (incl. V4) to ONNX via build_net
+inference/          PIMC (perfect-information Monte Carlo) — not yet wired to serving
 scripts/
+  bc_then_rl.py     BC warm-start → PPO self-play pipeline (the strong recipe)
+  elo_ladder.py     Cross-checkpoint Elo ranking CLI
+  kaggle_run.py     Drive Kaggle GPU runs from the CLI (smoke-gated)
   benchmark.py      Environment throughput benchmark
 checkpoints/        Saved model checkpoints (.pt files)
-tests/
-  test_deck.py      Deck integrity
-  test_rules.py     Game rules (mirrors backend test vectors)
-  test_env.py       Gymnasium env correctness
-  test_game.py      Game state machine
-  test_gae.py       Per-seat GAE computation
-  test_self_play.py Opponent pool + self-play env
-  test_curriculum.py Curriculum advancement logic
+tests/              ~200 tests (pytest); mirrors the modules above
 ```
 
 ## Game Engine (game.py)
@@ -57,21 +60,24 @@ Signals are part of the action space for the leader and stored in `trick_signals
 
 ## Observation Encoding (observation.py)
 
-Feature vector: 344 floats (OBS_SIZE = 344)
+Feature vector: 462 floats (OBS_SIZE = 462)
 
 | Offset | Size | Feature |
 |--------|------|---------|
 | 0 | 40 | My hand (binary) |
-| 40 | 40 | Cards seen in previous tricks (binary) |
-| 80 | 160 | Current trick (4 positions × 40 one-hot) |
-| 240 | 4 | Briscola suit (one-hot) |
-| 244 | 4 | My seat (one-hot) |
-| 248 | 4 | Trick starter (one-hot) |
-| 252 | 10 | Hand number (one-hot, 1-10) |
-| 262 | 10 | Round number (one-hot, capped at 10) |
-| 272 | 2 | Normalized scores (team0, team1) |
-| 274 | 30 | Signals history (10 hands × 3 types) |
-| 304 | 40 | Signal declarers (10 hands × 4 seats) |
+| 40 | 200 | Per-card status one-hot (5 classes: unseen/mine/partner/left/right) |
+| 240 | 160 | Current trick (4 positions × 40 one-hot) |
+| 400 | 4 | Briscola suit (one-hot) |
+| 404 | 4 | My seat (one-hot) |
+| 408 | 4 | Trick starter (one-hot) |
+| 412 | 10 | Hand number (one-hot, 1-10) |
+| 422 | 10 | Round number (one-hot, capped at 10) |
+| 432 | 2 | Normalized scores (team0, team1) |
+| 434 | 16 | Void mask (4 relative seats × 4 suits) |
+| 450 | 12 | Signal mask (4 relative seats × 3 signal types) |
+
+`encode_full_state` (582 floats) appends the 3 hidden hands (3×40) for the
+centralized CTDE critic — train-time only; the policy never sees it.
 
 ## Action Space
 
@@ -89,20 +95,28 @@ Action mask provided in observation dict for legal action filtering.
 - `step(action)` → obs, reward, terminated, truncated, info
 - Reward: trick ±(raw_pts/35) normalized, terminal ±1.0
 
-## Training (v2)
+## Training
 
-PPO self-play with: per-seat GAE, BeccaNetV2 (ReLU + LayerNorm + residuals),
-opponent pool, curriculum learning, wandb tracking, entropy annealing.
+The strong recipe is **BC warm-start → PPO self-play** on the V4 transformer
+(`scripts/bc_then_rl.py`). `training/trainer.py` is the pure-PPO trainer and now
+also supports resume, `--max-hours` graceful stop, global `--seed`,
+`--network-version {1,2,3,4}`, a BC-anchor opponent, and a centralized (CTDE)
+critic. Both use per-seat GAE, the opponent pool (with anchors), curriculum,
+wandb, and entropy annealing.
 
 ```bash
-# Quick training (short games, ~2h on Apple Silicon)
+# Recommended: BC + PPO on the transformer (see scripts/kaggle_setup.md for GPU)
+python -m scripts.bc_then_rl --network-version 4 --bc-games 3000 \
+  --total-rl-steps 5000000 --num-envs 32 --win-points 5 --device cuda
+
+# Pure PPO trainer (short games)
 python -m training.trainer --win-points 5 --steps 20000000 --device mps
 
 # Full curriculum training (~8-10h)
 python -m training.trainer --curriculum --steps 100000000 --device mps
 
-# Resume from checkpoint
-python -m training.trainer --resume checkpoints/ckpt_000500.pt --steps 50000000
+# Resume across sessions (writes last.pt; --max-hours for Kaggle's 12h cap)
+python -m training.trainer --resume checkpoints/last.pt --steps 50000000 --max-hours 11
 
 # Without wandb (offline)
 python -m training.trainer --no-wandb --win-points 5 --steps 5000000
@@ -111,7 +125,7 @@ python -m training.trainer --no-wandb --win-points 5 --steps 5000000
 Key hyperparameters (defaults in `training/config.py`):
 - 64 parallel envs × 512 steps = 32,768 batch size
 - GAE: gamma=0.995, lambda=0.95
-- Network: 3×512 ReLU+LayerNorm with residual connections (~1M params)
+- Network: V2 3×512 ReLU+LayerNorm residual (~1M params), or V4 transformer
 - Entropy: annealed from 0.03 → 0.005
 - LR: 2.5e-4 with cosine schedule
 

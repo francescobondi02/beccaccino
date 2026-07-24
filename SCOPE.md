@@ -44,6 +44,14 @@ When an AI player's turn arrives:
 
 The AI never touches the database or sockets — it's a stateless function: `observation → action`.
 
+> **Companion work before a signals/critic-trained net can serve:** the
+> observation is now **462 floats** (it includes the 12-float signal mask). Whoever
+> owns the TypeScript backend must make its observation encoder emit the same 462
+> features in the same order (the trailing block is 4 relative seats × 3 signal
+> types), and `serving/model.onnx` must be re-exported at the new input width via
+> `serving/export_onnx.py`. The centralized critic is train-time only and does not
+> affect serving.
+
 ## Setup
 
 ```bash
@@ -51,7 +59,7 @@ cd ai/
 uv venv .venv && source .venv/bin/activate
 uv pip install -e ".[dev]"       # core + test tools
 uv pip install -e ".[train]"     # + PyTorch + TensorBoard
-pytest                            # run tests (47 tests, <0.2s)
+pytest                            # run the full suite (~200 tests, a few seconds)
 python scripts/benchmark.py       # ~2400 games/sec throughput
 ```
 
@@ -120,11 +128,12 @@ Load a checkpoint and continue:
 
 ```python
 import torch
-from training.network import BeccaNet
+from training.checkpoint import build_net, load_checkpoint
 
-net = BeccaNet()
-ckpt = torch.load("checkpoints/becca_ppo_final.pt", weights_only=True)
-net.load_state_dict(ckpt["model_state_dict"])
+# build_net rebuilds the exact architecture from the checkpoint's net_config,
+# so this works for any network version (V1–V4) without guessing.
+ckpt = load_checkpoint("checkpoints/final.pt")
+net = build_net(ckpt, torch.device("cpu"))
 # Then pass `net` to training or evaluation
 ```
 
@@ -132,14 +141,12 @@ net.load_state_dict(ckpt["model_state_dict"])
 
 ```python
 import torch
-from training.network import BeccaNet
+from training.checkpoint import build_net, load_checkpoint
 from evaluation.arena import evaluate_against_random, play_match, NeuralAgent, RandomAgent
 
-net = BeccaNet()
-ckpt = torch.load("checkpoints/becca_ppo_final.pt", weights_only=True)
-net.load_state_dict(ckpt["model_state_dict"])
+net = build_net(load_checkpoint("checkpoints/final.pt"), torch.device("cpu"))
 
-# Win rate vs random (200 games, half as each team)
+# Win rate vs random (200 games, half as each team; frozen deal block by default)
 winrate = evaluate_against_random(net, num_games=200)
 print(f"Win rate: {winrate:.1%}")
 
@@ -157,19 +164,24 @@ print(f"Agent A wins: {result.team0_wins}, Agent B wins: {result.team1_wins}")
 | 1 | Game engine + Gymnasium env | Done |
 | 2 | PPO self-play training pipeline | Done |
 | 3 | Training overhaul (GAE, scale, self-play pool, curriculum) | Done |
-| 4 | Train to >80% vs random on full 41-point games | Ready to run |
-| 5 | Fine-tune with signals | Planned |
-| 6 | MCTS / search hybrid | Planned |
-| 7 | Serving API + web integration | Planned |
+| 3b | BC warm-start + V3/V4 (transformer) networks | Done |
+| 3c | Signal observation, centralized (CTDE) critic, opponent anchors | Done |
+| 3d | Eval rigor (frozen seed, Wilson CIs, Elo ladder) + resume/checkpoint | Done |
+| 4 | Train to >55% vs heuristic on full 41-point games | Ready to run (fresh run after signals/critic) |
+| 5 | Signal reward shaping (beyond observability) | Planned |
+| 6 | PIMC / search wired into serving | Partial (PIMC in `inference/`, not yet in serving) |
+| 7 | Serving API + web integration | Partial (FastAPI + ONNX export done; backend encoder must emit the 462-float obs) |
 
 ## Advanced Features Roadmap (Post-Overhaul)
 
 These features are planned for after the core training pipeline is working and producing >80% WR vs random:
 
-### 1. Wire Signal Observation Features
-- Offsets 274-344 in `observation.py` are allocated but not fully wired
-- Train the agent to *interpret* opponent signals (striscio/busso/volo) and *produce* meaningful signals for its teammate
-- Add signal-specific reward shaping: bonus for accurate signals that lead to teammate making better plays
+### 1. Signal Reward Shaping (observation already wired)
+- Signals ARE now observed: `_compute_signal_mask` encodes a 4×3 (relative seat ×
+  striscio/busso/volo) block at obs offsets 450–462, so PPO can learn to read and
+  produce them. What remains is *reward shaping* — a bonus for accurate signals
+  that lead the teammate to a better play — which is deliberately out of scope for
+  the observability change.
 
 ### 2. Card Counting & Inference Features
 - Track which cards are *definitely* NOT in an opponent's hand (deduced from follow-suit failures)
