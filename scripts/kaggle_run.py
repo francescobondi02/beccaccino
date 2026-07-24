@@ -33,7 +33,12 @@ DATASET_SLUG = f"{KAGGLE_USER}/becca-ai"
 # Distinct from any hand-created notebook (Kaggle won't convert a notebook kernel
 # to a script kernel), so this tool owns its own script kernel.
 KERNEL_SLUG = f"{KAGGLE_USER}/becca-training-cli"
-AI_DIR_ON_KAGGLE = "/kaggle/input/becca-ai/ai"
+# Kaggle mounts attached datasets somewhere under /kaggle/input; the exact path
+# and nesting depend on the dataset slug and how the zip was extracted, so the
+# kernel auto-detects the code dir (the one containing scripts/bc_then_rl.py)
+# rather than hardcoding a mount path.
+KAGGLE_INPUT_ROOT = "/kaggle/input"
+CODE_MARKER = "scripts/bc_then_rl.py"
 WORK_DIR_ON_KAGGLE = "/kaggle/working/ai"
 PULL_DIR = "checkpoints/kaggle"
 
@@ -129,18 +134,41 @@ def est_hours(total_rl_steps: int) -> float:
 
 
 def render_kernel_script(spec: RunSpec) -> str:
-    """Generate the Python script-kernel body that runs this spec on Kaggle."""
+    """Generate the Python script-kernel body that runs this spec on Kaggle.
+
+    The code dir is auto-detected by walking /kaggle/input for the marker file,
+    so the kernel is robust to however Kaggle mounts/extracts the dataset."""
     return (
         "import os, sys, shutil, subprocess\n"
-        f"AI_DIR = {AI_DIR_ON_KAGGLE!r}\n"
+        f"INPUT_ROOT = {KAGGLE_INPUT_ROOT!r}\n"
+        f"MARKER = {CODE_MARKER!r}\n"
         f"WORK = {WORK_DIR_ON_KAGGLE!r}\n"
+        "code_dir = next((d for d, _, _ in os.walk(INPUT_ROOT)\n"
+        "                 if os.path.isfile(os.path.join(d, MARKER))), None)\n"
+        "assert code_dir, f'{MARKER} not found under {INPUT_ROOT}; is the dataset attached?'\n"
         "if not os.path.exists(WORK):\n"
-        "    shutil.copytree(AI_DIR, WORK)\n"
+        "    shutil.copytree(code_dir, WORK)\n"
         "os.chdir(WORK)\n"
         "sys.path.insert(0, WORK)\n"
         "subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'gymnasium>=1.0'])\n"
         "os.makedirs('/kaggle/working/checkpoints', exist_ok=True)\n"
         f"FLAGS = {spec.to_cli_args()!r}\n"
+        # The generated kernel guards against Kaggle's stock torch build
+        # mismatching the session GPU arch ('no kernel image is available'): it
+        # verifies CUDA can actually run a kernel and falls back to CPU if not,
+        # so the run still completes (a smoke validates the pipeline, not speed).
+        "def _cuda_ok():\n"
+        "    try:\n"
+        "        import torch\n"
+        "        if not torch.cuda.is_available():\n"
+        "            return False\n"
+        "        (torch.ones(8, device='cuda') * 2).sum().item()\n"
+        "        return True\n"
+        "    except Exception as e:\n"
+        "        print(f'CUDA unusable ({e!r}); falling back to CPU', flush=True)\n"
+        "        return False\n"
+        "if '--device' in FLAGS and not _cuda_ok():\n"
+        "    FLAGS[FLAGS.index('--device') + 1] = 'cpu'\n"
         "subprocess.check_call([sys.executable, '-m', 'scripts.bc_then_rl'] + FLAGS)\n"
     )
 
@@ -169,7 +197,7 @@ def configure() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         meta = {
             "id": KERNEL_SLUG,
-            "title": "becca-training",
+            "title": "becca-training-cli",
             "code_file": "kernel.py",
             "language": "python",
             "kernel_type": "script",
@@ -202,7 +230,7 @@ def launch(spec: RunSpec, confirm_cost: bool) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         meta = {
             "id": KERNEL_SLUG,
-            "title": "becca-training",
+            "title": "becca-training-cli",
             "code_file": "kernel.py",
             "language": "python",
             "kernel_type": "script",
