@@ -87,6 +87,9 @@ class TrainConfig:
     eval_games: int = 200
     ckpt_every: int = 50
     resume_from: str | None = None
+    # Graceful wall-clock stop (Kaggle's 12h session cap). None = no limit.
+    # On expiry the trainer writes last.pt and exits so --resume can continue.
+    max_hours: float | None = None
 
     def net_kwargs(self) -> dict:
         """Map this config to create_network(**kwargs). Single source of truth

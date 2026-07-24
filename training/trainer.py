@@ -15,6 +15,12 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from becca_env.env import BeccaEnv
+from training.checkpoint import (
+    load_checkpoint,
+    restore_rng,
+    save_checkpoint,
+    seed_everything,
+)
 from training.config import TrainConfig
 from training.dual_rollout import collect_self_play_rollout_vec
 from training.network import create_network
@@ -23,6 +29,8 @@ from training.ppo import ppo_update
 from training.rollout import collect_rollout
 from training.self_play import OpponentPool
 from training.vec_env import create_vec_env
+
+SECONDS_PER_HOUR = 3600
 
 
 def _ent_coef_schedule(config: TrainConfig, update: int) -> float:
@@ -33,12 +41,13 @@ def _ent_coef_schedule(config: TrainConfig, update: int) -> float:
 
 def _lr_schedule(config: TrainConfig, optimizer: torch.optim.Optimizer, update: int):
     """Apply learning rate schedule."""
+    denom = max(config.total_updates - 1, 1)
     if config.lr_schedule == "linear":
-        frac = 1.0 - (update - 1) / config.total_updates
+        frac = 1.0 - (update - 1) / denom
         new_lr = config.lr * frac
     elif config.lr_schedule == "cosine":
         import math
-        frac = 0.5 * (1 + math.cos(math.pi * (update - 1) / config.total_updates))
+        frac = 0.5 * (1 + math.cos(math.pi * (update - 1) / denom))
         new_lr = config.lr * max(frac, 0.1)
     else:
         return
@@ -49,14 +58,10 @@ def _lr_schedule(config: TrainConfig, optimizer: torch.optim.Optimizer, update: 
 def train(config: TrainConfig):
     dev = torch.device(config.device)
     Path(config.ckpt_dir).mkdir(parents=True, exist_ok=True)
+    seed_everything(config.seed)
 
     # Network
-    net = create_network(
-        version=config.network_version,
-        hidden_size=config.hidden_size,
-        num_layers=config.num_layers,
-        use_layer_norm=config.use_layer_norm,
-    ).to(dev)
+    net = create_network(**config.net_kwargs()).to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=config.lr, eps=1e-5)
 
     # Resume from checkpoint
@@ -64,14 +69,17 @@ def train(config: TrainConfig):
     step_count = 0
     game_count = 0
     curriculum_stage = 0
+    resume_ckpt = None
     if config.resume_from:
-        ckpt = torch.load(config.resume_from, map_location=dev, weights_only=False)
-        net.load_state_dict(ckpt["model"])
-        opt.load_state_dict(ckpt["optimizer"])
-        start_update = ckpt.get("update", 0) + 1
-        step_count = ckpt.get("steps", 0)
-        game_count = ckpt.get("games", 0)
-        curriculum_stage = ckpt.get("curriculum_stage", 0)
+        resume_ckpt = load_checkpoint(config.resume_from, map_location=dev)
+        net.load_state_dict(resume_ckpt["model"])
+        opt.load_state_dict(resume_ckpt["optimizer"])
+        start_update = resume_ckpt.get("update", 0) + 1
+        step_count = resume_ckpt.get("step", resume_ckpt.get("steps", 0))
+        game_count = resume_ckpt.get("games", 0)
+        curriculum_stage = resume_ckpt.get("curriculum_stage", 0)
+        if resume_ckpt.get("rng") is not None:
+            restore_rng(resume_ckpt["rng"])
         print(f"Resumed from {config.resume_from} (update {start_update}, {step_count:,} steps)")
 
     # Curriculum
@@ -92,17 +100,22 @@ def train(config: TrainConfig):
 
     # Opponent pool + a frozen opponent net we reload on each rollout
     pool = OpponentPool(max_size=config.opponent_pool_size)
-    opponent_net = create_network(
-        version=config.network_version,
-        hidden_size=config.hidden_size,
-        num_layers=config.num_layers,
-        use_layer_norm=config.use_layer_norm,
-    ).to(dev)
+    opponent_net = create_network(**config.net_kwargs()).to(dev)
     opponent_net.load_state_dict(net.state_dict())  # start as a copy of learner
 
     # Reward / return normalizer (kept across rollouts so the running std
     # converges to a stable estimate)
     return_normalizer = ReturnNormalizer(gamma=config.gamma) if config.normalize_returns else None
+
+    # Restore normalizer / pool state on resume so a continued run keeps its
+    # running reward-std estimate and opponent history.
+    if resume_ckpt is not None:
+        if return_normalizer is not None and resume_ckpt.get("normalizer") is not None:
+            return_normalizer.from_dict(resume_ckpt["normalizer"])
+        if resume_ckpt.get("pool"):
+            pool = OpponentPool.from_serialized(
+                resume_ckpt["pool"], max_size=config.opponent_pool_size
+            )
 
     # Per-env learner team assignment (balanced)
     if config.balance_learner_teams and use_vec:
@@ -137,6 +150,17 @@ def train(config: TrainConfig):
 
     t0 = time.time()
     curriculum_confirm = 0
+    deadline = (
+        time.monotonic() + config.max_hours * SECONDS_PER_HOUR
+        if config.max_hours is not None else None
+    )
+
+    def _save(path, upd):
+        save_checkpoint(
+            path, net=net, optimizer=opt, config=config, step=step_count, update=upd,
+            normalizer=return_normalizer, pool=pool,
+            extra={"games": game_count, "curriculum_stage": curriculum_stage},
+        )
 
     for update in range(start_update, config.total_updates + 1):
         # Schedules
@@ -282,28 +306,20 @@ def train(config: TrainConfig):
         # Checkpoint
         if update % config.ckpt_every == 0:
             p = Path(config.ckpt_dir) / f"ckpt_{update:06d}.pt"
-            torch.save({
-                "model": net.state_dict(),
-                "optimizer": opt.state_dict(),
-                "update": update,
-                "steps": step_count,
-                "games": game_count,
-                "curriculum_stage": curriculum_stage,
-                "config": asdict(config),
-            }, p)
+            _save(p, update)
             print(f"  saved: {p.name}")
 
-    # Final save
+        # Graceful wall-clock stop: write last.pt and exit so --resume continues
+        # this run across sessions (Kaggle 12h cap).
+        if deadline is not None and time.monotonic() >= deadline:
+            _save(Path(config.ckpt_dir) / "last.pt", update)
+            print(f"  max-hours reached at update {update}; saved last.pt and stopping")
+            break
+
+    # Final save (also as last.pt so --resume always has a fixed entry point)
     fp = Path(config.ckpt_dir) / "final.pt"
-    torch.save({
-        "model": net.state_dict(),
-        "optimizer": opt.state_dict(),
-        "update": config.total_updates,
-        "steps": step_count,
-        "games": game_count,
-        "curriculum_stage": curriculum_stage,
-        "config": asdict(config),
-    }, fp)
+    _save(fp, update)
+    _save(Path(config.ckpt_dir) / "last.pt", update)
 
     from evaluation.arena import evaluate_against_random
     wr = evaluate_against_random(net, num_games=config.eval_games * 2, device=dev, seed=99999)
@@ -358,7 +374,13 @@ if __name__ == "__main__":
     p.add_argument("--no-wandb", action="store_true")
     p.add_argument("--wandb-entity", default="francesco-bondi02-eth-z-rich")
     p.add_argument("--wandb-project", default="BECCACCINO-RL")
-    p.add_argument("--network-version", type=int, default=2, choices=[1, 2])
+    p.add_argument("--network-version", type=int, default=2, choices=[1, 2, 3, 4])
+    p.add_argument("--d-model", type=int, default=128, help="V4 transformer width")
+    p.add_argument("--nhead", type=int, default=4, help="V4 attention heads")
+    p.add_argument("--dim-feedforward", type=int, default=256, help="V4 FFN width")
+    p.add_argument("--max-hours", type=float, default=None,
+                   help="Graceful wall-clock stop; writes last.pt and exits so "
+                        "--resume can continue (Kaggle 12h cap).")
     a = p.parse_args()
 
     cfg = TrainConfig(
@@ -391,6 +413,10 @@ if __name__ == "__main__":
         wandb_entity=a.wandb_entity,
         wandb_project=a.wandb_project,
         network_version=a.network_version,
+        d_model=a.d_model,
+        nhead=a.nhead,
+        dim_feedforward=a.dim_feedforward,
+        max_hours=a.max_hours,
     )
 
     train(cfg)
