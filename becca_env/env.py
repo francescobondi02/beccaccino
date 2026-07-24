@@ -32,7 +32,14 @@ from gymnasium import spaces
 
 from becca_env.deck import card_points
 from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase
-from becca_env.observation import OBS_SIZE, decode_action, encode_action_mask, encode_observation
+from becca_env.observation import (
+    FULL_STATE_SIZE,
+    OBS_SIZE,
+    decode_action,
+    encode_action_mask,
+    encode_full_state,
+    encode_observation,
+)
 
 MAX_RAW_PER_ROUND = 35
 
@@ -58,6 +65,9 @@ class BeccaEnv(gym.Env):
         self.action_space = spaces.Discrete(160)
         self.observation_space = spaces.Dict({
             "obs": spaces.Box(low=0.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32),
+            # Full state (actor obs + hidden hands) for the centralized critic.
+            # Train-time only; the policy and serving never read it.
+            "full_obs": spaces.Box(low=0.0, high=1.0, shape=(FULL_STATE_SIZE,), dtype=np.float32),
             "action_mask": spaces.Box(low=0.0, high=1.0, shape=(160,), dtype=np.float32),
             "current_seat": spaces.Discrete(4),
         })
@@ -164,6 +174,7 @@ class BeccaEnv(gym.Env):
         seat = self.game.current_seat
         return {
             "obs": encode_observation(self.game, seat),
+            "full_obs": encode_full_state(self.game, seat),
             "action_mask": encode_action_mask(self.game, seat),
             "current_seat": np.int64(seat),
         }
@@ -171,6 +182,7 @@ class BeccaEnv(gym.Env):
     def _terminal_obs(self) -> dict:
         return {
             "obs": np.zeros(OBS_SIZE, dtype=np.float32),
+            "full_obs": np.zeros(FULL_STATE_SIZE, dtype=np.float32),
             "action_mask": np.zeros(160, dtype=np.float32),
             "current_seat": np.int64(-1),
         }

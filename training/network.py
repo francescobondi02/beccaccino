@@ -140,6 +140,44 @@ class BeccaNetV2(nn.Module):
         return action, dist.log_prob(action), dist.entropy(), value
 
 
+class CentralizedCritic(nn.Module):
+    """Value network over the full state (actor obs + hidden hands) for CTDE.
+
+    A separate MLP with the BeccaNetV2 trunk shape — deliberately NOT the V4
+    transformer trunk: reusing the actor trunk would risk leaking hidden-hand
+    information into the policy, and the bottleneck is missing *information*, not
+    capacity. Train-time only; serving/PIMC never touch it.
+    """
+
+    def __init__(self, input_size: int, hidden_size: int = 512, num_layers: int = 3,
+                 use_layer_norm: bool = True):
+        super().__init__()
+        trunk_layers: list[nn.Module] = [
+            nn.Linear(input_size, hidden_size),
+            nn.LayerNorm(hidden_size) if use_layer_norm else nn.Identity(),
+            nn.ReLU(),
+        ]
+        for _ in range(num_layers - 1):
+            trunk_layers.append(ResidualBlock(hidden_size, use_layer_norm))
+        self.trunk = nn.Sequential(*trunk_layers)
+        self.value_head = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_size // 2, 1),
+        )
+        for m in self.trunk.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
+                nn.init.zeros_(m.bias)
+        for m in self.value_head.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.orthogonal_(m.weight, gain=1.0)
+                nn.init.zeros_(m.bias)
+
+    def forward(self, full_state: torch.Tensor) -> torch.Tensor:
+        return self.value_head(self.trunk(full_state)).squeeze(-1)
+
+
 def create_network(version: int = 2, **kwargs) -> BeccaNet | BeccaNetV2:
     if version == 1:
         resolved = {

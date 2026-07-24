@@ -62,6 +62,10 @@ STATUS_RIGHT_OPP = 4
 
 OBS_SIZE = 462
 
+# Full-state size for the centralized (CTDE) critic: the actor obs plus the 3
+# hidden hands (train-time only; the policy never sees this).
+FULL_STATE_SIZE = OBS_SIZE + 3 * NUM_CARDS  # 462 + 120 = 582
+
 
 def _seat_status_class(player_seat: int, viewer_seat: int) -> int:
     """Classify another seat relative to the viewer.
@@ -232,6 +236,25 @@ def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
 
     assert offset == OBS_SIZE, f"obs offset {offset} != {OBS_SIZE}"
     return obs
+
+
+def encode_full_state(game: BeccaGame, seat: int) -> np.ndarray:
+    """Full-state encoding for the centralized critic (train time only).
+
+    Actor obs ⊕ the 3 hidden hands as binary card vectors, ordered by relative
+    seat to mirror the void/signal-mask convention: left opp (rel 1), partner
+    (rel 2), right opp (rel 3). The policy never sees this — it exists so the
+    value head can fit returns it otherwise can't explain in a hidden-hand game.
+    """
+    full = np.zeros(FULL_STATE_SIZE, dtype=np.float32)
+    full[:OBS_SIZE] = encode_observation(game, seat)
+    r = game.round
+    for rel in (1, 2, 3):
+        other_seat = (seat + rel) % 4
+        block = OBS_SIZE + (rel - 1) * NUM_CARDS
+        for card in r.player_hands.get(other_seat, []):
+            full[block + CARD_INDEX[card]] = 1.0
+    return full
 
 
 def encode_action_mask(game: BeccaGame, seat: int) -> np.ndarray:

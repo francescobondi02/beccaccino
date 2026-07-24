@@ -24,11 +24,15 @@ def ppo_update(
     minibatch_size: int = 256,
     target_kl: float | None = 0.015,
     device: torch.device = torch.device("cpu"),
+    critic: nn.Module | None = None,
 ) -> dict[str, float]:
     """PPO update with KL early stopping and value clipping.
 
     Args:
         target_kl: if approx KL exceeds this, stop epoch early. None = disabled.
+        critic: optional CentralizedCritic. When given, the value loss fits the
+            critic over batch["full_obs"] and the policy's own value head is left
+            idle; optimizer must own both nets' params. None => actor value head.
     """
     obs = batch["obs"].to(device)
     masks = batch["masks"].to(device)
@@ -37,6 +41,7 @@ def ppo_update(
     old_values = batch["values"].to(device)
     advantages = batch["advantages"].to(device)
     returns = batch["returns"].to(device)
+    full_obs = batch["full_obs"].to(device) if critic is not None else None
 
     # Normalize advantages
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -60,9 +65,13 @@ def ppo_update(
         for start in range(0, n, minibatch_size):
             mb = idx[start : start + minibatch_size]
 
-            _, new_lp, ent, new_val = net.get_action_and_value(
+            _, new_lp, ent, actor_val = net.get_action_and_value(
                 obs[mb], masks[mb], actions[mb]
             )
+            # CTDE: the value being fit is the centralized critic over full state;
+            # the actor's own value head is left idle (kept so V4.forward and the
+            # ONNX export still return (logits, value)).
+            new_val = critic(full_obs[mb]) if critic is not None else actor_val
 
             # Policy loss (clipped surrogate)
             log_ratio = new_lp - old_log_probs[mb]

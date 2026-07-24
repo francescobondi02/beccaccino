@@ -42,6 +42,7 @@ def collect_self_play_rollout_vec(
     learner_team_per_env: np.ndarray,
     steps_per_env: int,
     device: torch.device,
+    critic=None,
 ) -> RolloutBuffer:
     """Collect a self-play rollout. Returns a buffer holding only learner-team
     transitions.
@@ -54,6 +55,9 @@ def collect_self_play_rollout_vec(
       learner_team_per_env: int array of len num_envs, each in {0, 1}.
       steps_per_env: number of vec env steps to take.
       device: torch device for inference.
+      critic: optional CentralizedCritic. When given, stored values come from
+        critic(full_obs) and full_obs is stored per transition (CTDE); the
+        policy's own value head is left idle. None => legacy actor-value path.
 
     Buffer is sized for the worst case (every step is learner). Actual ptr
     will be roughly half of that.
@@ -66,6 +70,8 @@ def collect_self_play_rollout_vec(
     if opponent_net is not None:
         opponent_net.eval()
     use_opponent = opponent_net is not None
+    if critic is not None:
+        critic.eval()
 
     learner_team_per_env = np.asarray(learner_team_per_env, dtype=np.int64)
     assert learner_team_per_env.shape == (num_envs,)
@@ -90,7 +96,9 @@ def collect_self_play_rollout_vec(
             log_probs = np.zeros(num_envs, dtype=np.float32)
             values = np.zeros(num_envs, dtype=np.float32)
 
-            # Learner forward (for envs where learner is acting)
+            # Learner forward (for envs where learner is acting). Action/log_prob
+            # always come from the policy; the stored value is the CRITIC's
+            # full-state estimate when CTDE is on, else the policy's value head.
             l_idx = np.where(is_learner)[0]
             if l_idx.size > 0:
                 idx_t = torch.from_numpy(l_idx).to(device)
@@ -99,6 +107,9 @@ def collect_self_play_rollout_vec(
                 )
                 actions[l_idx] = acts_l.cpu().numpy()
                 log_probs[l_idx] = lps_l.cpu().numpy()
+                if critic is not None:
+                    fo = torch.from_numpy(obs_dict["full_obs"]).to(device)
+                    vals_l = critic(fo.index_select(0, idx_t))
                 values[l_idx] = vals_l.cpu().numpy()
 
             # Opponent forward (for envs where opponent is acting)
@@ -122,6 +133,7 @@ def collect_self_play_rollout_vec(
                     actions[i], log_probs[i], values[i],
                     rews[i], dones[i],
                     int(seats_np[i]), env_idx=i,
+                    full_obs=obs_dict["full_obs"][i] if critic is not None else None,
                 )
 
             # Credit terminal residuals to learner-team seats

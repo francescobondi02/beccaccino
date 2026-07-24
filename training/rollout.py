@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from becca_env.env import BeccaEnv
-from becca_env.observation import OBS_SIZE
+from becca_env.observation import FULL_STATE_SIZE, OBS_SIZE
 from training.network import BeccaNet, BeccaNetV2
 
 ACTION_SIZE = 160
@@ -34,12 +34,15 @@ class RolloutBuffer:
         self.dones = np.zeros(size, dtype=np.float32)
         self.seats = np.zeros(size, dtype=np.int32)
         self.env_idx = np.zeros(size, dtype=np.int32)
+        # Full-state per transition for the centralized critic. Only populated
+        # when a critic is in use (CTDE); left as zeros otherwise.
+        self.full_obs = np.zeros((size, FULL_STATE_SIZE), dtype=np.float32)
         self.size = size
         self.ptr = 0
         self.games_done = 0
 
     def store(self, obs, mask, action, log_prob, value, reward, done,
-              seat: int, env_idx: int = 0):
+              seat: int, env_idx: int = 0, full_obs=None):
         i = self.ptr
         self.obs[i] = obs
         self.masks[i] = mask
@@ -50,6 +53,8 @@ class RolloutBuffer:
         self.dones[i] = done
         self.seats[i] = seat
         self.env_idx[i] = env_idx
+        if full_obs is not None:
+            self.full_obs[i] = full_obs
         if done:
             self.games_done += 1
         self.ptr += 1
@@ -135,6 +140,7 @@ class RolloutBuffer:
             "values": torch.from_numpy(self.values[:n]),
             "advantages": torch.from_numpy(advs),
             "returns": torch.from_numpy(rets),
+            "full_obs": torch.from_numpy(self.full_obs[:n]),
         }
 
 

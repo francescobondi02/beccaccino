@@ -72,3 +72,25 @@ def test_max_hours_zero_stops_after_first_update(tmp_path):
     train(cfg)
     ckpt = load_checkpoint(tmp_path / "last.pt")
     assert ckpt["update"] < cfg.total_updates  # stopped early
+
+
+def test_centralized_critic_trains_and_is_checkpointed(tmp_path):
+    """A short vec self-play run with the CTDE critic enabled runs end-to-end and
+    persists the critic in the checkpoint."""
+    cfg = _tiny_config(
+        tmp_path,
+        num_envs=4,           # vec path (critic requires >1)
+        steps_per_env=100,
+        total_timesteps=800,  # 2 updates at batch 400
+        centralized_critic=True,
+    )
+    train(cfg)
+    ckpt = load_checkpoint(tmp_path / "last.pt")
+    assert ckpt.get("critic") is not None, "critic not saved in checkpoint"
+
+
+def test_centralized_critic_requires_vec_path(tmp_path):
+    import pytest
+    cfg = _tiny_config(tmp_path, num_envs=1, centralized_critic=True)
+    with pytest.raises(ValueError, match="num_envs > 1"):
+        train(cfg)

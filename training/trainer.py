@@ -15,6 +15,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from becca_env.env import BeccaEnv
+from becca_env.observation import FULL_STATE_SIZE
 from training.checkpoint import (
     load_checkpoint,
     restore_rng,
@@ -23,7 +24,7 @@ from training.checkpoint import (
 )
 from training.config import TrainConfig
 from training.dual_rollout import collect_self_play_rollout_vec
-from training.network import create_network
+from training.network import CentralizedCritic, create_network
 from training.normalization import ReturnNormalizer
 from training.ppo import ppo_update
 from training.rollout import collect_rollout
@@ -60,9 +61,22 @@ def train(config: TrainConfig):
     Path(config.ckpt_dir).mkdir(parents=True, exist_ok=True)
     seed_everything(config.seed)
 
-    # Network
+    # Network (+ optional centralized critic over the full state)
     net = create_network(**config.net_kwargs()).to(dev)
-    opt = torch.optim.Adam(net.parameters(), lr=config.lr, eps=1e-5)
+    critic = None
+    params = list(net.parameters())
+    if config.centralized_critic:
+        # The critic's full_obs is only produced on the vec self-play path.
+        if config.num_envs <= 1:
+            raise ValueError("centralized_critic requires num_envs > 1 (vec self-play path)")
+        critic = CentralizedCritic(
+            input_size=FULL_STATE_SIZE,
+            hidden_size=config.hidden_size,
+            num_layers=config.num_layers,
+            use_layer_norm=config.use_layer_norm,
+        ).to(dev)
+        params += list(critic.parameters())
+    opt = torch.optim.Adam(params, lr=config.lr, eps=1e-5)
 
     # Resume from checkpoint
     start_update = 1
@@ -73,6 +87,8 @@ def train(config: TrainConfig):
     if config.resume_from:
         resume_ckpt = load_checkpoint(config.resume_from, map_location=dev)
         net.load_state_dict(resume_ckpt["model"])
+        if critic is not None and resume_ckpt.get("critic") is not None:
+            critic.load_state_dict(resume_ckpt["critic"])
         opt.load_state_dict(resume_ckpt["optimizer"])
         start_update = resume_ckpt.get("update", 0) + 1
         step_count = resume_ckpt.get("step", resume_ckpt.get("steps", 0))
@@ -156,10 +172,12 @@ def train(config: TrainConfig):
     )
 
     def _save(path, upd):
+        extra = {"games": game_count, "curriculum_stage": curriculum_stage}
+        if critic is not None:
+            extra["critic"] = critic.state_dict()
         save_checkpoint(
             path, net=net, optimizer=opt, config=config, step=step_count, update=upd,
-            normalizer=return_normalizer, pool=pool,
-            extra={"games": game_count, "curriculum_stage": curriculum_stage},
+            normalizer=return_normalizer, pool=pool, extra=extra,
         )
 
     for update in range(start_update, config.total_updates + 1):
@@ -179,7 +197,7 @@ def train(config: TrainConfig):
                 opponent_source = "pool"
             buf = collect_self_play_rollout_vec(
                 vec_env, net, opponent_net, learner_team_per_env,
-                config.steps_per_env, dev,
+                config.steps_per_env, dev, critic=critic,
             )
         else:
             buf = collect_rollout(single_env, net, config.batch_size, dev)
@@ -201,6 +219,7 @@ def train(config: TrainConfig):
             minibatch_size=config.minibatch_size,
             target_kl=config.target_kl,
             device=dev,
+            critic=critic,
         )
 
         # Explained variance

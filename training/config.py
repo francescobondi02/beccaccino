@@ -46,6 +46,10 @@ class TrainConfig:
     d_model: int = 128
     nhead: int = 4
     dim_feedforward: int = 256
+    # Centralized (CTDE) critic: value head fits the full state (all 4 hands) at
+    # train time; the policy stays on the imperfect-info obs so serving/PIMC are
+    # unchanged. Targets the explained_variance bottleneck in a hidden-hand game.
+    centralized_critic: bool = False
 
     # Self-play
     opponent_pool_size: int = 10
