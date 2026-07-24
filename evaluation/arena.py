@@ -117,8 +117,13 @@ def evaluate_against_random(
     num_games: int = 200,
     device: torch.device = torch.device("cpu"),
     seed: int = EVAL_SEED_BASE,
-) -> float:
-    """Quick evaluation: trained agent vs random. Returns win rate (0-1)."""
+    return_counts: bool = False,
+) -> float | tuple[int, int]:
+    """Quick evaluation: trained agent vs random.
+
+    Returns the win rate (0-1) by default, or (wins, n) when return_counts=True
+    so the caller can compute a confidence interval. n is the number of games
+    actually played (2 * (num_games // 2)), not num_games."""
     neural = NeuralAgent(net, device, temperature=0.0)
     rando = RandomAgent(seed=seed + 10000)
 
@@ -129,5 +134,5 @@ def evaluate_against_random(
     r2 = play_match(rando, neural, num_games=half, seed=seed + half)
 
     wins = r1.team0_wins + r2.team1_wins
-    total = num_games
-    return wins / total
+    n = 2 * half
+    return (wins, n) if return_counts else wins / n

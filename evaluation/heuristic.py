@@ -224,10 +224,12 @@ def evaluate_against_heuristic(
     device=None,
     seed: int | None = None,
     win_points: int = 41,
-) -> float:
+    return_counts: bool = False,
+) -> float | tuple[int, int]:
     """Win rate of the trained net vs HeuristicAgent. Plays half on each side.
 
     Defaults to the frozen EVAL_SEED_BASE so every checkpoint sees the same deals.
+    Returns (wins, n) when return_counts=True so the caller can build a CI.
     """
     import torch
 
@@ -250,4 +252,5 @@ def evaluate_against_heuristic(
 
     # neural was team0 in match A, team1 in match B
     neural_wins = t0_a + t1_b
-    return neural_wins / (2 * half)
+    n = 2 * half
+    return (neural_wins, n) if return_counts else neural_wins / n
