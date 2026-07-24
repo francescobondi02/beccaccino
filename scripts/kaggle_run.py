@@ -40,6 +40,11 @@ KERNEL_SLUG = f"{KAGGLE_USER}/becca-training-cli"
 KAGGLE_INPUT_ROOT = "/kaggle/input"
 CODE_MARKER = "scripts/bc_then_rl.py"
 WORK_DIR_ON_KAGGLE = "/kaggle/working/ai"
+# Pin the GPU to a T4 (sm_75). Kaggle's default GPU is a P100 (sm_60), which its
+# current stock PyTorch (cu128) dropped support for — every CUDA op then fails
+# with "no kernel image is available" (Kaggle bug docker-python#1546). T4 is in
+# the supported arch list, so this sidesteps the issue without reinstalling torch.
+MACHINE_SHAPE = "NvidiaTeslaT4"
 PULL_DIR = "checkpoints/kaggle"
 
 # Throughput / cost model (observed T4 transformer throughput).
@@ -85,11 +90,16 @@ class RunSpec:
     out_dir: str = "/kaggle/working/runs/run"
     bc_ckpt: str = "/kaggle/working/checkpoints/run_bc.pt"
     final_ckpt: str = "/kaggle/working/checkpoints/run_rl.pt"
+    # Strengtheners / long-run survival (map to bc_then_rl store_true / value flags).
+    centralized_critic: bool = False
+    anchor_bc: bool = False
+    max_hours: float | None = None
+    resume: str | None = None
     extra_flags: list[str] = field(default_factory=list)
 
     def to_cli_args(self) -> list[str]:
         """Render to the scripts.bc_then_rl flag list."""
-        return [
+        args = [
             "--network-version", str(self.network_version),
             "--d-model", str(self.d_model),
             "--nhead", str(self.nhead),
@@ -113,18 +123,42 @@ class RunSpec:
             "--out-dir", self.out_dir,
             "--bc-ckpt", self.bc_ckpt,
             "--final-ckpt", self.final_ckpt,
-            *self.extra_flags,
         ]
+        if self.centralized_critic:
+            args.append("--centralized-critic")
+        if self.anchor_bc:
+            args.append("--anchor-bc")
+        if self.max_hours is not None:
+            args += ["--max-hours", str(self.max_hours)]
+        if self.resume is not None:
+            args += ["--resume", self.resume]
+        return [*args, *self.extra_flags]
 
 
-# A cheap end-to-end validation run (~3 min on a T4): exercises BC + a short RL
-# phase without burning quota.
+# A cheap end-to-end validation run (~3-5 min on a T4): exercises the FULL real
+# recipe (critic + anchors) on a short RL phase so the smoke validates exactly
+# what the overnight run does, without burning quota.
 SMOKE_SPEC = RunSpec(
     bc_games=200, bc_epochs=1, total_rl_steps=200_000,
     num_envs=16, eval_every=50, eval_games=20,
+    centralized_critic=True, anchor_bc=True,
     out_dir="/kaggle/working/runs/smoke",
     bc_ckpt="/kaggle/working/checkpoints/smoke_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/smoke_rl.pt",
+)
+
+# The real overnight run: BC + long PPO self-play on the V4 transformer with the
+# centralized critic and BC anchor, capped under Kaggle's 12h session limit so it
+# saves last.pt and can be resumed. Above SMOKE_MAX_STEPS -> needs --confirm-cost.
+RUN_B_SPEC = RunSpec(
+    d_model=192, nhead=6, layers=4, dim_feedforward=384,
+    bc_games=6000, bc_epochs=6, total_rl_steps=30_000_000,
+    num_envs=64, steps_per_env=512,
+    eval_every=50, eval_games=200, pool_save_every=50,
+    centralized_critic=True, anchor_bc=True, max_hours=11.0,
+    out_dir="/kaggle/working/runs/runB",
+    bc_ckpt="/kaggle/working/checkpoints/runB_bc.pt",
+    final_ckpt="/kaggle/working/checkpoints/runB_rl.pt",
 )
 
 
@@ -202,6 +236,7 @@ def configure() -> None:
             "language": "python",
             "kernel_type": "script",
             "enable_gpu": True,
+            "machine_shape": MACHINE_SHAPE,
             "enable_internet": True,
             "dataset_sources": [DATASET_SLUG],
             "is_private": True,
@@ -235,6 +270,7 @@ def launch(spec: RunSpec, confirm_cost: bool) -> None:
             "language": "python",
             "kernel_type": "script",
             "enable_gpu": True,
+            "machine_shape": MACHINE_SHAPE,
             "enable_internet": True,
             "dataset_sources": [DATASET_SLUG],
             "is_private": True,
@@ -253,15 +289,19 @@ def pull(dest: str) -> None:
     _run(["kaggle", "kernels", "output", KERNEL_SLUG, "-p", dest])
 
 
+_PRESETS = {"smoke": SMOKE_SPEC, "runb": RUN_B_SPEC}
+
+
 def _spec_from_args(a: argparse.Namespace) -> RunSpec:
-    if a.preset == "smoke":
-        return dataclasses.replace(SMOKE_SPEC)
-    spec = RunSpec()
-    # Only override fields the user explicitly set on the CLI.
-    for f in dataclasses.fields(RunSpec):
-        val = getattr(a, f.name, None)
-        if val is not None and f.name != "extra_flags":
-            setattr(spec, f.name, val)
+    if a.preset:
+        spec = dataclasses.replace(_PRESETS[a.preset])
+    else:
+        spec = RunSpec()
+    # Only override fields the user explicitly set on the CLI (None = unset).
+    for name in ("total_rl_steps", "num_envs", "d_model", "layers", "resume"):
+        val = getattr(a, name, None)
+        if val is not None:
+            setattr(spec, name, val)
     return spec
 
 
@@ -276,7 +316,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("configure", help="enable GPU+internet and attach the dataset")
 
     ln = sub.add_parser("launch", help="render + push a run kernel")
-    ln.add_argument("--preset", choices=["smoke"], default=None)
+    ln.add_argument("--preset", choices=["smoke", "runb"], default=None,
+                    help="smoke: cheap full-recipe validation; runb: the real "
+                         "overnight run (critic + anchors + 11h cap).")
     ln.add_argument("--confirm-cost", action="store_true",
                     help="required to launch a run above the smoke threshold")
     # A curated subset of the most-tuned RunSpec fields; the rest keep defaults.
@@ -284,6 +326,8 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--num-envs", type=int)
     ln.add_argument("--d-model", dest="d_model", type=int)
     ln.add_argument("--layers", type=int)
+    ln.add_argument("--resume", type=str,
+                    help="resume the RL phase from a prior last.pt on the dataset")
 
     sub.add_parser("status", help="poll the kernel run state")
 
