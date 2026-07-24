@@ -114,8 +114,14 @@ def train(config: TrainConfig):
         single_env = BeccaEnv(seed=config.seed, win_points=win_points,
                               trick_shaping_coef=config.trick_shaping_coef)
 
+    # Permanent opponent-pool anchor(s): a frozen reference policy (e.g. BC) that
+    # p_latest self-play always keeps reachable, preventing strategy collapse.
+    anchors = None
+    if config.bc_anchor_path:
+        anchors = [load_checkpoint(config.bc_anchor_path, map_location=dev)["model"]]
+
     # Opponent pool + a frozen opponent net we reload on each rollout
-    pool = OpponentPool(max_size=config.opponent_pool_size)
+    pool = OpponentPool(max_size=config.opponent_pool_size, anchors=anchors)
     opponent_net = create_network(**config.net_kwargs()).to(dev)
     opponent_net.load_state_dict(net.state_dict())  # start as a copy of learner
 
@@ -124,13 +130,14 @@ def train(config: TrainConfig):
     return_normalizer = ReturnNormalizer(gamma=config.gamma) if config.normalize_returns else None
 
     # Restore normalizer / pool state on resume so a continued run keeps its
-    # running reward-std estimate and opponent history.
+    # running reward-std estimate and opponent history. Anchors are re-seeded
+    # from bc_anchor_path (not persisted), so pass them through.
     if resume_ckpt is not None:
         if return_normalizer is not None and resume_ckpt.get("normalizer") is not None:
             return_normalizer.from_dict(resume_ckpt["normalizer"])
         if resume_ckpt.get("pool"):
             pool = OpponentPool.from_serialized(
-                resume_ckpt["pool"], max_size=config.opponent_pool_size
+                resume_ckpt["pool"], max_size=config.opponent_pool_size, anchors=anchors
             )
 
     # Per-env learner team assignment (balanced)

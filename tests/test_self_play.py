@@ -41,6 +41,34 @@ class TestOpponentPool:
         assert len(pool2) == 2
         assert pool2.policies[0] == {"a": 1}
 
+    def test_anchor_sampled_with_empty_fifo(self):
+        """With no FIFO snapshots yet, sampling from the pool (p_latest=0) must
+        still return the anchor — that's the anti-collapse property."""
+        pool = OpponentPool(max_size=5, anchors=[{"anchor": True}])
+        assert len(pool) == 0  # anchors aren't counted as FIFO entries
+        for _ in range(10):
+            assert pool.sample(p_latest=0.0) == {"anchor": True}
+
+    def test_anchor_survives_fifo_overflow(self):
+        """Anchors are permanent: they remain sampleable after the FIFO churns
+        past max_size."""
+        pool = OpponentPool(max_size=2, anchors=[{"anchor": 0}])
+        for i in range(5):
+            pool.add_policy({"step": i})
+        assert len(pool) == 2  # FIFO evicted down to max_size
+        seen = {tuple(sorted(pool.sample(p_latest=0.0).items())) for _ in range(200)}
+        assert (("anchor", 0),) in seen, "anchor no longer reachable after overflow"
+
+    def test_serialize_excludes_anchors(self):
+        """serialize() is FIFO-only; anchors are re-seeded at construction."""
+        pool = OpponentPool(max_size=5, anchors=[{"anchor": 1}])
+        pool.add_policy({"a": 1})
+        data = pool.serialize()
+        assert data == [{"a": 1}]  # no anchor in the serialized FIFO
+        pool2 = OpponentPool.from_serialized(data, max_size=5, anchors=[{"anchor": 1}])
+        assert len(pool2) == 1
+        assert pool2.anchors == [{"anchor": 1}]
+
 
 class TestSelfPlayEnv:
     def test_basic_episode_completes(self):

@@ -61,6 +61,10 @@ class TrainConfig:
     # If True, half of envs have learner_team=0 and half =1 (balanced).
     # Otherwise all envs use learner_team=0.
     balance_learner_teams: bool = True
+    # Optional checkpoint whose policy seeds a PERMANENT opponent-pool anchor
+    # (e.g. a frozen BC snapshot). Keeps self-play from collapsing to near-copies
+    # of the current policy. None = anchors disabled.
+    bc_anchor_path: str | None = None
 
     # Training
     total_timesteps: int = 100_000_000
