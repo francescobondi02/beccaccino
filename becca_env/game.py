@@ -34,6 +34,7 @@ class Signal(Enum):
 
 TEAM_OF_SEAT = {0: 0, 1: 1, 2: 0, 3: 1}
 WIN_POINTS = 41
+CRICCA_RAW_BONUS = 9  # +3 real points, in raw×3 units
 
 
 @dataclass
@@ -307,8 +308,8 @@ class BeccaGame:
         if self.round.cricca:
             caller_team = TEAM_OF_SEAT[self.round.caller_seat]
             team_key = f"team{caller_team}"
-            scores[team_key]["raw"] += 9
-            scores[team_key]["points"] += 3
+            scores[team_key]["raw"] += CRICCA_RAW_BONUS
+            scores[team_key]["points"] += CRICCA_RAW_BONUS // 3
             info["cricca"] = True
             info["cricca_team"] = caller_team
 

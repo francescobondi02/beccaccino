@@ -245,3 +245,31 @@ def test_round_end_magnitude_in_expected_range():
             break
     # Round diff is bounded by 35 raw (one team takes everything), so |reward| ≤ 1.
     assert max_step_reward <= 1.0 + 1e-5, f"round_end reward out of range: {max_step_reward}"
+
+
+def test_cricca_round_reward_clipped_to_unit_range():
+    """A Cricca sweep pushes diff_raw to 35+9=44 > MAX_RAW_PER_ROUND, which
+    would give magnitude 44/35 ≈ 1.26 without the clip. Each seat's round-end
+    reward must still land in [-1, 1]."""
+    env = BeccaEnv(seed=1, win_points=99, trick_shaping_coef=0.0)
+    env.reset()
+    env._pending_rewards = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
+    # team0 sweeps every point (32) + last-trick bonus (3) + Cricca (9) = 44 raw.
+    overflow_scores = {
+        "team0": {"raw": 44, "points": 14},
+        "team1": {"raw": 0, "points": 0},
+    }
+    env._distribute_round_end({"round_scores": overflow_scores})
+    for seat, r in env._pending_rewards.items():
+        assert -1.0 <= r <= 1.0, f"seat {seat} round reward {r} escaped [-1, 1]"
+    # The clip must actually bind: team0 seats hit the +1 ceiling.
+    assert env._pending_rewards[0] == 1.0
+    assert env._pending_rewards[1] == -1.0
+
+
+def test_cricca_raw_bonus_is_named_constant():
+    """The +9 Cricca bonus is a named constant, not a magic literal."""
+    from becca_env.game import CRICCA_RAW_BONUS
+
+    assert CRICCA_RAW_BONUS == 9
+    assert CRICCA_RAW_BONUS // 3 == 3  # +3 real points

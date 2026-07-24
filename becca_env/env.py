@@ -146,7 +146,12 @@ class BeccaEnv(gym.Env):
     def _distribute_round_end(self, info: dict) -> None:
         scores = info["round_scores"]
         diff_raw = scores["team0"]["raw"] - scores["team1"]["raw"]
-        magnitude = diff_raw / MAX_RAW_PER_ROUND  # in [-1, 1] approx
+        magnitude = diff_raw / MAX_RAW_PER_ROUND
+        # A Cricca round adds +9 raw to one team, so diff_raw can exceed
+        # MAX_RAW_PER_ROUND (=35) and push magnitude past ±1. Clip rather than
+        # divide by 35+9: renormalizing would shrink every ordinary round's
+        # reward to accommodate a rare event.
+        magnitude = float(np.clip(magnitude, -1.0, 1.0))
         for s in range(4):
             sign = 1.0 if TEAM_OF_SEAT[s] == 0 else -1.0
             self._pending_rewards[s] += sign * magnitude
