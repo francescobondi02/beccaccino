@@ -106,15 +106,12 @@ def test_follow_dumps_low_when_cannot_beat():
     assert card == Card(Suit.DENARA, Value.QUATTRO)
 
 
-def test_follow_partner_winning_dumps_cheapest():
-    """Partner is winning the trick — never play high or trump.
-    Setup: seat 0 led, seat 2 (our partner) is current winner with TRE denara.
-    We are seat 3 (team 1). Wait — seats {0,2}=team0, {1,3}=team1.
-    Let's flip: seat 1 leads, seat 3 (partner of seat 1) is winning, we are seat 0 to follow."""
+def test_follow_partner_winning_last_to_play_loads_carico():
+    """Partner is winning and we are LAST to play (trick has 3 cards): the win
+    is guaranteed, so load the highest-point card (carico) onto it.
+    Seat 0 led, seat 1 (our partner) is winning with TRE denara, we are seat 3
+    (team 1) last to act."""
     g = _make_game_in_play_phase(briscola=Suit.SPADE)
-    # Setup: trick has 3 cards already; seat 3 (us, team 1) is to act.
-    # Seat 1 (our partner) is currently winning with TRE denara.
-    # We must dump our cheapest card and not waste the ASSO.
     g.round.trick_starter = 0
     g.round.current_trick = [
         (0, Card(Suit.DENARA, Value.QUATTRO)),  # opp led
@@ -122,11 +119,30 @@ def test_follow_partner_winning_dumps_cheapest():
         (2, Card(Suit.DENARA, Value.SEI)),      # opp
     ]
     g.round.player_hands[3] = [
-        Card(Suit.DENARA, Value.ASSO),  # 3 pts — must NOT play
-        Card(Suit.DENARA, Value.CINQUE),  # 0 pt — expected dump
-        Card(Suit.DENARA, Value.RE),  # 1 pt
+        Card(Suit.DENARA, Value.ASSO),    # 3 pts — expected carico onto the win
+        Card(Suit.DENARA, Value.CINQUE),  # 0 pt
+        Card(Suit.DENARA, Value.RE),      # 1 pt
     ]
     card = HeuristicAgent().select_action(g, 3)
+    assert card == Card(Suit.DENARA, Value.ASSO)
+
+
+def test_follow_partner_winning_not_last_dumps_cheapest():
+    """Partner is winning but a later opponent can still steal (we are NOT last):
+    dump the cheapest card, don't risk a carico. Seat 0 (our partner) led TRE
+    and is winning; we are seat 2 (team 0), 3rd to play, seat 3 still to come."""
+    g = _make_game_in_play_phase(briscola=Suit.SPADE)
+    g.round.trick_starter = 0
+    g.round.current_trick = [
+        (0, Card(Suit.DENARA, Value.TRE)),   # our partner (str 10) — winning
+        (1, Card(Suit.DENARA, Value.SEI)),   # opp
+    ]
+    g.round.player_hands[2] = [
+        Card(Suit.DENARA, Value.ASSO),    # 3 pts — must NOT risk it
+        Card(Suit.DENARA, Value.CINQUE),  # 0 pt — expected dump
+        Card(Suit.DENARA, Value.RE),      # 1 pt
+    ]
+    card = HeuristicAgent().select_action(g, 2)
     assert card == Card(Suit.DENARA, Value.CINQUE)
 
 
@@ -159,22 +175,23 @@ def test_free_play_does_not_trump_worthless_trick():
     assert card == Card(Suit.SPADE, Value.QUATTRO)
 
 
-def test_free_play_partner_winning_no_trump():
-    """Partner winning, we're out of suit — don't trump, dump cheapest non-briscola."""
+def test_free_play_partner_winning_last_loads_carico_no_trump():
+    """Partner winning, we're out of suit and LAST to play — don't trump, but
+    load our highest-point non-briscola (carico) onto the guaranteed win."""
     g = _make_game_in_play_phase(briscola=Suit.BASTONI)
     g.round.trick_starter = 0
     g.round.current_trick = [
-        (0, Card(Suit.DENARA, Value.QUATTRO)),
-        (1, Card(Suit.DENARA, Value.RE)),  # opp
-        (2, Card(Suit.BASTONI, Value.QUATTRO)),  # our partner trumped — winning
+        (0, Card(Suit.DENARA, Value.QUATTRO)),  # opp led
+        (1, Card(Suit.BASTONI, Value.CINQUE)),  # our partner trumped — winning
+        (2, Card(Suit.DENARA, Value.RE)),       # opp
     ]
     g.round.player_hands[3] = [
-        Card(Suit.SPADE, Value.QUATTRO),  # 0 pt non-briscola — expected
-        Card(Suit.COPPE, Value.ASSO),     # 3 pts (don't waste!)
+        Card(Suit.SPADE, Value.QUATTRO),  # 0 pt non-briscola
+        Card(Suit.COPPE, Value.ASSO),     # 3 pts non-briscola — expected carico
         Card(Suit.BASTONI, Value.TRE),    # don't trump partner
     ]
     card = HeuristicAgent().select_action(g, 3)
-    assert card == Card(Suit.SPADE, Value.QUATTRO)
+    assert card == Card(Suit.COPPE, Value.ASSO)
 
 
 def test_heuristic_beats_random_decisively():

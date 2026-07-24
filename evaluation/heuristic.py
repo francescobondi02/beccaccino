@@ -9,15 +9,22 @@ Strategy:
   - Trick leader: lead the lowest non-briscola card we hold (saves trumps),
     no signal. If we only have briscola, lead the lowest briscola.
   - Follower (must follow suit, has lead-suit cards):
-      * If our highest card in the suit beats whatever's currently winning the
-        trick, play the MINIMUM card that still wins it.
+      * If partner is winning and we are LAST to play (trick can no longer be
+        stolen), load our highest-point card (carico) onto the guaranteed win.
+      * Else if our highest card in the suit beats whatever's currently winning
+        the trick, play the MINIMUM card that still wins it.
       * Otherwise dump the lowest-point card in the suit.
   - Follower (free play — out of lead suit):
-      * If partner is currently winning the trick, dump our lowest-point
-        non-briscola (don't waste trumps on partner's win).
+      * If partner is winning and we are LAST to play, load our highest-point
+        non-briscola (carico) onto the win without wasting a trump.
+      * Else if partner is winning, dump our lowest-point non-briscola.
       * Else, the opponent is winning. If the trick contains worthwhile points
         (>=3 raw, i.e. an Asso), trump with our LOWEST briscola that would
         win. Otherwise dump the lowest-point non-briscola.
+
+We only load carichi when last to play, since then the trick is guaranteed:
+detecting a guaranteed win earlier would require cross-trick card counting,
+deliberately out of scope for this baseline.
 
 This is deliberately straightforward and deterministic so the test suite can
 pin its behavior on hand-crafted positions.
@@ -47,6 +54,11 @@ def _lowest_point_card(cards: list[Card]) -> Card:
 
 def _lowest_strength_card(cards: list[Card]) -> Card:
     return min(cards, key=lambda c: card_strength[c.value])
+
+
+def _highest_point_card(cards: list[Card]) -> Card:
+    """Return the card with the most points (carico); tie-break by higher strength."""
+    return max(cards, key=lambda c: (card_points[c.value], card_strength[c.value]))
 
 
 def _current_trick_winner(game: BeccaGame) -> tuple[int, Card] | None:
@@ -109,13 +121,15 @@ class HeuristicAgent:
         # cur is guaranteed not None: trick is non-empty since we're following
         cur_seat, cur_card = cur
         partner_winning = TEAM_OF_SEAT[cur_seat] == TEAM_OF_SEAT[seat]
+        # We are last to play iff the trick already holds the other 3 cards.
+        is_last = len(trick) == 3
 
         # Must follow suit
         if all(c.suit == lead_suit for c in playable):
-            return self._follow_in_suit(playable, cur_card, briscola, partner_winning)
+            return self._follow_in_suit(playable, cur_card, briscola, partner_winning, is_last)
 
         # Free play (no cards in lead suit)
-        return self._follow_free(playable, trick, briscola, partner_winning)
+        return self._follow_free(playable, trick, briscola, partner_winning, is_last)
 
     def _follow_in_suit(
         self,
@@ -123,6 +137,7 @@ class HeuristicAgent:
         cur_winning_card: Card,
         briscola: Suit,
         partner_winning: bool,
+        is_last: bool,
     ) -> Card:
         """We have lead-suit cards, must play one of them."""
         # If current winner is a briscola (someone trumped before us) and we
@@ -130,8 +145,9 @@ class HeuristicAgent:
         cur_is_briscola = cur_winning_card.suit == briscola
 
         if partner_winning:
-            # Partner already winning, just dump cheapest
-            return _lowest_point_card(playable)
+            # Last to play → trick is safe, load a carico onto the win.
+            # Otherwise a later opponent might steal it, so dump cheap.
+            return _highest_point_card(playable) if is_last else _lowest_point_card(playable)
 
         if cur_is_briscola:
             # Can't beat trump with non-trump
@@ -154,15 +170,18 @@ class HeuristicAgent:
         trick: list[tuple[int, Card]],
         briscola: Suit,
         partner_winning: bool,
+        is_last: bool,
     ) -> Card:
         """Out of lead suit — can play anything."""
         non_briscola = [c for c in playable if c.suit != briscola]
         briscole = [c for c in playable if c.suit == briscola]
 
         if partner_winning:
-            # Don't waste trumps; dump lowest-point non-briscola if possible
+            # Don't waste trumps on partner's win. Last to play → the trick is
+            # safe, so load our highest-point non-briscola (carico); otherwise
+            # dump the cheapest.
             pool = non_briscola if non_briscola else briscole
-            return _lowest_point_card(pool)
+            return _highest_point_card(pool) if is_last else _lowest_point_card(pool)
 
         # Opponent winning. Trump if the trick is worth it AND we have briscola.
         trick_pts = _trick_raw_points(trick)
