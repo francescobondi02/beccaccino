@@ -4,7 +4,10 @@ import numpy as np
 import pytest
 
 from becca_env.observation import OBS_SIZE
-from training.rollout import RolloutBuffer
+from training.rollout import RolloutBuffer, _mark_latest_transition_done
+
+OBS = np.zeros(OBS_SIZE, dtype=np.float32)
+MASK = np.ones(160, dtype=np.float32)
 
 
 def test_single_seat_gae_matches_standard():
@@ -155,6 +158,53 @@ def test_done_only_resets_owning_env():
     expected_step1 = 0.4 + gamma * 5.0 - 5.0 + gamma * lam * (-4.4)
     assert advs[1] == pytest.approx(expected_step1, abs=1e-5), \
         f"env0's done=True leaked into env1's chain: got {advs[1]}"
+
+
+def test_opponent_terminal_cuts_trajectory_across_game_boundary():
+    """When an opponent seat ends the game its transition isn't stored, so the
+    learner's last transition of game N must be explicitly stamped done — else
+    compute_gae bootstraps it from game N+1's (unrelated) value.
+
+    Negative control included: without the stamp, the leak provably happens.
+    """
+    gamma, lam = 0.99, 0.95
+
+    def build(stamp: bool) -> RolloutBuffer:
+        buf = RolloutBuffer(size=8)
+        # game 1, env 0, seat 0
+        buf.store(OBS, MASK, 0, 0.0, value=1.0, reward=0.5, done=False, seat=0, env_idx=0)
+        buf.store(OBS, MASK, 0, 0.0, value=2.0, reward=1.0, done=False, seat=0, env_idx=0)
+        if stamp:
+            _mark_latest_transition_done(buf, env_idx=0)  # opponent ended game 1
+        # game 2, SAME env/seat — its value must not bleed into game 1's advantage
+        buf.store(OBS, MASK, 0, 0.0, value=99.0, reward=0.0, done=False, seat=0, env_idx=0)
+        return buf
+
+    # With the stamp: game 1's last learner advantage is invariant to game 2.
+    a1, _ = build(True).compute_gae(gamma, lam)
+    b = build(True)
+    b.values[2] = -99.0
+    a2, _ = b.compute_gae(gamma, lam)
+    assert a1[1] == pytest.approx(a2[1]), "stamped trajectory still leaked across boundary"
+    assert a1[1] == pytest.approx(1.0 - 2.0), "pure terminal advantage should be r - V"
+
+    # Teeth: without the stamp, the same value change DOES move the advantage.
+    c1, _ = build(False).compute_gae(gamma, lam)
+    d = build(False)
+    d.values[2] = -99.0
+    c2, _ = d.compute_gae(gamma, lam)
+    assert c1[1] != pytest.approx(c2[1]), "negative control: leak should occur without stamp"
+
+
+def test_mark_latest_transition_done_is_idempotent():
+    """If the learner acted on the terminal step, the done is already set and
+    marking must not double-count games_done."""
+    buf = RolloutBuffer(size=4)
+    buf.store(OBS, MASK, 0, 0.0, value=1.0, reward=0.5, done=True, seat=0, env_idx=0)
+    assert buf.games_done == 1
+    _mark_latest_transition_done(buf, env_idx=0)
+    assert buf.games_done == 1
+    assert buf.dones[0] == 1.0
 
 
 def test_returns_equal_advantages_plus_values():

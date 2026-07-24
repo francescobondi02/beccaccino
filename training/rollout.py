@@ -165,6 +165,26 @@ def _credit_terminal_residuals(
             seats_needed.discard(s)
 
 
+def _mark_latest_transition_done(buf: RolloutBuffer, env_idx: int) -> None:
+    """Stamp done=1.0 on env_idx's most recent stored transition.
+
+    In selective-storage self-play only learner-team transitions are stored, so
+    when an OPPONENT seat plays the game-ending card its (unstored) transition
+    carries the terminal done — and no learner transition does. compute_gae then
+    never cuts env_idx's trajectory and leaks values/rewards across the game
+    boundary into the next game. A done on any one of env_idx's transitions
+    resets all 4 of its seats in compute_gae, so a single stamp suffices.
+    Idempotent: if the learner acted on the terminal step, that transition
+    already carries done=1.0 and this is a no-op.
+    """
+    for t in range(buf.ptr - 1, -1, -1):
+        if int(buf.env_idx[t]) == env_idx:
+            if buf.dones[t] == 0.0:
+                buf.dones[t] = 1.0
+                buf.games_done += 1  # keep the stat honest for opponent-ended games
+            return
+
+
 def collect_rollout(
     env: BeccaEnv, net: BeccaNet | BeccaNetV2, num_steps: int, device: torch.device
 ) -> RolloutBuffer:

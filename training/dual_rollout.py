@@ -27,7 +27,12 @@ import torch
 
 from becca_env.game import TEAM_OF_SEAT
 from training.network import BeccaNet, BeccaNetV2
-from training.rollout import RolloutBuffer, _credit_terminal_residuals, _extract_terminal_info
+from training.rollout import (
+    RolloutBuffer,
+    _credit_terminal_residuals,
+    _extract_terminal_info,
+    _mark_latest_transition_done,
+)
 
 
 def collect_self_play_rollout_vec(
@@ -123,6 +128,10 @@ def collect_self_play_rollout_vec(
             for i in range(num_envs):
                 if not dones[i]:
                     continue
+                # Ensure the game boundary is marked on a learner transition even
+                # when an opponent seat played the final card (its transition
+                # isn't stored). Otherwise compute_gae leaks across the boundary.
+                _mark_latest_transition_done(buf, env_idx=i)
                 terminal_info = _extract_terminal_info(infos, i)
                 if terminal_info is None:
                     continue
