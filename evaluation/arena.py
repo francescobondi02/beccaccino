@@ -112,6 +112,56 @@ def play_match(
     return result
 
 
+ELO_SCALE = 400.0           # standard Elo logistic scale
+LADDER_INIT_RATING = 1000.0
+LADDER_ITERATIONS = 20      # fixed-point passes for the round-robin solve
+
+
+def _expected_score(rating_a: float, rating_b: float) -> float:
+    """Logistic expected score of A vs B (same convention as EloTracker)."""
+    return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / ELO_SCALE))
+
+
+def elo_ladder(
+    checkpoints: dict[str, BeccaNet],
+    num_games: int = 100,
+    block_seed: int = EVAL_SEED_BASE,
+    win_points: int = 41,
+    device: torch.device = torch.device("cpu"),
+    k_factor: float = 32.0,
+) -> dict[str, float]:
+    """Rank checkpoints by Elo on ONE frozen block of deals (round-robin).
+
+    Each unordered pair plays num_games twice (sides swapped) to cancel any
+    first-seat advantage, yielding a combined score in [0, 1]. Ratings start at
+    LADDER_INIT_RATING and are solved by LADDER_ITERATIONS fixed-point passes of
+    the standard Elo update. Deterministic given the same block_seed.
+    """
+    names = list(checkpoints)
+    ratings = {n: LADDER_INIT_RATING for n in names}
+
+    # Pairwise combined scores from A's perspective, computed once.
+    pair_score: dict[tuple[str, str], float] = {}
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            agent_a = NeuralAgent(checkpoints[a], device, temperature=0.0)
+            agent_b = NeuralAgent(checkpoints[b], device, temperature=0.0)
+            r1 = play_match(agent_a, agent_b, num_games=num_games,
+                            win_points=win_points, seed=block_seed)
+            r2 = play_match(agent_b, agent_a, num_games=num_games,
+                            win_points=win_points, seed=block_seed)
+            a_wins = r1.team0_wins + r2.team1_wins
+            pair_score[(a, b)] = a_wins / (2 * num_games)
+
+    for _ in range(LADDER_ITERATIONS):
+        for (a, b), score_a in pair_score.items():
+            exp_a = _expected_score(ratings[a], ratings[b])
+            delta = k_factor * (score_a - exp_a)
+            ratings[a] += delta
+            ratings[b] -= delta
+    return ratings
+
+
 def evaluate_against_random(
     net: BeccaNet,
     num_games: int = 200,

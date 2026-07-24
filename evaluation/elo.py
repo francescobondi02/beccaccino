@@ -23,7 +23,9 @@ class EloTracker:
 
         actual_score = wins / total
         expected_score = 1.0 / (1.0 + 10 ** ((self.baseline_rating - self.current_rating) / 400))
-        self.current_rating += self.k_factor * (actual_score - expected_score) * total
+        # Standard Elo: one k_factor-scaled update per rating period. The prior
+        # `* total` factor let a single eval move the rating by thousands.
+        self.current_rating += self.k_factor * (actual_score - expected_score)
 
         self.history.append({
             "step": step,
