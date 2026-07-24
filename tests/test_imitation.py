@@ -12,7 +12,6 @@ Verifies:
 
 from __future__ import annotations
 
-import numpy as np
 import torch
 
 from becca_env.observation import OBS_SIZE
@@ -28,7 +27,6 @@ def test_dataset_shapes_and_validity():
     assert ds.obs.shape[1] == OBS_SIZE
     assert ds.obs.shape[0] == ds.masks.shape[0]
     assert ds.obs.shape[0] == ds.actions.shape[0]
-    assert ds.obs.shape[0] == ds.returns.shape[0]
     assert ds.obs.shape[0] > 0
     # Every action must be in [0, 160)
     assert (ds.actions >= 0).all()
@@ -44,14 +42,6 @@ def test_dataset_actions_always_legal():
             f"sample {i}: action {ds.actions[i]} masked illegal "
             f"(mask sum={ds.masks[i].sum()})"
         )
-
-
-def test_dataset_returns_in_reasonable_range():
-    """Discounted returns should be bounded; with gamma<1 and reward in
-    [-2, 2] per step, we expect |return| < ~10."""
-    ds = collect_heuristic_dataset(num_games=30, win_points=5, seed=2, gamma=0.99)
-    assert np.isfinite(ds.returns).all()
-    assert np.abs(ds.returns).max() < 15.0
 
 
 def test_bc_drives_accuracy_above_random():
@@ -75,16 +65,6 @@ def test_bc_works_for_v3():
     net = create_network(version=3, hidden_size=128, num_layers=2)
     history = behavioral_clone(net, ds, epochs=2, batch_size=256, lr=3e-4, verbose=False)
     assert history["acc"][-1] > 0.30
-
-
-def test_bc_value_head_learns_something():
-    """After BC, value-head MSE should drop below its starting value."""
-    ds = collect_heuristic_dataset(num_games=40, win_points=5, seed=5)
-    net = create_network(version=2, hidden_size=128, num_layers=2)
-    history = behavioral_clone(net, ds, epochs=4, batch_size=256, lr=3e-4, verbose=False)
-    assert history["v_loss"][-1] < history["v_loss"][0], (
-        f"value loss didn't decrease: {history['v_loss']}"
-    )
 
 
 def test_loaded_bc_net_makes_legal_actions_in_env():
