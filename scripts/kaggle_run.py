@@ -30,7 +30,9 @@ from pathlib import Path
 # --- Single source of truth for slugs/paths (edit KAGGLE_USER for your account) ---
 KAGGLE_USER = "fbondi"
 DATASET_SLUG = f"{KAGGLE_USER}/becca-ai"
-KERNEL_SLUG = f"{KAGGLE_USER}/becca-training"
+# Distinct from any hand-created notebook (Kaggle won't convert a notebook kernel
+# to a script kernel), so this tool owns its own script kernel.
+KERNEL_SLUG = f"{KAGGLE_USER}/becca-training-cli"
 AI_DIR_ON_KAGGLE = "/kaggle/input/becca-ai/ai"
 WORK_DIR_ON_KAGGLE = "/kaggle/working/ai"
 PULL_DIR = "checkpoints/kaggle"
