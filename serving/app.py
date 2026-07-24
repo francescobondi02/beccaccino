@@ -11,6 +11,9 @@ import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from becca_env.observation import OBS_SIZE
+from training.network import ACTION_SIZE
+
 app = FastAPI(title="Becca AI", description="Beccaccino card game AI inference")
 
 _session = None
@@ -43,8 +46,23 @@ def predict(state: GameState):
     """Given a game observation, return the best action."""
     session = _get_session()
 
+    # Validate widths up front so malformed cross-boundary requests return a
+    # clear 422 rather than a cryptic 500 from onnxruntime. Importing OBS_SIZE
+    # keeps this in lockstep with the encoder.
+    if len(state.obs) != OBS_SIZE:
+        raise HTTPException(422, f"obs must have length {OBS_SIZE}, got {len(state.obs)}")
+    if len(state.action_mask) != ACTION_SIZE:
+        raise HTTPException(
+            422, f"action_mask must have length {ACTION_SIZE}, got {len(state.action_mask)}"
+        )
+
     obs = np.array(state.obs, dtype=np.float32).reshape(1, -1)
     mask = np.array(state.action_mask, dtype=np.float32).reshape(1, -1)
+
+    # No legal action → nothing to choose; reject cleanly instead of letting the
+    # empty-array reduction below raise an opaque 500.
+    if not np.any(mask[0] > 0):
+        raise HTTPException(422, "action_mask has no legal actions")
 
     logits, _ = session.run(None, {"obs": obs, "action_mask": mask})
     logits = logits[0]
