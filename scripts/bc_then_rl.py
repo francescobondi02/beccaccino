@@ -37,16 +37,20 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from becca_env.observation import FULL_STATE_SIZE
 from evaluation.arena import evaluate_against_random
 from evaluation.heuristic import evaluate_against_heuristic
+from training.checkpoint import load_checkpoint, save_checkpoint, seed_everything
 from training.config import TrainConfig
 from training.dual_rollout import collect_self_play_rollout_vec
 from training.imitation import behavioral_clone, collect_heuristic_dataset
-from training.network import create_network
+from training.network import CentralizedCritic, create_network
 from training.normalization import ReturnNormalizer
 from training.ppo import ppo_update
 from training.self_play import OpponentPool
 from training.vec_env import create_vec_env
+
+SECONDS_PER_HOUR = 3600
 
 
 def parse_args():
@@ -90,6 +94,17 @@ def parse_args():
     p.add_argument("--bc-ckpt", default="checkpoints/bc_initial.pt")
     p.add_argument("--final-ckpt", default="checkpoints/bc_rl_final.pt")
     p.add_argument("--network-version", type=int, default=3, choices=[2, 3, 4])
+    # Strengtheners / long-run survival (parity with training/trainer.py)
+    p.add_argument("--centralized-critic", action="store_true",
+                   help="Fit a CTDE critic over the full state (targets low EV).")
+    p.add_argument("--anchor-bc", action="store_true",
+                   help="Seed a permanent opponent-pool anchor from the BC snapshot.")
+    p.add_argument("--max-hours", type=float, default=None,
+                   help="Graceful wall-clock stop for the RL phase; writes last.pt "
+                        "and exits so --resume continues (Kaggle 12h cap).")
+    p.add_argument("--resume", type=str, default=None,
+                   help="Resume the RL phase from a last.pt written by a prior run "
+                        "(skips BC).")
     return p.parse_args()
 
 
@@ -224,7 +239,20 @@ def phase2_rl(args, device, net):
             "wr_random", "wr_heuristic",
         ])
 
-    opt = torch.optim.Adam(net.parameters(), lr=cfg.lr, eps=1e-5)
+    # Centralized (CTDE) critic — value head over the full state. Its params
+    # join the actor's under one optimizer, mirroring training/trainer.py.
+    critic = None
+    if args.centralized_critic:
+        if cfg.num_envs <= 1:
+            raise ValueError("--centralized-critic requires --num-envs > 1")
+        critic = CentralizedCritic(
+            input_size=FULL_STATE_SIZE,
+            hidden_size=args.hidden,
+            num_layers=args.layers,
+            use_layer_norm=True,
+        ).to(device)
+    params = list(net.parameters()) + (list(critic.parameters()) if critic else [])
+    opt = torch.optim.Adam(params, lr=cfg.lr, eps=1e-5)
     opponent_net = make_net(args, device)
     opponent_net.load_state_dict(net.state_dict())
 
@@ -232,19 +260,63 @@ def phase2_rl(args, device, net):
         num_envs=cfg.num_envs, seed=cfg.seed, win_points=cfg.win_points, sync=False,
     )
     learner_team_per_env = np.array([i % 2 for i in range(cfg.num_envs)], dtype=np.int64)
-    pool = OpponentPool(max_size=cfg.opponent_pool_size)
+
+    # Permanent opponent-pool anchor from the BC snapshot (anti-collapse).
+    anchors = None
+    if args.anchor_bc and Path(args.bc_ckpt).exists():
+        anchors = [load_checkpoint(args.bc_ckpt, map_location=device)["model"]]
+    pool = OpponentPool(max_size=cfg.opponent_pool_size, anchors=anchors)
     return_normalizer = ReturnNormalizer(gamma=cfg.gamma)
+
+    # Resume the RL phase from a prior last.pt (net + optimizer + critic +
+    # normalizer + pool + counters), so a run killed at Kaggle's 12h cap continues.
+    step_count = 0
+    games_total = 0
+    start_update = 1
+    if args.resume:
+        ck = load_checkpoint(args.resume, map_location=device)
+        net.load_state_dict(ck["model"])
+        opt.load_state_dict(ck["optimizer"])
+        if critic is not None and ck.get("critic") is not None:
+            critic.load_state_dict(ck["critic"])
+        if ck.get("normalizer") is not None:
+            return_normalizer.from_dict(ck["normalizer"])
+        if ck.get("pool"):
+            pool = OpponentPool.from_serialized(
+                ck["pool"], max_size=cfg.opponent_pool_size, anchors=anchors
+            )
+        step_count = ck.get("step", 0)
+        games_total = ck.get("games", 0)
+        start_update = ck.get("update", 0) + 1
+        print(f"  resumed at update {start_update}, {step_count:,} steps")
 
     n_params = sum(p.numel() for p in net.parameters())
     print(f"\nPhase 2 RL: {n_params:,} params | "
-          f"batch={cfg.batch_size:,} | updates={cfg.total_updates}")
+          f"batch={cfg.batch_size:,} | updates={cfg.total_updates}"
+          + (" | +critic" if critic else ""))
 
-    step_count = 0
-    games_total = 0
     last_wr_random, last_wr_heur = float("nan"), float("nan")
     t0 = time.time()
+    deadline = (
+        time.monotonic() + args.max_hours * SECONDS_PER_HOUR
+        if args.max_hours is not None else None
+    )
 
-    for update in range(1, cfg.total_updates + 1):
+    def _save(path, upd):
+        extra = {"games": games_total, "phase": "rl", "net_config": _net_config_dict(args)}
+        if critic is not None:
+            extra["critic"] = critic.state_dict()
+        save_checkpoint(
+            path, net=net, optimizer=opt, config=cfg, step=step_count, update=upd,
+            normalizer=return_normalizer, pool=pool, extra=extra,
+        )
+
+    if start_update > cfg.total_updates:
+        print("RL phase already complete for this --total-rl-steps; nothing to do.")
+        vec.close()
+        return
+
+    for update in range(start_update, cfg.total_updates + 1):
         frac = (update - 1) / max(cfg.total_updates - 1, 1)
         ent_coef = cfg.ent_coef + (cfg.ent_coef_final - cfg.ent_coef) * frac
         cos = 0.5 * (1 + np.cos(np.pi * frac))
@@ -261,6 +333,7 @@ def phase2_rl(args, device, net):
 
         buf = collect_self_play_rollout_vec(
             vec, net, opponent_net, learner_team_per_env, cfg.steps_per_env, device,
+            critic=critic,
         )
         step_count += buf.ptr
         games_total += buf.games_done
@@ -272,7 +345,7 @@ def phase2_rl(args, device, net):
             clip_eps=cfg.clip_eps, vf_coef=cfg.vf_coef, ent_coef=ent_coef,
             max_grad_norm=cfg.max_grad_norm, num_epochs=cfg.num_epochs,
             minibatch_size=cfg.minibatch_size, target_kl=cfg.target_kl,
-            device=device,
+            device=device, critic=critic,
         )
 
         with torch.no_grad():
@@ -287,12 +360,13 @@ def phase2_rl(args, device, net):
             pool.add_policy(net.state_dict())
 
         if update % args.eval_every == 0 or update == 1:
+            # Frozen eval block (EVAL_SEED_BASE default): every checkpoint is
+            # scored on the SAME deals so the curve tracks skill, not deal luck.
             last_wr_random = evaluate_against_random(
-                net, num_games=args.eval_games, device=device, seed=cfg.seed + update,
+                net, num_games=args.eval_games, device=device,
             )
             last_wr_heur = evaluate_against_heuristic(
-                net, num_games=args.eval_games, device=device, seed=cfg.seed + update,
-                win_points=eval_wp,
+                net, num_games=args.eval_games, device=device, win_points=eval_wp,
             )
 
         with csv_path.open("a", newline="") as f:
@@ -313,7 +387,25 @@ def phase2_rl(args, device, net):
                 f"vs_rand={last_wr_random:.1%} vs_heur={last_wr_heur:.1%}"
             )
 
+        # Resumable mid-run checkpoint (last.pt beside the final ckpt).
+        last_path = Path(args.final_ckpt).with_name("last.pt")
+        if update % args.pool_save_every == 0:
+            Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
+            _save(last_path, update)
+
+        # Graceful wall-clock stop (Kaggle 12h cap): save last.pt and exit so
+        # --resume last.pt continues this run in the next session.
+        if deadline is not None and time.monotonic() >= deadline:
+            Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
+            _save(last_path, update)
+            print(f"\nmax-hours reached at update {update}; saved {last_path.name}, stopping")
+            vec.close()
+            plot_results(csv_path, out)
+            return
+
     Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
+    _save(Path(args.final_ckpt).with_name("last.pt"), cfg.total_updates)
+    # Also keep the legacy flat format at --final-ckpt for existing loaders/eval.
     torch.save({
         "model": net.state_dict(),
         "config": _net_config_dict(args),
@@ -391,8 +483,14 @@ def plot_results(csv_path: Path, out_dir: Path):
 
 def main():
     args = parse_args()
+    seed_everything(args.seed)
     device = torch.device(args.device)
-    net = phase1_bc(args, device)
+    if args.resume:
+        # Resuming the RL phase: rebuild the net from the checkpoint and skip BC.
+        print(f"Resuming RL from {args.resume} (skipping BC)")
+        net = make_net(args, device)
+    else:
+        net = phase1_bc(args, device)
     phase2_rl(args, device, net)
 
 
