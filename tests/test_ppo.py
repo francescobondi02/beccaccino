@@ -39,27 +39,32 @@ def test_kl_early_stop_engages_before_cumulative_average_would():
     below target — the exact scenario where the old cross-epoch accumulator
     would have kept training. epochs_used < num_epochs AND cumulative
     approx_kl <= target_kl is impossible under the old (diluted) logic.
-    """
-    torch.manual_seed(1)
-    net = BeccaNetV2(hidden_size=64, num_layers=2)
-    batch = _make_batch(512, net, seed=1)
 
-    # LR tuned so per-epoch KL grows gradually and crosses target_kl mid-run
-    # while the cumulative average is still well below it.
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.01)
+    Rather than hand-tune a single LR (fragile — the discriminating window
+    shifts with obs dims / net size), we sweep a small LR grid and require that
+    at least one lands in the discriminating regime. Some LR always produces the
+    gradual per-epoch KL growth that separates the two logics.
+    """
     num_epochs = 10
     target_kl = 0.015
-
-    metrics = ppo_update(
-        net, optimizer, batch,
-        ent_coef=0.0, num_epochs=num_epochs, minibatch_size=512, target_kl=target_kl,
-    )
-
-    assert metrics["epochs_used"] < num_epochs, "early stop never engaged"
-    assert metrics["approx_kl"] <= target_kl, (
-        "cumulative KL is below target yet the brake fired — proving the "
-        "per-epoch reset is what engaged it (the old cross-epoch average would not)"
-    )
+    discriminated = False
+    for lr in (0.006, 0.008, 0.01, 0.012, 0.015):
+        torch.manual_seed(1)
+        net = BeccaNetV2(hidden_size=64, num_layers=2)
+        batch = _make_batch(512, net, seed=1)
+        optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+        metrics = ppo_update(
+            net, optimizer, batch,
+            ent_coef=0.0, num_epochs=num_epochs, minibatch_size=512, target_kl=target_kl,
+        )
+        # Discriminating iff the brake fired (epochs_used < num_epochs) while the
+        # cumulative KL is still <= target — the old cumulative logic could never
+        # early-stop in that state (it stops only once the cumulative mean itself
+        # exceeds target).
+        if metrics["epochs_used"] < num_epochs and metrics["approx_kl"] <= target_kl:
+            discriminated = True
+            break
+    assert discriminated, "no LR produced the per-epoch-vs-cumulative discriminating regime"
 
 
 def test_kl_early_stop_disabled_runs_all_epochs():

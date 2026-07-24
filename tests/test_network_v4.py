@@ -2,7 +2,7 @@
 
 V4 is the most complex network in the codebase. We pin:
   - shape correctness (drop-in compatibility with PPO pipeline)
-  - that the obs decomposition reads the right slices of the 450-dim vector
+  - that the obs decomposition reads the right slices of the 462-dim vector
     (via reconstructing static card features from a fresh build)
   - mask correctness (illegal actions blocked)
   - log_prob math agrees with Categorical over masked logits

@@ -223,8 +223,8 @@ class BeccaNetV4(nn.Module):
     OBS_TRICK_END = 400     # 4 trick positions × 40
     OBS_BRISCOLA_END = 404  # 4
     OBS_GLOBAL_START = 400  # briscola starts here
-    OBS_GLOBAL_END = 450    # void mask ends here
-    GLOBAL_FEAT_DIM = 50    # 400..450
+    OBS_GLOBAL_END = 462    # signal mask ends here (briscola..void..signals)
+    GLOBAL_FEAT_DIM = 62    # 400..462 — global context routes to the global token
     PER_CARD_DYNAMIC = 11   # status(5) + on_trick(4) + my_hand(1) + is_briscola(1)
     PER_CARD_STATIC = 16    # suit(4) + value(10) + strength(1) + points(1)
 
@@ -296,7 +296,7 @@ class BeccaNetV4(nn.Module):
         nn.init.normal_(self.card_id_embedding.weight, std=0.02)
 
     def _decompose_obs(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """obs (B, 450) -> (per_card_dynamic (B, 40, 11), global_feats (B, 50))."""
+        """obs (B, 462) -> (per_card_dynamic (B, 40, 11), global_feats (B, 62))."""
         B = obs.shape[0]  # noqa: N806  conventional batch dim name
         my_hand = obs[:, : self.OBS_HAND_END]
         card_status = obs[:, self.OBS_HAND_END : self.OBS_STATUS_END].view(B, 40, 5)
@@ -318,7 +318,7 @@ class BeccaNetV4(nn.Module):
             dim=-1,
         )  # (B, 40, 11)
 
-        global_feats = obs[:, self.OBS_GLOBAL_START : self.OBS_GLOBAL_END]  # (B, 50)
+        global_feats = obs[:, self.OBS_GLOBAL_START : self.OBS_GLOBAL_END]  # (B, 62)
         return per_card_dynamic, global_feats
 
     def forward(self, obs: torch.Tensor, action_mask: torch.Tensor):

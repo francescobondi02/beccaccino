@@ -1,12 +1,13 @@
-"""Tests for the v3 observation encoding (450 features).
+"""Tests for the v3 observation encoding (462 features).
 
 Layout invariants verified here:
-  - shape = (450,) float32, values in [0, 1]
+  - shape = (462,) float32, values in [0, 1]
   - per-card status block is exactly one-hot per card (5 classes)
   - own hand bits agree with status MINE bits
   - cards seen in completed tricks have correct seat-classification
     (partner / left opp / right opp)
   - void mask flips on the right cell when a seat fails to follow suit
+  - signal mask flips on the right (relative seat, signal type) cell
 """
 
 from __future__ import annotations
@@ -19,7 +20,9 @@ from becca_env.observation import (
     CARD_INDEX,
     CARD_STATUS_CLASSES,
     NUM_CARDS,
+    NUM_SIGNALS,
     OBS_SIZE,
+    SIGNAL_INDEX,
     STATUS_LEFT_OPP,
     STATUS_MINE,
     STATUS_PARTNER,
@@ -44,9 +47,19 @@ def _status_block(obs: np.ndarray) -> np.ndarray:
     return obs[40 : 40 + NUM_CARDS * CARD_STATUS_CLASSES].reshape(NUM_CARDS, CARD_STATUS_CLASSES)
 
 
+_SIGNAL_BLOCK = 4 * NUM_SIGNALS  # 12, the trailing signal mask
+_VOID_BLOCK = 16                 # void mask sits just before the signal mask
+
+
 def _void_block(obs: np.ndarray) -> np.ndarray:
-    """Return the (4, 4) void mask block at the end of the obs vector."""
-    return obs[OBS_SIZE - 16 : OBS_SIZE].reshape(4, 4)
+    """Return the (4, 4) void mask block (precedes the trailing signal mask)."""
+    start = OBS_SIZE - _SIGNAL_BLOCK - _VOID_BLOCK
+    return obs[start : start + _VOID_BLOCK].reshape(4, 4)
+
+
+def _signal_block(obs: np.ndarray) -> np.ndarray:
+    """Return the (4, 3) signal mask block at the end of the obs vector."""
+    return obs[OBS_SIZE - _SIGNAL_BLOCK : OBS_SIZE].reshape(4, NUM_SIGNALS)
 
 
 def test_obs_shape_and_dtype():
@@ -215,3 +228,55 @@ def test_briscola_one_hot_when_chosen():
     expected = np.zeros(4)
     expected[SUIT_INDEX[Suit.BASTONI]] = 1.0
     np.testing.assert_array_equal(briscola_block, expected)
+
+
+def test_signal_mask_zero_when_no_signals():
+    g = BeccaGame(seed=5)
+    obs = encode_observation(g, seat=0)
+    np.testing.assert_array_equal(_signal_block(obs), np.zeros((4, NUM_SIGNALS)))
+
+
+def test_signal_mask_set_from_completed_trick():
+    """Seat 2 (our partner) declared BUSSO leading a completed trick.
+    From seat 0's POV that lands on relative row 2, busso column."""
+    from becca_env.game import Signal, TrickRecord
+    g = _make_game_in_play(briscola=Suit.DENARA)
+    led = Card(Suit.DENARA, Value.QUATTRO)
+    g.round.hands_played.append(TrickRecord(
+        winner=2,
+        cards=[(2, led), (3, Card(Suit.DENARA, Value.CINQUE)),
+               (0, Card(Suit.DENARA, Value.SEI)), (1, Card(Suit.DENARA, Value.SETTE))],
+        signal=Signal.BUSSO, signal_seat=2,
+    ))
+    sig = _signal_block(encode_observation(g, seat=0))
+    assert sig[2, SIGNAL_INDEX[Signal.BUSSO]] == 1.0
+    assert sig.sum() == 1.0  # nothing else fires
+
+
+def test_signal_mask_set_from_in_progress_trick():
+    """The leader of the in-progress trick declared STRISCIO."""
+    from becca_env.game import Signal
+    g = _make_game_in_play(briscola=Suit.DENARA)
+    g.round.current_trick = [(1, Card(Suit.DENARA, Value.QUATTRO))]
+    g.round.trick_signals = [(1, Signal.STRISCIO)]
+    sig = _signal_block(encode_observation(g, seat=0))
+    # seat 1 vs viewer 0: rel = 1 (left opp)
+    assert sig[1, SIGNAL_INDEX[Signal.STRISCIO]] == 1.0
+    assert sig.sum() == 1.0
+
+
+def test_signal_mask_is_viewer_relative():
+    """Same declared signal appears on different relative rows for different
+    viewers. Seat 0 declares VOLO; seat 0 sees row 0, seat 2 sees row 2."""
+    from becca_env.game import Signal, TrickRecord
+    g = _make_game_in_play(briscola=Suit.DENARA)
+    g.round.hands_played.append(TrickRecord(
+        winner=0,
+        cards=[(0, Card(Suit.DENARA, Value.QUATTRO)), (1, Card(Suit.DENARA, Value.CINQUE)),
+               (2, Card(Suit.DENARA, Value.SEI)), (3, Card(Suit.DENARA, Value.SETTE))],
+        signal=Signal.VOLO, signal_seat=0,
+    ))
+    sig0 = _signal_block(encode_observation(g, seat=0))
+    sig2 = _signal_block(encode_observation(g, seat=2))
+    assert sig0[0, SIGNAL_INDEX[Signal.VOLO]] == 1.0  # my own signal, row 0
+    assert sig2[2, SIGNAL_INDEX[Signal.VOLO]] == 1.0  # (0 - 2) % 4 = 2

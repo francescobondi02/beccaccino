@@ -3,7 +3,7 @@
 Encodes the imperfect-information observation from one player's perspective
 into a fixed-size feature vector suitable for policy/value networks.
 
-v3 layout (450 features):
+v3 layout (462 features):
   my_hand:          40   binary, which cards I currently hold
   card_status:      40 * 5 = 200   per-card one-hot of where it currently is:
                        [unseen, in_my_hand, played_by_partner,
@@ -27,7 +27,13 @@ v3 layout (450 features):
                                    row 2 = partner        (seat (me+2)%4)
                                    row 3 = right opponent (seat (me+3)%4)
                                  Helps the net deduce hidden hands.
-  Total = 40 + 200 + 160 + 4 + 4 + 4 + 10 + 10 + 2 + 16 = 450
+  signal_mask:      4 * 3 = 12   1 if the seat at this relative position has
+                                 declared this signal (striscio/busso/volo)
+                                 anywhere this round. Signals are public, so
+                                 row 0 (me) IS populated (unlike void_mask —
+                                 my own past signals aren't otherwise in the
+                                 obs). Makes the cooperative channel learnable.
+  Total = 40 + 200 + 160 + 4 + 4 + 4 + 10 + 10 + 2 + 16 + 12 = 462
 """
 
 from __future__ import annotations
@@ -42,7 +48,9 @@ CARD_INDEX: dict[Card, int] = {card: i for i, card in enumerate(DECK)}
 SUIT_INDEX: dict[Suit, int] = {s: i for i, s in enumerate(Suit)}
 NUM_CARDS = 40
 NUM_SUITS = 4
-NUM_SIGNALS = 3  # striscio, busso, volo (legacy; not encoded in v3)
+NUM_SIGNALS = 3  # striscio, busso, volo
+# striscio=0, busso=1, volo=2
+SIGNAL_INDEX: dict[Signal, int] = {s: i for i, s in enumerate(Signal)}
 
 # Card-status one-hot has 5 classes: unseen / mine / partner / left / right
 CARD_STATUS_CLASSES = 5
@@ -52,7 +60,7 @@ STATUS_PARTNER = 2
 STATUS_LEFT_OPP = 3
 STATUS_RIGHT_OPP = 4
 
-OBS_SIZE = 450
+OBS_SIZE = 462
 
 
 def _seat_status_class(player_seat: int, viewer_seat: int) -> int:
@@ -105,6 +113,31 @@ def _compute_void_mask(game: BeccaGame, viewer_seat: int) -> np.ndarray:
             if card.suit != lead_suit:
                 rel = (s - viewer_seat) % 4
                 mask[rel, lead_idx] = 1.0
+    return mask
+
+
+def _compute_signal_mask(game: BeccaGame, viewer_seat: int) -> np.ndarray:
+    """Per-(declarer-seat, signal-type) flag: has this seat declared this signal
+    anywhere this round? Signals are public, so this is fully observable.
+
+    Rows in the returned 4x3 matrix are relative to viewer_seat:
+      row 0 = me, row 1 = left opp, row 2 = partner, row 3 = right opp.
+    Unlike the void mask, row 0 IS populated: my own past signals aren't
+    otherwise encoded, and a partner needs to read them symmetrically.
+    """
+    mask = np.zeros((4, NUM_SIGNALS), dtype=np.float32)
+    r = game.round
+    # Completed tricks: each carries the leader's declared signal (if any).
+    for tr in r.hands_played:
+        if tr.signal is not None and tr.signal_seat is not None:
+            rel = (tr.signal_seat - viewer_seat) % 4
+            mask[rel, SIGNAL_INDEX[tr.signal]] = 1.0
+    # In-progress trick: only the leader (index 0) can have signalled.
+    if r.trick_signals:
+        leader_seat, leader_signal = r.trick_signals[0]
+        if leader_signal is not None:
+            rel = (leader_seat - viewer_seat) % 4
+            mask[rel, SIGNAL_INDEX[leader_signal]] = 1.0
     return mask
 
 
@@ -191,6 +224,11 @@ def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
     void = _compute_void_mask(game, seat)
     obs[offset : offset + 16] = void.flatten()
     offset += 16
+
+    # Signal mask (4x3 = 12): rows = relative seat, cols = striscio/busso/volo
+    signals = _compute_signal_mask(game, seat)
+    obs[offset : offset + 4 * NUM_SIGNALS] = signals.flatten()
+    offset += 4 * NUM_SIGNALS
 
     assert offset == OBS_SIZE, f"obs offset {offset} != {OBS_SIZE}"
     return obs
