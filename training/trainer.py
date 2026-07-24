@@ -187,6 +187,19 @@ def train(config: TrainConfig):
             normalizer=return_normalizer, pool=pool, extra=extra,
         )
 
+    # Resuming a checkpoint that already hit total_updates: nothing to train, and
+    # the loop below would leave `update` unbound before the final save. Bail out.
+    if start_update > config.total_updates:
+        print(f"Run already complete ({step_count:,} steps, update {start_update - 1}); "
+              "nothing to do. Raise --steps to train further.")
+        writer.close()
+        if use_vec:
+            vec_env.close()
+        if wandb_run:
+            import wandb
+            wandb.finish()
+        return
+
     for update in range(start_update, config.total_updates + 1):
         # Schedules
         _lr_schedule(config, opt, update)

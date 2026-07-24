@@ -118,8 +118,10 @@ tensorboard --logdir runs/
 
 ### Outputs
 
-- `checkpoints/becca_ppo_NNNNNN.pt` — periodic model snapshots
-- `checkpoints/becca_ppo_final.pt` — final trained model
+- `checkpoints/ckpt_NNNNNN.pt` — periodic model snapshots (every `--ckpt-every` updates)
+- `checkpoints/final.pt` — final trained model
+- `checkpoints/last.pt` — always-current checkpoint for `--resume` (written on
+  final and on `--max-hours` graceful stop)
 - `runs/<run_name>/` — TensorBoard event files
 
 ### Resuming Training

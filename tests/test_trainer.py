@@ -94,3 +94,16 @@ def test_centralized_critic_requires_vec_path(tmp_path):
     cfg = _tiny_config(tmp_path, num_envs=1, centralized_critic=True)
     with pytest.raises(ValueError, match="num_envs > 1"):
         train(cfg)
+
+
+def test_resume_already_complete_run_does_not_crash(tmp_path):
+    """Resuming a finished checkpoint with the same --steps must exit cleanly,
+    not crash with UnboundLocalError before the final save (regression)."""
+    cfg = _tiny_config(tmp_path)
+    train(cfg)  # completes; last.pt stamped with update == total_updates
+
+    resume_dir = tmp_path / "resumed"
+    resume_dir.mkdir()
+    cfg2 = _tiny_config(resume_dir, resume_from=str(tmp_path / "last.pt"))
+    # Same total_timesteps as the finished run -> start_update > total_updates.
+    train(cfg2)  # must return cleanly, no exception
