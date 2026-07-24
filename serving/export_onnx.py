@@ -7,23 +7,22 @@ from pathlib import Path
 import torch
 
 from becca_env.observation import OBS_SIZE
-from training.network import ACTION_SIZE, create_network
+from training.checkpoint import build_net, load_checkpoint
+from training.network import ACTION_SIZE
 
 
 def export_to_onnx(
     checkpoint_path: str,
     output_path: str = "serving/model.onnx",
-    network_version: int = 2,
-    hidden_size: int = 512,
-    num_layers: int = 3,
 ):
     """Export a checkpoint to ONNX format.
 
-    The exported model takes (obs, action_mask) and returns (logits, value).
+    The architecture is rebuilt from the checkpoint's stamped net_config, so any
+    network version (incl. V4) exports without a matching CLI flag. The exported
+    model takes (obs, action_mask) and returns (logits, value).
     """
-    net = create_network(version=network_version, hidden_size=hidden_size, num_layers=num_layers)
-    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    net.load_state_dict(ckpt["model"])
+    ckpt = load_checkpoint(checkpoint_path)
+    net = build_net(ckpt, torch.device("cpu"))
     net.eval()
 
     dummy_obs = torch.zeros(1, OBS_SIZE)
@@ -44,6 +43,10 @@ def export_to_onnx(
             "value": {0: "batch"},
         },
         opset_version=17,
+        # TorchScript exporter: produces a batch-symbolic graph. The torch 2.x
+        # dynamo exporter hardcodes the export-time batch for the V4 transformer,
+        # breaking inference at batch > 1.
+        dynamo=False,
     )
     print(f"Exported to {output_path}")
 
@@ -54,9 +57,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("checkpoint", help="Path to .pt checkpoint")
     p.add_argument("--output", default="serving/model.onnx")
-    p.add_argument("--network-version", type=int, default=2)
-    p.add_argument("--hidden", type=int, default=512)
-    p.add_argument("--layers", type=int, default=3)
     a = p.parse_args()
 
-    export_to_onnx(a.checkpoint, a.output, a.network_version, a.hidden, a.layers)
+    export_to_onnx(a.checkpoint, a.output)

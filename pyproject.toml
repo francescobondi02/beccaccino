@@ -18,6 +18,9 @@ serve = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "onnxruntime>=1.17",
+    # Needed to EXPORT a checkpoint to ONNX (export_onnx.py), not just to serve.
+    "torch>=2.2",
+    "onnx>=1.16",
 ]
 dev = [
     "pytest>=8.0",
