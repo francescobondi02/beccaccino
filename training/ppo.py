@@ -51,6 +51,11 @@ def ppo_update(
 
     net.train()
     for epoch in range(num_epochs):
+        # KL early-stop must compare THIS epoch's mean divergence to target_kl.
+        # A cumulative accumulator dilutes it with epoch-0's near-zero KL, so the
+        # brake would almost never engage.
+        epoch_kl_sum = 0.0
+        epoch_mb_count = 0
         idx = torch.randperm(n, device=device)
         for start in range(0, n, minibatch_size):
             mb = idx[start : start + minibatch_size]
@@ -95,11 +100,13 @@ def ppo_update(
             totals["clip_frac"] += cf
             totals["approx_kl"] += approx_kl
             count += 1
+            epoch_kl_sum += approx_kl
+            epoch_mb_count += 1
 
-        # KL early stopping: if policy changed too much, halt remaining epochs
-        if target_kl is not None and count > 0:
-            avg_kl = totals["approx_kl"] / count
-            if avg_kl > target_kl:
+        # KL early stopping: if THIS epoch's mean divergence exceeds target, halt
+        # remaining epochs. Cumulative totals are kept for logging only.
+        if target_kl is not None and epoch_mb_count > 0:
+            if epoch_kl_sum / epoch_mb_count > target_kl:
                 early_stopped = True
                 break
 
