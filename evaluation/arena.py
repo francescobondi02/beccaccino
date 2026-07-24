@@ -14,6 +14,11 @@ from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase
 from becca_env.observation import decode_action, encode_action_mask, encode_observation
 from training.network import BeccaNet
 
+# Frozen base seed for evaluation. Every checkpoint is scored on the SAME deals
+# so the win-rate curve reflects skill, not deal luck. The value is arbitrary
+# but must never change, or historical eval numbers stop being comparable.
+EVAL_SEED_BASE = 20260724
+
 
 class RandomAgent:
     """Baseline: picks uniformly at random from legal actions."""
@@ -111,7 +116,7 @@ def evaluate_against_random(
     net: BeccaNet,
     num_games: int = 200,
     device: torch.device = torch.device("cpu"),
-    seed: int = 0,
+    seed: int = EVAL_SEED_BASE,
 ) -> float:
     """Quick evaluation: trained agent vs random. Returns win rate (0-1)."""
     neural = NeuralAgent(net, device, temperature=0.0)

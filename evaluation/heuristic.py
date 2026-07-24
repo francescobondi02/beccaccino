@@ -222,13 +222,19 @@ def evaluate_against_heuristic(
     net,
     num_games: int = 200,
     device=None,
-    seed: int = 0,
+    seed: int | None = None,
     win_points: int = 41,
 ) -> float:
-    """Win rate of the trained net vs HeuristicAgent. Plays half on each side."""
+    """Win rate of the trained net vs HeuristicAgent. Plays half on each side.
+
+    Defaults to the frozen EVAL_SEED_BASE so every checkpoint sees the same deals.
+    """
     import torch
 
-    from evaluation.arena import NeuralAgent
+    from evaluation.arena import EVAL_SEED_BASE, NeuralAgent
+
+    if seed is None:
+        seed = EVAL_SEED_BASE
 
     if device is None:
         device = torch.device("cpu")

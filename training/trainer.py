@@ -238,11 +238,11 @@ def train(config: TrainConfig):
         if update % config.eval_every == 0:
             from evaluation.arena import evaluate_against_random
             from evaluation.heuristic import evaluate_against_heuristic
-            wr = evaluate_against_random(net, num_games=config.eval_games, device=dev,
-                                         seed=config.seed + update)
+            # No per-update seed: eval on the frozen EVAL_SEED_BASE block so the
+            # win-rate curve tracks skill, not sliding deal luck.
+            wr = evaluate_against_random(net, num_games=config.eval_games, device=dev)
             eval_wp = config.eval_win_points if config.eval_win_points is not None else win_points
             wr_h = evaluate_against_heuristic(net, num_games=config.eval_games, device=dev,
-                                              seed=config.seed + update,
                                               win_points=eval_wp)
             writer.add_scalar("eval/vs_random", wr, step_count)
             writer.add_scalar("eval/vs_heuristic", wr_h, step_count)
