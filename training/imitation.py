@@ -75,14 +75,21 @@ def collect_heuristic_dataset(
     win_points: int = 5,
     seed: int = 0,
     verbose: bool = False,
+    declare_signals: bool = True,
 ) -> ImitationDataset:
     """Self-play HeuristicAgent vs HeuristicAgent, recording (obs, mask, action)
-    for every transition. Used as policy-only cross-entropy targets."""
+    for every transition. Used as policy-only cross-entropy targets.
+
+    `declare_signals` makes the teacher declare the honest signal on every lead.
+    On by default: an action is (card, signal), so a silent teacher supplies zero
+    evidence about 3 of the 4 signal slots and BC leaves them at initialization —
+    which is how the shipped model ended up picking signals at ~chance.
+    """
     obs_buf: list[np.ndarray] = []
     mask_buf: list[np.ndarray] = []
     action_buf: list[int] = []
 
-    agent = HeuristicAgent(seed=seed)
+    agent = HeuristicAgent(seed=seed, declare_signals=declare_signals)
 
     for g_idx in range(num_games):
         game = BeccaGame(seed=seed + g_idx, win_points=win_points)

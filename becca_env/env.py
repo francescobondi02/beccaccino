@@ -12,6 +12,8 @@ Reward design (v3 — round-end shaping, terminal-dominated):
   - Optional trick shaping: ±(raw_pts/35) × trick_shaping_coef per trick.
                 Default coef=0.0 (off). Useful as a curriculum hint:
                 non-zero early, annealed to 0.
+  - Optional signal-honesty shaping: ±signal_honesty_coef to the declarer when
+                it declares striscio/busso/volo. Default 0.0 (off). See below.
 
   Why round-end (not per-trick) by default? Per-trick reward is biased
   shaping that pushes the agent toward greedy trick-grabbing — which is
@@ -19,6 +21,25 @@ Reward design (v3 — round-end shaping, terminal-dominated):
   letting opponents waste briscole early, etc.). Round-end shaping is
   unbiased w.r.t. correct play and dense enough for stable PPO learning
   via GAE propagation.
+
+  Why signal-honesty shaping exists. The action space is 40 cards × 4 signal
+  slots, but nothing in the score depends on which signal slot is chosen, so
+  that dimension gets no gradient: a trained policy declares signals at ~chance
+  and means nothing by them. Grounding the slots takes an explicit term.
+
+  It is deliberately asymmetric — silence is NEVER penalised, only a *declared*
+  signal is judged:
+      honest   -> +coef
+      dishonest-> -coef
+      None     ->  0
+  So the shaping fixes what a signal MEANS, while whether signalling is worth it
+  at all stays a strategy question the round score answers. Penalising silence
+  would answer that question by fiat, and the answer would probably be wrong.
+
+  The coefficient is meant to be annealed to 0 (see trainer `--signal-*` flags):
+  early on it teaches the convention, then it gets out of the way so the policy
+  can learn when a signal actually helps its partner — including learning to
+  stay quiet, or to lie, if the score says so.
 
   All rewards are delivered via deferred per-seat queues so every seat
   gets credited even though only one seat acts per env step.
@@ -40,6 +61,7 @@ from becca_env.observation import (
     encode_full_state,
     encode_observation,
 )
+from becca_env.signals import signal_is_honest
 
 MAX_RAW_PER_ROUND = 35
 
@@ -53,12 +75,14 @@ class BeccaEnv(gym.Env):
         seed: int | None = None,
         win_points: int = 41,
         trick_shaping_coef: float = 0.0,
+        signal_honesty_coef: float = 0.0,
     ):
         super().__init__()
         self._base_seed = seed
         self._game_count = 0
         self._win_points = win_points
         self.trick_shaping_coef = float(trick_shaping_coef)
+        self.signal_honesty_coef = float(signal_honesty_coef)
         self.game: BeccaGame | None = None
         self._pending_rewards: dict[int, float] = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
 
@@ -75,6 +99,10 @@ class BeccaEnv(gym.Env):
     def set_trick_shaping_coef(self, coef: float) -> None:
         """Adjust the trick-shaping coefficient (e.g. for annealing)."""
         self.trick_shaping_coef = float(coef)
+
+    def set_signal_honesty_coef(self, coef: float) -> None:
+        """Adjust the signal-honesty coefficient (annealed toward 0 by the trainer)."""
+        self.signal_honesty_coef = float(coef)
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         if seed is not None:
@@ -103,6 +131,13 @@ class BeccaEnv(gym.Env):
         event = info.get("event")
 
         terminated = self.game.phase == GamePhase.GAME_OVER
+
+        # Optional signal-honesty shaping (off by default). A non-None signal
+        # implies the acting seat led the trick — `game.step` forces signal=None
+        # for followers — and a lead can never complete a trick, so the hand read
+        # here is post-play and pre-redeal.
+        if self.signal_honesty_coef != 0.0 and info.get("signal") is not None:
+            self._apply_signal_honesty(seat, info)
 
         # Optional per-trick shaping (off by default).
         # Note: round_end / game_over events also include the final trick's
@@ -144,6 +179,21 @@ class BeccaEnv(gym.Env):
         return obs, reward, terminated, False, info
 
     # ---------------- reward distribution helpers ----------------
+
+    def _apply_signal_honesty(self, seat: int, info: dict) -> None:
+        """Credit/debit the DECLARER for whether its signal told the truth.
+
+        Only the declarer, and only when it chose to signal: staying silent earns
+        nothing and costs nothing, so the policy still decides *whether* to signal
+        from the round score (module docstring). The partner is not credited —
+        acting on a signal is their own decision, judged by the score.
+        """
+        honest = signal_is_honest(
+            info["signal"], self.game.get_hand(seat), info["card"].suit
+        )
+        self._pending_rewards[seat] += (
+            self.signal_honesty_coef if honest else -self.signal_honesty_coef
+        )
 
     def _distribute_trick_shaping(self, info: dict) -> None:
         trick_winner_team = TEAM_OF_SEAT[info["trick_winner"]]

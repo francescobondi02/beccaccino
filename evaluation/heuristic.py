@@ -6,8 +6,10 @@ benchmark — a network that doesn't beat this is essentially random.
 Strategy:
   - Briscola choice: pick the suit with the highest "hand strength" score
     (count + sum of card_strength of cards we hold in that suit).
-  - Trick leader: lead the lowest non-briscola card we hold (saves trumps),
-    no signal. If we only have briscola, lead the lowest briscola.
+  - Trick leader: lead the lowest non-briscola card we hold (saves trumps).
+    If we only have briscola, lead the lowest briscola. Declares the honest
+    signal for that lead only when constructed with declare_signals=True
+    (default off — see __init__: this agent is the frozen eval yardstick).
   - Follower (must follow suit, has lead-suit cards):
       * If partner is winning and we are LAST to play (trick can no longer be
         stolen), load our highest-point card (carico) onto the guaranteed win.
@@ -35,8 +37,9 @@ from __future__ import annotations
 import random
 
 from becca_env.deck import Card, Suit, card_points, card_strength
-from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase
+from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase, Signal
 from becca_env.rules import determine_hand_winner, follow_suit_filter
+from becca_env.signals import honest_signal_for
 
 
 def _hand_strength_for_suit(hand: list[Card], suit: Suit) -> float:
@@ -78,9 +81,15 @@ def _trick_raw_points(trick: list[tuple[int, Card]]) -> int:
 class HeuristicAgent:
     """Rule-based Beccaccino player. Returns actions in the same format as legal_actions()."""
 
-    def __init__(self, seed: int | None = None):
+    def __init__(self, seed: int | None = None, declare_signals: bool = False):
         # RNG only used for breaking ties deterministically when caller passes seed
         self.rng = random.Random(seed)
+        # Off by default on purpose. This agent is the frozen EVAL YARDSTICK
+        # (evaluate_against_heuristic): if its play changed, every historical
+        # "% vs heuristic" number would stop being comparable. BC dataset
+        # collection opts in instead, so warm-start gets honest signalling
+        # demonstrations without moving the benchmark.
+        self.declare_signals = declare_signals
 
     # ------------------------- public API -------------------------
 
@@ -92,7 +101,7 @@ class HeuristicAgent:
             is_leader = len(game.round.current_trick) == 0
             if is_leader:
                 card = self._lead(hand, game.round.briscola)
-                return (card, None)
+                return (card, self._signal_for_lead(hand, card))
             return self._follow(game, seat, hand)
         raise ValueError(f"HeuristicAgent: unexpected phase {game.phase}")
 
@@ -108,6 +117,19 @@ class HeuristicAgent:
         non_briscola = [c for c in hand if c.suit != briscola]
         pool = non_briscola if non_briscola else hand
         return _lowest_point_card(pool)
+
+    def _signal_for_lead(self, hand: list[Card], card: Card) -> Signal | None:
+        """The honest signal for this lead, or None when signalling is disabled.
+
+        Judged on the hand MINUS the led card, which is what the convention is
+        about (volo = "that was my last one"). `hand` is the live list the engine
+        will mutate, so copy before removing.
+        """
+        if not self.declare_signals:
+            return None
+        remaining = list(hand)
+        remaining.remove(card)
+        return honest_signal_for(remaining, card.suit)
 
     # ------------------------- follow -------------------------
 
