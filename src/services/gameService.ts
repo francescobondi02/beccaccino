@@ -211,6 +211,30 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
 }
 
 /**
+ * Announce the game and set up round 1, arming the caller's briscola timer.
+ *
+ * Shared by the lobby ready-up gate and practice-game creation so a game
+ * against bots starts on exactly the same path as a game between humans.
+ * The caller owns flipping `started` (the lobby needs a conditional flip to
+ * settle a race; a fresh practice room does not).
+ */
+export async function startFirstRound(
+  gameRoomId: number,
+  roomCode: string,
+): Promise<void> {
+  getSocketInstance().to(roomCode).emit("game_started", {});
+
+  const { callerPlayerId } = await setupRound(gameRoomId, 1);
+  const caller = await prisma.player.findUnique({
+    where: { id: callerPlayerId },
+    select: { userId: true },
+  });
+  if (caller) {
+    startTurnTimer(roomCode, caller.userId, "choose_briscola");
+  }
+}
+
+/**
  * Set briscola for the current round and create the first hand.
  * Extracted as a service so it can be called from both the REST controller and auto-play.
  *

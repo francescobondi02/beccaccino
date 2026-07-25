@@ -428,9 +428,12 @@ export const getLeaderboard = async (req: Request, res: Response) => {
     if (process.env.NODE_ENV !== "test" && leaderboardCacheStore.data && Date.now() < leaderboardCacheStore.expiry) {
       return res.status(200).json(leaderboardCacheStore.data);
     }
-    // Get all users who have played in finished games
+    // Get all users who have played in finished games. Bots are excluded
+    // explicitly as well as by RANKED_FINISHED_GAME: today they only ever sit in
+    // practice rooms, but the ranking must not depend on that staying true.
     const users = await prisma.user.findMany({
       where: {
+        isBot: false,
         players: {
           some: {
             gameRoom: RANKED_FINISHED_GAME,

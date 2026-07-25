@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createRoom,
+  createPracticeRoom,
   getAvailableRooms,
   joinRoom,
   setPlayerReady,
@@ -15,6 +16,7 @@ import { generalRateLimiter } from "../middleware/rateLimiter";
 const router = Router();
 
 router.post("/", authenticateToken, generalRateLimiter, createRoom);
+router.post("/practice", authenticateToken, generalRateLimiter, createPracticeRoom);
 router.get("/available", authenticateToken, generalRateLimiter, getAvailableRooms);
 router.get("/getExitedRooms", authenticateToken, generalRateLimiter, getExitedRooms);
 router.get("/:roomCode", authenticateToken, generalRateLimiter, getRoomByCode);

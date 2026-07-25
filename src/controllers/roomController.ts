@@ -4,11 +4,11 @@ import { Request, Response } from "express";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { generateRoomCode } from "../utils/generateRoomCode";
-import { setupRound } from "../services/gameService";
+import { startFirstRound } from "../services/gameService";
 import { getSocketInstance } from "../socketInstance";
-import { startTurnTimer } from "../services/turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 import { logger } from "../logger";
+import { BOT_TIERS, ensureBotUsers, isBotTier } from "../services/botService";
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -82,6 +82,77 @@ export const createRoom = async (req: Request, res: Response) => {
       "create_room_failed",
     );
     return res.status(500).json({ error: "Room creation failed" });
+  }
+};
+
+/**
+ * Create a practice game: the human plus three bots of one tier, already seated
+ * and started.
+ *
+ * Unlike a normal room there is nothing to wait for — no lobby, no team picking,
+ * no ready-up — so this creates the room fully formed and starts round 1 in one
+ * request. The human sits at seat 0 with the bot partner opposite (seat 2) and
+ * the two opponents at seats 1 and 3.
+ */
+export const createPracticeRoom = async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const { tier } = req.body;
+
+  if (!isBotTier(tier)) {
+    return res.status(400).json({
+      error: `Invalid tier: "${tier}". Must be one of: ${BOT_TIERS.join(", ")}`,
+    });
+  }
+
+  try {
+    const existingActiveGame = await prisma.player.findFirst({
+      where: { userId, gameRoom: { started: true, finished: false } },
+      include: { gameRoom: true },
+    });
+
+    if (existingActiveGame) {
+      return res.status(409).json({
+        error: "Sei già in una partita attiva",
+        activeRoomCode: existingActiveGame.gameRoom.code,
+      });
+    }
+
+    const botUserIds = await ensureBotUsers();
+    const code = await generateUniqueRoomCode();
+
+    // Seats are pre-assigned so the human gets seat 0, which GameTable renders
+    // at the bottom of the table. startFirstRound → setupRound reassigns seats
+    // by interleaving the teams in seat order (team0[0], team1[0], team0[1],
+    // team1[1]); reading players back ordered by seat, that reproduces exactly
+    // the assignment below, so the human stays put.
+    const room = await prisma.gameRoom.create({
+      data: {
+        code,
+        started: true,
+        isPractice: true,
+        players: {
+          create: [
+            { userId, seat: 0, team: 0, isReady: true },
+            { userId: botUserIds[0], seat: 1, team: 1, isReady: true, botModel: tier },
+            { userId: botUserIds[1], seat: 2, team: 0, isReady: true, botModel: tier },
+            { userId: botUserIds[2], seat: 3, team: 1, isReady: true, botModel: tier },
+          ],
+        },
+      },
+    });
+
+    await startFirstRound(room.id, code);
+
+    logger.info({ roomCode: code, userId, tier }, "practice_game_started");
+
+    return res.status(201).json({ code, tier });
+  } catch (error) {
+    Sentry.captureException(error, { extra: { userId, tier, op: "create_practice_room" } });
+    (req.log ?? logger).error(
+      { err: error, userId, tier },
+      "create_practice_room_failed",
+    );
+    return res.status(500).json({ error: "Practice game creation failed" });
   }
 };
 
@@ -430,21 +501,8 @@ export const setPlayerReady = async (req: Request, res: Response) => {
 
         if (flip.count === 1) {
           // We were the one that started the game.
-          io.to(roomCode).emit("game_started", {});
-
           try {
-            const { callerPlayerId } = await setupRound(room.id, 1);
-
-            const callerPlayer = updatedRoom.players.find(
-              (p) => p.id === callerPlayerId,
-            );
-            if (callerPlayer) {
-              startTurnTimer(
-                roomCode,
-                callerPlayer.userId,
-                "choose_briscola",
-              );
-            }
+            await startFirstRound(room.id, roomCode);
           } catch (error) {
             Sentry.captureException(error, {
               extra: { event: "first_round_setup", roomCode, userId },
