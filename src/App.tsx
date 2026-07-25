@@ -11,6 +11,7 @@ const GameRoom = lazy(() => import("./pages/GameRoom"));
 const GameTable = lazy(() => import("./pages/GameTable"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
+const Practice = lazy(() => import("./pages/Practice"));
 
 const queryClient = new QueryClient();
 
@@ -27,6 +28,7 @@ const App = () => (
             <Route path="/game/:gameRoomCode" element={<GameTable />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/leaderboard" element={<Leaderboard />} />
+            <Route path="/practice" element={<Practice />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

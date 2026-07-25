@@ -9,6 +9,9 @@ import RoundEndDialog from "@/components/RoundEndDialog";
 import GameFinishedDialog from "@/components/GameFinishedDialog";
 import GameChat from "@/components/GameChat";
 import SignalDialog from "@/components/SignalDialog";
+import SignalBadge from "@/components/SignalBadge";
+import PracticePanel, { RevealedHand } from "@/components/PracticePanel";
+import { MoveLogEntry } from "@/components/MoveLog";
 import { Loader2, WifiOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -62,7 +65,9 @@ interface PlayedCardData {
   value: string;
   position: number;
   signal?: string | null;
+  handNumber?: number;
 }
+
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -145,9 +150,17 @@ const GameTable = () => {
   >(getConnectionStatus());
   const [isPlayingCard, setIsPlayingCard] = useState(false);
 
+  // Practice-game diagnostics: the move log and revealed hands only exist when
+  // the SERVER says this is a practice room (see gameController.revealAllHands).
+  const [isPractice, setIsPractice] = useState(false);
+  const [allHands, setAllHands] = useState<RevealedHand[] | null>(null);
+  const [handsRevealed, setHandsRevealed] = useState(false);
+  const [moveLog, setMoveLog] = useState<MoveLogEntry[]>([]);
+
   // Refs for values needed in socket handlers without causing re-registration
   const userIdRef = useRef<number | null>(null);
   const gameRoomCodeRef = useRef<string | undefined>(undefined);
+  const playersRef = useRef<Player[]>([]);
 
   useEffect(() => {
     userIdRef.current = userId;
@@ -156,6 +169,30 @@ const GameTable = () => {
   useEffect(() => {
     gameRoomCodeRef.current = gameRoomCode;
   }, [gameRoomCode]);
+
+  useEffect(() => {
+    playersRef.current = room?.players ?? [];
+  }, [room]);
+
+  /**
+   * Record a played card in the diagnostic log.
+   *
+   * Reads players from a ref so the socket handlers that call it don't have to
+   * re-register whenever the room object changes.
+   */
+  const appendToMoveLog = useCallback((data: PlayedCardData) => {
+    const player = playersRef.current.find((p) => p.userId === data.userId);
+    setMoveLog((prev) => [
+      ...prev,
+      {
+        handNumber: data.handNumber ?? null,
+        username: player?.username ?? `#${data.userId}`,
+        suit: data.suit,
+        value: data.value,
+        signal: data.signal ?? null,
+      },
+    ]);
+  }, []);
 
   // Controlla autenticazione
   useEffect(() => {
@@ -274,6 +311,8 @@ const GameTable = () => {
             team1Figures: 0,
           },
         );
+        setIsPractice(data.isPractice ?? false);
+        setAllHands(data.allHands ?? null);
         // Apri il dialog automaticamente se sono io il caller e briscola non è ancora scelta
         if (data.round.briscola === null && data.callerUserId === userId) {
           setTrumpDialogOpen(true);
@@ -338,6 +377,9 @@ const GameTable = () => {
             team1Figures: 0,
           },
         );
+
+        setIsPractice(data.isPractice ?? false);
+        setAllHands(data.allHands ?? null);
 
         // Se sono il caller e briscola non è ancora scelta, apri il dialog
         if (data.round?.briscola === null && data.callerUserId === uid) {
@@ -446,6 +488,8 @@ const GameTable = () => {
     const handleCardPlayed = (data: PlayedCardData) => {
       // Clear countdown — new timer will arrive via turn_timer_started
       setTurnTimer(null);
+
+      appendToMoveLog(data);
 
       // Track signal declaration (only on first card of a trick)
       if (data.signal) {
@@ -851,13 +895,7 @@ const GameTable = () => {
                   </p>
                 )}
                 {currentSignal?.userId === player.userId && (
-                  <span className={`text-[10px] font-bold mt-1 px-2 py-0.5 rounded-full uppercase tracking-wide ${
-                    currentSignal.signal === "striscio" ? "bg-green-500/20 text-green-600" :
-                    currentSignal.signal === "busso" ? "bg-amber-500/20 text-amber-600" :
-                    "bg-red-500/20 text-red-600"
-                  }`}>
-                    {currentSignal.signal}
-                  </span>
+                  <SignalBadge signal={currentSignal.signal} />
                 )}
               </Card>
             ))}
@@ -883,6 +921,9 @@ const GameTable = () => {
                     <p className="text-xs text-muted-foreground">
                       {player.isTeammate ? "Socio" : "Avversario"}
                     </p>
+                    {currentSignal?.userId === player.userId && (
+                      <SignalBadge signal={currentSignal.signal} />
+                    )}
                   </Card>
                 ))}
             </div>
@@ -904,6 +945,9 @@ const GameTable = () => {
                     <p className="text-xs text-muted-foreground">
                       {player.isTeammate ? "Socio" : "Avversario"}
                     </p>
+                    {currentSignal?.userId === player.userId && (
+                      <SignalBadge signal={currentSignal.signal} />
+                    )}
                   </Card>
                 ))}
             </div>
@@ -1018,6 +1062,25 @@ const GameTable = () => {
             ))}
         </div>
       </div>
+
+      {/* Practice diagnostics — a fixed side rail, hidden below xl so it never
+          squeezes the table on a narrow screen. */}
+      {isPractice && (
+        <div
+          className="hidden xl:block fixed right-4 top-20 w-72 z-30"
+          data-testid="practice-panel"
+        >
+          <PracticePanel
+            moveLog={moveLog}
+            hands={allHands}
+            revealed={handsRevealed}
+            onToggleReveal={() => setHandsRevealed((prev) => !prev)}
+            usernameOf={(id) =>
+              room?.players.find((p) => p.userId === id)?.username ?? `#${id}`
+            }
+          />
+        </div>
+      )}
 
       {/* Game Action Buttons */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2">

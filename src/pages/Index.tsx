@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Users, Plus, Hash, Loader2 } from "lucide-react";
+import { Users, Plus, Hash, Loader2, Bot } from "lucide-react";
 import Header from "@/components/Header";
 import AuthDialog from "@/components/AuthDialog";
 
@@ -262,6 +262,14 @@ const Index = () => {
     };
   }, [userId, isAuthenticated]);
 
+  const handlePractice = () => {
+    if (!isAuthenticated) {
+      setShowAuthDialog(true);
+      return;
+    }
+    navigate("/practice");
+  };
+
   const handleCreateRoom = async () => {
     if (!isAuthenticated) {
       setShowAuthDialog(true);
@@ -502,6 +510,22 @@ const Index = () => {
                   >
                     <Plus className="mr-2 h-5 w-5" />
                     Crea una nuova stanza
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Practice vs Bots Card */}
+              <Card className="bg-gradient-card border-border/50 hover:border-primary/50 transition-all">
+                <CardContent className="pt-6">
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="w-full border-primary/50 hover:bg-primary/10"
+                    onClick={handlePractice}
+                    data-testid="practice-button"
+                  >
+                    <Bot className="mr-2 h-5 w-5" />
+                    Pratica contro i bot
                   </Button>
                 </CardContent>
               </Card>

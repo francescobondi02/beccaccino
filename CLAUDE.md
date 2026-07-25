@@ -14,6 +14,7 @@ src/
     GameTable.tsx       Main game: card hands, trick area, timers, all dialogs (~1000 lines)
     Profile.tsx         User profile and stats
     Leaderboard.tsx     Global leaderboard
+    Practice.tsx        Tier picker: start a game vs 3 AI bots
     NotFound.tsx        404 page
   components/
     AuthDialog.tsx      Login/register modal
@@ -21,6 +22,9 @@ src/
     PlayingCard.tsx     Single card renderer (suit + value → image)
     TrumpSuitDialog.tsx Briscola selection (4 suit buttons + hand preview)
     SignalDialog.tsx     Signal declaration (striscio/busso/volo/niente)
+    SignalBadge.tsx     Declared signal, shown on every seat
+    PracticePanel.tsx   Practice diagnostics: move log + reveal-hands toggle
+    MoveLog.tsx         Running list of played cards with their signals
     GameChat.tsx        In-game chat panel (Socket.IO)
     LastTrickDialog.tsx View last completed trick
     RoundEndDialog.tsx  Round score summary
