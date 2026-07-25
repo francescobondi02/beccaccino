@@ -17,7 +17,7 @@ import { logger } from "../logger";
  * Defaults to 41 (standard Beccaccino rules).
  * Can be overridden via GAME_WIN_POINTS env var (e.g., 5 for fast testing).
  */
-const GAME_WIN_POINTS = (() => {
+export const GAME_WIN_POINTS = (() => {
   const parsed = parseInt(process.env.GAME_WIN_POINTS || "41", 10);
   if (isNaN(parsed) || parsed < 1) {
     logger.warn(

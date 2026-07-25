@@ -9,6 +9,7 @@ import { getSocketInstance } from "../socketInstance";
 import { withRoomLock } from "../utils/roomLock";
 import { logger } from "../logger";
 import { BOT_TIERS, ensureBotUsers, isBotTier } from "../services/botService";
+import { clearRoomTimerData, registerBotSeats } from "../services/turnTimer";
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -140,6 +141,13 @@ export const createPracticeRoom = async (req: Request, res: Response) => {
         },
       },
     });
+
+    // Must precede startFirstRound: it arms the caller's turn timer, which is
+    // what dispatches the first bot move if the caller is a bot.
+    registerBotSeats(
+      code,
+      botUserIds.map((botUserId) => ({ userId: botUserId, tier })),
+    );
 
     await startFirstRound(room.id, code);
 
@@ -555,6 +563,22 @@ export const leaveRoom = async (req: Request, res: Response) => {
 
     const io = getSocketInstance();
 
+    // A practice room has exactly one human, so their leaving always means
+    // abandoning the whole game. Falling through to the partial-leave branch
+    // below would strand the room started-but-never-finished with three orphaned
+    // bot Player rows, and could re-arm a turn for the deleted human seat.
+    if (room.isPractice) {
+      // Stop the bot chain BEFORE deleting, so no in-flight bot move re-arms a
+      // timer for a seat that no longer exists.
+      clearRoomTimerData(roomCode);
+      await deleteRoomAndPlay(room.id);
+
+      io.to(roomCode).emit("practice_abandoned", { roomCode });
+      logger.info({ roomCode, userId }, "practice_game_abandoned");
+
+      return res.status(200).json({ success: true, deletedRoom: true });
+    }
+
     if (room.players.length === 1) {
       // 🔥 Sei l’unico player: cancella la stanza
       await prisma.player.deleteMany({
@@ -590,6 +614,30 @@ export const leaveRoom = async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to leave room" });
   }
 };
+
+/**
+ * Delete a room and everything played inside it, children first.
+ *
+ * No foreign key in the schema cascades, so a room that has been dealt cards
+ * cannot simply be deleted — the order below is the dependency order, and the
+ * transaction keeps a failure from leaving the room half-erased.
+ */
+async function deleteRoomAndPlay(gameRoomId: number): Promise<void> {
+  const rounds = await prisma.round.findMany({
+    where: { gameRoomId },
+    select: { id: true },
+  });
+  const roundIds = rounds.map((r) => r.id);
+
+  await prisma.$transaction([
+    prisma.playedCard.deleteMany({ where: { hand: { roundId: { in: roundIds } } } }),
+    prisma.playerCard.deleteMany({ where: { roundId: { in: roundIds } } }),
+    prisma.hand.deleteMany({ where: { roundId: { in: roundIds } } }),
+    prisma.round.deleteMany({ where: { gameRoomId } }),
+    prisma.player.deleteMany({ where: { gameRoomId } }),
+    prisma.gameRoom.delete({ where: { id: gameRoomId } }),
+  ]);
+}
 
 export const getExitedRooms = async (req: Request, res: Response) => {
   const userId = req.user!.userId;

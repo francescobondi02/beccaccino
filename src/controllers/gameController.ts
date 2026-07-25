@@ -5,7 +5,11 @@ import { prisma } from "../db";
 import { Suit } from "@prisma/client";
 import { playCard, setBriscola } from "../services/gameService";
 import { playableCards } from "../services/cardService";
-import { getTurnTimerState, startTurnTimer } from "../services/turnTimer";
+import {
+  getTurnTimerState,
+  restoreBotSeats,
+  startTurnTimer,
+} from "../services/turnTimer";
 import { logger } from "../logger";
 
 export const chooseBriscola = async (req: Request, res: Response) => {
@@ -289,6 +293,10 @@ export const getGameState = async (req: Request, res: Response) => {
       { roomCode, currentTurnUserId, phase },
       "turn_timer_recovered_after_restart",
     );
+    // The bot registry is in-memory too, so restore it from the persisted
+    // botModel columns before re-arming — otherwise a recovered practice game
+    // would treat its bot seats as humans and stall until they time out.
+    restoreBotSeats(roomCode, gameRoom.players);
     startTurnTimer(roomCode, currentTurnUserId, phase);
     timerState = getTurnTimerState(roomCode);
   }

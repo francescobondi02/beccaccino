@@ -4,6 +4,9 @@ import { playCard, setBriscola } from "./gameService";
 import { playableCards } from "./cardService";
 import { prisma } from "../db";
 import { logger } from "../logger";
+import { BotTier, isBotTier } from "./botService";
+import { buildBotTurn } from "./botState";
+import { BotServiceError, requestBotMove } from "./botClient";
 
 const TURN_TIMEOUT_SECONDS = parseInt(
   process.env.TURN_TIMEOUT_SECONDS || "60",
@@ -23,11 +26,45 @@ interface TimerState {
   phase: Phase;
   startedAt: number;
   durationMs: number;
+  /** Bot turns share this map so they are cancellable, but count no timeouts. */
+  isBot: boolean;
 }
 
 const activeTimers = new Map<string, TimerState>();
 const timeoutCounts = new Map<string, Map<number, number>>();
 const kickedPlayers = new Map<string, Set<number>>();
+
+/**
+ * Which seats in a practice room are bots, and which tier drives them.
+ * In-memory (like the maps above) so the human turn path stays synchronous and
+ * DB-free — resolving bot-ness with a query would add a round-trip to every
+ * handoff of every game, including games with no bots in them.
+ */
+const botSeats = new Map<string, Map<number, BotTier>>();
+
+export function registerBotSeats(
+  roomCode: string,
+  seats: { userId: number; tier: BotTier }[],
+): void {
+  botSeats.set(roomCode, new Map(seats.map((s) => [s.userId, s.tier])));
+}
+
+/**
+ * Re-populate the registry from persisted `Player.botModel` values, for a
+ * practice game that outlived the process that started it.
+ */
+export function restoreBotSeats(
+  roomCode: string,
+  players: { userId: number; botModel: string | null }[],
+): void {
+  if (botSeats.has(roomCode)) return;
+
+  const seats = players
+    .filter((p) => isBotTier(p.botModel))
+    .map((p) => ({ userId: p.userId, tier: p.botModel as BotTier }));
+
+  if (seats.length > 0) registerBotSeats(roomCode, seats);
+}
 
 export function startTurnTimer(
   roomCode: string,
@@ -35,6 +72,12 @@ export function startTurnTimer(
   phase: Phase,
 ): void {
   clearTurnTimer(roomCode);
+
+  const botTier = botSeats.get(roomCode)?.get(currentTurnUserId);
+  if (botTier) {
+    scheduleBotMove(roomCode, currentTurnUserId, botTier, phase);
+    return;
+  }
 
   // If this player has been kicked, auto-play immediately
   const kicked = kickedPlayers.get(roomCode);
@@ -61,16 +104,26 @@ export function startTurnTimer(
     phase,
     startedAt,
     durationMs,
+    isBot: false,
   });
 
-  // Broadcast timer start to all clients in the room
+  announceTurn(roomCode, currentTurnUserId, phase, durationMs);
+}
+
+function announceTurn(
+  roomCode: string,
+  turnUserId: number,
+  phase: Phase,
+  totalMs: number | null,
+): void {
   try {
-    const io = getSocketInstance();
-    io.to(roomCode).emit("turn_timer_started", {
-      turnUserId: currentTurnUserId,
-      totalMs: durationMs,
-      serverTimestamp: startedAt,
+    getSocketInstance().to(roomCode).emit("turn_timer_started", {
+      turnUserId,
+      totalMs,
+      serverTimestamp: Date.now(),
       phase,
+      // Bot turns have no deadline to count down to; the UI shows "thinking".
+      isBot: totalMs === null,
     });
   } catch {
     // Socket not initialized yet (during tests)
@@ -90,6 +143,7 @@ export function getTurnTimerState(roomCode: string): {
   totalMs: number;
   turnUserId: number;
   phase: Phase;
+  isBot: boolean;
 } | null {
   const timer = activeTimers.get(roomCode);
   if (!timer) return null;
@@ -102,6 +156,7 @@ export function getTurnTimerState(roomCode: string): {
     totalMs: timer.durationMs,
     turnUserId: timer.currentTurnUserId,
     phase: timer.phase,
+    isBot: timer.isBot,
   };
 }
 
@@ -109,6 +164,182 @@ export function clearRoomTimerData(roomCode: string): void {
   clearTurnTimer(roomCode);
   timeoutCounts.delete(roomCode);
   kickedPlayers.delete(roomCode);
+  botSeats.delete(roomCode);
+}
+
+/**
+ * How many turn timeouts a seat has accrued, and whether it has been kicked.
+ * Exposed so tests can assert a bot seat NEVER accrues either — the kick path is
+ * the one failure that would silently swap the model for the dumb fallback.
+ */
+export function getTimeoutState(
+  roomCode: string,
+  userId: number,
+): { timeouts: number; kicked: boolean } {
+  return {
+    timeouts: timeoutCounts.get(roomCode)?.get(userId) ?? 0,
+    kicked: kickedPlayers.get(roomCode)?.has(userId) ?? false,
+  };
+}
+
+/**
+ * Pause before a bot acts, so consecutive bot turns land one card at a time
+ * instead of resolving as an instant tick storm the human can't follow.
+ * Read per call, not at import, so tests can shorten it.
+ */
+const DEFAULT_BOT_THINK_DELAY_MS = 1000;
+const botThinkDelayMs = () =>
+  parseInt(process.env.BOT_THINK_DELAY_MS || String(DEFAULT_BOT_THINK_DELAY_MS), 10);
+
+/**
+ * Drive one bot turn: think, ask the bot service, apply the move.
+ *
+ * The pending think-delay IS registered in `activeTimers`, flagged `isBot`, for
+ * two reasons: `clearTurnTimer` can then cancel a bot that is about to act (the
+ * human playing, or the room being torn down), and `getTurnTimerState` reports a
+ * live turn — which stops the lazy timer recovery in `getGameState` from
+ * dispatching a second move for the same turn every time the client refetches.
+ *
+ * What it deliberately does NOT do is arm the auto-play timeout or touch
+ * `timeoutCounts`. So a bot's move can never race a 60 s auto-play, and a slow
+ * bot can never accrue timeouts and get kicked — a kicked bot would be silently
+ * replaced by the dumb fallback for the rest of the game, which would corrupt
+ * exactly what we are trying to observe.
+ *
+ * Because playCard/setBriscola re-arm the timer for the next seat, consecutive
+ * bot turns chain on their own; there is no bot loop.
+ */
+function scheduleBotMove(
+  roomCode: string,
+  userId: number,
+  tier: BotTier,
+  phase: Phase,
+): void {
+  const thinkDelayMs = botThinkDelayMs();
+  const timeout = setTimeout(() => {
+    void playBotMove(roomCode, userId, tier, phase);
+  }, thinkDelayMs);
+  timeout.unref();
+
+  activeTimers.set(roomCode, {
+    timeout,
+    roomCode,
+    currentTurnUserId: userId,
+    phase,
+    startedAt: Date.now(),
+    durationMs: thinkDelayMs,
+    isBot: true,
+  });
+
+  announceTurn(roomCode, userId, phase, null);
+}
+
+async function playBotMove(
+  roomCode: string,
+  userId: number,
+  tier: BotTier,
+  phase: Phase,
+): Promise<void> {
+  // The think-delay has elapsed, so drop our slot in activeTimers before acting:
+  // playCard/setBriscola arm the NEXT seat's timer, and leaving a stale entry
+  // here would have them clear a timer that is no longer ours.
+  const timer = activeTimers.get(roomCode);
+  if (timer?.isBot && timer.currentTurnUserId === userId) {
+    activeTimers.delete(roomCode);
+  }
+
+  // The seat may have gone away while we were thinking (human abandoned the
+  // practice game, so the room was torn down). Re-checking is the point: the
+  // alternative is playing a turn for a deleted Player row.
+  if (!botSeats.get(roomCode)?.has(userId)) return;
+
+  try {
+    const move = await chooseBotMove(roomCode, userId, tier, phase);
+
+    if (move.kind === "briscola") {
+      const { gameRoomId, playerId } = move;
+      await setBriscola({ gameRoomId, playerId, suit: move.suit as any });
+    } else {
+      await playCard({
+        roomCode,
+        userId,
+        suit: move.suit as any,
+        value: move.value as any,
+        signal: move.signal as any,
+      });
+    }
+  } catch (error) {
+    // Re-check: the human can abandon the game while /act is in flight, which
+    // deletes the room and makes this failure expected. Reporting that as a
+    // model fallback would cry wolf on the one alarm that tells us a seat was
+    // NOT played by the model.
+    if (!botSeats.get(roomCode)?.has(userId)) {
+      logger.debug({ roomCode, userId }, "bot_move_abandoned_room_gone");
+      return;
+    }
+
+    // A real fallback keeps the game moving, but it means this seat was played
+    // by the dumb heuristic and NOT by the model — so log it loudly and
+    // distinctly. A fallback mistaken for the model invalidates the diagnostic.
+    Sentry.captureException(error, {
+      tags: { source: "bot_fallback_to_autoplay" },
+      extra: { roomCode, userId, tier, phase },
+    });
+    logger.error(
+      { err: error, roomCode, userId, tier, phase },
+      "bot_fallback_to_autoplay",
+    );
+
+    try {
+      if (phase === "choose_briscola") {
+        await autoChooseBriscola(roomCode, userId);
+      } else {
+        await autoPlayCard(roomCode, userId);
+      }
+    } catch (fallbackError) {
+      // Both paths failed. Most likely the turn already advanced (a reconnect
+      // double-dispatched and the other call won), which is harmless.
+      logger.warn(
+        { err: fallbackError, roomCode, userId, phase },
+        "bot_autoplay_fallback_failed",
+      );
+    }
+  }
+}
+
+/** Serialize the board, ask the service for a move, and tag it for application. */
+async function chooseBotMove(
+  roomCode: string,
+  userId: number,
+  tier: BotTier,
+  phase: Phase,
+): Promise<
+  | { kind: "briscola"; suit: string; gameRoomId: number; playerId: number }
+  | { kind: "card"; suit: string; value: string; signal: string | null }
+> {
+  const { state, seat, playerId, gameRoomId } = await buildBotTurn(roomCode, userId);
+
+  // Send the cards we think are legal so the service can 409 if its rules engine
+  // disagrees. Only meaningful mid-trick, and only for card plays.
+  const expectedLegalCards =
+    phase === "play_card"
+      ? (await playableCards({ roomCode, userId })).map((c) => ({
+          suit: c.suit as string,
+          value: c.value as string,
+        }))
+      : undefined;
+
+  const move = await requestBotMove({ state, seat, tier, expectedLegalCards });
+
+  if (move.kind !== (phase === "choose_briscola" ? "briscola" : "card")) {
+    throw new BotServiceError(
+      `bot returned a ${move.kind} move during ${phase}`,
+    );
+  }
+
+  return move.kind === "briscola"
+    ? { ...move, gameRoomId, playerId }
+    : move;
 }
 
 // Periodic cleanup: remove timer data for rooms that have been idle too long (2 hours)
