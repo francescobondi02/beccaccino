@@ -9,6 +9,8 @@ becca_env/
   __init__.py
   deck.py           Card/Suit/Value definitions, 40-card deck, strength and points tables
   rules.py          Core rules: follow_suit_filter, determine_hand_winner, compute_round_scores
+  signals.py        The signalling CONVENTION (what busso/striscio/volo claim) —
+                    shared by reward shaping, the BC teacher, and the audit
   game.py           Full game state machine (BeccaGame): phases, actions, step()
   observation.py    State → numpy tensor encoding (462 features), action mask (160 slots)
                     + encode_full_state (582) for the centralized CTDE critic
@@ -46,8 +48,11 @@ scripts/
   watch_bots.py     Audit signal honesty (volo => void, busso => holds strength)
   gen_bot_fixtures.py  Regenerate serving/fixtures/bot_states.json
   benchmark.py      Environment throughput benchmark
-checkpoints/        Saved model checkpoints (.pt files)
-tests/              217 tests (pytest); mirrors the modules above
+docs/
+  TRAINING_RUNBOOK.md  How to run + verify a training run (READ BEFORE A GPU RUN)
+  BOT_PLAY_DESIGN.md   Playing against the bots in the real UI
+checkpoints/        Saved model checkpoints (.pt files); best.pt = peak, final.pt = last
+tests/              292 tests (pytest); mirrors the modules above
 ```
 
 ## Game Engine (game.py)
@@ -62,6 +67,13 @@ tests/              217 tests (pytest); mirrors the modules above
 ### Signals
 Trick leader can declare: `Signal.STRISCIO`, `Signal.BUSSO`, `Signal.VOLO`, or `None`.
 Signals are part of the action space for the leader and stored in `trick_signals`.
+
+The engine does **not** enforce honesty — a dishonest signal is a legal move and must
+stay legal. `becca_env/signals.py` defines what each signal *claims*, and is the single
+source shared by reward shaping (`env.py`), the BC teacher (`heuristic.py`), and the
+audit (`scripts/watch_bots.py`). Training that channel is covered in
+`docs/TRAINING_RUNBOOK.md` §3; without `--signal-honesty-coef` the signal slots get no
+gradient and a trained policy picks among them at roughly chance.
 
 ## Observation Encoding (observation.py)
 
@@ -102,17 +114,32 @@ Action mask provided in observation dict for legal action filtering.
 
 ## Training
 
+**Full procedure, verification steps, and how to read results: `docs/TRAINING_RUNBOOK.md`.**
+Read it before launching a GPU run — the costly past mistakes were measuring the wrong
+number or shipping the wrong checkpoint, not bad hyperparameters.
+
 The strong recipe is **BC warm-start → PPO self-play** on the V4 transformer
 (`scripts/bc_then_rl.py`). `training/trainer.py` is the pure-PPO trainer and now
 also supports resume, `--max-hours` graceful stop, global `--seed`,
 `--network-version {1,2,3,4}`, a BC-anchor opponent, and a centralized (CTDE)
 critic. Both use per-seat GAE, the opponent pool (with anchors), curriculum,
-wandb, and entropy annealing.
+wandb, entropy annealing, signal-honesty shaping, and `best.pt` tracking.
+
+Two things worth knowing before trusting any run's numbers:
+- **`best.pt` is the peak, `final.pt` is merely the last.** Self-play is non-monotone;
+  prefer whichever scores higher, and score the checkpoint file rather than reading the
+  final CSV row (rows after the last eval carry the previous value forward).
+- **The `steps` column counts learner-team transitions, not env steps** — a team owns 2
+  of 4 seats, so it reads ~half the simulated env steps. Units, not a bug.
 
 ```bash
 # Recommended: BC + PPO on the transformer (see scripts/kaggle_setup.md for GPU)
 python -m scripts.bc_then_rl --network-version 4 --bc-games 3000 \
   --total-rl-steps 5000000 --num-envs 32 --win-points 5 --device cuda
+
+# With a meaningful signal channel (anneals the honesty term to 0 by mid-run)
+python -m scripts.bc_then_rl --network-version 4 --signal-honesty-coef 0.05 \
+  --signal-honesty-coef-final 0.0 --signal-honesty-frac 0.5 --device cuda
 
 # Pure PPO trainer (short games)
 python -m training.trainer --win-points 5 --steps 20000000 --device mps
