@@ -110,17 +110,18 @@ def parse_args():
 
 def _net_config_dict(args) -> dict:
     """Snapshot of network hyperparams. Saved alongside checkpoints so
-    later loaders can reconstruct the architecture without guessing."""
+    later loaders can reconstruct the architecture without guessing. Keys must
+    match create_network's kwargs exactly so build_net can splat this dict."""
     if args.network_version == 4:
         return {
-            "network_version": 4,
+            "version": 4,
             "d_model": args.d_model,
             "nhead": args.nhead,
             "num_layers": args.layers,
             "dim_feedforward": args.dim_feedforward,
         }
     return {
-        "network_version": args.network_version,
+        "version": args.network_version,
         "hidden_size": args.hidden,
         "num_layers": args.layers,
         "use_layer_norm": True,

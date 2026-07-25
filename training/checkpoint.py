@@ -62,9 +62,22 @@ def load_checkpoint(path, map_location="cpu") -> dict:
     return torch.load(path, map_location=map_location, weights_only=False)
 
 
+def net_config_of(ckpt: dict) -> dict:
+    """Read a checkpoint's architecture stamp, tolerating both layouts we ship:
+    the unified format uses "net_config", the flat bc_then_rl checkpoints use
+    "config". Older stamps spell the version key "network_version" — normalize
+    it to the "version" kwarg create_network actually takes, otherwise it
+    silently falls back to V2 and load_state_dict fails on a shape mismatch."""
+    config = ckpt.get("net_config") or ckpt["config"]
+    config = dict(config)
+    if "network_version" in config:
+        config["version"] = config.pop("network_version")
+    return config
+
+
 def build_net(ckpt: dict, device) -> nn.Module:
     """Rebuild the network from a checkpoint's stamped config and load weights."""
-    net = create_network(**ckpt["net_config"]).to(device)
+    net = create_network(**net_config_of(ckpt)).to(device)
     net.load_state_dict(ckpt["model"])
     return net
 

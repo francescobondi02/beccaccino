@@ -104,6 +104,28 @@ def test_checkpoint_normalizer_and_pool_none_round_trip(tmp_path):
     assert ckpt["pool"] is None
 
 
+def test_build_net_accepts_flat_bc_then_rl_checkpoint():
+    """bc_then_rl.py writes a flat checkpoint keyed "config", not "net_config".
+    Run B's artifacts were unloadable until build_net tolerated both layouts."""
+    net = create_network(version=4, d_model=64, nhead=4, num_layers=2, dim_feedforward=128)
+    ckpt = {"model": net.state_dict(), "config": dict(net.config), "phase": "rl"}
+
+    rebuilt = build_net(ckpt, torch.device("cpu"))
+    assert _state_dicts_equal(net.state_dict(), rebuilt.state_dict())
+
+
+def test_build_net_normalizes_legacy_network_version_key():
+    """Older stamps spelled the version "network_version"; create_network takes
+    "version" and would otherwise default to V2 and fail on a shape mismatch."""
+    net = create_network(version=4, d_model=64, nhead=4, num_layers=2, dim_feedforward=128)
+    legacy = {"network_version": 4, "d_model": 64, "nhead": 4,
+              "num_layers": 2, "dim_feedforward": 128}
+    ckpt = {"model": net.state_dict(), "net_config": legacy}
+
+    rebuilt = build_net(ckpt, torch.device("cpu"))
+    assert _state_dicts_equal(net.state_dict(), rebuilt.state_dict())
+
+
 def test_seed_everything_makes_runs_identical():
     seed_everything(123)
     a = torch.rand(5)
