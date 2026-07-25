@@ -59,7 +59,10 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 - Auth: JWT in httpOnly cookie `authToken`. Socket.IO extracts it from handshake cookie header.
 - Cookie config: `secure` in production, `sameSite: strict` (same-origin) or `none` (cross-origin deploy).
 - Turn timer: 60s for card play, 90s for briscola choice. Auto-play on timeout. Kick after 3 timeouts.
-- Points stored as raw×3 in DB (team0Points, team1Points) to avoid floating point.
+- Points stored per round as real points + figures remainder in SEPARATE columns
+  (`Round.team0Points`/`team0Figures`, `schema.prisma:112-115`) — `computePoints` returns
+  `floor(raw/3)` plus `raw % 3`. To recover raw: `raw = points*3 + figures`. Summing only
+  `*Points` silently drops each round's remainder.
 - Socket events are the source of truth for real-time state; REST is for mutations.
 - Tests: backend integration uses `becca_test` DB, loaded via `tests/loadTestEnv.ts` before Prisma imports.
 - Test auth bypass: `NODE_ENV=test` skips JWT, allows `x-test-user-id` header.
