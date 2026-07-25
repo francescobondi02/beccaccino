@@ -77,7 +77,10 @@ If a Sentry event is missing `user`, the user wasn't logged in or the page hadn'
 Symptoms: requests time out, `prisma client error: too many connections`.
 
 1. Confirm `DATABASE_URL` on Render uses the Neon **pooler** host (contains `-pooler`) and has `?connection_limit=5&pool_timeout=10` appended.
-2. `DIRECT_URL` should be the non-pooled host (used by `migrate deploy` only).
+2. `DIRECT_URL` should be the non-pooled host (used by `migrate deploy` only). It
+   must be **set** — Prisma fails schema validation on an unset `env()`, so a
+   missing `DIRECT_URL` crashes the container at the startup `migrate deploy`
+   rather than degrading gracefully.
 3. If a stuck process is hoarding connections, restart the Render service.
 
 ### Sentry stack traces are minified

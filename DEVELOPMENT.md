@@ -42,10 +42,22 @@ The integration tests require a dedicated `becca_test` database. Create it once:
 
 ```sh
 cd backend
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test" npx prisma db push
+DB="postgresql://postgres:postgres@localhost:5432/becca_test"
+DATABASE_URL="$DB" DIRECT_URL="$DB" npx prisma db push
 ```
 
 Make sure `docker compose up` is running before running integration tests.
+
+`becca_test` is built with `db push`, not `migrate deploy`, so it deliberately has
+**no migration history** — `migrate deploy` against it fails with P3005, which is
+expected, not a problem. Verify new migrations against the dev `becca` database
+instead (`npm run migrate`).
+
+> **`DIRECT_URL` is required, even locally.** Prisma validates that every `env()`
+> in the datasource block resolves, so an unset `DIRECT_URL` fails schema
+> validation for *every* prisma command — including `npm run dev` and `npm test`.
+> It does not fall back to `DATABASE_URL`. Copy `.env.example` (which sets it) and
+> mirror `DATABASE_URL` locally; only Neon needs the two to differ.
 
 #### Commands
 
