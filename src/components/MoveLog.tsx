@@ -34,29 +34,29 @@ const MoveLog = ({ entries }: { entries: MoveLogEntry[] }) => (
         <p className="text-xs text-muted-foreground">Nessuna carta giocata.</p>
       ) : (
         <ScrollArea className="h-64 pr-3">
+          {/* Two rows per move rather than one: a single row has to choose
+              between clipping the card name and pushing the signal badge out of
+              the panel, and both are the point of the log. */}
           <ol className="space-y-1">
             {entries.map((entry, index) => (
-              <li
-                key={index}
-                className="text-xs flex items-center gap-2 border-b border-border/30 pb-1"
-              >
-                <span className="text-muted-foreground w-8 shrink-0">
-                  {entry.handNumber ? `M${entry.handNumber}` : "—"}
-                </span>
-                <span className="w-24 shrink-0 truncate font-medium">
-                  {entry.username}
-                </span>
-                <span className="flex-1">
+              <li key={index} className="text-xs border-b border-border/30 pb-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-muted-foreground w-7 shrink-0">
+                    {entry.handNumber ? `M${entry.handNumber}` : "—"}
+                  </span>
+                  <span className="font-medium truncate">{entry.username}</span>
+                  {entry.signal && (
+                    <Badge
+                      variant="outline"
+                      className={`ml-auto shrink-0 text-[10px] px-1.5 py-0 ${SIGNAL_STYLES[entry.signal] ?? ""}`}
+                    >
+                      {entry.signal}
+                    </Badge>
+                  )}
+                </div>
+                <p className="pl-9 text-muted-foreground">
                   {entry.value} di {entry.suit}
-                </span>
-                {entry.signal && (
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] px-1.5 py-0 ${SIGNAL_STYLES[entry.signal] ?? ""}`}
-                  >
-                    {entry.signal}
-                  </Badge>
-                )}
+                </p>
               </li>
             ))}
           </ol>
