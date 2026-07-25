@@ -88,18 +88,21 @@ shaping, the BC teacher, and the audit must all agree. Previously only the audit
 one, so it was possible to train against one rule and measure another.
 
 **Pre-flight evidence that this works.** Measured locally on CPU before committing GPU
-time — BC alone (no RL, no reward shaping), V4 d=128/3-layer, 2000 teacher games,
-8 epochs:
+time, with BC alone — no RL and no reward shaping, so this isolates the teacher fix:
 
-| | BC accuracy | declared | honest |
+| config | BC accuracy | declared | honest |
 |---|---|---|---|
-| shipped Run B checkpoint | — | 741/840 leads | 28–45% (≈chance) |
-| BC with a signalling teacher | 95.2% | 699/820 leads | **674/699 = 96%** |
+| shipped Run B checkpoint | — | 741/840 leads | 28–45% (**≈chance**) |
+| V4 d=128 L=3, 2000 games, 8 ep | 95.2% | 699/820 leads | **96%** |
+| V4 d=128 L=3, 2000 games (repeat) | 95.4% | 685/800 leads | **97%** |
+| V4 d=192 L=4, 4000 games (Run C arch) | 97.4% | 664/790 leads | **97%** |
 
-So the warm-start alone already fixes the channel; the annealed reward term is what
-keeps it grounded once RL starts moving the policy. Note a smaller net (13k params,
-30 games) stayed at a uniform 0.25 per slot — if a smoke shows ~chance honesty, check
-scale before suspecting the mechanism.
+The warm-start alone already fixes the channel, at Run C's exact architecture; the
+annealed reward term is what keeps it grounded once RL starts moving the policy.
+
+Note a *too-small* net (13k params, 30 games) stayed at a uniform 0.25 per slot and
+43% honesty. If a smoke shows ≈chance honesty, check scale before suspecting the
+mechanism — a smoke's BC phase is deliberately tiny.
 
 **The engine still does not enforce honesty.** A dishonest signal is a legal move
 and stays legal; bluffing is part of the game.
