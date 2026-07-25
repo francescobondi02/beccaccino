@@ -1,6 +1,16 @@
 # BECCA — Play Against the Bots: Design
 
-**Status:** Design proposal for review. No code written yet.
+**Status:** **BUILT — all five phases.** A human can start a practice game from the UI
+("Pratica contro i bot" → tier picker), play a full round against the trained model, and
+review every signal in the move log with hands revealed. Verified in a browser against the
+live Python service, and end-to-end for all four tiers. Per-phase notes in §8.
+
+To run it: `cd ai && uvicorn serving.app:app --port 8011`, then set `BOT_SERVICE_URL` in
+`backend/.env`. Unset, practice rooms still start but every bot seat falls back to autoplay
+and logs `bot_fallback_to_autoplay`.
+
+Deferred by design: the per-move confidence readout (§7 item 5, D3), any hosted deploy of
+the Python service (§10), and mobile layout for the diagnostic rail (desktop-only, ≥xl).
 **Author:** synthesized from a five-reader ground-truth pass + three competing proposals + four judge panels.
 **Scope of this document:** *what to build* to let a human play a real game against the trained
 bots, so we can watch them and judge whether they play sanely. It is a design, not an
@@ -797,7 +807,7 @@ The point of the feature is to *judge bot quality*. Ranked best value-per-effort
 Each phase is independently verifiable. **Phase 1 is the shortest path to watching a real game** and
 is provable in `ai/` alone before touching the backend.
 
-**Phase 1 — Python `/act` + state adapter + golden parity test. (no backend change, no deploy) — ~1 day**
+**Phase 1 — Python `/act` + state adapter + golden parity test. — ✅ DONE**
 Add `ai/serving/state_adapter.py` (`state_dict_to_game` / `game_to_state_dict`) and `POST /act` to
 `serving/app.py` with a tier registry — Facile=`NeuralAgent(build_net(load_checkpoint(runB_bc)))`,
 Medio=`HeuristicAgent`, Forte=`runB_rl` — plus a `temperature` param and the runtime legal-move gate
@@ -810,7 +820,7 @@ signal+void+left/right fixture; `curl -X POST localhost:8000/act` returns a lega
 or `{suit,value,signal}` (play) **for all four tiers**; a corrupted `expected_legal` yields 409; and
 **Esperto's measured per-move latency is < 500 ms** (guards against the ~39 s net-rollout path).
 
-**Phase 1b — Cross-language golden fixtures (§5.3b). — ~0.5 day**
+**Phase 1b — Cross-language golden fixtures (§5.3b). — ✅ DONE** (backend assertion in `backend/tests/integration/botStateFixtures.test.ts`; 5 deliberate serializer mutations each fail it)
 The layer that actually covers the TypeScript serializer. Python emits a committed JSON fixture of
 `(game_state_dto, expected_obs)` pairs from real self-play; a backend integration test seeds
 `becca_test`, runs the real serializer, and deep-equals its DTO against the fixture. Must include a
@@ -822,7 +832,7 @@ signal seats by one — and confirm each break **fails the test**. A layer that 
 bug is not a layer. *(Sequencing note: this phase depends on the Phase 4 serializer existing, so in
 practice write the fixtures here and land the backend assertion alongside Phase 4.)*
 
-**Phase 2 — Schema + bot seeding + aggregate fences. — ~0.5 day**
+**Phase 2 — Schema + bot seeding + aggregate fences. — ✅ DONE**
 One migration: `User.isBot`, `Player.botModel`, `GameRoom.isPractice`. Add idempotent
 `ensureBotUsers()`. Add `isPractice`/`isBot` fences to `getLeaderboard` (`userController.ts:431`),
 `getUserStats` (`:195`), and `metrics.ts` (`:28-30`).
@@ -830,7 +840,7 @@ One migration: `User.isBot`, `Player.botModel`, `GameRoom.isPractice`. Add idemp
 change to human games); a test asserts `ensureBotUsers()` returns 3 distinct userIds and is
 idempotent, and that a finished practice game does **not** appear in leaderboard / stats / metrics.
 
-**Phase 3 — Practice-game creation. — ~0.5 day**
+**Phase 3 — Practice-game creation. — ✅ DONE**
 Add `POST /api/rooms/practice` taking a `tier`: create a `GameRoom` with `isPractice=true`, seat the
 human + 3 bot `Player` rows (`botModel` set, teams 2v2, `isReady=true`, `seat=null`), and ready the
 human to trip the existing start gate (`roomController.ts:402`) → `setupRound`.
@@ -838,7 +848,7 @@ human to trip the existing start gate (`roomController.ts:402`) → `setupRound`
 `botModel != null`), 2v2 teams, and a round created; the human is *not* blocked by the "already in an
 active game" guard.
 
-**Phase 4 — Bot-turn driver in `turnTimer.ts`. (the real work) — ~1.5 days**
+**Phase 4 — Bot-turn driver in `turnTimer.ts`. — ✅ DONE**
 Add the `botSeats` in-memory registry + `registerBotSeats()` (called by Phase 3 and the
 `getGameState` recovery path), the bot early-return in `startTurnTimer`, `scheduleBotMove()` with a
 `getStateForSeat(roomCode, userId)` service extracted from `getGameState`'s assembly logic (using the
@@ -856,7 +866,7 @@ all-human game takes the unchanged path (existing tests green). **Abandonment te
 calls `leaveRoom` mid-round → `GameRoom` + all 4 `Player` rows gone, the 3 bot `User` rows remain,
 `getTurnTimerState(roomCode)` is null, and no `card_played` fires afterward.
 
-**Phase 5 — Frontend entry + diagnostic surface. — ~1-1.5 days**
+**Phase 5 — Frontend entry + diagnostic surface. — ✅ DONE** (confidence readout deferred, per D3)
 Add an "Impara a giocare / Pratica contro i bot" card on `Index.tsx:504` → new `/practice` route in
 `App.tsx:25` (tier picker) → `POST /api/rooms/practice` → navigate to the existing `/game/:code`.
 Build the persistent move-log, all-four-seat signal badges, and the `isPractice`-gated reveal-hands
@@ -868,6 +878,30 @@ genuinely void in that suit).
 **Diagnostic is complete after Phase 5** (human vs 3 bots, local, no deploy). Rough total **~5.5-6.5
 focused days** — the original ~4-5 plus ~0.5 for the Phase 1b cross-language fixtures and ~0.5 for
 the Esperto/PIMC tier now in scope (D1). Any hosted deploy is **not** in this estimate (§10).
+
+---
+
+## 8b. What the diagnostic found (first results)
+
+The feature exists to answer a question, so here is the answer it gave on first use. From a
+full round per tier through the real service (`backend/tests/integration/botLive.test.ts`
+logs this) plus a browser session:
+
+- **Forte declares a signal on almost every lead** — 9 of 10 in the logged round — and they
+  are frequently dishonest. The clearest case: **`quattro di denara [busso]`**, announcing
+  strength while leading the weakest card in the deck. This reproduces, through the real
+  game path, the same finding the offline `watch_bots.py` audit reported (~29% busso
+  consistency), so it is a property of the policy, not of this integration.
+- **Facile, Medio and Esperto declare no signals at all.** For Medio that is by design
+  (the scripted heuristic never signals). For Esperto it is a finding: PIMC's rollouts
+  place no value on signalling, so search discards it.
+- **Nothing else looked broken.** Briscola choices were reasonable, follow-suit was always
+  respected, and no round failed the legality gate (no 409 in any tier).
+
+**Root cause of the signal problem (unchanged from the earlier analysis):** signals were made
+*observable* (the 450→462 obs extension) but never *rewarded*. There is no gradient toward
+using them honestly, so the policy learned to emit them as noise. Fixing it means reward
+shaping and another training run — a separate decision, not part of this feature.
 
 ---
 

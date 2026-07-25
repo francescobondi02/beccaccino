@@ -33,13 +33,18 @@ evaluation/
   stats.py          wilson_interval() confidence bounds
   elo.py            Elo rating tracker
 serving/
-  app.py            FastAPI inference endpoint (stateless: obs → action, input-validated)
+  app.py            FastAPI: /predict (pre-encoded obs) + /act (raw state) + /tiers
+  state_adapter.py  Backend JSON <-> BeccaGame, so /act reuses the training encoder
+  tiers.py          Difficulty tiers: facile/medio/forte/esperto -> agents
+  fixtures/         Committed (state, expected_obs) pairs the backend is tested against
   export_onnx.py    Export any checkpoint (incl. V4) to ONNX via build_net
-inference/          PIMC (perfect-information Monte Carlo) — not yet wired to serving
+inference/          PIMC (perfect-information Monte Carlo) — served as the "esperto" tier
 scripts/
   bc_then_rl.py     BC warm-start → PPO self-play pipeline (the strong recipe)
   elo_ladder.py     Cross-checkpoint Elo ranking CLI
   kaggle_run.py     Drive Kaggle GPU runs from the CLI (smoke-gated)
+  watch_bots.py     Audit signal honesty (volo => void, busso => holds strength)
+  gen_bot_fixtures.py  Regenerate serving/fixtures/bot_states.json
   benchmark.py      Environment throughput benchmark
 checkpoints/        Saved model checkpoints (.pt files)
 tests/              217 tests (pytest); mirrors the modules above
@@ -173,6 +178,36 @@ pytest -x              # Stop on first failure
 ruff check .           # Linting
 ruff format .          # Auto-format
 ```
+
+## Playing Against the Bots (serving the game)
+
+Design + first findings: `docs/BOT_PLAY_DESIGN.md`.
+
+```bash
+# 1. Serve the four tiers (needs checkpoints/kaggle-runb/checkpoints/*.pt)
+uvicorn serving.app:app --port 8011
+curl localhost:8011/tiers            # which tiers this process can actually serve
+
+# 2. Point the backend at it, then use "Pratica contro i bot" in the frontend
+#    backend/.env:  BOT_SERVICE_URL=http://localhost:8011
+
+# 3. Audit signal honesty offline (no backend needed)
+python -m scripts.watch_bots --tier forte --games 20 --trace
+```
+
+`POST /act` takes RAW game state as enum strings and owns encoding, inference, and action
+decoding, so the bot always reads the board through the same encoder it trained on. Cards
+never cross as indices: Python orders suits DENARA, SPADE, COPPE, BASTONI and Prisma orders
+them denara, coppe, spade, bastoni, so an index computed on either side would transpose 20
+cards silently.
+
+Three layers guard that boundary — the backend's serializer is the risky part, so all three
+are worth keeping green:
+1. `tests/test_state_adapter_parity.py` — Python round-trip byte parity (Python vs itself).
+2. `serving/fixtures/bot_states.json` — committed (state, obs) pairs the TypeScript
+   serializer is asserted against in `backend/tests/integration/botStateFixtures.test.ts`.
+   Regenerate with `python -m scripts.gen_bot_fixtures` (must be a no-op if nothing changed).
+3. `/act`'s runtime legality gate — 409 if the caller's legal-move set disagrees with ours.
 
 ## Consistency with Backend
 
