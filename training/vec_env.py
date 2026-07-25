@@ -8,11 +8,17 @@ from gymnasium.vector import AutoresetMode
 from becca_env.env import BeccaEnv
 
 
-def make_env(seed: int, win_points: int = 41, trick_shaping_coef: float = 0.0):
+def make_env(
+    seed: int,
+    win_points: int = 41,
+    trick_shaping_coef: float = 0.0,
+    signal_honesty_coef: float = 0.0,
+):
     """Factory function for creating BeccaEnv instances (required by VectorEnv)."""
     def _init():
         return BeccaEnv(seed=seed, win_points=win_points,
-                        trick_shaping_coef=trick_shaping_coef)
+                        trick_shaping_coef=trick_shaping_coef,
+                        signal_honesty_coef=signal_honesty_coef)
     return _init
 
 
@@ -22,13 +28,17 @@ def create_vec_env(
     win_points: int = 41,
     sync: bool = False,
     trick_shaping_coef: float = 0.0,
+    signal_honesty_coef: float = 0.0,
 ) -> gym.vector.VectorEnv:
     """Create a vectorized environment with num_envs parallel games.
 
     Defaults to AsyncVectorEnv (subprocess-based) for actual parallelism.
     Use sync=True only for debugging.
     """
-    env_fns = [make_env(seed + i, win_points, trick_shaping_coef) for i in range(num_envs)]
+    env_fns = [
+        make_env(seed + i, win_points, trick_shaping_coef, signal_honesty_coef)
+        for i in range(num_envs)
+    ]
 
     if sync:
         return gym.vector.SyncVectorEnv(env_fns, autoreset_mode=AutoresetMode.SAME_STEP)

@@ -40,6 +40,34 @@ def _ent_coef_schedule(config: TrainConfig, update: int) -> float:
     return config.ent_coef + (config.ent_coef_final - config.ent_coef) * frac
 
 
+def signal_honesty_schedule(config: TrainConfig, update: int) -> float:
+    """Signal-honesty coefficient for this update.
+
+    Anneals linearly over the first `signal_honesty_frac` of the run, then holds
+    the final value: the convention is taught early, then the term steps aside so
+    the round score decides when signalling actually pays.
+    """
+    progress = (update - 1) / max(config.total_updates - 1, 1)
+    if config.signal_honesty_frac > 0:
+        ramp = min(progress / config.signal_honesty_frac, 1.0)
+    else:
+        ramp = 1.0
+    start, end = config.signal_honesty_coef, config.signal_honesty_coef_final
+    return start + (end - start) * ramp
+
+
+def _apply_signal_honesty_coef(env, coef: float, use_vec: bool) -> None:
+    """Push the annealed coefficient into the env(s).
+
+    Vector envs run in subprocesses, so setting an attribute on the handle would
+    only mutate the parent's copy — the setter has to be *called* in each worker.
+    """
+    if use_vec:
+        env.call("set_signal_honesty_coef", coef)
+    else:
+        env.set_signal_honesty_coef(coef)
+
+
 def _lr_schedule(config: TrainConfig, optimizer: torch.optim.Optimizer, update: int):
     """Apply learning rate schedule."""
     denom = max(config.total_updates - 1, 1)
@@ -83,6 +111,10 @@ def train(config: TrainConfig):
     step_count = 0
     game_count = 0
     curriculum_stage = 0
+    # -1.0, not 0.0: a genuine 0% eval should still be recorded as the best seen
+    # so far, so best.pt always exists once an eval has run.
+    best_wr_heuristic = -1.0
+    best_update = 0
     resume_ckpt = None
     if config.resume_from:
         resume_ckpt = load_checkpoint(config.resume_from, map_location=dev)
@@ -94,6 +126,10 @@ def train(config: TrainConfig):
         step_count = resume_ckpt.get("step", resume_ckpt.get("steps", 0))
         game_count = resume_ckpt.get("games", 0)
         curriculum_stage = resume_ckpt.get("curriculum_stage", 0)
+        # Carry the best-so-far bar across sessions, or a resumed run would
+        # overwrite a better best.pt with its first mediocre eval.
+        best_wr_heuristic = resume_ckpt.get("best_wr_heuristic", -1.0)
+        best_update = resume_ckpt.get("best_update", 0)
         if resume_ckpt.get("rng") is not None:
             restore_rng(resume_ckpt["rng"])
         print(f"Resumed from {config.resume_from} (update {start_update}, {step_count:,} steps)")
@@ -109,10 +145,12 @@ def train(config: TrainConfig):
         vec_env = create_vec_env(
             num_envs=config.num_envs, seed=config.seed, win_points=win_points, sync=False,
             trick_shaping_coef=config.trick_shaping_coef,
+            signal_honesty_coef=signal_honesty_schedule(config, start_update),
         )
     else:
         single_env = BeccaEnv(seed=config.seed, win_points=win_points,
-                              trick_shaping_coef=config.trick_shaping_coef)
+                              trick_shaping_coef=config.trick_shaping_coef,
+                              signal_honesty_coef=signal_honesty_schedule(config, start_update))
 
     # Permanent opponent-pool anchor(s): a frozen reference policy (e.g. BC) that
     # p_latest self-play always keeps reachable, preventing strategy collapse.
@@ -179,7 +217,12 @@ def train(config: TrainConfig):
     )
 
     def _save(path, upd):
-        extra = {"games": game_count, "curriculum_stage": curriculum_stage}
+        extra = {
+            "games": game_count,
+            "curriculum_stage": curriculum_stage,
+            "best_wr_heuristic": best_wr_heuristic,
+            "best_update": best_update,
+        }
         if critic is not None:
             extra["critic"] = critic.state_dict()
         save_checkpoint(
@@ -204,6 +247,11 @@ def train(config: TrainConfig):
         # Schedules
         _lr_schedule(config, opt, update)
         ent_coef = _ent_coef_schedule(config, update)
+        signal_coef = signal_honesty_schedule(config, update)
+        if config.signal_honesty_coef != 0.0 or config.signal_honesty_coef_final != 0.0:
+            _apply_signal_honesty_coef(
+                vec_env if use_vec else single_env, signal_coef, use_vec
+            )
 
         # Pick opponent for this rollout. p_latest -> use current learner
         # (vanilla self-play); else sample a frozen historical policy.
@@ -266,6 +314,7 @@ def train(config: TrainConfig):
             "train/approx_kl": m["approx_kl"],
             "train/epochs_used": m["epochs_used"],
             "train/ent_coef": ent_coef,
+            "train/signal_honesty_coef": signal_coef,
             "train/explained_variance": explained_var,
             "train/learning_rate": current_lr,
             "rollout/mean_reward": mean_reward,
@@ -315,6 +364,16 @@ def train(config: TrainConfig):
             print(f"  eval: {wr:.1%} vs random | {wr_h:.1%} vs heuristic "
                   f"(win_points={win_points})")
 
+            # Keep the strongest weights, not merely the last ones. Self-play is
+            # non-monotone: a run can peak mid-way and drift down, and until now
+            # only final.pt/last.pt were kept, so that peak was unrecoverable.
+            # Scored on the frozen eval block, so these numbers are comparable.
+            if wr_h > best_wr_heuristic:
+                best_wr_heuristic = wr_h
+                best_update = update
+                _save(Path(config.ckpt_dir) / "best.pt", update)
+                print(f"  new best vs heuristic ({wr_h:.1%}) — saved best.pt")
+
             # Curriculum advancement
             if config.use_curriculum and curriculum_stage < len(config.curriculum_stages) - 1:
                 stage = config.curriculum_stages[curriculum_stage]
@@ -327,17 +386,22 @@ def train(config: TrainConfig):
                         print(f"  CURRICULUM: advancing to stage {curriculum_stage} "
                               f"(win_points={new_wp})")
                         win_points = new_wp
+                        # Rebuilt envs must carry THIS update's annealed signal
+                        # coefficient, not the run's starting value, or advancing
+                        # a stage would silently reset the schedule.
                         if use_vec:
                             vec_env.close()
                             vec_env = create_vec_env(
                                 num_envs=config.num_envs, seed=config.seed,
                                 win_points=win_points, sync=False,
                                 trick_shaping_coef=config.trick_shaping_coef,
+                                signal_honesty_coef=signal_coef,
                             )
                         else:
                             single_env = BeccaEnv(
                                 seed=config.seed, win_points=win_points,
                                 trick_shaping_coef=config.trick_shaping_coef,
+                                signal_honesty_coef=signal_coef,
                             )
                 else:
                     curriculum_confirm = 0
@@ -398,6 +462,15 @@ if __name__ == "__main__":
     p.add_argument("--trick-shaping-coef", type=float, default=0.0,
                    help="0.0 = round-end only (default). >0 adds biased per-trick "
                         "shaping; only useful as a curriculum hint.")
+    p.add_argument("--signal-honesty-coef", type=float, default=0.0,
+                   help="Reward for declaring an honest signal (penalty if it lies; "
+                        "silence is free). 0.0 = off. Grounds the signal action "
+                        "slots, which the score alone never touches.")
+    p.add_argument("--signal-honesty-coef-final", type=float, default=0.0,
+                   help="Value the honesty coefficient anneals TO (default 0.0: "
+                        "teach the convention, then let the score take over).")
+    p.add_argument("--signal-honesty-frac", type=float, default=0.5,
+                   help="Fraction of the run over which to anneal (default 0.5).")
     p.add_argument("--p-latest-opponent", type=float, default=0.5,
                    help="Probability that opponent is current learner (vanilla "
                         "self-play). 1-p draws from historical opponent pool.")
@@ -438,6 +511,9 @@ if __name__ == "__main__":
         ent_coef_final=a.ent_coef_final,
         win_points=a.win_points,
         trick_shaping_coef=a.trick_shaping_coef,
+        signal_honesty_coef=a.signal_honesty_coef,
+        signal_honesty_coef_final=a.signal_honesty_coef_final,
+        signal_honesty_frac=a.signal_honesty_frac,
         p_latest_opponent=a.p_latest_opponent,
         device=a.device,
         seed=a.seed,

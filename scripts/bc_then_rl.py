@@ -48,6 +48,7 @@ from training.network import CentralizedCritic, create_network
 from training.normalization import ReturnNormalizer
 from training.ppo import ppo_update
 from training.self_play import OpponentPool
+from training.trainer import _apply_signal_honesty_coef, signal_honesty_schedule
 from training.vec_env import create_vec_env
 
 SECONDS_PER_HOUR = 3600
@@ -79,6 +80,17 @@ def parse_args():
     p.add_argument("--lr", type=float, default=2.5e-4)
     p.add_argument("--ent-coef", type=float, default=0.02)
     p.add_argument("--ent-coef-final", type=float, default=0.005)
+    p.add_argument("--signal-honesty-coef", type=float, default=0.0,
+                   help="Reward for an honest signal (penalty if it lies; silence is "
+                        "free). 0.0 = off. Grounds the signal action slots, which "
+                        "the round score alone never touches.")
+    p.add_argument("--signal-honesty-coef-final", type=float, default=0.0,
+                   help="Value the honesty coefficient anneals TO (default 0.0).")
+    p.add_argument("--signal-honesty-frac", type=float, default=0.5,
+                   help="Fraction of the RL phase over which to anneal (default 0.5).")
+    p.add_argument("--bc-no-signals", action="store_true",
+                   help="Collect the BC dataset from a SILENT teacher (the old "
+                        "behaviour). Default teaches honest signalling.")
     p.add_argument("--p-latest-opponent", type=float, default=0.5)
     p.add_argument("--eval-every", type=int, default=10)
     p.add_argument("--eval-games", type=int, default=100)
@@ -163,6 +175,7 @@ def phase1_bc(args, device) -> torch.nn.Module:
     ds = collect_heuristic_dataset(
         num_games=args.bc_games, win_points=args.bc_win_points,
         seed=args.seed, verbose=True,
+        declare_signals=not args.bc_no_signals,
     )
     dt = time.time() - t0
     print(f"  collected {len(ds):,} samples in {dt:.1f}s")
@@ -223,6 +236,9 @@ def phase2_rl(args, device, net):
         seed=args.seed,
         p_latest_opponent=args.p_latest_opponent,
         network_version=args.network_version,
+        signal_honesty_coef=args.signal_honesty_coef,
+        signal_honesty_coef_final=args.signal_honesty_coef_final,
+        signal_honesty_frac=args.signal_honesty_frac,
         use_wandb=False,
     )
     eval_wp = cfg.eval_win_points if cfg.eval_win_points is not None else cfg.win_points
@@ -259,6 +275,10 @@ def phase2_rl(args, device, net):
 
     vec = create_vec_env(
         num_envs=cfg.num_envs, seed=cfg.seed, win_points=cfg.win_points, sync=False,
+        signal_honesty_coef=signal_honesty_schedule(cfg, 1),
+    )
+    shaping_signals = (
+        cfg.signal_honesty_coef != 0.0 or cfg.signal_honesty_coef_final != 0.0
     )
     learner_team_per_env = np.array([i % 2 for i in range(cfg.num_envs)], dtype=np.int64)
 
@@ -274,6 +294,7 @@ def phase2_rl(args, device, net):
     step_count = 0
     games_total = 0
     start_update = 1
+    resumed_best = (-1.0, 0)
     if args.resume:
         ck = load_checkpoint(args.resume, map_location=device)
         net.load_state_dict(ck["model"])
@@ -289,6 +310,7 @@ def phase2_rl(args, device, net):
         step_count = ck.get("step", 0)
         games_total = ck.get("games", 0)
         start_update = ck.get("update", 0) + 1
+        resumed_best = (ck.get("best_wr_heuristic", -1.0), ck.get("best_update", 0))
         print(f"  resumed at update {start_update}, {step_count:,} steps")
 
     n_params = sum(p.numel() for p in net.parameters())
@@ -297,6 +319,10 @@ def phase2_rl(args, device, net):
           + (" | +critic" if critic else ""))
 
     last_wr_random, last_wr_heur = float("nan"), float("nan")
+    # -1.0 so the first eval always wins and best.pt exists from then on. A
+    # resumed run inherits the previous session's bar, or its first mediocre eval
+    # would overwrite a better best.pt.
+    best_wr_heur, best_update = resumed_best
     t0 = time.time()
     deadline = (
         time.monotonic() + args.max_hours * SECONDS_PER_HOUR
@@ -304,7 +330,10 @@ def phase2_rl(args, device, net):
     )
 
     def _save(path, upd):
-        extra = {"games": games_total, "phase": "rl", "net_config": _net_config_dict(args)}
+        extra = {
+            "games": games_total, "phase": "rl", "net_config": _net_config_dict(args),
+            "best_wr_heuristic": best_wr_heur, "best_update": best_update,
+        }
         if critic is not None:
             extra["critic"] = critic.state_dict()
         save_checkpoint(
@@ -323,6 +352,9 @@ def phase2_rl(args, device, net):
         cos = 0.5 * (1 + np.cos(np.pi * frac))
         for pg in opt.param_groups:
             pg["lr"] = cfg.lr * max(cos, 0.1)
+        signal_coef = signal_honesty_schedule(cfg, update)
+        if shaping_signals:
+            _apply_signal_honesty_coef(vec, signal_coef, use_vec=True)
 
         sampled = pool.sample(p_latest=cfg.p_latest_opponent)
         if sampled is None:
@@ -369,6 +401,15 @@ def phase2_rl(args, device, net):
             last_wr_heur = evaluate_against_heuristic(
                 net, num_games=args.eval_games, device=device, win_points=eval_wp,
             )
+            # Keep the strongest weights, not just the last ones: self-play is
+            # non-monotone, and Run B's curve peaked well before its final update.
+            # Scored on the frozen eval block, so the comparison is apples-to-apples.
+            if last_wr_heur > best_wr_heur:
+                best_wr_heur = last_wr_heur
+                best_update = update
+                Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
+                _save(Path(args.final_ckpt).with_name("best.pt"), update)
+                print(f"  new best vs heuristic ({last_wr_heur:.1%}) — saved best.pt")
 
         with csv_path.open("a", newline="") as f:
             w = csv.writer(f)
@@ -414,6 +455,9 @@ def phase2_rl(args, device, net):
         "phase": "rl",
     }, args.final_ckpt)
     print(f"\nSaved final checkpoint to {args.final_ckpt}")
+    if best_update:
+        print(f"Best vs heuristic was {best_wr_heur:.1%} at update {best_update} "
+              f"(best.pt) — prefer it over the final weights if it scores higher.")
     vec.close()
 
     plot_results(csv_path, out)

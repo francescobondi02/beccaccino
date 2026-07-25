@@ -18,6 +18,15 @@ class TrainConfig:
     # (recommended). Non-zero adds ±(raw_pts/35)*coef per trick — biased
     # shaping, useful only as a curriculum hint early in training.
     trick_shaping_coef: float = 0.0
+    # Signal-honesty shaping: ±coef when a seat declares striscio/busso/volo,
+    # 0 when it stays silent (see becca_env/env.py). Annealed linearly from
+    # signal_honesty_coef to signal_honesty_coef_final over signal_honesty_frac
+    # of the run, then held at the final value. The point of annealing: teach the
+    # convention early, then let the round score decide when a signal is actually
+    # worth sending. 0.0/0.0 = off (the historical behaviour).
+    signal_honesty_coef: float = 0.0
+    signal_honesty_coef_final: float = 0.0
+    signal_honesty_frac: float = 0.5
 
     # PPO
     lr: float = 2.5e-4
