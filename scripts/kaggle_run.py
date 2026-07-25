@@ -93,6 +93,11 @@ class RunSpec:
     # Strengtheners / long-run survival (map to bc_then_rl store_true / value flags).
     centralized_critic: bool = False
     anchor_bc: bool = False
+    # Signal-honesty shaping, annealed to `_final` over `_frac` of the RL phase.
+    # 0.0/0.0 = off (historical behaviour).
+    signal_honesty_coef: float = 0.0
+    signal_honesty_coef_final: float = 0.0
+    signal_honesty_frac: float = 0.5
     max_hours: float | None = None
     resume: str | None = None
     extra_flags: list[str] = field(default_factory=list)
@@ -119,6 +124,9 @@ class RunSpec:
             "--eval-games", str(self.eval_games),
             "--pool-save-every", str(self.pool_save_every),
             "--p-latest-opponent", str(self.p_latest_opponent),
+            "--signal-honesty-coef", str(self.signal_honesty_coef),
+            "--signal-honesty-coef-final", str(self.signal_honesty_coef_final),
+            "--signal-honesty-frac", str(self.signal_honesty_frac),
             "--device", self.device,
             "--out-dir", self.out_dir,
             "--bc-ckpt", self.bc_ckpt,
@@ -135,13 +143,23 @@ class RunSpec:
         return [*args, *self.extra_flags]
 
 
+# Signal-honesty shaping for the real runs. 0.05 is ~1/20 of a round-end reward
+# (which spans ±1), so an honest signal is a nudge and cannot outweigh actually
+# winning points — the failure mode to avoid is a policy that farms honesty bonuses
+# instead of playing well. Annealed to 0 over the first half, so the second half is
+# scored purely on results and the policy decides when signalling is worth it.
+SIGNAL_HONESTY_COEF = 0.05
+SIGNAL_HONESTY_FRAC = 0.5
+
 # A cheap end-to-end validation run (~3-5 min on a T4): exercises the FULL real
-# recipe (critic + anchors) on a short RL phase so the smoke validates exactly
-# what the overnight run does, without burning quota.
+# recipe (critic + anchors + signal shaping) on a short RL phase so the smoke
+# validates exactly what the overnight run does, without burning quota.
 SMOKE_SPEC = RunSpec(
     bc_games=200, bc_epochs=1, total_rl_steps=200_000,
     num_envs=16, eval_every=50, eval_games=20,
     centralized_critic=True, anchor_bc=True,
+    signal_honesty_coef=SIGNAL_HONESTY_COEF,
+    signal_honesty_frac=SIGNAL_HONESTY_FRAC,
     out_dir="/kaggle/working/runs/smoke",
     bc_ckpt="/kaggle/working/checkpoints/smoke_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/smoke_rl.pt",
@@ -159,6 +177,24 @@ RUN_B_SPEC = RunSpec(
     out_dir="/kaggle/working/runs/runB",
     bc_ckpt="/kaggle/working/checkpoints/runB_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/runB_rl.pt",
+)
+
+
+# Run C: Run B's proven architecture and budget, plus the two things Run B
+# lacked — signal shaping (so the signal slots mean something) and best.pt
+# tracking (Run B peaked ~update 300 of 915 and shipped update 915).
+#
+# Deliberately NOT changed from Run B: network size, step budget, critic, anchors.
+# Run B plateaued around update 300, so more identical steps buy nothing; the
+# variable under test here is the signal channel. Keeping everything else fixed
+# is what makes the comparison against Run B's ~71% interpretable.
+RUN_C_SPEC = dataclasses.replace(
+    RUN_B_SPEC,
+    signal_honesty_coef=SIGNAL_HONESTY_COEF,
+    signal_honesty_frac=SIGNAL_HONESTY_FRAC,
+    out_dir="/kaggle/working/runs/runC",
+    bc_ckpt="/kaggle/working/checkpoints/runC_bc.pt",
+    final_ckpt="/kaggle/working/checkpoints/runC_rl.pt",
 )
 
 
@@ -289,7 +325,7 @@ def pull(dest: str) -> None:
     _run(["kaggle", "kernels", "output", KERNEL_SLUG, "-p", dest])
 
 
-_PRESETS = {"smoke": SMOKE_SPEC, "runb": RUN_B_SPEC}
+_PRESETS = {"smoke": SMOKE_SPEC, "runb": RUN_B_SPEC, "runc": RUN_C_SPEC}
 
 
 def _spec_from_args(a: argparse.Namespace) -> RunSpec:
@@ -316,9 +352,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("configure", help="enable GPU+internet and attach the dataset")
 
     ln = sub.add_parser("launch", help="render + push a run kernel")
-    ln.add_argument("--preset", choices=["smoke", "runb"], default=None,
-                    help="smoke: cheap full-recipe validation; runb: the real "
-                         "overnight run (critic + anchors + 11h cap).")
+    ln.add_argument("--preset", choices=["smoke", "runb", "runc"], default=None,
+                    help="smoke: cheap full-recipe validation; runb: the original "
+                         "overnight run (critic + anchors + 11h cap); runc: runb "
+                         "plus signal-honesty shaping and best.pt tracking.")
     ln.add_argument("--confirm-cost", action="store_true",
                     help="required to launch a run above the smoke threshold")
     # A curated subset of the most-tuned RunSpec fields; the rest keep defaults.

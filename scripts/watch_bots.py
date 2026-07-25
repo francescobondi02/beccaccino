@@ -20,19 +20,13 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 
-from becca_env.deck import Suit, Value, card_strength
+from becca_env.deck import Suit
 from becca_env.game import BeccaGame, GamePhase, Signal
+from becca_env.signals import signal_is_honest
 from serving.tiers import TIERS, get_agent
 
 DEFAULT_GAMES = 20
 GAME_SEED_BASE = 5000
-
-# A busso claims strength in the suit. Asso and above (asso/due/tre) back that
-# claim — they are the point-carrying cards that can actually win the trick.
-BUSSO_STRENGTH_FLOOR = card_strength[Value.ASSO]
-
-# A striscio claims length: at least one more card of the suit still in hand.
-STRISCIO_MIN_REMAINING = 2
 
 
 class SignalAudit:
@@ -49,29 +43,20 @@ class SignalAudit:
             return
 
         self.declared[signal.value] += 1
-        if self._is_truthful(signal, hand_after, suit):
+        # Graded against becca_env.signals, the same definition the reward
+        # shaping and the BC teacher use — so this audit measures exactly what
+        # training optimised, not a second opinion that could drift from it.
+        if signal_is_honest(signal, hand_after, suit):
             self.truthful[signal.value] += 1
-
-    @staticmethod
-    def _is_truthful(signal: Signal, hand_after: list, suit: Suit) -> bool:
-        """Is the claim consistent with what the declarer still holds?
-
-        `hand_after` is the hand once the led card is gone, which is what the
-        signal is about: volo says "that was my last one".
-        """
-        same_suit = [c for c in hand_after if c.suit == suit]
-        if signal is Signal.VOLO:
-            return not same_suit
-        if signal is Signal.STRISCIO:
-            return len(same_suit) >= STRISCIO_MIN_REMAINING
-        return any(card_strength[c.value] >= BUSSO_STRENGTH_FLOOR for c in same_suit)
 
     def report(self) -> str:
         if not self.declared:
             return (
                 f"  signals: NONE in {self.leads} leads — the policy never signals.\n"
-                "           Signals are observable but unrewarded, so this is the\n"
-                "           likely outcome; it means the cooperative channel is unused."
+                "           Expected for a checkpoint trained without signal shaping\n"
+                "           (--signal-honesty-coef): the slots get no gradient, so the\n"
+                "           cooperative channel goes unused. After shaping, silence\n"
+                "           instead means the policy judged signalling not worth it."
             )
         lines = [f"  signals: {sum(self.declared.values())} declared in {self.leads} leads"]
         for name in sorted(self.declared):
