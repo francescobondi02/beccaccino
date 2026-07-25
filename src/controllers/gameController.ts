@@ -87,6 +87,25 @@ export const getPlayableCards = async (req: Request, res: Response) => {
   }
 };
 
+/** Each seat's remaining cards, keyed by userId. Practice games only. */
+async function revealAllHands(
+  players: { userId: number; id: number; botModel: string | null }[],
+  roundId: number,
+) {
+  const cards = await prisma.playerCard.findMany({
+    where: { roundId },
+    orderBy: [{ suit: "asc" }, { value: "asc" }],
+  });
+
+  return players.map((player) => ({
+    userId: player.userId,
+    botModel: player.botModel,
+    cards: cards
+      .filter((card) => card.playerId === player.id)
+      .map(({ suit, value }) => ({ suit, value })),
+  }));
+}
+
 export const getGameState = async (req: Request, res: Response) => {
   const { roomCode } = req.params;
   const userId = req.user!.userId;
@@ -301,6 +320,14 @@ export const getGameState = async (req: Request, res: Response) => {
     timerState = getTurnTimerState(roomCode);
   }
 
+  // Practice-only: every seat's remaining cards, so a human can check whether a
+  // bot's "volo" was honest (genuinely void) or its "striscio" backed by real
+  // strength. Gated on isPractice SERVER-side — a client-only toggle would leak
+  // opponents' hands into real multiplayer.
+  const allHands = gameRoom.isPractice
+    ? await revealAllHands(gameRoom.players, currentRound.id)
+    : null;
+
   return res.status(200).json({
     round: {
       id: currentRound.id,
@@ -316,5 +343,7 @@ export const getGameState = async (req: Request, res: Response) => {
     lastHandCards,
     totalPoints,
     turnTimer: timerState,
+    isPractice: gameRoom.isPractice,
+    allHands,
   });
 };
