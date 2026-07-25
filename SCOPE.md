@@ -169,10 +169,40 @@ print(f"Agent A wins: {result.team0_wins}, Agent B wins: {result.team1_wins}")
 | 3b | BC warm-start + V3/V4 (transformer) networks | Done |
 | 3c | Signal observation, centralized (CTDE) critic, opponent anchors | Done |
 | 3d | Eval rigor (frozen seed, Wilson CIs, Elo ladder) + resume/checkpoint | Done |
-| 4 | Train to >55% vs heuristic on full 41-point games | Ready to run (fresh run after signals/critic) |
+| 4 | Train to >55% vs heuristic on full 41-point games | Done — Run B hit ~71% (see below) |
 | 5 | Signal reward shaping (beyond observability) | Planned |
 | 6 | PIMC / search wired into serving | Partial (PIMC in `inference/`, not yet in serving) |
 | 7 | Serving API + web integration | Partial (FastAPI + ONNX export done; backend encoder must emit the 462-float obs) |
+
+## Run B — first full training run with signals + CTDE critic (2026-07-25)
+
+Kaggle T4, 6.1h, `scripts/kaggle_run.py launch --preset runb`. V4 transformer
+(d_model 192, 4 layers, 1.25M params), BC on 6000 heuristic games → 915 PPO
+self-play updates with the centralized critic, BC anchor, and signal observations.
+
+| Metric | Before | Run B |
+|--------|--------|-------|
+| vs heuristic | ~60% (plateau) | **~71%** (566/800, 95% CI 67.5–73.8%) |
+| vs random | — | 96.5% |
+| explained variance | ~0.30 ceiling | **0.60** |
+| value loss | 2.61 | 0.16 |
+
+The CTDE critic is what broke the EV ceiling. RL gained **+246 Elo** over the BC
+warm-start (`scripts/elo_ladder.py`).
+
+Two measurement traps this run exposed, worth knowing before reading its logs:
+
+- **The `steps` column counts learner-team transitions, not env steps.** A team owns
+  2 of 4 seats, so only ~half of each batch is stored: the run logs ~15M steps while
+  simulating ~30M env steps. `total_updates` is derived from env steps, so the two
+  numbers legitimately differ by 2×. Neither is wrong; they are different units.
+- **The last CSV row is not an eval of the final weights.** Evals run every
+  `eval_every` updates, and 915 % 50 ≠ 0, so rows 901–915 carry forward the update-900
+  eval. The shipped checkpoint scores ~71%, not the 74.5% the final row shows. Score
+  the checkpoint directly rather than trusting the last row.
+
+The curve plateaued around update 300 (slope since then is within eval noise), so more
+identical steps will not help — the next gain needs structure (MAPPO, PIMC), not compute.
 
 ## Advanced Features Roadmap (Post-Overhaul)
 

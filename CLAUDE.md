@@ -42,7 +42,7 @@ scripts/
   kaggle_run.py     Drive Kaggle GPU runs from the CLI (smoke-gated)
   benchmark.py      Environment throughput benchmark
 checkpoints/        Saved model checkpoints (.pt files)
-tests/              ~200 tests (pytest); mirrors the modules above
+tests/              217 tests (pytest); mirrors the modules above
 ```
 
 ## Game Engine (game.py)
