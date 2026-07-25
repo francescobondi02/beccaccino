@@ -80,6 +80,8 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 | backend | TURN_TIMEOUT_SECONDS | Card play timeout (default 60) |
 | backend | BRISCOLA_TIMEOUT_SECONDS | Briscola choice timeout (default 90) |
 | backend | SENTRY_DSN | Sentry error tracking DSN (optional, disables if unset) |
+| backend | BOT_SERVICE_URL | Python bot inference service (unset = bots disabled) |
+| backend | BOT_THINK_DELAY_MS | Pause before a bot plays (default 1000) |
 | frontend | VITE_API_URL | Backend REST base URL (`/api`) |
 | frontend | VITE_SOCKET_URL | Backend WebSocket URL |
 | frontend | VITE_SENTRY_DSN | Sentry error tracking DSN (optional, disables if unset) |
@@ -95,7 +97,10 @@ Cross-origin deploy requires cookie `sameSite: 'none'` + `secure: true`.
 
 - `backend/src/services/gameService.ts` — core game logic (start round, set briscola, play card, score)
 - `backend/src/services/cardService.ts` — playable cards logic (legal moves based on hand/trick state)
-- `backend/src/services/turnTimer.ts` — timeout/auto-play/kick logic
+- `backend/src/services/turnTimer.ts` — timeout/auto-play/kick logic + bot-turn dispatch
+- `backend/src/services/botService.ts` — bot identity (fixed pool of 3 users) + difficulty tiers
+- `backend/src/services/botState.ts` — serializes a game into the bot service's wire format
+- `backend/src/services/botClient.ts` — HTTP client for the Python `/act` endpoint
 - `backend/src/sockets/room.ts` — all Socket.IO event handlers (lobby + game)
 - `frontend/src/sockets/socketClient.ts` — singleton socket with reconnection (Infinity attempts)
 - `frontend/src/sockets/lobbyHandlers.ts` — lobby socket event handlers (room CRUD, player join/leave)
