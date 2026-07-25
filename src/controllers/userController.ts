@@ -6,6 +6,7 @@ import { prisma } from "../db";
 import { hashPassword, comparePassword } from "../utils/password";
 import { generateToken } from "../utils/jwt";
 import { logger } from "../logger";
+import { RANKED_FINISHED_GAME } from "../utils/statsFilters";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isCrossOrigin =
@@ -195,7 +196,7 @@ export const getUserStats = async (req: Request, res: Response) => {
     const players = await prisma.player.findMany({
       where: {
         userId,
-        gameRoom: { finished: true },
+        gameRoom: RANKED_FINISHED_GAME,
       },
       include: {
         gameRoom: {
@@ -432,14 +433,14 @@ export const getLeaderboard = async (req: Request, res: Response) => {
       where: {
         players: {
           some: {
-            gameRoom: { finished: true },
+            gameRoom: RANKED_FINISHED_GAME,
           },
         },
       },
       include: {
         players: {
           where: {
-            gameRoom: { finished: true },
+            gameRoom: RANKED_FINISHED_GAME,
           },
           include: {
             gameRoom: {

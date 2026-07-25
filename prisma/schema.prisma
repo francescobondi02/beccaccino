@@ -37,10 +37,11 @@ model User {
   username  String   @unique
   email     String?  @unique          // Email opzionale per OAuth
   password  String?                   // Password opzionale (null per OAuth)
-  
+  isBot     Boolean  @default(false)  // Bot account: excluded from leaderboard/stats
+
   // OAuth fields
   googleId  String?  @unique          // Google OAuth ID
-  
+
   // Metadata
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt @default(now())
@@ -56,6 +57,7 @@ model Player {
   seat       Int?                       // 0–3 (serve per ordine nei round)
   isReady    Boolean   @default(false)
   team       Int?                 // 0 o 1
+  botModel   String?              // Difficulty tier driving this seat; null = human
 
   userId     Int
   gameRoomId Int
@@ -73,11 +75,12 @@ model Player {
 // GameRoom
 // ===========
 model GameRoom {
-  id        Int       @id @default(autoincrement())
-  code      String    @unique  // tipo "ABCD"
-  started   Boolean   @default(false)
-  finished  Boolean   @default(false)
-  createdAt DateTime  @default(now())
+  id         Int       @id @default(autoincrement())
+  code       String    @unique  // tipo "ABCD"
+  started    Boolean   @default(false)
+  finished   Boolean   @default(false)
+  isPractice Boolean   @default(false)  // Human vs bots: excluded from all aggregates
+  createdAt  DateTime  @default(now())
 
   players   Player[]
   rounds    Round[]

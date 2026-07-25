@@ -6,6 +6,7 @@
 import { logger } from "../logger";
 import { getSocketInstance } from "../socketInstance";
 import { prisma } from "../db";
+import { LIVE_MULTIPLAYER_ROOM, OPEN_LOBBY } from "../utils/statsFilters";
 
 const METRICS_INTERVAL_MS = 60_000; // every minute
 let interval: NodeJS.Timeout | null = null;
@@ -26,8 +27,8 @@ async function emitMetrics() {
   let openRooms = 0;
   try {
     [activeGames, openRooms] = await Promise.all([
-      prisma.gameRoom.count({ where: { started: true, finished: false } }),
-      prisma.gameRoom.count({ where: { started: false } }),
+      prisma.gameRoom.count({ where: LIVE_MULTIPLAYER_ROOM }),
+      prisma.gameRoom.count({ where: OPEN_LOBBY }),
     ]);
   } catch (err) {
     logger.warn({ err }, "metrics_db_query_failed");

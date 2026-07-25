@@ -108,11 +108,13 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 
   try {
-    // 1. Stanze disponibili: non iniziate, non piene, utente non dentro
+    // 1. Stanze disponibili: non iniziate, non piene, utente non dentro.
+    // Le stanze di pratica sono escluse: i posti sono già occupati dai bot.
     const availableRoomsRaw = await prisma.gameRoom.findMany({
       where: {
         started: false,
         finished: false,
+        isPractice: false,
         players: {
           some: {},
         },
