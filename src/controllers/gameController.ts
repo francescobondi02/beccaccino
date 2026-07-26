@@ -3,7 +3,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../db";
 import { Suit } from "@prisma/client";
-import { playCard, setBriscola } from "../services/gameService";
+import { playCard, setBriscola, seatAfter } from "../services/gameService";
 import { cumulativeScore } from "../utils/score";
 import { playableCards } from "../services/cardService";
 import {
@@ -170,7 +170,7 @@ export const getGameState = async (req: Request, res: Response) => {
         (p) => p.id === prevRound.hands[0].starterId,
       );
       if (prevCaller !== undefined && prevCaller.seat !== null) {
-        const nextSeat = (prevCaller.seat + 1) % 4;
+        const nextSeat = seatAfter(prevCaller.seat);
         const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
         callerPlayerId = nextPlayer?.id ?? null;
       }
@@ -219,7 +219,7 @@ export const getGameState = async (req: Request, res: Response) => {
           (p) => p.id === lastHand.starterId,
         );
         if (starterPlayer && starterPlayer.seat !== null) {
-          const nextSeat = (starterPlayer.seat + lastHand.cards.length) % 4;
+          const nextSeat = seatAfter(starterPlayer.seat, lastHand.cards.length);
           const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
           currentTurnUserId = nextPlayer?.userId ?? null;
         }

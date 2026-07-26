@@ -1,7 +1,7 @@
 {
   "name": "becca-backend",
   "dependencies": {
-    "@prisma/client": "^6.16.3",
+    "@prisma/client": "6.16.3",
     "@sentry/node": "^10.55.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
@@ -12,7 +12,7 @@
     "jsonwebtoken": "^9.0.2",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
-    "prisma": "^6.16.3",
+    "prisma": "6.16.3",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {

@@ -30,6 +30,11 @@ export const GAME_WIN_POINTS = (() => {
   return parsed;
 })();
 
+/** Seat `offset` positions clockwise from `seat`, wrapping around the 4-seat table. */
+export function seatAfter(seat: number, offset = 1): number {
+  return (seat + offset) % 4;
+}
+
 enum Suit {
   denara = "denara",
   spade = "spade",
@@ -190,7 +195,7 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     if (!lastStarterPlayer || lastStarterPlayer.seat === null) {
       throw new Error("Invalid previous starter or seat not assigned");
     }
-    const newStarterSeat = (lastStarterPlayer.seat + 1) % 4;
+    const newStarterSeat = seatAfter(lastStarterPlayer.seat);
     const newStarter = players.find((p) => p.seat === newStarterSeat);
     if (!newStarter) {
       throw new Error("New starter not found");
@@ -305,7 +310,7 @@ async function setBriscolaUnlocked({
         (p) => p.id === previousRound.hands[0].starterId,
       );
       if (prevCaller && prevCaller.seat !== null) {
-        const nextSeat = (prevCaller.seat + 1) % 4;
+        const nextSeat = seatAfter(prevCaller.seat);
         const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
         callerPlayerId = nextPlayer?.id ?? null;
       }
@@ -446,10 +451,11 @@ async function playCardUnlocked({
   }
 
   //^ 3. Determina l'ordine di gioco a partire da starterId
-  const seatOrder = Array.from(
-    { length: 4 },
-    (_, i) =>
-      (room.players.find((p) => p.id === currentHand.starterId)!.seat! + i) % 4,
+  const seatOrder = Array.from({ length: 4 }, (_, i) =>
+    seatAfter(
+      room.players.find((p) => p.id === currentHand.starterId)!.seat!,
+      i,
+    ),
   );
   const currentTurnPlayer = room.players.find(
     (p) => p.seat === seatOrder[playedCards.length],
@@ -524,11 +530,11 @@ async function playCardUnlocked({
   //^ Ora dobbiamo controllare se la mano è completa e gestire il turno successivo
   if (playedCards.length + 1 < 4) {
     // Hand not complete — start timer for next player
-    const seatOrder = Array.from(
-      { length: 4 },
-      (_, i) =>
-        (room.players.find((p) => p.id === currentHand.starterId)!.seat! + i) %
-        4,
+    const seatOrder = Array.from({ length: 4 }, (_, i) =>
+      seatAfter(
+        room.players.find((p) => p.id === currentHand.starterId)!.seat!,
+        i,
+      ),
     );
     const nextSeat = seatOrder[playedCards.length + 1];
     const nextPlayer = room.players.find((p) => p.seat === nextSeat);

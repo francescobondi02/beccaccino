@@ -14,6 +14,10 @@ module.exports = {
       ...sharedConfig,
       displayName: "unit",
       testMatch: ["<rootDir>/tests/unit/**/*.test.ts"],
+      // Unit tests never touch the DB, but they import src/db.ts transitively
+      // and PrismaClient validates its datasource URL at construction — the
+      // generated client no longer auto-loads .env (prisma CLI 6.19).
+      setupFiles: ["<rootDir>/tests/loadTestEnv.ts"],
       setupFilesAfterEnv: ["<rootDir>/tests/setup.ts"],
     },
     {
