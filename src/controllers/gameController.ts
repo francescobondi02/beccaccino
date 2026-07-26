@@ -4,6 +4,7 @@ import { Request, Response } from "express";
 import { prisma } from "../db";
 import { Suit } from "@prisma/client";
 import { playCard, setBriscola } from "../services/gameService";
+import { cumulativeScore } from "../utils/score";
 import { playableCards } from "../services/cardService";
 import {
   getTurnTimerState,
@@ -290,15 +291,13 @@ export const getGameState = async (req: Request, res: Response) => {
     },
   });
 
-  const totalPoints = completedRounds.reduce(
-    (acc, round) => ({
-      team0Points: acc.team0Points + round.team0Points,
-      team1Points: acc.team1Points + round.team1Points,
-      team0Figures: acc.team0Figures + round.team0Figures,
-      team1Figures: acc.team1Figures + round.team1Figures,
-    }),
-    { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
-  );
+  const cumulative = cumulativeScore(completedRounds);
+  const totalPoints = {
+    team0Points: cumulative.team0.points,
+    team1Points: cumulative.team1.points,
+    team0Figures: cumulative.team0.figures,
+    team1Figures: cumulative.team1.figures,
+  };
 
   // Lazy timer recovery: if the server restarted mid-game, in-memory turn
   // timers are gone. The first state fetch after restart restarts a timer

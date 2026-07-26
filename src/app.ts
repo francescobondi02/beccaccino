@@ -60,6 +60,11 @@ if (process.env.NODE_ENV === "test") {
     res.set("Keep-Alive", "timeout=0");
     next();
   });
+} else {
+  // Behind Render's load balancer: trust exactly one proxy hop so req.ip is the
+  // client address (from X-Forwarded-For) and rate limiters bucket per client,
+  // not per LB. Never `true` — that trusts arbitrary spoofed forwarded chains.
+  app.set("trust proxy", 1);
 }
 
 app.use("/api/users", userRouter);

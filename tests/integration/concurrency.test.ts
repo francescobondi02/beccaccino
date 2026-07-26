@@ -26,7 +26,11 @@ describe("Concurrent play-card requests", () => {
     });
 
     const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
-    const otherPlayer = room!.players.find((p) => p.id !== currentHand!.starterId)!;
+    // Use the starter's partner (2 seats away): never next in turn order, so
+    // their play stays illegal even if the lock runs the starter's play first.
+    const otherPlayer = room!.players.find(
+      (p) => p.seat === (starter.seat! + 2) % 4,
+    )!;
 
     const starterCard = await prisma.playerCard.findFirst({
       where: { playerId: starter.id, roundId: round.id },
@@ -122,7 +126,11 @@ describe("Concurrent play-card requests", () => {
     });
 
     const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
-    const otherPlayer = room!.players.find((p) => p.id !== currentHand!.starterId)!;
+    // Use the starter's partner (2 seats away): never next in turn order, so
+    // their play stays illegal even if the lock runs the starter's play first.
+    const otherPlayer = room!.players.find(
+      (p) => p.seat === (starter.seat! + 2) % 4,
+    )!;
 
     const starterCard = await prisma.playerCard.findFirst({
       where: { playerId: starter.id, roundId: round.id },

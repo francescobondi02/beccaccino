@@ -1,12 +1,14 @@
 // src/controllers/userController.ts
 
 import { Request, Response } from "express";
+import { randomUUID } from "crypto";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { hashPassword, comparePassword } from "../utils/password";
 import { generateToken } from "../utils/jwt";
 import { logger } from "../logger";
 import { RANKED_FINISHED_GAME } from "../utils/statsFilters";
+import { cumulativeScore } from "../utils/score";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isCrossOrigin =
@@ -203,10 +205,12 @@ export const getUserStats = async (req: Request, res: Response) => {
           include: {
             rounds: {
               orderBy: { number: "asc" },
+              where: { winnerTeam: { not: null } },
               select: {
                 team0Points: true,
                 team1Points: true,
-                winnerTeam: true,
+                team0Figures: true,
+                team1Figures: true,
               },
             },
             players: {
@@ -238,20 +242,11 @@ export const getUserStats = async (req: Request, res: Response) => {
       const myTeam = player.team;
 
       // Compute total points for each team across all rounds of this game
-      let myTeamTotalPoints = 0;
-      let opponentTeamTotalPoints = 0;
-
-      for (const round of room.rounds) {
-        if (round.winnerTeam !== null) {
-          if (myTeam === 0) {
-            myTeamTotalPoints += round.team0Points;
-            opponentTeamTotalPoints += round.team1Points;
-          } else {
-            myTeamTotalPoints += round.team1Points;
-            opponentTeamTotalPoints += round.team0Points;
-          }
-        }
-      }
+      const cumulative = cumulativeScore(room.rounds);
+      const myTeamTotalPoints =
+        myTeam === 0 ? cumulative.team0.points : cumulative.team1.points;
+      const opponentTeamTotalPoints =
+        myTeam === 0 ? cumulative.team1.points : cumulative.team0.points;
 
       // Determine if user's team won the game overall
       const didWin = myTeamTotalPoints > opponentTeamTotalPoints;
@@ -394,11 +389,22 @@ export const deleteCurrentUser = async (req: Request, res: Response) => {
       },
     });
 
-    // Delete the user (cascading will handle finished-game player records)
-    // Note: we keep Player records in finished games for data integrity
-    // But we need to delete the user itself
-    await prisma.user.delete({
+    // Every foreign key onto User is ON DELETE RESTRICT, so a hard delete throws
+    // as soon as the user has a single finished-game Player row. Anonymize instead:
+    // this frees the unique username/email for reuse and invalidates login while
+    // preserving the game history the other three players still rely on.
+    // .invalid is reserved (RFC 2606), so the placeholder email can never be real.
+    // A random token keeps the placeholders on the unique username/email columns
+    // unguessable, so nobody can pre-register them and force a P2002 on deletion.
+    const anonToken = randomUUID();
+    await prisma.user.update({
       where: { id: userId },
+      data: {
+        deletedAt: new Date(),
+        username: `deleted_user_${userId}_${anonToken}`,
+        email: `deleted_user_${userId}_${anonToken}@deleted.invalid`,
+        password: null,
+      },
     });
 
     // Clear auth cookie
@@ -434,6 +440,7 @@ export const getLeaderboard = async (req: Request, res: Response) => {
     const users = await prisma.user.findMany({
       where: {
         isBot: false,
+        deletedAt: null,
         players: {
           some: {
             gameRoom: RANKED_FINISHED_GAME,
@@ -453,7 +460,8 @@ export const getLeaderboard = async (req: Request, res: Response) => {
                   select: {
                     team0Points: true,
                     team1Points: true,
-                    winnerTeam: true,
+                    team0Figures: true,
+                    team1Figures: true,
                   },
                 },
               },
@@ -472,18 +480,11 @@ export const getLeaderboard = async (req: Request, res: Response) => {
         totalGames++;
         const myTeam = player.team;
 
-        let myTeamTotalPoints = 0;
-        let opponentTeamTotalPoints = 0;
-
-        for (const round of player.gameRoom.rounds) {
-          if (myTeam === 0) {
-            myTeamTotalPoints += round.team0Points;
-            opponentTeamTotalPoints += round.team1Points;
-          } else {
-            myTeamTotalPoints += round.team1Points;
-            opponentTeamTotalPoints += round.team0Points;
-          }
-        }
+        const cumulative = cumulativeScore(player.gameRoom.rounds);
+        const myTeamTotalPoints =
+          myTeam === 0 ? cumulative.team0.points : cumulative.team1.points;
+        const opponentTeamTotalPoints =
+          myTeam === 0 ? cumulative.team1.points : cumulative.team0.points;
 
         if (myTeamTotalPoints > opponentTeamTotalPoints) {
           wins++;

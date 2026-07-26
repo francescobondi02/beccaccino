@@ -5,6 +5,7 @@
 import { prisma } from "../db";
 import { determineHandWinner } from "../utils/determineHandWinner";
 import { computePoints } from "../utils/computePoints";
+import { cumulativeScore, decideGameWinner } from "../utils/score";
 import { detectCricca } from "../utils/detectCricca";
 import { getSocketInstance } from "../socketInstance";
 import { getRng } from "../utils/random";
@@ -571,6 +572,7 @@ async function playCardUnlocked({
       // Recupera tutte le mani del round con le carte giocate
       const allHands = await prisma.hand.findMany({
         where: { roundId: currentRound.id },
+        orderBy: { number: "asc" },
         include: {
           cards: {
             orderBy: { position: "asc" },
@@ -680,28 +682,27 @@ async function playCardUnlocked({
         select: {
           team0Points: true,
           team1Points: true,
+          team0Figures: true,
+          team1Figures: true,
+          winnerTeam: true,
         },
       });
 
-      const totalTeam0Points = allCompletedRounds.reduce(
-        (sum, r) => sum + r.team0Points,
-        0,
-      );
-      const totalTeam1Points = allCompletedRounds.reduce(
-        (sum, r) => sum + r.team1Points,
-        0,
-      );
+      const total = cumulativeScore(allCompletedRounds);
+      const totalTeam0Points = total.team0.points;
+      const totalTeam1Points = total.team1.points;
+
+      // Il caller (chi ha scelto briscola) ha guidato la prima mano del round.
+      const callerTeam = teamPlayers[allHands[0].starterId];
 
       // Controlla se una squadra ha raggiunto la soglia di punti per vincere
-      const gameFinished =
-        totalTeam0Points >= GAME_WIN_POINTS ||
-        totalTeam1Points >= GAME_WIN_POINTS;
+      const finalWinnerTeam = decideGameWinner(
+        total,
+        GAME_WIN_POINTS,
+        callerTeam,
+      );
 
-      if (gameFinished) {
-        // Determina il vincitore finale
-        const finalWinnerTeam =
-          totalTeam0Points >= GAME_WIN_POINTS ? 0 : 1;
-
+      if (finalWinnerTeam !== null) {
         // Segna la partita come finita
         await prisma.gameRoom.update({
           where: { id: room.id },
@@ -711,7 +712,7 @@ async function playCardUnlocked({
         // Calcola statistiche aggiuntive
         const totalRounds = allCompletedRounds.length;
         const team0Wins = allCompletedRounds.filter(
-          (r) => r.team0Points > r.team1Points,
+          (r) => r.winnerTeam === 0,
         ).length;
         const team1Wins = totalRounds - team0Wins;
 

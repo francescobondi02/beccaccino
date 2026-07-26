@@ -220,9 +220,10 @@ describe("Profile API", () => {
       expect(deleteRes.statusCode).toBe(200);
       expect(deleteRes.body.message).toContain("deleted");
 
-      // Verify user is gone from DB
+      // Verify user is anonymized (soft-deleted) rather than hard-deleted
       const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
-      expect(dbUser).toBeNull();
+      expect(dbUser).not.toBeNull();
+      expect(dbUser!.deletedAt).not.toBeNull();
 
       // Verify player records in non-started rooms are gone
       const players = await prisma.player.findMany({
