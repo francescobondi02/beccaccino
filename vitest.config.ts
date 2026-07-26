@@ -8,6 +8,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    // Modules read import.meta.env at import time (src/lib/api.ts throws
+    // without VITE_API_URL), so the values must exist before setupFiles run —
+    // locally .env provides them, but CI has no .env.
+    env: {
+      VITE_API_URL: "http://localhost:8000/api",
+      VITE_SOCKET_URL: "http://localhost:8000",
+    },
     setupFiles: ["./src/__tests__/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     coverage: {
