@@ -82,8 +82,7 @@ def test_no_relax_needed_at_start():
     for seed in range(20):
         g = BeccaGame(seed=seed)
         _play_through_briscola(g)
-        sampled = sample_opponent_hands(g, viewer_seat=seed % 4,
-                                        rng=random.Random(seed))
+        sampled = sample_opponent_hands(g, viewer_seat=seed % 4, rng=random.Random(seed))
         assert sampled.relaxed is False
 
 
@@ -166,7 +165,7 @@ def _craft_void_situation(seed: int = 0):
 
     # Distribute 10 spades among seats 0, 2, 3 (none to seat 1)
     g.round.player_hands[0] = spades[0:4] + non_spades[0:6]
-    g.round.player_hands[1] = non_spades[6:16]               # no spade
+    g.round.player_hands[1] = non_spades[6:16]  # no spade
     g.round.player_hands[2] = spades[4:7] + non_spades[16:23]
     g.round.player_hands[3] = spades[7:10] + non_spades[23:30]
 
@@ -354,9 +353,19 @@ def _play_random_partial_game(seed: int, num_actions: int) -> BeccaGame:
     return g
 
 
-@pytest.mark.parametrize("seed,actions", [
-    (0, 5), (1, 12), (2, 20), (3, 30), (4, 38), (5, 1), (6, 25), (7, 33),
-])
+@pytest.mark.parametrize(
+    "seed,actions",
+    [
+        (0, 5),
+        (1, 12),
+        (2, 20),
+        (3, 30),
+        (4, 38),
+        (5, 1),
+        (6, 25),
+        (7, 33),
+    ],
+)
 def test_sampler_robustness_on_many_states(seed, actions):
     """Sampler should succeed (relaxed=False) on randomly-generated game
     states — voids that occur naturally are always feasible."""
@@ -383,9 +392,7 @@ def test_sampler_robustness_on_many_states(seed, actions):
     # Public cards must never show up in any sampled hand
     for s in range(4):
         for c in sampled.hands[s]:
-            assert c not in public, (
-                f"public card {c} appeared in sampled hand of seat {s}"
-            )
+            assert c not in public, f"public card {c} appeared in sampled hand of seat {s}"
 
     # Voids honored (or relax flag set, which we want to be rare)
     voids = _void_suits_per_seat(g)

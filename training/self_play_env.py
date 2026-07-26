@@ -73,9 +73,7 @@ class SelfPlayEnv(gym.Env):
                 break
         return obs, info
 
-    def _play_opponent_turns(
-        self, obs: dict, info: dict
-    ) -> tuple[dict, dict, float, bool]:
+    def _play_opponent_turns(self, obs: dict, info: dict) -> tuple[dict, dict, float, bool]:
         """Auto-play all opponent turns, accumulating learner rewards."""
         extra_reward = 0.0
         while not self._is_learner_turn(obs):

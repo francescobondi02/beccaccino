@@ -44,9 +44,9 @@ ACTION_SIZE = 160
 
 @dataclass
 class ImitationDataset:
-    obs: np.ndarray             # (N, OBS_SIZE) float32
-    masks: np.ndarray           # (N, 160) float32
-    actions: np.ndarray         # (N,) int64
+    obs: np.ndarray  # (N, OBS_SIZE) float32
+    masks: np.ndarray  # (N, 160) float32
+    actions: np.ndarray  # (N,) int64
 
     def __len__(self) -> int:
         return self.obs.shape[0]

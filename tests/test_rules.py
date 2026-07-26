@@ -45,10 +45,10 @@ class TestDetermineHandWinner:
     def test_highest_lead_suit_wins(self):
         """Tre (strength 10) beats Asso (strength 8) in lead suit."""
         played = [
-            (0, Card(Suit.DENARA, Value.ASSO)),   # strength 8
-            (1, Card(Suit.DENARA, Value.TRE)),    # strength 10
-            (2, Card(Suit.DENARA, Value.QUATTRO)),# strength 1
-            (3, Card(Suit.SPADE, Value.TRE)),     # off-suit, ignored
+            (0, Card(Suit.DENARA, Value.ASSO)),  # strength 8
+            (1, Card(Suit.DENARA, Value.TRE)),  # strength 10
+            (2, Card(Suit.DENARA, Value.QUATTRO)),  # strength 1
+            (3, Card(Suit.SPADE, Value.TRE)),  # off-suit, ignored
         ]
         winner = determine_hand_winner(played, Suit.COPPE)  # briscola is coppe
         assert winner == 1
@@ -56,10 +56,10 @@ class TestDetermineHandWinner:
     def test_briscola_beats_lead_suit(self):
         """Even weak briscola beats strong lead suit card."""
         played = [
-            (0, Card(Suit.DENARA, Value.TRE)),     # lead suit, strength 10
+            (0, Card(Suit.DENARA, Value.TRE)),  # lead suit, strength 10
             (1, Card(Suit.COPPE, Value.QUATTRO)),  # briscola, strength 1
-            (2, Card(Suit.DENARA, Value.ASSO)),    # lead suit, strength 8
-            (3, Card(Suit.SPADE, Value.RE)),       # off-suit
+            (2, Card(Suit.DENARA, Value.ASSO)),  # lead suit, strength 8
+            (3, Card(Suit.SPADE, Value.RE)),  # off-suit
         ]
         winner = determine_hand_winner(played, Suit.COPPE)
         assert winner == 1
@@ -68,9 +68,9 @@ class TestDetermineHandWinner:
         """When multiple briscole, highest strength wins."""
         played = [
             (0, Card(Suit.COPPE, Value.QUATTRO)),  # briscola, strength 1
-            (1, Card(Suit.DENARA, Value.TRE)),     # off-suit
-            (2, Card(Suit.COPPE, Value.DUE)),      # briscola, strength 9
-            (3, Card(Suit.COPPE, Value.FANTE)),    # briscola, strength 5
+            (1, Card(Suit.DENARA, Value.TRE)),  # off-suit
+            (2, Card(Suit.COPPE, Value.DUE)),  # briscola, strength 9
+            (3, Card(Suit.COPPE, Value.FANTE)),  # briscola, strength 5
         ]
         winner = determine_hand_winner(played, Suit.COPPE)
         assert winner == 2
@@ -79,9 +79,9 @@ class TestDetermineHandWinner:
         """Off-suit cards are ignored; weakest lead-suit card wins if no briscola present."""
         played = [
             (0, Card(Suit.DENARA, Value.QUATTRO)),  # lead suit, strength 1
-            (1, Card(Suit.SPADE, Value.TRE)),       # off-suit, strength 10 but irrelevant
-            (2, Card(Suit.BASTONI, Value.TRE)),     # off-suit, strength 10 but irrelevant
-            (3, Card(Suit.COPPE, Value.TRE)),       # off-suit, strength 10 but irrelevant
+            (1, Card(Suit.SPADE, Value.TRE)),  # off-suit, strength 10 but irrelevant
+            (2, Card(Suit.BASTONI, Value.TRE)),  # off-suit, strength 10 but irrelevant
+            (3, Card(Suit.COPPE, Value.TRE)),  # off-suit, strength 10 but irrelevant
         ]
         # Briscola is a suit not present in any played card
         winner = determine_hand_winner(played, Suit.COPPE)
@@ -92,9 +92,9 @@ class TestDetermineHandWinner:
         # For a true "no briscola played" test, briscola must not appear in trick.
         played2 = [
             (0, Card(Suit.DENARA, Value.QUATTRO)),  # lead suit, strength 1
-            (1, Card(Suit.SPADE, Value.TRE)),       # off-suit, strength 10
-            (2, Card(Suit.SPADE, Value.DUE)),       # off-suit, strength 9
-            (3, Card(Suit.SPADE, Value.ASSO)),      # off-suit, strength 8
+            (1, Card(Suit.SPADE, Value.TRE)),  # off-suit, strength 10
+            (2, Card(Suit.SPADE, Value.DUE)),  # off-suit, strength 9
+            (3, Card(Suit.SPADE, Value.ASSO)),  # off-suit, strength 8
         ]
         winner = determine_hand_winner(played2, Suit.COPPE)  # briscola not in trick
         assert winner == 0  # weakest lead card still wins when others don't follow

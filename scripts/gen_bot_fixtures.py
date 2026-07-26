@@ -54,42 +54,54 @@ def build_cases() -> list[dict]:
     cases = []
 
     game = BeccaGame(seed=SEED)
-    cases.append(_case(
-        "briscola_choice",
-        "Caller must pick briscola; no tricks played yet.",
-        game, game.current_seat,
-    ))
+    cases.append(
+        _case(
+            "briscola_choice",
+            "Caller must pick briscola; no tricks played yet.",
+            game,
+            game.current_seat,
+        )
+    )
 
     game = BeccaGame(seed=SEED)
     game.step(Suit.DENARA)
-    cases.append(_case(
-        "first_lead",
-        "Briscola set, empty trick — the simplest play_card position.",
-        game, game.current_seat,
-    ))
+    cases.append(
+        _case(
+            "first_lead",
+            "Briscola set, empty trick — the simplest play_card position.",
+            game,
+            game.current_seat,
+        )
+    )
 
     game = BeccaGame(seed=SEED)
     game.step(Suit.DENARA)
     _lead_with_signal(game, Signal.BUSSO)
     _lead_with_signal(game, Signal.VOLO)
     game.step(game.legal_actions()[0])  # leave a trick in progress
-    cases.append(_case(
-        "signals_and_void_mid_trick",
-        "Two completed tricks with signals, a trick in progress, voids deduced. "
-        "Catches a serializer that sends only the latest hand.",
-        game, game.current_seat,
-    ))
+    cases.append(
+        _case(
+            "signals_and_void_mid_trick",
+            "Two completed tricks with signals, a trick in progress, voids deduced. "
+            "Catches a serializer that sends only the latest hand.",
+            game,
+            game.current_seat,
+        )
+    )
 
     game = BeccaGame(seed=SEED)
     game.step(Suit.DENARA)
     _lead_with_signal(game, Signal.STRISCIO)
     game.total_scores = dict(RAW_SCORES_WITH_REMAINDER)
-    cases.append(_case(
-        "cumulative_raw_scores",
-        "Scores carry a figures remainder (raw 37 = 12 points + 1 figure). "
-        "Catches summing team0Points without team0Figures.",
-        game, game.current_seat,
-    ))
+    cases.append(
+        _case(
+            "cumulative_raw_scores",
+            "Scores carry a figures remainder (raw 37 = 12 points + 1 figure). "
+            "Catches summing team0Points without team0Figures.",
+            game,
+            game.current_seat,
+        )
+    )
 
     # Same position from every seat: the relative-seat rows (left opp / partner /
     # right opp) differ per viewer, so a rotation bug shows up here.
@@ -100,7 +112,8 @@ def build_cases() -> list[dict]:
         _case(
             f"all_seats_view_seat{seat}",
             f"Identical board encoded from seat {seat}; catches seat rotation.",
-            game, seat,
+            game,
+            seat,
         )
         for seat in range(4)
     ]

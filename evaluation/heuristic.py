@@ -177,7 +177,8 @@ class HeuristicAgent:
 
         # Opponent winning with lead-suit card; can we beat it?
         winners = [
-            c for c in playable
+            c
+            for c in playable
             if c.suit == cur_winning_card.suit
             and card_strength[c.value] > card_strength[cur_winning_card.value]
         ]
@@ -219,8 +220,9 @@ class HeuristicAgent:
 # ------------------------- evaluation helpers -------------------------
 
 
-def play_match_heuristic(team0_agent, team1_agent, num_games: int, win_points: int = 41,
-                         seed: int = 0) -> tuple[int, int]:
+def play_match_heuristic(
+    team0_agent, team1_agent, num_games: int, win_points: int = 41, seed: int = 0
+) -> tuple[int, int]:
     """Play num_games between two agents. Returns (team0_wins, team1_wins).
 
     Avoids importing from arena.py to keep this module self-contained.
@@ -267,10 +269,12 @@ def evaluate_against_heuristic(
     heur = HeuristicAgent(seed=seed + 10000)
     half = num_games // 2
 
-    t0_a, t1_a = play_match_heuristic(neural, heur, num_games=half, seed=seed,
-                                      win_points=win_points)
-    t0_b, t1_b = play_match_heuristic(heur, neural, num_games=half, seed=seed + half,
-                                      win_points=win_points)
+    t0_a, t1_a = play_match_heuristic(
+        neural, heur, num_games=half, seed=seed, win_points=win_points
+    )
+    t0_b, t1_b = play_match_heuristic(
+        heur, neural, num_games=half, seed=seed + half, win_points=win_points
+    )
 
     # neural was team0 in match A, team1 in match B
     neural_wins = t0_a + t1_b

@@ -74,9 +74,18 @@ def test_launch_allows_smoke_sized_run(monkeypatch):
 
 
 def test_stage_ignore_excludes_junk():
-    ignored = kaggle_run.STAGE_IGNORE("somedir", [
-        "game.py", "__pycache__", ".venv", "runs", "checkpoints", "x.log", ".DS_Store",
-    ])
+    ignored = kaggle_run.STAGE_IGNORE(
+        "somedir",
+        [
+            "game.py",
+            "__pycache__",
+            ".venv",
+            "runs",
+            "checkpoints",
+            "x.log",
+            ".DS_Store",
+        ],
+    )
     assert {"__pycache__", ".venv", "runs", "checkpoints", "x.log", ".DS_Store"} <= set(ignored)
     assert "game.py" not in ignored
 

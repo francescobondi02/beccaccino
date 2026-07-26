@@ -29,9 +29,7 @@ def _card(value: Value, suit: Suit) -> Card:
 def test_volo_is_honest_only_when_void():
     assert signal_is_honest(Signal.VOLO, [], Suit.DENARA)
     assert signal_is_honest(Signal.VOLO, [_card(Value.ASSO, Suit.COPPE)], Suit.DENARA)
-    assert not signal_is_honest(
-        Signal.VOLO, [_card(Value.QUATTRO, Suit.DENARA)], Suit.DENARA
-    )
+    assert not signal_is_honest(Signal.VOLO, [_card(Value.QUATTRO, Suit.DENARA)], Suit.DENARA)
 
 
 def test_busso_needs_a_card_that_can_win_the_suit():
@@ -123,9 +121,7 @@ def _honest_and_dishonest_for(env: BeccaEnv) -> tuple[Signal, Signal]:
 def test_honest_signal_earns_the_coefficient():
     seed = 5
     honest, _ = _honest_and_dishonest_for(BeccaEnv(seed=seed, win_points=5))
-    shaped = _lead_with(
-        BeccaEnv(seed=seed, win_points=5, signal_honesty_coef=SIGNAL_COEF), honest
-    )
+    shaped = _lead_with(BeccaEnv(seed=seed, win_points=5, signal_honesty_coef=SIGNAL_COEF), honest)
     baseline = _lead_with(BeccaEnv(seed=seed, win_points=5), honest)
     assert shaped - baseline == SIGNAL_COEF
 
@@ -144,9 +140,7 @@ def test_silence_is_never_shaped():
     """The asymmetry: not signalling must cost exactly nothing, or the shaping
     would be deciding whether to signal instead of what a signal means."""
     seed = 5
-    shaped = _lead_with(
-        BeccaEnv(seed=seed, win_points=5, signal_honesty_coef=SIGNAL_COEF), None
-    )
+    shaped = _lead_with(BeccaEnv(seed=seed, win_points=5, signal_honesty_coef=SIGNAL_COEF), None)
     baseline = _lead_with(BeccaEnv(seed=seed, win_points=5), None)
     assert shaped == baseline
 

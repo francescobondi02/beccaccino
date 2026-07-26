@@ -25,7 +25,13 @@ serve = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
-    "ruff>=0.4",
+    # Pinned exactly: `ruff format` output is version-specific, so an unpinned
+    # ruff makes the CI `ruff format --check` gate non-deterministic.
+    "ruff==0.15.13",
+    # fastapi TestClient (tests/test_serving.py, test_act_endpoint.py) imports httpx.
+    "httpx>=0.28",
+    # plot_results in scripts/bc_then_rl.py, exercised by tests/test_bc_then_rl.py.
+    "matplotlib>=3.10",
 ]
 
 [build-system]

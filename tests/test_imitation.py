@@ -39,8 +39,7 @@ def test_dataset_actions_always_legal():
     ds = collect_heuristic_dataset(num_games=50, win_points=5, seed=1)
     for i in range(len(ds)):
         assert ds.masks[i, ds.actions[i]] == 1.0, (
-            f"sample {i}: action {ds.actions[i]} masked illegal "
-            f"(mask sum={ds.masks[i].sum()})"
+            f"sample {i}: action {ds.actions[i]} masked illegal (mask sum={ds.masks[i].sum()})"
         )
 
 
@@ -51,7 +50,12 @@ def test_bc_drives_accuracy_above_random():
 
     net = create_network(version=2, hidden_size=128, num_layers=2)
     history = behavioral_clone(
-        net, ds, epochs=3, batch_size=256, lr=3e-4, verbose=False,
+        net,
+        ds,
+        epochs=3,
+        batch_size=256,
+        lr=3e-4,
+        verbose=False,
     )
     final_acc = history["acc"][-1]
     # Heuristic is mostly deterministic given the state, so even modest
@@ -75,6 +79,7 @@ def test_loaded_bc_net_makes_legal_actions_in_env():
     behavioral_clone(net, ds, epochs=2, batch_size=256, lr=3e-4, verbose=False)
 
     from becca_env.env import BeccaEnv
+
     env = BeccaEnv(seed=42, win_points=5)
     obs, _ = env.reset()
     steps = 0

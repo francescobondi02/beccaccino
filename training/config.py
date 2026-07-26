@@ -83,12 +83,14 @@ class TrainConfig:
 
     # Curriculum
     use_curriculum: bool = False
-    curriculum_stages: list[dict] = field(default_factory=lambda: [
-        {"win_points": 5, "min_wr": 0.70, "max_steps": 10_000_000},
-        {"win_points": 11, "min_wr": 0.70, "max_steps": 20_000_000},
-        {"win_points": 21, "min_wr": 0.65, "max_steps": 30_000_000},
-        {"win_points": 41, "min_wr": 0.60, "max_steps": 50_000_000},
-    ])
+    curriculum_stages: list[dict] = field(
+        default_factory=lambda: [
+            {"win_points": 5, "min_wr": 0.70, "max_steps": 10_000_000},
+            {"win_points": 11, "min_wr": 0.70, "max_steps": 20_000_000},
+            {"win_points": 21, "min_wr": 0.65, "max_steps": 30_000_000},
+            {"win_points": 41, "min_wr": 0.60, "max_steps": 50_000_000},
+        ]
+    )
     curriculum_confirm_count: int = 3
 
     # Logging

@@ -27,13 +27,15 @@ class EloTracker:
         # `* total` factor let a single eval move the rating by thousands.
         self.current_rating += self.k_factor * (actual_score - expected_score)
 
-        self.history.append({
-            "step": step,
-            "rating": self.current_rating,
-            "wins": wins,
-            "losses": losses,
-            "win_rate": actual_score,
-        })
+        self.history.append(
+            {
+                "step": step,
+                "rating": self.current_rating,
+                "wins": wins,
+                "losses": losses,
+                "win_rate": actual_score,
+            }
+        )
 
     def update_from_winrate(self, win_rate: float, num_games: int, step: int):
         """Convenience: update from a win rate and game count."""

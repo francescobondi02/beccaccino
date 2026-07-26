@@ -98,8 +98,16 @@ def test_buffer_stores_and_returns_full_obs():
     buf = RolloutBuffer(size=4)
     fo = np.arange(FULL_STATE_SIZE, dtype=np.float32)
     buf.store(
-        np.zeros(OBS_SIZE, dtype=np.float32), np.ones(160, dtype=np.float32),
-        0, 0.0, 1.0, 0.5, False, seat=0, env_idx=0, full_obs=fo,
+        np.zeros(OBS_SIZE, dtype=np.float32),
+        np.ones(160, dtype=np.float32),
+        0,
+        0.0,
+        1.0,
+        0.5,
+        False,
+        seat=0,
+        env_idx=0,
+        full_obs=fo,
     )
     batch = buf.get_batch(0.99, 0.95)
     np.testing.assert_array_equal(batch["full_obs"][0].numpy(), fo)

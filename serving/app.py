@@ -42,6 +42,7 @@ MAX_TEMPERATURE = 2.0
 
 class GameState(BaseModel):
     """Observation from the backend (pre-encoded OBS_SIZE vector + action mask)."""
+
     obs: list[float]
     action_mask: list[float]
 
@@ -55,6 +56,7 @@ def _get_session():
     global _session
     if _session is None:
         import onnxruntime as ort
+
         model_path = Path(__file__).parent / "model.onnx"
         if not model_path.exists():
             raise HTTPException(500, "Model not found. Run export_onnx.py first.")
@@ -213,8 +215,7 @@ def _move_response(game, action) -> BriscolaMove | CardMove:
 def tiers():
     """Difficulty tiers this deployment can serve, weakest first."""
     return [
-        {"name": t.name, "label": t.label, "description": t.description}
-        for t in available_tiers()
+        {"name": t.name, "label": t.label, "description": t.description} for t in available_tiers()
     ]
 
 

@@ -15,8 +15,7 @@ from becca_env.game import BeccaGame
 from inference.hand_sampler import SampledHands
 
 
-def determinize(game: BeccaGame, sampled: SampledHands,
-                clone_seed: int | None = None) -> BeccaGame:
+def determinize(game: BeccaGame, sampled: SampledHands, clone_seed: int | None = None) -> BeccaGame:
     """Return a deep-copy of `game` with player hands replaced by `sampled`.
 
     The returned game is fully self-contained: no shared references with the

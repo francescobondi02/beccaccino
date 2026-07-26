@@ -54,8 +54,13 @@ def test_kl_early_stop_engages_before_cumulative_average_would():
         batch = _make_batch(512, net, seed=1)
         optimizer = torch.optim.Adam(net.parameters(), lr=lr)
         metrics = ppo_update(
-            net, optimizer, batch,
-            ent_coef=0.0, num_epochs=num_epochs, minibatch_size=512, target_kl=target_kl,
+            net,
+            optimizer,
+            batch,
+            ent_coef=0.0,
+            num_epochs=num_epochs,
+            minibatch_size=512,
+            target_kl=target_kl,
         )
         # Discriminating iff the brake fired (epochs_used < num_epochs) while the
         # cumulative KL is still <= target — the old cumulative logic could never
@@ -75,7 +80,12 @@ def test_kl_early_stop_disabled_runs_all_epochs():
     optimizer = torch.optim.Adam(net.parameters(), lr=0.05)
 
     metrics = ppo_update(
-        net, optimizer, batch,
-        ent_coef=0.0, num_epochs=5, minibatch_size=512, target_kl=None,
+        net,
+        optimizer,
+        batch,
+        ent_coef=0.0,
+        num_epochs=5,
+        minibatch_size=512,
+        target_kl=None,
     )
     assert metrics["epochs_used"] == 5

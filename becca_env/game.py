@@ -278,12 +278,14 @@ class BeccaGame:
                 leader_seat, leader_signal = self.round.trick_signals[0]
 
             trick_cards = list(self.round.current_trick)
-            self.round.hands_played.append(TrickRecord(
-                winner=winner_seat,
-                cards=trick_cards,
-                signal=leader_signal,
-                signal_seat=leader_seat,
-            ))
+            self.round.hands_played.append(
+                TrickRecord(
+                    winner=winner_seat,
+                    cards=trick_cards,
+                    signal=leader_signal,
+                    signal_seat=leader_seat,
+                )
+            )
 
             info["trick_winner"] = winner_seat
             info["trick_cards"] = trick_cards

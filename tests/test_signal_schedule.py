@@ -75,8 +75,7 @@ def test_schedule_can_anneal_upward():
 
 def test_coefficient_reaches_async_subprocess_workers():
     """The real training path: the setter must execute IN each worker process."""
-    vec = create_vec_env(num_envs=2, seed=0, win_points=5, sync=False,
-                         signal_honesty_coef=START)
+    vec = create_vec_env(num_envs=2, seed=0, win_points=5, sync=False, signal_honesty_coef=START)
     try:
         assert vec.get_attr("signal_honesty_coef") == (START, START)
         _apply_signal_honesty_coef(vec, 0.01, use_vec=True)

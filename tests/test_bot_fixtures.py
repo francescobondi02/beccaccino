@@ -52,7 +52,5 @@ def test_fixtures_cover_the_blocks_the_runtime_gate_cannot(committed_cases):
 
     assert any(s["total_scores"] != {"0": 0, "1": 0} for s in states), "no non-zero scores"
     assert any(len(s["completed_tricks"]) >= 2 for s in states), "no multi-trick round"
-    assert any(
-        t["signal"] for s in states for t in s["completed_tricks"]
-    ), "no declared signal"
+    assert any(t["signal"] for s in states for t in s["completed_tricks"]), "no declared signal"
     assert {c["seat"] for c in committed_cases} == {0, 1, 2, 3}, "not all seats viewed"

@@ -26,8 +26,12 @@ def test_only_learner_team_transitions_stored():
     vec = create_vec_env(num_envs=num_envs, seed=7, win_points=5, sync=True)
     try:
         buf = collect_self_play_rollout_vec(
-            vec, learner, opponent, learner_team,
-            steps_per_env=200, device=torch.device("cpu"),
+            vec,
+            learner,
+            opponent,
+            learner_team,
+            steps_per_env=200,
+            device=torch.device("cpu"),
         )
     finally:
         vec.close()
@@ -52,8 +56,12 @@ def test_buffer_size_roughly_half_of_worst_case():
     vec = create_vec_env(num_envs=num_envs, seed=2, win_points=5, sync=True)
     try:
         buf = collect_self_play_rollout_vec(
-            vec, learner, opponent, learner_team,
-            steps_per_env=400, device=torch.device("cpu"),
+            vec,
+            learner,
+            opponent,
+            learner_team,
+            steps_per_env=400,
+            device=torch.device("cpu"),
         )
     finally:
         vec.close()
@@ -72,8 +80,12 @@ def test_works_with_none_opponent():
     vec = create_vec_env(num_envs=num_envs, seed=3, win_points=5, sync=True)
     try:
         buf = collect_self_play_rollout_vec(
-            vec, learner, None, learner_team,
-            steps_per_env=100, device=torch.device("cpu"),
+            vec,
+            learner,
+            None,
+            learner_team,
+            steps_per_env=100,
+            device=torch.device("cpu"),
         )
     finally:
         vec.close()
@@ -93,8 +105,12 @@ def test_terminal_residuals_credited_to_learner_only():
     vec = create_vec_env(num_envs=num_envs, seed=42, win_points=5, sync=True)
     try:
         buf = collect_self_play_rollout_vec(
-            vec, learner, opponent, learner_team,
-            steps_per_env=400, device=torch.device("cpu"),
+            vec,
+            learner,
+            opponent,
+            learner_team,
+            steps_per_env=400,
+            device=torch.device("cpu"),
         )
     finally:
         vec.close()
@@ -118,8 +134,12 @@ def test_buffer_env_idx_seat_matches_per_env_team():
     vec = create_vec_env(num_envs=num_envs, seed=11, win_points=5, sync=True)
     try:
         buf = collect_self_play_rollout_vec(
-            vec, learner, opponent, learner_team,
-            steps_per_env=150, device=torch.device("cpu"),
+            vec,
+            learner,
+            opponent,
+            learner_team,
+            steps_per_env=150,
+            device=torch.device("cpu"),
         )
     finally:
         vec.close()

@@ -73,15 +73,18 @@ def test_checkpoint_persists_normalizer_and_pool(tmp_path):
     opt = torch.optim.Adam(net.parameters(), lr=1e-3)
     norm = ReturnNormalizer(gamma=0.99)
     norm.normalize_batch(
-        np.array([0, 0]), np.array([0, 1]),
-        np.array([0.5, 1.0], dtype=np.float32), np.array([0, 0]),
+        np.array([0, 0]),
+        np.array([0, 1]),
+        np.array([0.5, 1.0], dtype=np.float32),
+        np.array([0, 0]),
     )
     pool = OpponentPool(max_size=4)
     pool.add_policy(net.state_dict())
 
     path = tmp_path / "ckpt.pt"
-    save_checkpoint(path, net=net, optimizer=opt, config={"x": 1}, step=0, update=0,
-                    normalizer=norm, pool=pool)
+    save_checkpoint(
+        path, net=net, optimizer=opt, config={"x": 1}, step=0, update=0, normalizer=norm, pool=pool
+    )
     ckpt = load_checkpoint(path)
 
     norm2 = ReturnNormalizer(gamma=0.5)  # different gamma to prove it loads
@@ -118,8 +121,13 @@ def test_build_net_normalizes_legacy_network_version_key():
     """Older stamps spelled the version "network_version"; create_network takes
     "version" and would otherwise default to V2 and fail on a shape mismatch."""
     net = create_network(version=4, d_model=64, nhead=4, num_layers=2, dim_feedforward=128)
-    legacy = {"network_version": 4, "d_model": 64, "nhead": 4,
-              "num_layers": 2, "dim_feedforward": 128}
+    legacy = {
+        "network_version": 4,
+        "d_model": 64,
+        "nhead": 4,
+        "num_layers": 2,
+        "dim_feedforward": 128,
+    }
     ckpt = {"model": net.state_dict(), "net_config": legacy}
 
     rebuilt = build_net(ckpt, torch.device("cpu"))

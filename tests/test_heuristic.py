@@ -82,9 +82,9 @@ def test_follow_minimum_winning_card_when_can_beat():
     g.round.current_trick = [(0, Card(Suit.DENARA, Value.ASSO))]
     g.round.player_hands[1] = [
         Card(Suit.DENARA, Value.QUATTRO),  # can't beat
-        Card(Suit.DENARA, Value.RE),       # can beat (str 7 > asso str 8? no — RE=7, ASSO=8)
-        Card(Suit.DENARA, Value.TRE),      # str 10, beats ASSO (str 8) ✓
-        Card(Suit.DENARA, Value.DUE),      # str 9, beats ASSO ✓ — this is the MIN winner
+        Card(Suit.DENARA, Value.RE),  # can beat (str 7 > asso str 8? no — RE=7, ASSO=8)
+        Card(Suit.DENARA, Value.TRE),  # str 10, beats ASSO (str 8) ✓
+        Card(Suit.DENARA, Value.DUE),  # str 9, beats ASSO ✓ — this is the MIN winner
     ]
     card = HeuristicAgent().select_action(g, 1)
     # Asso strength = 8. Winners: TRE(10), DUE(9). Lowest-strength winner = DUE.
@@ -97,9 +97,9 @@ def test_follow_dumps_low_when_cannot_beat():
     g.round.trick_starter = 0
     g.round.current_trick = [(0, Card(Suit.DENARA, Value.TRE))]  # max strength
     g.round.player_hands[1] = [
-        Card(Suit.DENARA, Value.RE),       # 1 pt
+        Card(Suit.DENARA, Value.RE),  # 1 pt
         Card(Suit.DENARA, Value.QUATTRO),  # 0 pt — expected dump
-        Card(Suit.DENARA, Value.SEI),      # 0 pt
+        Card(Suit.DENARA, Value.SEI),  # 0 pt
     ]
     card = HeuristicAgent().select_action(g, 1)
     # Both QUATTRO (0pt, str 1) and SEI (0pt, str 3): min by (points, strength) → QUATTRO
@@ -115,13 +115,13 @@ def test_follow_partner_winning_last_to_play_loads_carico():
     g.round.trick_starter = 0
     g.round.current_trick = [
         (0, Card(Suit.DENARA, Value.QUATTRO)),  # opp led
-        (1, Card(Suit.DENARA, Value.TRE)),      # our partner (str 10) — winning
-        (2, Card(Suit.DENARA, Value.SEI)),      # opp
+        (1, Card(Suit.DENARA, Value.TRE)),  # our partner (str 10) — winning
+        (2, Card(Suit.DENARA, Value.SEI)),  # opp
     ]
     g.round.player_hands[3] = [
-        Card(Suit.DENARA, Value.ASSO),    # 3 pts — expected carico onto the win
+        Card(Suit.DENARA, Value.ASSO),  # 3 pts — expected carico onto the win
         Card(Suit.DENARA, Value.CINQUE),  # 0 pt
-        Card(Suit.DENARA, Value.RE),      # 1 pt
+        Card(Suit.DENARA, Value.RE),  # 1 pt
     ]
     card = HeuristicAgent().select_action(g, 3)
     assert card == Card(Suit.DENARA, Value.ASSO)
@@ -134,13 +134,13 @@ def test_follow_partner_winning_not_last_dumps_cheapest():
     g = _make_game_in_play_phase(briscola=Suit.SPADE)
     g.round.trick_starter = 0
     g.round.current_trick = [
-        (0, Card(Suit.DENARA, Value.TRE)),   # our partner (str 10) — winning
-        (1, Card(Suit.DENARA, Value.SEI)),   # opp
+        (0, Card(Suit.DENARA, Value.TRE)),  # our partner (str 10) — winning
+        (1, Card(Suit.DENARA, Value.SEI)),  # opp
     ]
     g.round.player_hands[2] = [
-        Card(Suit.DENARA, Value.ASSO),    # 3 pts — must NOT risk it
+        Card(Suit.DENARA, Value.ASSO),  # 3 pts — must NOT risk it
         Card(Suit.DENARA, Value.CINQUE),  # 0 pt — expected dump
-        Card(Suit.DENARA, Value.RE),      # 1 pt
+        Card(Suit.DENARA, Value.RE),  # 1 pt
     ]
     card = HeuristicAgent().select_action(g, 2)
     assert card == Card(Suit.DENARA, Value.CINQUE)
@@ -155,7 +155,7 @@ def test_free_play_trumps_opponents_asso():
         Card(Suit.SPADE, Value.QUATTRO),  # can't follow suit
         Card(Suit.COPPE, Value.SETTE),
         Card(Suit.BASTONI, Value.QUATTRO),  # lowest briscola
-        Card(Suit.BASTONI, Value.RE),       # higher briscola
+        Card(Suit.BASTONI, Value.RE),  # higher briscola
     ]
     card = HeuristicAgent().select_action(g, 1)
     assert card == Card(Suit.BASTONI, Value.QUATTRO)
@@ -168,7 +168,7 @@ def test_free_play_does_not_trump_worthless_trick():
     g.round.current_trick = [(0, Card(Suit.DENARA, Value.QUATTRO))]  # 0 pts
     g.round.player_hands[1] = [
         Card(Suit.SPADE, Value.QUATTRO),  # 0 pt non-briscola — expected
-        Card(Suit.COPPE, Value.RE),       # 1 pt
+        Card(Suit.COPPE, Value.RE),  # 1 pt
         Card(Suit.BASTONI, Value.DUE),
     ]
     card = HeuristicAgent().select_action(g, 1)
@@ -183,12 +183,12 @@ def test_free_play_partner_winning_last_loads_carico_no_trump():
     g.round.current_trick = [
         (0, Card(Suit.DENARA, Value.QUATTRO)),  # opp led
         (1, Card(Suit.BASTONI, Value.CINQUE)),  # our partner trumped — winning
-        (2, Card(Suit.DENARA, Value.RE)),       # opp
+        (2, Card(Suit.DENARA, Value.RE)),  # opp
     ]
     g.round.player_hands[3] = [
         Card(Suit.SPADE, Value.QUATTRO),  # 0 pt non-briscola
-        Card(Suit.COPPE, Value.ASSO),     # 3 pts non-briscola — expected carico
-        Card(Suit.BASTONI, Value.TRE),    # don't trump partner
+        Card(Suit.COPPE, Value.ASSO),  # 3 pts non-briscola — expected carico
+        Card(Suit.BASTONI, Value.TRE),  # don't trump partner
     ]
     card = HeuristicAgent().select_action(g, 3)
     assert card == Card(Suit.COPPE, Value.ASSO)
@@ -206,6 +206,7 @@ def test_heuristic_beats_random_decisively():
             return self.rng.choice(game.legal_actions())
 
     from evaluation.heuristic import play_match_heuristic
+
     h = HeuristicAgent(seed=1)
     r = RandAgent(seed=2)
     h_wins, r_wins = play_match_heuristic(h, r, num_games=40, win_points=11, seed=42)
@@ -219,6 +220,7 @@ def test_evaluate_against_heuristic_runs_end_to_end():
     from training.network import create_network
 
     net = create_network(version=2, hidden_size=64, num_layers=2)
-    wr = evaluate_against_heuristic(net, num_games=10, win_points=5,
-                                    device=torch.device("cpu"), seed=0)
+    wr = evaluate_against_heuristic(
+        net, num_games=10, win_points=5, device=torch.device("cpu"), seed=0
+    )
     assert 0.0 <= wr <= 1.0

@@ -38,26 +38,35 @@ def client(monkeypatch):
 
 
 def test_wrong_obs_width_returns_422(client):
-    resp = client.post("/predict", json={
-        "obs": [0.0] * (OBS_SIZE - 1),
-        "action_mask": [1.0] * ACTION_SIZE,
-    })
+    resp = client.post(
+        "/predict",
+        json={
+            "obs": [0.0] * (OBS_SIZE - 1),
+            "action_mask": [1.0] * ACTION_SIZE,
+        },
+    )
     assert resp.status_code == 422
 
 
 def test_wrong_mask_width_returns_422(client):
-    resp = client.post("/predict", json={
-        "obs": [0.0] * OBS_SIZE,
-        "action_mask": [1.0] * (ACTION_SIZE - 5),
-    })
+    resp = client.post(
+        "/predict",
+        json={
+            "obs": [0.0] * OBS_SIZE,
+            "action_mask": [1.0] * (ACTION_SIZE - 5),
+        },
+    )
     assert resp.status_code == 422
 
 
 def test_empty_legal_mask_returns_422_not_500(client):
-    resp = client.post("/predict", json={
-        "obs": [0.0] * OBS_SIZE,
-        "action_mask": [0.0] * ACTION_SIZE,  # no legal actions
-    })
+    resp = client.post(
+        "/predict",
+        json={
+            "obs": [0.0] * OBS_SIZE,
+            "action_mask": [0.0] * ACTION_SIZE,  # no legal actions
+        },
+    )
     assert resp.status_code == 422
 
 

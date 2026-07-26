@@ -159,9 +159,7 @@ def test_legal_move_gate_accepts_an_agreeing_backend(client):
     game.step(Suit.DENARA)
     _apply(game, _act(client, game, "forte").json())
 
-    agreed = [
-        {"suit": c.suit.value, "value": c.value.value} for c in game.legal_actions()
-    ]
+    agreed = [{"suit": c.suit.value, "value": c.value.value} for c in game.legal_actions()]
     response = _act(client, game, "forte", expected_legal_cards=agreed)
     assert response.status_code == 200, response.text
 

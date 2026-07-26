@@ -15,10 +15,15 @@ def make_env(
     signal_honesty_coef: float = 0.0,
 ):
     """Factory function for creating BeccaEnv instances (required by VectorEnv)."""
+
     def _init():
-        return BeccaEnv(seed=seed, win_points=win_points,
-                        trick_shaping_coef=trick_shaping_coef,
-                        signal_honesty_coef=signal_honesty_coef)
+        return BeccaEnv(
+            seed=seed,
+            win_points=win_points,
+            trick_shaping_coef=trick_shaping_coef,
+            signal_honesty_coef=signal_honesty_coef,
+        )
+
     return _init
 
 

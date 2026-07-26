@@ -48,7 +48,7 @@ def _status_block(obs: np.ndarray) -> np.ndarray:
 
 
 _SIGNAL_BLOCK = 4 * NUM_SIGNALS  # 12, the trailing signal mask
-_VOID_BLOCK = 16                 # void mask sits just before the signal mask
+_VOID_BLOCK = 16  # void mask sits just before the signal mask
 
 
 def _void_block(obs: np.ndarray) -> np.ndarray:
@@ -123,10 +123,15 @@ def test_status_classifies_partner_left_right_correctly():
     # We don't actually need to fully validate hands; just inject the trick
     # into hands_played so encode_observation reads it as completed history.
     from becca_env.game import TrickRecord
-    g.round.hands_played.append(TrickRecord(
-        winner=0, cards=[(0, led), (1, p1), (2, p2), (3, p3)],
-        signal=None, signal_seat=None,
-    ))
+
+    g.round.hands_played.append(
+        TrickRecord(
+            winner=0,
+            cards=[(0, led), (1, p1), (2, p2), (3, p3)],
+            signal=None,
+            signal_seat=None,
+        )
+    )
     # And ensure my_hand doesn't accidentally contain the played cards
     for c in (led, p1, p2, p3):
         if c in g.round.player_hands[0]:
@@ -154,10 +159,15 @@ def test_status_relativity_to_seat_3():
     p2 = Card(Suit.SPADE, Value.SEI)
     p3 = Card(Suit.BASTONI, Value.SETTE)
     from becca_env.game import TrickRecord
-    g.round.hands_played.append(TrickRecord(
-        winner=0, cards=[(0, led), (1, p1), (2, p2), (3, p3)],
-        signal=None, signal_seat=None,
-    ))
+
+    g.round.hands_played.append(
+        TrickRecord(
+            winner=0,
+            cards=[(0, led), (1, p1), (2, p2), (3, p3)],
+            signal=None,
+            signal_seat=None,
+        )
+    )
     for c in (led, p1, p2, p3):
         if c in g.round.player_hands[3]:
             g.round.player_hands[3].remove(c)
@@ -169,10 +179,10 @@ def test_status_relativity_to_seat_3():
     #   seat 1 vs 3: (1-3)%4 = 2 → PARTNER
     #   seat 2 vs 3: (2-3)%4 = 3 → RIGHT_OPP
     #   seat 3 vs 3: (3-3)%4 = 0 → MINE
-    assert block[CARD_INDEX[led], STATUS_LEFT_OPP] == 1.0     # seat 0
-    assert block[CARD_INDEX[p1], STATUS_PARTNER] == 1.0       # seat 1
-    assert block[CARD_INDEX[p2], STATUS_RIGHT_OPP] == 1.0     # seat 2
-    assert block[CARD_INDEX[p3], STATUS_MINE] == 1.0          # seat 3
+    assert block[CARD_INDEX[led], STATUS_LEFT_OPP] == 1.0  # seat 0
+    assert block[CARD_INDEX[p1], STATUS_PARTNER] == 1.0  # seat 1
+    assert block[CARD_INDEX[p2], STATUS_RIGHT_OPP] == 1.0  # seat 2
+    assert block[CARD_INDEX[p3], STATUS_MINE] == 1.0  # seat 3
 
 
 def test_void_mask_set_when_seat_fails_to_follow_suit():
@@ -184,10 +194,15 @@ def test_void_mask_set_when_seat_fails_to_follow_suit():
     on = Card(Suit.DENARA, Value.SEI)
     on2 = Card(Suit.DENARA, Value.SETTE)
     from becca_env.game import TrickRecord
-    g.round.hands_played.append(TrickRecord(
-        winner=0, cards=[(0, led), (1, off), (2, on), (3, on2)],
-        signal=None, signal_seat=None,
-    ))
+
+    g.round.hands_played.append(
+        TrickRecord(
+            winner=0,
+            cards=[(0, led), (1, off), (2, on), (3, on2)],
+            signal=None,
+            signal_seat=None,
+        )
+    )
 
     obs = encode_observation(g, seat=0)
     void = _void_block(obs)
@@ -240,14 +255,22 @@ def test_signal_mask_set_from_completed_trick():
     """Seat 2 (our partner) declared BUSSO leading a completed trick.
     From seat 0's POV that lands on relative row 2, busso column."""
     from becca_env.game import Signal, TrickRecord
+
     g = _make_game_in_play(briscola=Suit.DENARA)
     led = Card(Suit.DENARA, Value.QUATTRO)
-    g.round.hands_played.append(TrickRecord(
-        winner=2,
-        cards=[(2, led), (3, Card(Suit.DENARA, Value.CINQUE)),
-               (0, Card(Suit.DENARA, Value.SEI)), (1, Card(Suit.DENARA, Value.SETTE))],
-        signal=Signal.BUSSO, signal_seat=2,
-    ))
+    g.round.hands_played.append(
+        TrickRecord(
+            winner=2,
+            cards=[
+                (2, led),
+                (3, Card(Suit.DENARA, Value.CINQUE)),
+                (0, Card(Suit.DENARA, Value.SEI)),
+                (1, Card(Suit.DENARA, Value.SETTE)),
+            ],
+            signal=Signal.BUSSO,
+            signal_seat=2,
+        )
+    )
     sig = _signal_block(encode_observation(g, seat=0))
     assert sig[2, SIGNAL_INDEX[Signal.BUSSO]] == 1.0
     assert sig.sum() == 1.0  # nothing else fires
@@ -256,6 +279,7 @@ def test_signal_mask_set_from_completed_trick():
 def test_signal_mask_set_from_in_progress_trick():
     """The leader of the in-progress trick declared STRISCIO."""
     from becca_env.game import Signal
+
     g = _make_game_in_play(briscola=Suit.DENARA)
     g.round.current_trick = [(1, Card(Suit.DENARA, Value.QUATTRO))]
     g.round.trick_signals = [(1, Signal.STRISCIO)]
@@ -269,13 +293,21 @@ def test_signal_mask_is_viewer_relative():
     """Same declared signal appears on different relative rows for different
     viewers. Seat 0 declares VOLO; seat 0 sees row 0, seat 2 sees row 2."""
     from becca_env.game import Signal, TrickRecord
+
     g = _make_game_in_play(briscola=Suit.DENARA)
-    g.round.hands_played.append(TrickRecord(
-        winner=0,
-        cards=[(0, Card(Suit.DENARA, Value.QUATTRO)), (1, Card(Suit.DENARA, Value.CINQUE)),
-               (2, Card(Suit.DENARA, Value.SEI)), (3, Card(Suit.DENARA, Value.SETTE))],
-        signal=Signal.VOLO, signal_seat=0,
-    ))
+    g.round.hands_played.append(
+        TrickRecord(
+            winner=0,
+            cards=[
+                (0, Card(Suit.DENARA, Value.QUATTRO)),
+                (1, Card(Suit.DENARA, Value.CINQUE)),
+                (2, Card(Suit.DENARA, Value.SEI)),
+                (3, Card(Suit.DENARA, Value.SETTE)),
+            ],
+            signal=Signal.VOLO,
+            signal_seat=0,
+        )
+    )
     sig0 = _signal_block(encode_observation(g, seat=0))
     sig2 = _signal_block(encode_observation(g, seat=2))
     assert sig0[0, SIGNAL_INDEX[Signal.VOLO]] == 1.0  # my own signal, row 0

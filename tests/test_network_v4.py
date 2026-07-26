@@ -79,8 +79,9 @@ def test_v4_outer_sum_decomposition():
         for s in range(4):
             expected = manual_card[0, c] + manual_sig[0, s]
             got = flat[0, c * 4 + s]
-            assert torch.isclose(got, expected, atol=1e-4), \
+            assert torch.isclose(got, expected, atol=1e-4), (
                 f"action ({c},{s}): {got} vs expected {expected}"
+            )
 
 
 def test_v4_log_prob_consistency():

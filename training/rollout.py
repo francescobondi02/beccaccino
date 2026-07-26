@@ -41,8 +41,19 @@ class RolloutBuffer:
         self.ptr = 0
         self.games_done = 0
 
-    def store(self, obs, mask, action, log_prob, value, reward, done,
-              seat: int, env_idx: int = 0, full_obs=None):
+    def store(
+        self,
+        obs,
+        mask,
+        action,
+        log_prob,
+        value,
+        reward,
+        done,
+        seat: int,
+        env_idx: int = 0,
+        full_obs=None,
+    ):
         i = self.ptr
         self.obs[i] = obs
         self.masks[i] = mask
@@ -207,8 +218,9 @@ def collect_rollout(
 
             a = act.item()
             next_obs, rew, done, _, step_info = env.step(a)
-            buf.store(obs["obs"], obs["action_mask"], a, lp.item(), val.item(),
-                      rew, done, seat, env_idx=0)
+            buf.store(
+                obs["obs"], obs["action_mask"], a, lp.item(), val.item(), rew, done, seat, env_idx=0
+            )
 
             if done:
                 _credit_terminal_residuals(buf, step_info, env_idx=0, acting_seat=seat)
@@ -220,8 +232,10 @@ def collect_rollout(
 
 
 def collect_rollout_vec(
-    vec_env: gym.vector.VectorEnv, net: BeccaNet | BeccaNetV2, steps_per_env: int,
-    device: torch.device
+    vec_env: gym.vector.VectorEnv,
+    net: BeccaNet | BeccaNetV2,
+    steps_per_env: int,
+    device: torch.device,
 ) -> RolloutBuffer:
     num_envs = vec_env.num_envs
     buf = RolloutBuffer(steps_per_env * num_envs)
@@ -243,9 +257,15 @@ def collect_rollout_vec(
 
             for i in range(num_envs):
                 buf.store(
-                    obs_dict["obs"][i], obs_dict["action_mask"][i],
-                    acts_np[i], lps_np[i], vals_np[i], rews[i], dones[i],
-                    int(seats_np[i]), env_idx=i,
+                    obs_dict["obs"][i],
+                    obs_dict["action_mask"][i],
+                    acts_np[i],
+                    lps_np[i],
+                    vals_np[i],
+                    rews[i],
+                    dones[i],
+                    int(seats_np[i]),
+                    env_idx=i,
                 )
 
             # On any env that just terminated, credit residual rewards for the

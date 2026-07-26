@@ -22,8 +22,12 @@ def test_single_seat_gae_matches_standard():
         buf.store(
             obs=np.zeros(OBS_SIZE, dtype=np.float32),
             mask=np.ones(160, dtype=np.float32),
-            action=0, log_prob=0.0, value=values[i],
-            reward=rewards[i], done=False, seat=0,
+            action=0,
+            log_prob=0.0,
+            value=values[i],
+            reward=rewards[i],
+            done=False,
+            seat=0,
         )
 
     advs, rets = buf.compute_gae(gamma, lam)
@@ -71,9 +75,12 @@ def test_multi_seat_interleaving():
 
     # Interleaved: 0, 1, 0, 1, 0, 1
     data = [
-        (0, 1.0, 2.0), (1, 0.5, 1.5),
-        (0, 0.8, 1.8), (1, 0.3, 1.2),
-        (0, 0.6, 1.5), (1, 0.2, 1.0),
+        (0, 1.0, 2.0),
+        (1, 0.5, 1.5),
+        (0, 0.8, 1.8),
+        (1, 0.3, 1.2),
+        (0, 0.6, 1.5),
+        (1, 0.2, 1.0),
     ]
     for seat, reward, value in data:
         buf.store(np.zeros(OBS_SIZE), np.ones(160), 0, 0.0, value, reward, False, seat)
@@ -105,14 +112,50 @@ def test_per_env_isolation_no_cross_env_leakage():
     #   [env0_t0, env1_t0, env0_t1, env1_t1]
     # Both envs have seat 0 acting at both timesteps.
     # env_idx is passed alongside seat so the buffer can isolate chains.
-    buf.store(np.zeros(OBS_SIZE), np.ones(160), 0, 0.0, value=10.0, reward=1.0,
-              done=False, seat=0, env_idx=0)
-    buf.store(np.zeros(OBS_SIZE), np.ones(160), 0, 0.0, value=99.0, reward=2.0,
-              done=False, seat=0, env_idx=1)
-    buf.store(np.zeros(OBS_SIZE), np.ones(160), 0, 0.0, value=11.0, reward=1.5,
-              done=False, seat=0, env_idx=0)
-    buf.store(np.zeros(OBS_SIZE), np.ones(160), 0, 0.0, value=98.0, reward=2.5,
-              done=False, seat=0, env_idx=1)
+    buf.store(
+        np.zeros(OBS_SIZE),
+        np.ones(160),
+        0,
+        0.0,
+        value=10.0,
+        reward=1.0,
+        done=False,
+        seat=0,
+        env_idx=0,
+    )
+    buf.store(
+        np.zeros(OBS_SIZE),
+        np.ones(160),
+        0,
+        0.0,
+        value=99.0,
+        reward=2.0,
+        done=False,
+        seat=0,
+        env_idx=1,
+    )
+    buf.store(
+        np.zeros(OBS_SIZE),
+        np.ones(160),
+        0,
+        0.0,
+        value=11.0,
+        reward=1.5,
+        done=False,
+        seat=0,
+        env_idx=0,
+    )
+    buf.store(
+        np.zeros(OBS_SIZE),
+        np.ones(160),
+        0,
+        0.0,
+        value=98.0,
+        reward=2.5,
+        done=False,
+        seat=0,
+        env_idx=1,
+    )
 
     advs, _ = buf.compute_gae(gamma, lam)
 
@@ -128,10 +171,12 @@ def test_per_env_isolation_no_cross_env_leakage():
     #           adv = -0.98 + 0.99*0.95*(-95.5)
     expected_step1 = 2.0 + gamma * 98.0 - 99.0 + gamma * lam * (2.5 - 98.0)
 
-    assert advs[0] == pytest.approx(expected_step0, abs=1e-4), \
+    assert advs[0] == pytest.approx(expected_step0, abs=1e-4), (
         f"env0 step0 leaked from env1: got {advs[0]}, expected {expected_step0}"
-    assert advs[1] == pytest.approx(expected_step1, abs=1e-4), \
+    )
+    assert advs[1] == pytest.approx(expected_step1, abs=1e-4), (
         f"env1 step0 leaked from env0: got {advs[1]}, expected {expected_step1}"
+    )
 
 
 def test_done_only_resets_owning_env():
@@ -156,8 +201,9 @@ def test_done_only_resets_owning_env():
     #   delta = 0.4 + 0.99 * 5.0 - 5.0 = 0.35... wait: 0.4 + 4.95 - 5.0 = 0.35
     #   adv = 0.35 + 0.99 * 0.95 * (-4.4) = 0.35 - 4.1382 = -3.7882
     expected_step1 = 0.4 + gamma * 5.0 - 5.0 + gamma * lam * (-4.4)
-    assert advs[1] == pytest.approx(expected_step1, abs=1e-5), \
+    assert advs[1] == pytest.approx(expected_step1, abs=1e-5), (
         f"env0's done=True leaked into env1's chain: got {advs[1]}"
+    )
 
 
 def test_opponent_terminal_cuts_trajectory_across_game_boundary():
@@ -212,9 +258,14 @@ def test_returns_equal_advantages_plus_values():
     buf = RolloutBuffer(10)
     for i in range(10):
         buf.store(
-            np.zeros(OBS_SIZE), np.ones(160), 0, 0.0,
-            value=float(i) * 0.5, reward=float(i) * 0.1,
-            done=(i == 9), seat=i % 4,
+            np.zeros(OBS_SIZE),
+            np.ones(160),
+            0,
+            0.0,
+            value=float(i) * 0.5,
+            reward=float(i) * 0.1,
+            done=(i == 9),
+            seat=i % 4,
         )
 
     advs, rets = buf.compute_gae(0.99, 0.95)

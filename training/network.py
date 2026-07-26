@@ -149,8 +149,13 @@ class CentralizedCritic(nn.Module):
     capacity. Train-time only; serving/PIMC never touch it.
     """
 
-    def __init__(self, input_size: int, hidden_size: int = 512, num_layers: int = 3,
-                 use_layer_norm: bool = True):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int = 512,
+        num_layers: int = 3,
+        use_layer_norm: bool = True,
+    ):
         super().__init__()
         trunk_layers: list[nn.Module] = [
             nn.Linear(input_size, hidden_size),
@@ -257,14 +262,14 @@ class BeccaNetV4(nn.Module):
     # Sizes derived from the v3 obs layout; if obs layout changes, these
     # offsets must be updated together with becca_env/observation.py.
     OBS_HAND_END = 40
-    OBS_STATUS_END = 240    # per-card 40 × 5
-    OBS_TRICK_END = 400     # 4 trick positions × 40
+    OBS_STATUS_END = 240  # per-card 40 × 5
+    OBS_TRICK_END = 400  # 4 trick positions × 40
     OBS_BRISCOLA_END = 404  # 4
     OBS_GLOBAL_START = 400  # briscola starts here
-    OBS_GLOBAL_END = 462    # signal mask ends here (briscola..void..signals)
-    GLOBAL_FEAT_DIM = 62    # 400..462 — global context routes to the global token
-    PER_CARD_DYNAMIC = 11   # status(5) + on_trick(4) + my_hand(1) + is_briscola(1)
-    PER_CARD_STATIC = 16    # suit(4) + value(10) + strength(1) + points(1)
+    OBS_GLOBAL_END = 462  # signal mask ends here (briscola..void..signals)
+    GLOBAL_FEAT_DIM = 62  # 400..462 — global context routes to the global token
+    PER_CARD_DYNAMIC = 11  # status(5) + on_trick(4) + my_hand(1) + is_briscola(1)
+    PER_CARD_STATIC = 16  # suit(4) + value(10) + strength(1) + points(1)
 
     def __init__(
         self,
@@ -306,11 +311,13 @@ class BeccaNetV4(nn.Module):
         # Heads
         self.card_logit_head = nn.Linear(d_model, 1)
         self.signal_head = nn.Sequential(
-            nn.Linear(d_model, d_model // 2), nn.ReLU(),
+            nn.Linear(d_model, d_model // 2),
+            nn.ReLU(),
             nn.Linear(d_model // 2, 4),
         )
         self.value_head = nn.Sequential(
-            nn.Linear(d_model, d_model // 2), nn.ReLU(),
+            nn.Linear(d_model, d_model // 2),
+            nn.ReLU(),
             nn.Linear(d_model // 2, 1),
         )
 
@@ -348,10 +355,10 @@ class BeccaNetV4(nn.Module):
 
         per_card_dynamic = torch.cat(
             [
-                card_status,                    # (B, 40, 5)
-                trick,                          # (B, 40, 4)
-                my_hand.unsqueeze(-1),          # (B, 40, 1)
-                is_briscola.unsqueeze(-1),      # (B, 40, 1)
+                card_status,  # (B, 40, 5)
+                trick,  # (B, 40, 4)
+                my_hand.unsqueeze(-1),  # (B, 40, 1)
+                is_briscola.unsqueeze(-1),  # (B, 40, 1)
             ],
             dim=-1,
         )  # (B, 40, 11)
@@ -364,25 +371,25 @@ class BeccaNetV4(nn.Module):
         per_card_dyn, global_feats = self._decompose_obs(obs)
 
         static = self.static_card_features.unsqueeze(0).expand(B, -1, -1)  # (B, 40, 16)
-        per_card_input = torch.cat([static, per_card_dyn], dim=-1)         # (B, 40, 27)
-        card_tokens = self.card_proj(per_card_input)                        # (B, 40, d)
-        card_ids_emb = self.card_id_embedding(self.card_ids)                # (40, d)
+        per_card_input = torch.cat([static, per_card_dyn], dim=-1)  # (B, 40, 27)
+        card_tokens = self.card_proj(per_card_input)  # (B, 40, d)
+        card_ids_emb = self.card_id_embedding(self.card_ids)  # (40, d)
         card_tokens = card_tokens + card_ids_emb.unsqueeze(0)
 
-        global_token = self.global_proj(global_feats).unsqueeze(1)          # (B, 1, d)
+        global_token = self.global_proj(global_feats).unsqueeze(1)  # (B, 1, d)
 
-        tokens = torch.cat([card_tokens, global_token], dim=1)              # (B, 41, d)
+        tokens = torch.cat([card_tokens, global_token], dim=1)  # (B, 41, d)
         encoded = self.final_norm(self.transformer(tokens))
 
-        card_encoded = encoded[:, :40]              # (B, 40, d)
-        global_encoded = encoded[:, 40]             # (B, d)
+        card_encoded = encoded[:, :40]  # (B, 40, d)
+        global_encoded = encoded[:, 40]  # (B, d)
 
-        card_logits = self.card_logit_head(card_encoded).squeeze(-1)        # (B, 40)
-        signal_logits = self.signal_head(global_encoded)                    # (B, 4)
-        value = self.value_head(global_encoded).squeeze(-1)                 # (B,)
+        card_logits = self.card_logit_head(card_encoded).squeeze(-1)  # (B, 40)
+        signal_logits = self.signal_head(global_encoded)  # (B, 4)
+        value = self.value_head(global_encoded).squeeze(-1)  # (B,)
 
         # Outer sum (same flat 160 interface as V3)
-        combined = card_logits.unsqueeze(2) + signal_logits.unsqueeze(1)    # (B, 40, 4)
+        combined = card_logits.unsqueeze(2) + signal_logits.unsqueeze(1)  # (B, 40, 4)
         logits = combined.reshape(B, 160) + (1 - action_mask) * (-1e8)
         return logits, value
 
@@ -471,8 +478,8 @@ class BeccaNetV3(nn.Module):
 
     def forward(self, obs: torch.Tensor, action_mask: torch.Tensor):
         h = self.trunk(obs)
-        card_logits = self.card_head(h)         # (B, 40)
-        signal_logits = self.signal_head(h)     # (B, 4)
+        card_logits = self.card_head(h)  # (B, 40)
+        signal_logits = self.signal_head(h)  # (B, 4)
 
         # Outer sum: combined[b, c*4 + s] = card_logits[b, c] + signal_logits[b, s]
         # (B, 40, 4) → (B, 160)

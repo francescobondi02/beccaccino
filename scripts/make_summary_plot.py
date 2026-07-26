@@ -48,10 +48,10 @@ def main():
     ax = axes[0]
     ax.plot(steps, wr_r, color="tab:blue", alpha=0.25, linewidth=1)
     ax.plot(steps, wr_h, color="tab:orange", alpha=0.25, linewidth=1)
-    ax.plot(steps, smooth(wr_r, 9), color="tab:blue", linewidth=2.2,
-            label="vs random (smoothed)")
-    ax.plot(steps, smooth(wr_h, 9), color="tab:orange", linewidth=2.2,
-            label="vs heuristic (smoothed)")
+    ax.plot(steps, smooth(wr_r, 9), color="tab:blue", linewidth=2.2, label="vs random (smoothed)")
+    ax.plot(
+        steps, smooth(wr_h, 9), color="tab:orange", linewidth=2.2, label="vs heuristic (smoothed)"
+    )
     ax.axhline(0.5, color="grey", linestyle=":", alpha=0.6, label="50% (coin-flip)")
     ax.set_xlabel("env steps")
     ax.set_ylabel("win rate")
@@ -63,10 +63,8 @@ def main():
     # Right: training health
     ax = axes[1]
     ax2 = ax.twinx()
-    ax.plot(steps, smooth(entropy, 9), color="tab:green", linewidth=2,
-            label="entropy")
-    ax2.plot(steps, smooth(ev, 9), color="tab:purple", linewidth=2,
-             label="explained variance")
+    ax.plot(steps, smooth(entropy, 9), color="tab:green", linewidth=2, label="entropy")
+    ax2.plot(steps, smooth(ev, 9), color="tab:purple", linewidth=2, label="explained variance")
     ax2.axhline(0.0, color="tab:purple", linestyle=":", alpha=0.4)
     ax.set_xlabel("env steps")
     ax.set_ylabel("policy entropy", color="tab:green")

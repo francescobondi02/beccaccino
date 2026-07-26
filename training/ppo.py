@@ -48,8 +48,11 @@ def ppo_update(
 
     n = obs.shape[0]
     totals = {
-        "policy_loss": 0.0, "value_loss": 0.0,
-        "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0,
+        "policy_loss": 0.0,
+        "value_loss": 0.0,
+        "entropy": 0.0,
+        "clip_frac": 0.0,
+        "approx_kl": 0.0,
     }
     count = 0
     early_stopped = False
@@ -65,9 +68,7 @@ def ppo_update(
         for start in range(0, n, minibatch_size):
             mb = idx[start : start + minibatch_size]
 
-            _, new_lp, ent, actor_val = net.get_action_and_value(
-                obs[mb], masks[mb], actions[mb]
-            )
+            _, new_lp, ent, actor_val = net.get_action_and_value(obs[mb], masks[mb], actions[mb])
             # CTDE: the value being fit is the centralized critic over full state;
             # the actor's own value head is left idle (kept so V4.forward and the
             # ONNX export still return (logits, value)).
@@ -82,9 +83,7 @@ def ppo_update(
             pi_loss = -torch.min(surr1, surr2).mean()
 
             # Value loss (clipped)
-            v_clipped = old_values[mb] + torch.clamp(
-                new_val - old_values[mb], -clip_eps, clip_eps
-            )
+            v_clipped = old_values[mb] + torch.clamp(new_val - old_values[mb], -clip_eps, clip_eps)
             v_loss_unclipped = (new_val - returns[mb]).pow(2)
             v_loss_clipped = (v_clipped - returns[mb]).pow(2)
             v_loss = 0.5 * torch.max(v_loss_unclipped, v_loss_clipped).mean()

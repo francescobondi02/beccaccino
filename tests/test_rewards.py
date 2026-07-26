@@ -93,10 +93,12 @@ def test_episode_per_team_matches_expected_formula():
     actual_t0 = sum(per_seat[s] for s in range(4) if TEAM_OF_SEAT[s] == 0)
     actual_t1 = sum(per_seat[s] for s in range(4) if TEAM_OF_SEAT[s] == 1)
 
-    assert abs(actual_t0 - expected_t0) < 1e-4, \
+    assert abs(actual_t0 - expected_t0) < 1e-4, (
         f"team0 mismatch: actual={actual_t0} expected={expected_t0}"
-    assert abs(actual_t1 - expected_t1) < 1e-4, \
+    )
+    assert abs(actual_t1 - expected_t1) < 1e-4, (
         f"team1 mismatch: actual={actual_t1} expected={expected_t1}"
+    )
 
 
 def test_game_terminal_sign_matches_winner():
@@ -141,8 +143,9 @@ def test_no_per_trick_reward_when_coef_zero():
         # Easiest invariant: the per-trick magnitude is zero, so no trick-only
         # rewards exist. We assert by confirming no reward on a 'trick_complete'
         # that ISN'T also a 'round_end'/'game_over'.
-        assert "trick_complete" not in non_zero_events, \
+        assert "trick_complete" not in non_zero_events, (
             "trick_complete events should never carry reward when coef=0"
+        )
 
 
 def test_trick_shaping_coef_nonzero_fires_per_trick():
@@ -196,8 +199,9 @@ def test_rollout_credits_terminal_residuals_single_env():
     # Allow some slack for partial trailing game whose terminal hasn't fired.
     if games > 0:
         per_game_residual = total / games
-        assert abs(per_game_residual) < 0.5, \
+        assert abs(per_game_residual) < 0.5, (
             f"avg per-game leftover suggests dropped rewards: {per_game_residual}"
+        )
 
     # And we should see *some* nonzero rewards (round-ends + terminals)
     nonzero = int((np.abs(buf.rewards[:n]) > 1e-9).sum())

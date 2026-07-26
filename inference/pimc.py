@@ -124,6 +124,7 @@ def _round_end_value(
     matters for action choice — independent of pre-round scores.
     """
     from becca_env.game import TEAM_OF_SEAT
+
     my_team = TEAM_OF_SEAT[viewer_seat]
     other = 1 - my_team
     diff_now = game.total_scores[my_team] - game.total_scores[other]
@@ -153,6 +154,7 @@ def _rollout_to_round_end(
     determinized world.
     """
     from becca_env.game import TEAM_OF_SEAT
+
     my_team = TEAM_OF_SEAT[viewer_seat]
     other = 1 - my_team
     pre_diff = game.total_scores[my_team] - game.total_scores[other]
@@ -224,6 +226,7 @@ def pimc_choose_action(
     heur = None
     if config.rollout_policy == "heuristic":
         from evaluation.heuristic import HeuristicAgent
+
         heur = HeuristicAgent(seed=config.seed)
 
     # Accumulate values per action across determinizations
@@ -246,7 +249,10 @@ def pimc_choose_action(
                 continue
 
             v = _rollout_to_round_end(
-                net, clone, viewer_seat, device,
+                net,
+                clone,
+                viewer_seat,
+                device,
                 rollout_policy=config.rollout_policy,
                 heuristic_agent=heur,
             )

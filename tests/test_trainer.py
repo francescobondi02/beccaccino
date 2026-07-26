@@ -17,9 +17,9 @@ def _tiny_config(tmp_path: Path, **overrides) -> TrainConfig:
     cfg = TrainConfig(
         num_envs=1,
         steps_per_env=200,
-        total_timesteps=400,      # -> 2 updates at batch 200
+        total_timesteps=400,  # -> 2 updates at batch 200
         win_points=5,
-        eval_every=1000,          # skip eval in the smoke
+        eval_every=1000,  # skip eval in the smoke
         eval_games=2,
         ckpt_every=1,
         ckpt_dir=str(tmp_path),
@@ -79,7 +79,7 @@ def test_centralized_critic_trains_and_is_checkpointed(tmp_path):
     persists the critic in the checkpoint."""
     cfg = _tiny_config(
         tmp_path,
-        num_envs=4,           # vec path (critic requires >1)
+        num_envs=4,  # vec path (critic requires >1)
         steps_per_env=100,
         total_timesteps=800,  # 2 updates at batch 400
         centralized_critic=True,
@@ -91,6 +91,7 @@ def test_centralized_critic_trains_and_is_checkpointed(tmp_path):
 
 def test_centralized_critic_requires_vec_path(tmp_path):
     import pytest
+
     cfg = _tiny_config(tmp_path, num_envs=1, centralized_critic=True)
     with pytest.raises(ValueError, match="num_envs > 1"):
         train(cfg)

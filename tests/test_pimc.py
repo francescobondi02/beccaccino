@@ -87,8 +87,9 @@ def test_pimc_handles_briscola_phase():
     assert g.phase == GamePhase.CHOOSE_BRISCOLA
 
     cfg = PIMCConfig(num_determinizations=2)
-    flat = pimc_choose_action(net, g, viewer_seat=g.current_seat,
-                              config=cfg, device=torch.device("cpu"))
+    flat = pimc_choose_action(
+        net, g, viewer_seat=g.current_seat, config=cfg, device=torch.device("cpu")
+    )
     assert 0 <= flat < 4, f"briscola action should be in [0,4); got {flat}"
 
 
@@ -105,8 +106,9 @@ def test_pimc_plays_full_game():
     while True:
         seat = obs["current_seat"]
         if seat == pimc_seat:
-            flat = pimc_choose_action(net, env.game, viewer_seat=seat,
-                                      config=cfg, device=torch.device("cpu"))
+            flat = pimc_choose_action(
+                net, env.game, viewer_seat=seat, config=cfg, device=torch.device("cpu")
+            )
         else:
             # Greedy network for non-PIMC seats
             o = torch.from_numpy(obs["obs"]).unsqueeze(0)

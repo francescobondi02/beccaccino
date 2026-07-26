@@ -57,8 +57,9 @@ def test_v3_outer_sum_decomposes_correctly():
             idx = c * 4 + s
             expected = card_logits[0, c] + signal_logits[0, s]
             got = flat_logits[0, idx]
-            assert torch.isclose(got, expected, atol=1e-5), \
+            assert torch.isclose(got, expected, atol=1e-5), (
                 f"action {idx}=(c={c},s={s}): got {got}, expected {expected}"
+            )
 
 
 def test_v3_get_action_returns_legal_only():

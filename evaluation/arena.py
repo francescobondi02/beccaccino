@@ -112,9 +112,9 @@ def play_match(
     return result
 
 
-ELO_SCALE = 400.0           # standard Elo logistic scale
+ELO_SCALE = 400.0  # standard Elo logistic scale
 LADDER_INIT_RATING = 1000.0
-LADDER_ITERATIONS = 20      # fixed-point passes for the round-robin solve
+LADDER_ITERATIONS = 20  # fixed-point passes for the round-robin solve
 
 
 def _expected_score(rating_a: float, rating_b: float) -> float:
@@ -146,10 +146,12 @@ def elo_ladder(
         for b in names[i + 1 :]:
             agent_a = NeuralAgent(checkpoints[a], device, temperature=0.0)
             agent_b = NeuralAgent(checkpoints[b], device, temperature=0.0)
-            r1 = play_match(agent_a, agent_b, num_games=num_games,
-                            win_points=win_points, seed=block_seed)
-            r2 = play_match(agent_b, agent_a, num_games=num_games,
-                            win_points=win_points, seed=block_seed)
+            r1 = play_match(
+                agent_a, agent_b, num_games=num_games, win_points=win_points, seed=block_seed
+            )
+            r2 = play_match(
+                agent_b, agent_a, num_games=num_games, win_points=win_points, seed=block_seed
+            )
             a_wins = r1.team0_wins + r2.team1_wins
             pair_score[(a, b)] = a_wins / (2 * num_games)
 

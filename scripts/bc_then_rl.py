@@ -57,46 +57,82 @@ SECONDS_PER_HOUR = 3600
 def parse_args():
     p = argparse.ArgumentParser()
     # BC phase
-    p.add_argument("--bc-games", type=int, default=1500,
-                   help="Heuristic-vs-heuristic games to collect for BC dataset.")
+    p.add_argument(
+        "--bc-games",
+        type=int,
+        default=1500,
+        help="Heuristic-vs-heuristic games to collect for BC dataset.",
+    )
     p.add_argument("--bc-epochs", type=int, default=4)
     p.add_argument("--bc-batch-size", type=int, default=512)
     p.add_argument("--bc-lr", type=float, default=3e-4)
-    p.add_argument("--bc-win-points", type=int, default=5,
-                   help="win_points used to collect BC dataset (short = fast).")
-    p.add_argument("--bc-skip", action="store_true",
-                   help="Skip BC entirely (start from random init).")
-    p.add_argument("--bc-load", type=str, default=None,
-                   help="If set, load this BC checkpoint instead of training one.")
+    p.add_argument(
+        "--bc-win-points",
+        type=int,
+        default=5,
+        help="win_points used to collect BC dataset (short = fast).",
+    )
+    p.add_argument(
+        "--bc-skip", action="store_true", help="Skip BC entirely (start from random init)."
+    )
+    p.add_argument(
+        "--bc-load",
+        type=str,
+        default=None,
+        help="If set, load this BC checkpoint instead of training one.",
+    )
 
     # RL phase
     p.add_argument("--total-rl-steps", type=int, default=4_000_000)
     p.add_argument("--num-envs", type=int, default=16)
     p.add_argument("--steps-per-env", type=int, default=256)
     p.add_argument("--win-points", type=int, default=5)
-    p.add_argument("--eval-win-points", type=int, default=None,
-                   help="Defaults to --win-points. Set 41 for full-game eval.")
+    p.add_argument(
+        "--eval-win-points",
+        type=int,
+        default=None,
+        help="Defaults to --win-points. Set 41 for full-game eval.",
+    )
     p.add_argument("--device", default="cpu")
     p.add_argument("--lr", type=float, default=2.5e-4)
     p.add_argument("--ent-coef", type=float, default=0.02)
     p.add_argument("--ent-coef-final", type=float, default=0.005)
-    p.add_argument("--signal-honesty-coef", type=float, default=0.0,
-                   help="Reward for an honest signal (penalty if it lies; silence is "
-                        "free). 0.0 = off. Grounds the signal action slots, which "
-                        "the round score alone never touches.")
-    p.add_argument("--signal-honesty-coef-final", type=float, default=0.0,
-                   help="Value the honesty coefficient anneals TO (default 0.0).")
-    p.add_argument("--signal-honesty-frac", type=float, default=0.5,
-                   help="Fraction of the RL phase over which to anneal (default 0.5).")
-    p.add_argument("--bc-no-signals", action="store_true",
-                   help="Collect the BC dataset from a SILENT teacher (the old "
-                        "behaviour). Default teaches honest signalling.")
+    p.add_argument(
+        "--signal-honesty-coef",
+        type=float,
+        default=0.0,
+        help="Reward for an honest signal (penalty if it lies; silence is "
+        "free). 0.0 = off. Grounds the signal action slots, which "
+        "the round score alone never touches.",
+    )
+    p.add_argument(
+        "--signal-honesty-coef-final",
+        type=float,
+        default=0.0,
+        help="Value the honesty coefficient anneals TO (default 0.0).",
+    )
+    p.add_argument(
+        "--signal-honesty-frac",
+        type=float,
+        default=0.5,
+        help="Fraction of the RL phase over which to anneal (default 0.5).",
+    )
+    p.add_argument(
+        "--bc-no-signals",
+        action="store_true",
+        help="Collect the BC dataset from a SILENT teacher (the old "
+        "behaviour). Default teaches honest signalling.",
+    )
     p.add_argument("--p-latest-opponent", type=float, default=0.5)
     p.add_argument("--eval-every", type=int, default=10)
     p.add_argument("--eval-games", type=int, default=100)
     p.add_argument("--pool-save-every", type=int, default=20)
-    p.add_argument("--hidden", type=int, default=256,
-                   help="V2/V3: hidden_size of MLP. Unused for V4 (use --d-model).")
+    p.add_argument(
+        "--hidden",
+        type=int,
+        default=256,
+        help="V2/V3: hidden_size of MLP. Unused for V4 (use --d-model).",
+    )
     p.add_argument("--layers", type=int, default=3)
     p.add_argument("--d-model", type=int, default=128, help="V4 only.")
     p.add_argument("--nhead", type=int, default=4, help="V4 only.")
@@ -107,16 +143,29 @@ def parse_args():
     p.add_argument("--final-ckpt", default="checkpoints/bc_rl_final.pt")
     p.add_argument("--network-version", type=int, default=3, choices=[2, 3, 4])
     # Strengtheners / long-run survival (parity with training/trainer.py)
-    p.add_argument("--centralized-critic", action="store_true",
-                   help="Fit a CTDE critic over the full state (targets low EV).")
-    p.add_argument("--anchor-bc", action="store_true",
-                   help="Seed a permanent opponent-pool anchor from the BC snapshot.")
-    p.add_argument("--max-hours", type=float, default=None,
-                   help="Graceful wall-clock stop for the RL phase; writes last.pt "
-                        "and exits so --resume continues (Kaggle 12h cap).")
-    p.add_argument("--resume", type=str, default=None,
-                   help="Resume the RL phase from a last.pt written by a prior run "
-                        "(skips BC).")
+    p.add_argument(
+        "--centralized-critic",
+        action="store_true",
+        help="Fit a CTDE critic over the full state (targets low EV).",
+    )
+    p.add_argument(
+        "--anchor-bc",
+        action="store_true",
+        help="Seed a permanent opponent-pool anchor from the BC snapshot.",
+    )
+    p.add_argument(
+        "--max-hours",
+        type=float,
+        default=None,
+        help="Graceful wall-clock stop for the RL phase; writes last.pt "
+        "and exits so --resume continues (Kaggle 12h cap).",
+    )
+    p.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Resume the RL phase from a last.pt written by a prior run (skips BC).",
+    )
     return p.parse_args()
 
 
@@ -173,8 +222,10 @@ def phase1_bc(args, device) -> torch.nn.Module:
     print(f"Phase 1: collecting BC dataset ({args.bc_games} heuristic games)…")
     t0 = time.time()
     ds = collect_heuristic_dataset(
-        num_games=args.bc_games, win_points=args.bc_win_points,
-        seed=args.seed, verbose=True,
+        num_games=args.bc_games,
+        win_points=args.bc_win_points,
+        seed=args.seed,
+        verbose=True,
         declare_signals=not args.bc_no_signals,
     )
     dt = time.time() - t0
@@ -183,15 +234,18 @@ def phase1_bc(args, device) -> torch.nn.Module:
     # Quick eval BEFORE BC to see the lift
     net = make_net(args, device)
     pre_wr_h = evaluate_against_heuristic(
-        net, num_games=80,
-        device=device, seed=args.seed + 9999,
+        net,
+        num_games=80,
+        device=device,
+        seed=args.seed + 9999,
         win_points=args.eval_win_points or args.win_points,
     )
     print(f"  pre-BC: vs heuristic = {pre_wr_h:.1%}")
 
     print(f"Phase 1: behavioral cloning ({args.bc_epochs} epochs)…")
     behavioral_clone(
-        net, ds,
+        net,
+        ds,
         epochs=args.bc_epochs,
         batch_size=args.bc_batch_size,
         lr=args.bc_lr,
@@ -200,22 +254,30 @@ def phase1_bc(args, device) -> torch.nn.Module:
     )
 
     post_wr_h = evaluate_against_heuristic(
-        net, num_games=200,
-        device=device, seed=args.seed + 99999,
+        net,
+        num_games=200,
+        device=device,
+        seed=args.seed + 99999,
         win_points=args.eval_win_points or args.win_points,
     )
     pre_wr_r = evaluate_against_random(
-        net, num_games=200, device=device, seed=args.seed + 88888,
+        net,
+        num_games=200,
+        device=device,
+        seed=args.seed + 88888,
     )
     print(f"  post-BC: vs random = {pre_wr_r:.1%} | vs heuristic = {post_wr_h:.1%}")
 
     Path(args.bc_ckpt).parent.mkdir(parents=True, exist_ok=True)
-    torch.save({
-        "model": net.state_dict(),
-        "config": _net_config_dict(args),
-        "phase": "bc",
-        "bc_games": args.bc_games,
-    }, args.bc_ckpt)
+    torch.save(
+        {
+            "model": net.state_dict(),
+            "config": _net_config_dict(args),
+            "phase": "bc",
+            "bc_games": args.bc_games,
+        },
+        args.bc_ckpt,
+    )
     print(f"  saved BC checkpoint to {args.bc_ckpt}")
     return net
 
@@ -248,13 +310,24 @@ def phase2_rl(args, device, net):
     csv_path = out / "metrics.csv"
     with csv_path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow([
-            "phase", "update", "steps", "games", "sps",
-            "policy_loss", "value_loss", "entropy",
-            "approx_kl", "explained_variance",
-            "mean_reward", "opponent_source",
-            "wr_random", "wr_heuristic",
-        ])
+        w.writerow(
+            [
+                "phase",
+                "update",
+                "steps",
+                "games",
+                "sps",
+                "policy_loss",
+                "value_loss",
+                "entropy",
+                "approx_kl",
+                "explained_variance",
+                "mean_reward",
+                "opponent_source",
+                "wr_random",
+                "wr_heuristic",
+            ]
+        )
 
     # Centralized (CTDE) critic — value head over the full state. Its params
     # join the actor's under one optimizer, mirroring training/trainer.py.
@@ -274,12 +347,13 @@ def phase2_rl(args, device, net):
     opponent_net.load_state_dict(net.state_dict())
 
     vec = create_vec_env(
-        num_envs=cfg.num_envs, seed=cfg.seed, win_points=cfg.win_points, sync=False,
+        num_envs=cfg.num_envs,
+        seed=cfg.seed,
+        win_points=cfg.win_points,
+        sync=False,
         signal_honesty_coef=signal_honesty_schedule(cfg, 1),
     )
-    shaping_signals = (
-        cfg.signal_honesty_coef != 0.0 or cfg.signal_honesty_coef_final != 0.0
-    )
+    shaping_signals = cfg.signal_honesty_coef != 0.0 or cfg.signal_honesty_coef_final != 0.0
     learner_team_per_env = np.array([i % 2 for i in range(cfg.num_envs)], dtype=np.int64)
 
     # Permanent opponent-pool anchor from the BC snapshot (anti-collapse).
@@ -314,9 +388,10 @@ def phase2_rl(args, device, net):
         print(f"  resumed at update {start_update}, {step_count:,} steps")
 
     n_params = sum(p.numel() for p in net.parameters())
-    print(f"\nPhase 2 RL: {n_params:,} params | "
-          f"batch={cfg.batch_size:,} | updates={cfg.total_updates}"
-          + (" | +critic" if critic else ""))
+    print(
+        f"\nPhase 2 RL: {n_params:,} params | "
+        f"batch={cfg.batch_size:,} | updates={cfg.total_updates}" + (" | +critic" if critic else "")
+    )
 
     last_wr_random, last_wr_heur = float("nan"), float("nan")
     # -1.0 so the first eval always wins and best.pt exists from then on. A
@@ -325,20 +400,29 @@ def phase2_rl(args, device, net):
     best_wr_heur, best_update = resumed_best
     t0 = time.time()
     deadline = (
-        time.monotonic() + args.max_hours * SECONDS_PER_HOUR
-        if args.max_hours is not None else None
+        time.monotonic() + args.max_hours * SECONDS_PER_HOUR if args.max_hours is not None else None
     )
 
     def _save(path, upd):
         extra = {
-            "games": games_total, "phase": "rl", "net_config": _net_config_dict(args),
-            "best_wr_heuristic": best_wr_heur, "best_update": best_update,
+            "games": games_total,
+            "phase": "rl",
+            "net_config": _net_config_dict(args),
+            "best_wr_heuristic": best_wr_heur,
+            "best_update": best_update,
         }
         if critic is not None:
             extra["critic"] = critic.state_dict()
         save_checkpoint(
-            path, net=net, optimizer=opt, config=cfg, step=step_count, update=upd,
-            normalizer=return_normalizer, pool=pool, extra=extra,
+            path,
+            net=net,
+            optimizer=opt,
+            config=cfg,
+            step=step_count,
+            update=upd,
+            normalizer=return_normalizer,
+            pool=pool,
+            extra=extra,
         )
 
     if start_update > cfg.total_updates:
@@ -365,20 +449,33 @@ def phase2_rl(args, device, net):
             opp_source = "pool"
 
         buf = collect_self_play_rollout_vec(
-            vec, net, opponent_net, learner_team_per_env, cfg.steps_per_env, device,
+            vec,
+            net,
+            opponent_net,
+            learner_team_per_env,
+            cfg.steps_per_env,
+            device,
             critic=critic,
         )
         step_count += buf.ptr
         games_total += buf.games_done
 
-        batch = buf.get_batch(gamma=cfg.gamma, lam=cfg.gae_lambda,
-                              return_normalizer=return_normalizer)
+        batch = buf.get_batch(
+            gamma=cfg.gamma, lam=cfg.gae_lambda, return_normalizer=return_normalizer
+        )
         m = ppo_update(
-            net, opt, batch,
-            clip_eps=cfg.clip_eps, vf_coef=cfg.vf_coef, ent_coef=ent_coef,
-            max_grad_norm=cfg.max_grad_norm, num_epochs=cfg.num_epochs,
-            minibatch_size=cfg.minibatch_size, target_kl=cfg.target_kl,
-            device=device, critic=critic,
+            net,
+            opt,
+            batch,
+            clip_eps=cfg.clip_eps,
+            vf_coef=cfg.vf_coef,
+            ent_coef=ent_coef,
+            max_grad_norm=cfg.max_grad_norm,
+            num_epochs=cfg.num_epochs,
+            minibatch_size=cfg.minibatch_size,
+            target_kl=cfg.target_kl,
+            device=device,
+            critic=critic,
         )
 
         with torch.no_grad():
@@ -396,10 +493,15 @@ def phase2_rl(args, device, net):
             # Frozen eval block (EVAL_SEED_BASE default): every checkpoint is
             # scored on the SAME deals so the curve tracks skill, not deal luck.
             last_wr_random = evaluate_against_random(
-                net, num_games=args.eval_games, device=device,
+                net,
+                num_games=args.eval_games,
+                device=device,
             )
             last_wr_heur = evaluate_against_heuristic(
-                net, num_games=args.eval_games, device=device, win_points=eval_wp,
+                net,
+                num_games=args.eval_games,
+                device=device,
+                win_points=eval_wp,
             )
             # Keep the strongest weights, not just the last ones: self-play is
             # non-monotone, and Run B's curve peaked well before its final update.
@@ -413,13 +515,24 @@ def phase2_rl(args, device, net):
 
         with csv_path.open("a", newline="") as f:
             w = csv.writer(f)
-            w.writerow([
-                "rl", update, step_count, games_total, f"{sps:.0f}",
-                f"{m['policy_loss']:.5f}", f"{m['value_loss']:.5f}",
-                f"{m['entropy']:.4f}", f"{m['approx_kl']:.5f}",
-                f"{ev:.4f}", f"{mean_reward:.4f}", opp_source,
-                f"{last_wr_random:.4f}", f"{last_wr_heur:.4f}",
-            ])
+            w.writerow(
+                [
+                    "rl",
+                    update,
+                    step_count,
+                    games_total,
+                    f"{sps:.0f}",
+                    f"{m['policy_loss']:.5f}",
+                    f"{m['value_loss']:.5f}",
+                    f"{m['entropy']:.4f}",
+                    f"{m['approx_kl']:.5f}",
+                    f"{ev:.4f}",
+                    f"{mean_reward:.4f}",
+                    opp_source,
+                    f"{last_wr_random:.4f}",
+                    f"{last_wr_heur:.4f}",
+                ]
+            )
 
         if update % args.eval_every == 0 or update == 1:
             print(
@@ -448,16 +561,21 @@ def phase2_rl(args, device, net):
     Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
     _save(Path(args.final_ckpt).with_name("last.pt"), cfg.total_updates)
     # Also keep the legacy flat format at --final-ckpt for existing loaders/eval.
-    torch.save({
-        "model": net.state_dict(),
-        "config": _net_config_dict(args),
-        "steps": step_count,
-        "phase": "rl",
-    }, args.final_ckpt)
+    torch.save(
+        {
+            "model": net.state_dict(),
+            "config": _net_config_dict(args),
+            "steps": step_count,
+            "phase": "rl",
+        },
+        args.final_ckpt,
+    )
     print(f"\nSaved final checkpoint to {args.final_ckpt}")
     if best_update:
-        print(f"Best vs heuristic was {best_wr_heur:.1%} at update {best_update} "
-              f"(best.pt) — prefer it over the final weights if it scores higher.")
+        print(
+            f"Best vs heuristic was {best_wr_heur:.1%} at update {best_update} "
+            f"(best.pt) — prefer it over the final weights if it scores higher."
+        )
     vec.close()
 
     plot_results(csv_path, out)
@@ -465,6 +583,7 @@ def phase2_rl(args, device, net):
 
 def plot_results(csv_path: Path, out_dir: Path):
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -517,9 +636,7 @@ def plot_results(csv_path: Path, out_dir: Path):
     axes[1, 1].set_title("Value-fn explained variance")
     axes[1, 1].grid(alpha=0.3)
 
-    fig.suptitle(
-        f"Stage 2 — BC + RL  |  final: vs_rand={wr_r[-1]:.0%}, vs_heur={wr_h[-1]:.0%}"
-    )
+    fig.suptitle(f"Stage 2 — BC + RL  |  final: vs_rand={wr_r[-1]:.0%}, vs_heur={wr_h[-1]:.0%}")
     fig.tight_layout()
     fig.savefig(out_dir / "learning_curve.png", dpi=130, bbox_inches="tight")
     plt.close(fig)

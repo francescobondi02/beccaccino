@@ -22,9 +22,9 @@ def _tiny_config(tmp_path: Path, **overrides) -> TrainConfig:
     cfg = TrainConfig(
         num_envs=1,
         steps_per_env=200,
-        total_timesteps=400,      # -> 2 updates at batch 200
+        total_timesteps=400,  # -> 2 updates at batch 200
         win_points=5,
-        eval_every=1,             # eval every update so best-tracking engages
+        eval_every=1,  # eval every update so best-tracking engages
         eval_games=2,
         ckpt_every=1,
         ckpt_dir=str(tmp_path),
@@ -68,12 +68,8 @@ def test_resume_inherits_the_best_bar(tmp_path):
     train(cfg)
     first_best = load_checkpoint(tmp_path / "best.pt")["best_wr_heuristic"]
 
-    resumed = _tiny_config(
-        tmp_path, total_timesteps=800, resume_from=str(tmp_path / "last.pt")
-    )
+    resumed = _tiny_config(tmp_path, total_timesteps=800, resume_from=str(tmp_path / "last.pt"))
     train(resumed)
 
     last = load_checkpoint(tmp_path / "last.pt")
-    assert last["best_wr_heuristic"] >= first_best, (
-        "resume must not lower the best-so-far bar"
-    )
+    assert last["best_wr_heuristic"] >= first_best, "resume must not lower the best-so-far bar"

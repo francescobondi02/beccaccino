@@ -76,6 +76,7 @@ def _lr_schedule(config: TrainConfig, optimizer: torch.optim.Optimizer, update: 
         new_lr = config.lr * frac
     elif config.lr_schedule == "cosine":
         import math
+
         frac = 0.5 * (1 + math.cos(math.pi * (update - 1) / denom))
         new_lr = config.lr * max(frac, 0.1)
     else:
@@ -143,14 +144,20 @@ def train(config: TrainConfig):
     use_vec = config.num_envs > 1
     if use_vec:
         vec_env = create_vec_env(
-            num_envs=config.num_envs, seed=config.seed, win_points=win_points, sync=False,
+            num_envs=config.num_envs,
+            seed=config.seed,
+            win_points=win_points,
+            sync=False,
             trick_shaping_coef=config.trick_shaping_coef,
             signal_honesty_coef=signal_honesty_schedule(config, start_update),
         )
     else:
-        single_env = BeccaEnv(seed=config.seed, win_points=win_points,
-                              trick_shaping_coef=config.trick_shaping_coef,
-                              signal_honesty_coef=signal_honesty_schedule(config, start_update))
+        single_env = BeccaEnv(
+            seed=config.seed,
+            win_points=win_points,
+            trick_shaping_coef=config.trick_shaping_coef,
+            signal_honesty_coef=signal_honesty_schedule(config, start_update),
+        )
 
     # Permanent opponent-pool anchor(s): a frozen reference policy (e.g. BC) that
     # p_latest self-play always keeps reachable, preventing strategy collapse.
@@ -180,9 +187,7 @@ def train(config: TrainConfig):
 
     # Per-env learner team assignment (balanced)
     if config.balance_learner_teams and use_vec:
-        learner_team_per_env = np.array(
-            [i % 2 for i in range(config.num_envs)], dtype=np.int64
-        )
+        learner_team_per_env = np.array([i % 2 for i in range(config.num_envs)], dtype=np.int64)
     else:
         learner_team_per_env = np.zeros(config.num_envs, dtype=np.int64)
 
@@ -191,6 +196,7 @@ def train(config: TrainConfig):
     if config.use_wandb:
         try:
             import wandb
+
             wandb_run = wandb.init(
                 entity=config.wandb_entity,
                 project=config.wandb_project,
@@ -205,15 +211,18 @@ def train(config: TrainConfig):
     writer = SummaryWriter(f"{config.log_dir}/{run_name}")
 
     params = sum(p.numel() for p in net.parameters())
-    print(f"PPO self-play v2 | {params:,} params | batch={config.batch_size:,} | "
-          f"updates={config.total_updates} | device={dev} | win_points={win_points}")
+    print(
+        f"PPO self-play v2 | {params:,} params | batch={config.batch_size:,} | "
+        f"updates={config.total_updates} | device={dev} | win_points={win_points}"
+    )
     print("-" * 70)
 
     t0 = time.time()
     curriculum_confirm = 0
     deadline = (
         time.monotonic() + config.max_hours * SECONDS_PER_HOUR
-        if config.max_hours is not None else None
+        if config.max_hours is not None
+        else None
     )
 
     def _save(path, upd):
@@ -226,20 +235,30 @@ def train(config: TrainConfig):
         if critic is not None:
             extra["critic"] = critic.state_dict()
         save_checkpoint(
-            path, net=net, optimizer=opt, config=config, step=step_count, update=upd,
-            normalizer=return_normalizer, pool=pool, extra=extra,
+            path,
+            net=net,
+            optimizer=opt,
+            config=config,
+            step=step_count,
+            update=upd,
+            normalizer=return_normalizer,
+            pool=pool,
+            extra=extra,
         )
 
     # Resuming a checkpoint that already hit total_updates: nothing to train, and
     # the loop below would leave `update` unbound before the final save. Bail out.
     if start_update > config.total_updates:
-        print(f"Run already complete ({step_count:,} steps, update {start_update - 1}); "
-              "nothing to do. Raise --steps to train further.")
+        print(
+            f"Run already complete ({step_count:,} steps, update {start_update - 1}); "
+            "nothing to do. Raise --steps to train further."
+        )
         writer.close()
         if use_vec:
             vec_env.close()
         if wandb_run:
             import wandb
+
             wandb.finish()
         return
 
@@ -249,9 +268,7 @@ def train(config: TrainConfig):
         ent_coef = _ent_coef_schedule(config, update)
         signal_coef = signal_honesty_schedule(config, update)
         if config.signal_honesty_coef != 0.0 or config.signal_honesty_coef_final != 0.0:
-            _apply_signal_honesty_coef(
-                vec_env if use_vec else single_env, signal_coef, use_vec
-            )
+            _apply_signal_honesty_coef(vec_env if use_vec else single_env, signal_coef, use_vec)
 
         # Pick opponent for this rollout. p_latest -> use current learner
         # (vanilla self-play); else sample a frozen historical policy.
@@ -264,8 +281,13 @@ def train(config: TrainConfig):
                 opponent_net.load_state_dict(sampled)
                 opponent_source = "pool"
             buf = collect_self_play_rollout_vec(
-                vec_env, net, opponent_net, learner_team_per_env,
-                config.steps_per_env, dev, critic=critic,
+                vec_env,
+                net,
+                opponent_net,
+                learner_team_per_env,
+                config.steps_per_env,
+                dev,
+                critic=critic,
             )
         else:
             buf = collect_rollout(single_env, net, config.batch_size, dev)
@@ -275,10 +297,13 @@ def train(config: TrainConfig):
         game_count += buf.games_done
 
         # PPO update with per-seat GAE; rewards normalized in-flight for stability.
-        batch = buf.get_batch(gamma=config.gamma, lam=config.gae_lambda,
-                              return_normalizer=return_normalizer)
+        batch = buf.get_batch(
+            gamma=config.gamma, lam=config.gae_lambda, return_normalizer=return_normalizer
+        )
         m = ppo_update(
-            net, opt, batch,
+            net,
+            opt,
+            batch,
             clip_eps=config.clip_eps,
             vf_coef=config.vf_coef,
             ent_coef=ent_coef,
@@ -333,6 +358,7 @@ def train(config: TrainConfig):
             writer.add_scalar(k, v, step_count)
         if wandb_run:
             import wandb
+
             wandb.log(metrics, step=step_count)
 
         if update % 10 == 0 or update == start_update:
@@ -350,19 +376,21 @@ def train(config: TrainConfig):
         if update % config.eval_every == 0:
             from evaluation.arena import evaluate_against_random
             from evaluation.heuristic import evaluate_against_heuristic
+
             # No per-update seed: eval on the frozen EVAL_SEED_BASE block so the
             # win-rate curve tracks skill, not sliding deal luck.
             wr = evaluate_against_random(net, num_games=config.eval_games, device=dev)
             eval_wp = config.eval_win_points if config.eval_win_points is not None else win_points
-            wr_h = evaluate_against_heuristic(net, num_games=config.eval_games, device=dev,
-                                              win_points=eval_wp)
+            wr_h = evaluate_against_heuristic(
+                net, num_games=config.eval_games, device=dev, win_points=eval_wp
+            )
             writer.add_scalar("eval/vs_random", wr, step_count)
             writer.add_scalar("eval/vs_heuristic", wr_h, step_count)
             if wandb_run:
                 import wandb
+
                 wandb.log({"eval/vs_random": wr, "eval/vs_heuristic": wr_h}, step=step_count)
-            print(f"  eval: {wr:.1%} vs random | {wr_h:.1%} vs heuristic "
-                  f"(win_points={win_points})")
+            print(f"  eval: {wr:.1%} vs random | {wr_h:.1%} vs heuristic (win_points={win_points})")
 
             # Keep the strongest weights, not merely the last ones. Self-play is
             # non-monotone: a run can peak mid-way and drift down, and until now
@@ -383,8 +411,10 @@ def train(config: TrainConfig):
                         curriculum_stage += 1
                         curriculum_confirm = 0
                         new_wp = config.curriculum_stages[curriculum_stage]["win_points"]
-                        print(f"  CURRICULUM: advancing to stage {curriculum_stage} "
-                              f"(win_points={new_wp})")
+                        print(
+                            f"  CURRICULUM: advancing to stage {curriculum_stage} "
+                            f"(win_points={new_wp})"
+                        )
                         win_points = new_wp
                         # Rebuilt envs must carry THIS update's annealed signal
                         # coefficient, not the run's starting value, or advancing
@@ -392,14 +422,17 @@ def train(config: TrainConfig):
                         if use_vec:
                             vec_env.close()
                             vec_env = create_vec_env(
-                                num_envs=config.num_envs, seed=config.seed,
-                                win_points=win_points, sync=False,
+                                num_envs=config.num_envs,
+                                seed=config.seed,
+                                win_points=win_points,
+                                sync=False,
                                 trick_shaping_coef=config.trick_shaping_coef,
                                 signal_honesty_coef=signal_coef,
                             )
                         else:
                             single_env = BeccaEnv(
-                                seed=config.seed, win_points=win_points,
+                                seed=config.seed,
+                                win_points=win_points,
                                 trick_shaping_coef=config.trick_shaping_coef,
                                 signal_honesty_coef=signal_coef,
                             )
@@ -425,6 +458,7 @@ def train(config: TrainConfig):
     _save(Path(config.ckpt_dir) / "last.pt", update)
 
     from evaluation.arena import evaluate_against_random
+
     wr = evaluate_against_random(net, num_games=config.eval_games * 2, device=dev, seed=99999)
     writer.add_scalar("eval/vs_random", wr, step_count)
     writer.close()
@@ -432,6 +466,7 @@ def train(config: TrainConfig):
         vec_env.close()
     if wandb_run:
         import wandb
+
         wandb.log({"eval/vs_random_final": wr}, step=step_count)
         wandb.finish()
 
@@ -459,21 +494,41 @@ if __name__ == "__main__":
     p.add_argument("--ent-coef", type=float, default=0.03)
     p.add_argument("--ent-coef-final", type=float, default=0.005)
     p.add_argument("--win-points", type=int, default=41)
-    p.add_argument("--trick-shaping-coef", type=float, default=0.0,
-                   help="0.0 = round-end only (default). >0 adds biased per-trick "
-                        "shaping; only useful as a curriculum hint.")
-    p.add_argument("--signal-honesty-coef", type=float, default=0.0,
-                   help="Reward for declaring an honest signal (penalty if it lies; "
-                        "silence is free). 0.0 = off. Grounds the signal action "
-                        "slots, which the score alone never touches.")
-    p.add_argument("--signal-honesty-coef-final", type=float, default=0.0,
-                   help="Value the honesty coefficient anneals TO (default 0.0: "
-                        "teach the convention, then let the score take over).")
-    p.add_argument("--signal-honesty-frac", type=float, default=0.5,
-                   help="Fraction of the run over which to anneal (default 0.5).")
-    p.add_argument("--p-latest-opponent", type=float, default=0.5,
-                   help="Probability that opponent is current learner (vanilla "
-                        "self-play). 1-p draws from historical opponent pool.")
+    p.add_argument(
+        "--trick-shaping-coef",
+        type=float,
+        default=0.0,
+        help="0.0 = round-end only (default). >0 adds biased per-trick "
+        "shaping; only useful as a curriculum hint.",
+    )
+    p.add_argument(
+        "--signal-honesty-coef",
+        type=float,
+        default=0.0,
+        help="Reward for declaring an honest signal (penalty if it lies; "
+        "silence is free). 0.0 = off. Grounds the signal action "
+        "slots, which the score alone never touches.",
+    )
+    p.add_argument(
+        "--signal-honesty-coef-final",
+        type=float,
+        default=0.0,
+        help="Value the honesty coefficient anneals TO (default 0.0: "
+        "teach the convention, then let the score take over).",
+    )
+    p.add_argument(
+        "--signal-honesty-frac",
+        type=float,
+        default=0.5,
+        help="Fraction of the run over which to anneal (default 0.5).",
+    )
+    p.add_argument(
+        "--p-latest-opponent",
+        type=float,
+        default=0.5,
+        help="Probability that opponent is current learner (vanilla "
+        "self-play). 1-p draws from historical opponent pool.",
+    )
     p.add_argument("--device", default="cpu")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--eval-every", type=int, default=25)
@@ -490,9 +545,13 @@ if __name__ == "__main__":
     p.add_argument("--d-model", type=int, default=128, help="V4 transformer width")
     p.add_argument("--nhead", type=int, default=4, help="V4 attention heads")
     p.add_argument("--dim-feedforward", type=int, default=256, help="V4 FFN width")
-    p.add_argument("--max-hours", type=float, default=None,
-                   help="Graceful wall-clock stop; writes last.pt and exits so "
-                        "--resume can continue (Kaggle 12h cap).")
+    p.add_argument(
+        "--max-hours",
+        type=float,
+        default=None,
+        help="Graceful wall-clock stop; writes last.pt and exits so "
+        "--resume can continue (Kaggle 12h cap).",
+    )
     a = p.parse_args()
 
     cfg = TrainConfig(

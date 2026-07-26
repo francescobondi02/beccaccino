@@ -55,8 +55,16 @@ SMOKE_MAX_STEPS = 1_000_000  # anything above this needs --confirm-cost
 
 # Dirs/patterns stripped from the ai/ upload (bloat / secrets / local state).
 STAGE_IGNORE = shutil.ignore_patterns(
-    "__pycache__", ".venv", "runs", "wandb", "checkpoints", ".git",
-    ".pytest_cache", ".ruff_cache", "*.log", ".DS_Store",
+    "__pycache__",
+    ".venv",
+    "runs",
+    "wandb",
+    "checkpoints",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    "*.log",
+    ".DS_Store",
 )
 
 AI_ROOT = Path(__file__).resolve().parent.parent  # the ai/ package root
@@ -105,32 +113,58 @@ class RunSpec:
     def to_cli_args(self) -> list[str]:
         """Render to the scripts.bc_then_rl flag list."""
         args = [
-            "--network-version", str(self.network_version),
-            "--d-model", str(self.d_model),
-            "--nhead", str(self.nhead),
-            "--layers", str(self.layers),
-            "--dim-feedforward", str(self.dim_feedforward),
-            "--bc-games", str(self.bc_games),
-            "--bc-epochs", str(self.bc_epochs),
-            "--bc-batch-size", str(self.bc_batch_size),
-            "--bc-lr", str(self.bc_lr),
-            "--bc-win-points", str(self.bc_win_points),
-            "--total-rl-steps", str(self.total_rl_steps),
-            "--num-envs", str(self.num_envs),
-            "--steps-per-env", str(self.steps_per_env),
-            "--win-points", str(self.win_points),
-            "--eval-win-points", str(self.eval_win_points),
-            "--eval-every", str(self.eval_every),
-            "--eval-games", str(self.eval_games),
-            "--pool-save-every", str(self.pool_save_every),
-            "--p-latest-opponent", str(self.p_latest_opponent),
-            "--signal-honesty-coef", str(self.signal_honesty_coef),
-            "--signal-honesty-coef-final", str(self.signal_honesty_coef_final),
-            "--signal-honesty-frac", str(self.signal_honesty_frac),
-            "--device", self.device,
-            "--out-dir", self.out_dir,
-            "--bc-ckpt", self.bc_ckpt,
-            "--final-ckpt", self.final_ckpt,
+            "--network-version",
+            str(self.network_version),
+            "--d-model",
+            str(self.d_model),
+            "--nhead",
+            str(self.nhead),
+            "--layers",
+            str(self.layers),
+            "--dim-feedforward",
+            str(self.dim_feedforward),
+            "--bc-games",
+            str(self.bc_games),
+            "--bc-epochs",
+            str(self.bc_epochs),
+            "--bc-batch-size",
+            str(self.bc_batch_size),
+            "--bc-lr",
+            str(self.bc_lr),
+            "--bc-win-points",
+            str(self.bc_win_points),
+            "--total-rl-steps",
+            str(self.total_rl_steps),
+            "--num-envs",
+            str(self.num_envs),
+            "--steps-per-env",
+            str(self.steps_per_env),
+            "--win-points",
+            str(self.win_points),
+            "--eval-win-points",
+            str(self.eval_win_points),
+            "--eval-every",
+            str(self.eval_every),
+            "--eval-games",
+            str(self.eval_games),
+            "--pool-save-every",
+            str(self.pool_save_every),
+            "--p-latest-opponent",
+            str(self.p_latest_opponent),
+            "--signal-honesty-coef",
+            str(self.signal_honesty_coef),
+            "--signal-honesty-coef-final",
+            str(self.signal_honesty_coef_final),
+            "--signal-honesty-frac",
+            str(self.signal_honesty_frac),
+            "--device",
+            self.device,
+            "--out-dir",
+            self.out_dir,
+            "--bc-ckpt",
+            self.bc_ckpt,
+            "--final-ckpt",
+            self.final_ckpt,
         ]
         if self.centralized_critic:
             args.append("--centralized-critic")
@@ -155,9 +189,14 @@ SIGNAL_HONESTY_FRAC = 0.5
 # recipe (critic + anchors + signal shaping) on a short RL phase so the smoke
 # validates exactly what the overnight run does, without burning quota.
 SMOKE_SPEC = RunSpec(
-    bc_games=200, bc_epochs=1, total_rl_steps=200_000,
-    num_envs=16, eval_every=50, eval_games=20,
-    centralized_critic=True, anchor_bc=True,
+    bc_games=200,
+    bc_epochs=1,
+    total_rl_steps=200_000,
+    num_envs=16,
+    eval_every=50,
+    eval_games=20,
+    centralized_critic=True,
+    anchor_bc=True,
     signal_honesty_coef=SIGNAL_HONESTY_COEF,
     signal_honesty_frac=SIGNAL_HONESTY_FRAC,
     out_dir="/kaggle/working/runs/smoke",
@@ -169,11 +208,21 @@ SMOKE_SPEC = RunSpec(
 # centralized critic and BC anchor, capped under Kaggle's 12h session limit so it
 # saves last.pt and can be resumed. Above SMOKE_MAX_STEPS -> needs --confirm-cost.
 RUN_B_SPEC = RunSpec(
-    d_model=192, nhead=6, layers=4, dim_feedforward=384,
-    bc_games=6000, bc_epochs=6, total_rl_steps=30_000_000,
-    num_envs=64, steps_per_env=512,
-    eval_every=50, eval_games=200, pool_save_every=50,
-    centralized_critic=True, anchor_bc=True, max_hours=11.0,
+    d_model=192,
+    nhead=6,
+    layers=4,
+    dim_feedforward=384,
+    bc_games=6000,
+    bc_epochs=6,
+    total_rl_steps=30_000_000,
+    num_envs=64,
+    steps_per_env=512,
+    eval_every=50,
+    eval_games=200,
+    pool_save_every=50,
+    centralized_critic=True,
+    anchor_bc=True,
+    max_hours=11.0,
     out_dir="/kaggle/working/runs/runB",
     bc_ckpt="/kaggle/working/checkpoints/runB_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/runB_rl.pt",
@@ -288,16 +337,20 @@ def launch(spec: RunSpec, confirm_cost: bool) -> None:
     Safety gate: SMOKE-sized runs launch freely; larger runs are REFUSED unless
     --confirm-cost is passed."""
     hours = est_hours(spec.total_rl_steps)
-    print(f"Estimated RL GPU time: {hours:.2f}h for {spec.total_rl_steps:,} steps "
-          f"(~{MEASURED_SPS} SPS on T4).")
+    print(
+        f"Estimated RL GPU time: {hours:.2f}h for {spec.total_rl_steps:,} steps "
+        f"(~{MEASURED_SPS} SPS on T4)."
+    )
     if spec.total_rl_steps > SMOKE_MAX_STEPS and not confirm_cost:
         raise SystemExit(
             f"REFUSED: {spec.total_rl_steps:,} steps exceeds the smoke threshold "
             f"({SMOKE_MAX_STEPS:,}). Re-run with --confirm-cost to launch a real run."
         )
     if hours > KAGGLE_SESSION_CAP_HOURS:
-        print(f"WARNING: estimate exceeds the {KAGGLE_SESSION_CAP_HOURS}h session cap; "
-              "the run will be killed. Use --max-hours in the spec so it saves last.pt.")
+        print(
+            f"WARNING: estimate exceeds the {KAGGLE_SESSION_CAP_HOURS}h session cap; "
+            "the run will be killed. Use --max-hours in the spec so it saves last.pt."
+        )
     with tempfile.TemporaryDirectory() as tmp:
         meta = {
             "id": KERNEL_SLUG,
@@ -352,19 +405,27 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("configure", help="enable GPU+internet and attach the dataset")
 
     ln = sub.add_parser("launch", help="render + push a run kernel")
-    ln.add_argument("--preset", choices=["smoke", "runb", "runc"], default=None,
-                    help="smoke: cheap full-recipe validation; runb: the original "
-                         "overnight run (critic + anchors + 11h cap); runc: runb "
-                         "plus signal-honesty shaping and best.pt tracking.")
-    ln.add_argument("--confirm-cost", action="store_true",
-                    help="required to launch a run above the smoke threshold")
+    ln.add_argument(
+        "--preset",
+        choices=["smoke", "runb", "runc"],
+        default=None,
+        help="smoke: cheap full-recipe validation; runb: the original "
+        "overnight run (critic + anchors + 11h cap); runc: runb "
+        "plus signal-honesty shaping and best.pt tracking.",
+    )
+    ln.add_argument(
+        "--confirm-cost",
+        action="store_true",
+        help="required to launch a run above the smoke threshold",
+    )
     # A curated subset of the most-tuned RunSpec fields; the rest keep defaults.
     ln.add_argument("--total-rl-steps", type=int)
     ln.add_argument("--num-envs", type=int)
     ln.add_argument("--d-model", dest="d_model", type=int)
     ln.add_argument("--layers", type=int)
-    ln.add_argument("--resume", type=str,
-                    help="resume the RL phase from a prior last.pt on the dataset")
+    ln.add_argument(
+        "--resume", type=str, help="resume the RL phase from a prior last.pt on the dataset"
+    )
 
     sub.add_parser("status", help="poll the kernel run state")
 

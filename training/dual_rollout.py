@@ -129,10 +129,15 @@ def collect_self_play_rollout_vec(
                 if not is_learner[i]:
                     continue
                 buf.store(
-                    obs_dict["obs"][i], obs_dict["action_mask"][i],
-                    actions[i], log_probs[i], values[i],
-                    rews[i], dones[i],
-                    int(seats_np[i]), env_idx=i,
+                    obs_dict["obs"][i],
+                    obs_dict["action_mask"][i],
+                    actions[i],
+                    log_probs[i],
+                    values[i],
+                    rews[i],
+                    dones[i],
+                    int(seats_np[i]),
+                    env_idx=i,
                     full_obs=obs_dict["full_obs"][i] if critic is not None else None,
                 )
 
@@ -156,8 +161,7 @@ def collect_self_play_rollout_vec(
                 # step's reward; exclude. If opponent: -1 → no exclusion.
                 acting = int(seats_np[i]) if is_learner[i] else -1
                 filtered = {
-                    s: r for s, r in residuals.items()
-                    if s in learner_seats and s != acting
+                    s: r for s, r in residuals.items() if s in learner_seats and s != acting
                 }
                 if filtered:
                     _credit_terminal_residuals(

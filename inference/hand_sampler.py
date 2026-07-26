@@ -53,6 +53,7 @@ from becca_env.game import BeccaGame, GamePhase
 @dataclass
 class SampledHands:
     """Result of one determinization attempt."""
+
     hands: dict[int, list[Card]]
     relaxed: bool = False  # True if void constraints were relaxed to succeed
 

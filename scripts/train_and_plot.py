@@ -42,12 +42,17 @@ def parse_args():
     p.add_argument("--total-steps", type=int, default=1_500_000)
     p.add_argument("--num-envs", type=int, default=8)
     p.add_argument("--steps-per-env", type=int, default=512)
-    p.add_argument("--win-points", type=int, default=11,
-                   help="win_points used during TRAINING rollouts.")
-    p.add_argument("--eval-win-points", type=int, default=None,
-                   help="win_points used in eval matches. Defaults to --win-points. "
-                        "Set higher (e.g. 41) to evaluate at full game length even "
-                        "when training short.")
+    p.add_argument(
+        "--win-points", type=int, default=11, help="win_points used during TRAINING rollouts."
+    )
+    p.add_argument(
+        "--eval-win-points",
+        type=int,
+        default=None,
+        help="win_points used in eval matches. Defaults to --win-points. "
+        "Set higher (e.g. 41) to evaluate at full game length even "
+        "when training short.",
+    )
     p.add_argument("--device", default="cpu")
     p.add_argument("--lr", type=float, default=2.5e-4)
     p.add_argument("--ent-coef", type=float, default=0.03)
@@ -106,7 +111,10 @@ def main():
     opponent_net.load_state_dict(net.state_dict())
 
     vec = create_vec_env(
-        num_envs=cfg.num_envs, seed=cfg.seed, win_points=cfg.win_points, sync=False,
+        num_envs=cfg.num_envs,
+        seed=cfg.seed,
+        win_points=cfg.win_points,
+        sync=False,
         trick_shaping_coef=cfg.trick_shaping_coef,
     )
 
@@ -117,13 +125,23 @@ def main():
     # CSV header
     with csv_path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow([
-            "update", "steps", "games", "sps",
-            "policy_loss", "value_loss", "entropy",
-            "approx_kl", "explained_variance",
-            "mean_reward", "opponent_source",
-            "wr_random", "wr_heuristic",
-        ])
+        w.writerow(
+            [
+                "update",
+                "steps",
+                "games",
+                "sps",
+                "policy_loss",
+                "value_loss",
+                "entropy",
+                "approx_kl",
+                "explained_variance",
+                "mean_reward",
+                "opponent_source",
+                "wr_random",
+                "wr_heuristic",
+            ]
+        )
 
     n_params = sum(p.numel() for p in net.parameters())
     print(f"# params: {n_params:,}  | device: {dev}  | win_points: {cfg.win_points}")
@@ -154,19 +172,30 @@ def main():
             opp_source = "pool"
 
         buf = collect_self_play_rollout_vec(
-            vec, net, opponent_net, learner_team_per_env,
-            cfg.steps_per_env, dev,
+            vec,
+            net,
+            opponent_net,
+            learner_team_per_env,
+            cfg.steps_per_env,
+            dev,
         )
         step_count += buf.ptr
         games_total += buf.games_done
 
-        batch = buf.get_batch(gamma=cfg.gamma, lam=cfg.gae_lambda,
-                              return_normalizer=return_normalizer)
+        batch = buf.get_batch(
+            gamma=cfg.gamma, lam=cfg.gae_lambda, return_normalizer=return_normalizer
+        )
         m = ppo_update(
-            net, opt, batch,
-            clip_eps=cfg.clip_eps, vf_coef=cfg.vf_coef, ent_coef=ent_coef,
-            max_grad_norm=cfg.max_grad_norm, num_epochs=cfg.num_epochs,
-            minibatch_size=cfg.minibatch_size, target_kl=cfg.target_kl,
+            net,
+            opt,
+            batch,
+            clip_eps=cfg.clip_eps,
+            vf_coef=cfg.vf_coef,
+            ent_coef=ent_coef,
+            max_grad_norm=cfg.max_grad_norm,
+            num_epochs=cfg.num_epochs,
+            minibatch_size=cfg.minibatch_size,
+            target_kl=cfg.target_kl,
             device=dev,
         )
 
@@ -188,20 +217,33 @@ def main():
                 net, num_games=args.eval_games, device=dev, seed=cfg.seed + update
             )
             last_wr_heur = evaluate_against_heuristic(
-                net, num_games=args.eval_games, device=dev, seed=cfg.seed + update,
+                net,
+                num_games=args.eval_games,
+                device=dev,
+                seed=cfg.seed + update,
                 win_points=eval_wp,
             )
 
         # Persist
         with csv_path.open("a", newline="") as f:
             w = csv.writer(f)
-            w.writerow([
-                update, step_count, games_total, f"{sps:.0f}",
-                f"{m['policy_loss']:.5f}", f"{m['value_loss']:.5f}",
-                f"{m['entropy']:.4f}", f"{m['approx_kl']:.5f}",
-                f"{ev:.4f}", f"{mean_reward:.4f}", opp_source,
-                f"{last_wr_random:.4f}", f"{last_wr_heur:.4f}",
-            ])
+            w.writerow(
+                [
+                    update,
+                    step_count,
+                    games_total,
+                    f"{sps:.0f}",
+                    f"{m['policy_loss']:.5f}",
+                    f"{m['value_loss']:.5f}",
+                    f"{m['entropy']:.4f}",
+                    f"{m['approx_kl']:.5f}",
+                    f"{ev:.4f}",
+                    f"{mean_reward:.4f}",
+                    opp_source,
+                    f"{last_wr_random:.4f}",
+                    f"{last_wr_heur:.4f}",
+                ]
+            )
 
         if update % args.eval_every == 0 or update == 1:
             print(
@@ -213,18 +255,21 @@ def main():
 
     # Save final checkpoint
     Path(args.ckpt_path).parent.mkdir(parents=True, exist_ok=True)
-    torch.save({
-        "model": net.state_dict(),
-        "config": {
-            "hidden_size": cfg.hidden_size,
-            "num_layers": cfg.num_layers,
-            "network_version": cfg.network_version,
-            "use_layer_norm": cfg.use_layer_norm,
-            "win_points": cfg.win_points,
+    torch.save(
+        {
+            "model": net.state_dict(),
+            "config": {
+                "hidden_size": cfg.hidden_size,
+                "num_layers": cfg.num_layers,
+                "network_version": cfg.network_version,
+                "use_layer_norm": cfg.use_layer_norm,
+                "win_points": cfg.win_points,
+            },
+            "steps": step_count,
+            "updates": cfg.total_updates,
         },
-        "steps": step_count,
-        "updates": cfg.total_updates,
-    }, args.ckpt_path)
+        args.ckpt_path,
+    )
     print(f"Saved checkpoint to {args.ckpt_path}")
 
     vec.close()
@@ -236,6 +281,7 @@ def main():
 
 def plot_curve(csv_path: Path, out_path: Path):
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 

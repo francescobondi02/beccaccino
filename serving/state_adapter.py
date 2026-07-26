@@ -92,9 +92,7 @@ def state_dict_to_game(state: dict[str, Any]) -> BeccaGame:
     game.result = None
 
     briscola = state.get("briscola")
-    hands = {
-        int(seat): [_card(c) for c in cards] for seat, cards in state["hands"].items()
-    }
+    hands = {int(seat): [_card(c) for c in cards] for seat, cards in state["hands"].items()}
     _require_all_seats(hands)
 
     completed = [_trick_record(t, briscola) for t in state.get("completed_tricks", [])]
@@ -178,9 +176,7 @@ def game_to_state_dict(game: BeccaGame, seat: int) -> dict[str, Any]:
         "caller_seat": r.caller_seat,
         "trick_starter": r.trick_starter,
         "acting_seat": seat,
-        "hands": {
-            str(s): [_card_dto(c) for c in cards] for s, cards in r.player_hands.items()
-        },
+        "hands": {str(s): [_card_dto(c) for c in cards] for s, cards in r.player_hands.items()},
         "completed_tricks": [
             {
                 "cards": [_seated_card_dto(s, c) for s, c in tr.cards],

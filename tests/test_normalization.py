@@ -50,8 +50,8 @@ def test_return_normalizer_resets_on_done():
     """A done=True must reset the running return for that (env, seat)."""
     rn = ReturnNormalizer(gamma=0.5)
     # env 0 seat 0 stream: r=1 (no done), r=1 (done), r=10 (no done)
-    rn.normalize(0, 0, 1.0, done=False)   # return chain: 1.0
-    rn.normalize(0, 0, 1.0, done=True)    # return chain: 0.5*1 + 1 = 1.5; then RESET
+    rn.normalize(0, 0, 1.0, done=False)  # return chain: 1.0
+    rn.normalize(0, 0, 1.0, done=True)  # return chain: 0.5*1 + 1 = 1.5; then RESET
     # After reset, next sample should start fresh: return = 0.5*0 + 10 = 10
     rn.normalize(0, 0, 10.0, done=False)
     # We can't easily inspect the chain directly, but the rms should now
@@ -105,12 +105,15 @@ def test_normalize_batch_matches_loop():
     env = np.random.randint(0, 4, size=n).astype(np.int64)
     seats = np.random.randint(0, 4, size=n).astype(np.int64)
     rewards = np.random.randn(n).astype(np.float32)
-    dones = (np.random.rand(n) < 0.05)
+    dones = np.random.rand(n) < 0.05
 
-    expected = np.array([
-        rn_loop.normalize(int(env[i]), int(seats[i]), float(rewards[i]), bool(dones[i]))
-        for i in range(n)
-    ], dtype=np.float32)
+    expected = np.array(
+        [
+            rn_loop.normalize(int(env[i]), int(seats[i]), float(rewards[i]), bool(dones[i]))
+            for i in range(n)
+        ],
+        dtype=np.float32,
+    )
     got = rn_batch.normalize_batch(env, seats, rewards, dones)
 
     np.testing.assert_allclose(got, expected, atol=1e-6)

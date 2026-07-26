@@ -67,7 +67,6 @@ MAX_RAW_PER_ROUND = 35
 
 
 class BeccaEnv(gym.Env):
-
     metadata = {"render_modes": []}
 
     def __init__(
@@ -87,14 +86,18 @@ class BeccaEnv(gym.Env):
         self._pending_rewards: dict[int, float] = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
 
         self.action_space = spaces.Discrete(160)
-        self.observation_space = spaces.Dict({
-            "obs": spaces.Box(low=0.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32),
-            # Full state (actor obs + hidden hands) for the centralized critic.
-            # Train-time only; the policy and serving never read it.
-            "full_obs": spaces.Box(low=0.0, high=1.0, shape=(FULL_STATE_SIZE,), dtype=np.float32),
-            "action_mask": spaces.Box(low=0.0, high=1.0, shape=(160,), dtype=np.float32),
-            "current_seat": spaces.Discrete(4),
-        })
+        self.observation_space = spaces.Dict(
+            {
+                "obs": spaces.Box(low=0.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32),
+                # Full state (actor obs + hidden hands) for the centralized critic.
+                # Train-time only; the policy and serving never read it.
+                "full_obs": spaces.Box(
+                    low=0.0, high=1.0, shape=(FULL_STATE_SIZE,), dtype=np.float32
+                ),
+                "action_mask": spaces.Box(low=0.0, high=1.0, shape=(160,), dtype=np.float32),
+                "current_seat": spaces.Discrete(4),
+            }
+        )
 
     def set_trick_shaping_coef(self, coef: float) -> None:
         """Adjust the trick-shaping coefficient (e.g. for annealing)."""
@@ -142,10 +145,7 @@ class BeccaEnv(gym.Env):
         # Optional per-trick shaping (off by default).
         # Note: round_end / game_over events also include the final trick's
         # data (trick_winner, trick_cards), so we apply shaping there too.
-        if (
-            self.trick_shaping_coef != 0.0
-            and event in ("trick_complete", "round_end", "game_over")
-        ):
+        if self.trick_shaping_coef != 0.0 and event in ("trick_complete", "round_end", "game_over"):
             self._distribute_trick_shaping(info)
 
         # Round-end shaping: dense, unbiased, fires every ~40 env steps.
@@ -188,9 +188,7 @@ class BeccaEnv(gym.Env):
         from the round score (module docstring). The partner is not credited —
         acting on a signal is their own decision, judged by the score.
         """
-        honest = signal_is_honest(
-            info["signal"], self.game.get_hand(seat), info["card"].suit
-        )
+        honest = signal_is_honest(info["signal"], self.game.get_hand(seat), info["card"].suit)
         self._pending_rewards[seat] += (
             self.signal_honesty_coef if honest else -self.signal_honesty_coef
         )
