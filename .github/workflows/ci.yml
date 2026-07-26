@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Torch pulls a heavy dependency tree; a cold install must not hang the runner.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev,train,serve]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format
+        run: ruff format --check .
+
+      - name: Test
+        # test_export_onnx.py is excluded: it needs an onnxruntime build absent here.
+        run: pytest --ignore=tests/test_export_onnx.py
+
+      - name: Fixture drift gate
+        # The fixture is consumed byte-for-byte by the backend serializer test, so a
+        # stale committed copy is a cross-language contract break. Regenerate and fail
+        # if the working tree moved.
+        run: |
+          python -m scripts.gen_bot_fixtures
+          git diff --exit-code serving/fixtures/
