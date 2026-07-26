@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build # no VITE_ vars needed: they are optional at build time (verified)
+      # Not gated on `npm run lint`: 34 pre-existing lint errors; gate once they are burned down.
+      # Not running Playwright e2e (`npm run test:e2e`): needs a live backend + frontend.
