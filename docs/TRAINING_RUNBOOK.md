@@ -205,6 +205,12 @@ block and training seeds.
 | **Run C final (upd 915)** | **83.0% [79.0, 86.4]** | **81.8% [77.7, 85.2]** |
 | Run C best.pt (upd 450) | 80.2% [76.1, 83.9] | 76.0% [71.6, 79.9] |
 
+For scale: PIMC (`esperto`, 10 determinizations, heuristic rollouts) scores
+**90.0% [82.6, 94.5]** on the same frozen block (100 games) — Run C's model-free
+policy has nearly closed the gap to inference-time search, which revises the old
+"the plateau is structural, only search gets past it" claim: better BC + a grounded
+signal channel moved the model-free ceiling itself.
+
 **Strength: +11 points over Run B, CIs non-overlapping, holds on unseen deals.**
 Two honest observations the numbers force:
 - The best.pt-selection eval (83.5% at 100–200 games) overstated update 450; on the
