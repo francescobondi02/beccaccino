@@ -33,6 +33,8 @@ services:
       - db
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/becca
+      - DIRECT_URL=postgresql://postgres:postgres@db:5432/becca
+      - FRONTEND_URL=http://localhost:8081
 
 volumes:
   db_data:
