@@ -26,6 +26,9 @@ dist-ssr
 # Env files
 .env
 
+# Lockfiles (npm is the toolchain; package-lock.json is tracked)
+bun.lockb
+
 # Playwright
 test-results/
 playwright-report/
