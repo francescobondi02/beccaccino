@@ -3,7 +3,12 @@
 import { Request, Response } from "express";
 import { prisma } from "../db";
 import { Suit } from "@prisma/client";
-import { playCard, setBriscola, seatAfter } from "../services/gameService";
+import {
+  playCard,
+  setBriscola,
+  resolveCaller,
+  resolveCurrentTurnUserId,
+} from "../services/gameService";
 import { cumulativeScore } from "../utils/score";
 import { playableCards } from "../services/cardService";
 import {
@@ -139,7 +144,6 @@ export const getGameState = async (req: Request, res: Response) => {
   const currentRound = await prisma.round.findFirst({
     where: { gameRoomId: gameRoom.id },
     orderBy: { number: "desc" },
-    include: { hands: { orderBy: { number: "asc" }, take: 1 } },
   });
 
   if (!currentRound) {
@@ -147,35 +151,7 @@ export const getGameState = async (req: Request, res: Response) => {
   }
 
   // Determina chi deve chiamare la briscola
-  let callerPlayerId: number | null = null;
-
-  if (currentRound.number === 1) {
-    // Round 1: chi ha il 4 di denara
-    const quattroDeNara = await prisma.playerCard.findFirst({
-      where: {
-        roundId: currentRound.id,
-        suit: "denara",
-        value: "quattro",
-      },
-    });
-    callerPlayerId = quattroDeNara?.playerId ?? null;
-  } else {
-    // Round 2+: il player con seat successivo al caller del round precedente
-    const prevRound = await prisma.round.findFirst({
-      where: { gameRoomId: gameRoom.id, number: currentRound.number - 1 },
-      include: { hands: { orderBy: { number: "asc" }, take: 1 } },
-    });
-    if (prevRound && prevRound.hands.length > 0) {
-      const prevCaller = gameRoom.players.find(
-        (p) => p.id === prevRound.hands[0].starterId,
-      );
-      if (prevCaller !== undefined && prevCaller.seat !== null) {
-        const nextSeat = seatAfter(prevCaller.seat);
-        const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
-        callerPlayerId = nextPlayer?.id ?? null;
-      }
-    }
-  }
+  const callerPlayerId = await resolveCaller(currentRound, gameRoom.players);
 
   // Converti callerPlayerId in callerUserId per il frontend
   const callerPlayer = gameRoom.players.find((p) => p.id === callerPlayerId);
@@ -194,46 +170,11 @@ export const getGameState = async (req: Request, res: Response) => {
     : [];
 
   // Determina di chi è il turno attuale
-  let currentTurnUserId: number | null = null;
-
-  if (currentRound.briscola === null) {
-    // Se la briscola non è stata ancora scelta, il turno è del caller
-    currentTurnUserId = callerUserId;
-  } else {
-    // La briscola è stata scelta, cerco l'ultima mano
-    const lastHand = await prisma.hand.findFirst({
-      where: { roundId: currentRound.id },
-      orderBy: { number: "desc" },
-      include: { cards: { orderBy: { position: "asc" } } },
-    });
-
-    if (!lastHand) {
-      // Nessuna mano ancora, il turno è dello starter (che è il caller dopo la briscola)
-      currentTurnUserId = callerUserId;
-    } else {
-      // C'è una mano
-      if (lastHand.cards.length < 4) {
-        // Mano in corso: il turno è del prossimo giocatore
-        // L'ordine è: starterId, poi (starterId+1)%4, (starterId+2)%4, (starterId+3)%4
-        const starterPlayer = gameRoom.players.find(
-          (p) => p.id === lastHand.starterId,
-        );
-        if (starterPlayer && starterPlayer.seat !== null) {
-          const nextSeat = seatAfter(starterPlayer.seat, lastHand.cards.length);
-          const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
-          currentTurnUserId = nextPlayer?.userId ?? null;
-        }
-      } else {
-        // Mano completata (4 carte): il turno è del winner dell'ultima mano
-        if (lastHand.winnerId) {
-          const winnerPlayer = gameRoom.players.find(
-            (p) => p.id === lastHand.winnerId,
-          );
-          currentTurnUserId = winnerPlayer?.userId ?? null;
-        }
-      }
-    }
-  }
+  const currentTurnUserId = await resolveCurrentTurnUserId(
+    currentRound,
+    gameRoom.players,
+    callerUserId,
+  );
 
   // Recupera le carte attualmente giocate (sul tavolo)
   const currentHandInProgress = await prisma.hand.findFirst({

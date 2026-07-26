@@ -35,6 +35,79 @@ export function seatAfter(seat: number, offset = 1): number {
   return (seat + offset) % 4;
 }
 
+/**
+ * The briscola caller leads the round's first hand, so the previous round's
+ * first-hand starter identifies the previous caller; the next caller sits one
+ * seat clockwise. Null when the rotation cannot be resolved.
+ */
+function callerAfter(
+  players: { id: number; seat: number | null }[],
+  previousCallerId: number,
+): number | null {
+  const previous = players.find((p) => p.id === previousCallerId);
+  if (!previous || previous.seat === null) return null;
+  const nextSeat = seatAfter(previous.seat);
+  return players.find((p) => p.seat === nextSeat)?.id ?? null;
+}
+
+/**
+ * Which player calls briscola for `round`: round 1 goes to the holder of the
+ * quattro di denara, later rounds rotate one seat clockwise from the previous
+ * caller.
+ */
+export async function resolveCaller(
+  round: { id: number; number: number; gameRoomId: number },
+  players: { id: number; seat: number | null }[],
+): Promise<number | null> {
+  if (round.number === 1) {
+    const quattroDenara = await prisma.playerCard.findFirst({
+      where: { roundId: round.id, suit: "denara", value: "quattro" },
+    });
+    return quattroDenara?.playerId ?? null;
+  }
+
+  const previousRound = await prisma.round.findFirst({
+    where: { gameRoomId: round.gameRoomId, number: round.number - 1 },
+    include: { hands: { orderBy: { number: "asc" }, take: 1 } },
+  });
+  const previousCallerId = previousRound?.hands[0]?.starterId;
+  return previousCallerId === undefined
+    ? null
+    : callerAfter(players, previousCallerId);
+}
+
+/**
+ * Whose turn the game state should report, mirroring how playCard advances
+ * play: the caller until briscola is chosen, then the next seat within an
+ * open hand, then the completed hand's winner.
+ */
+export async function resolveCurrentTurnUserId(
+  round: { id: number; briscola: string | null },
+  players: { id: number; userId: number; seat: number | null }[],
+  callerUserId: number | null,
+): Promise<number | null> {
+  if (round.briscola === null) return callerUserId;
+
+  const lastHand = await prisma.hand.findFirst({
+    where: { roundId: round.id },
+    orderBy: { number: "desc" },
+    include: { cards: { orderBy: { position: "asc" } } },
+  });
+  if (!lastHand) return callerUserId;
+
+  if (lastHand.cards.length < 4) {
+    const starter = players.find((p) => p.id === lastHand.starterId);
+    if (!starter || starter.seat === null) return null;
+    const nextSeat = seatAfter(starter.seat, lastHand.cards.length);
+    return players.find((p) => p.seat === nextSeat)?.userId ?? null;
+  }
+
+  if (lastHand.winnerId) {
+    return players.find((p) => p.id === lastHand.winnerId)?.userId ?? null;
+  }
+  return null;
+}
+
 enum Suit {
   denara = "denara",
   spade = "spade",
@@ -190,17 +263,11 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
   if (newRoundNumber === 1) {
     starterId = playerWithQuattroDenara!;
   } else {
-    const lastStarterId = previousRound!.hands[0].starterId;
-    const lastStarterPlayer = players.find((p) => p.id === lastStarterId);
-    if (!lastStarterPlayer || lastStarterPlayer.seat === null) {
-      throw new Error("Invalid previous starter or seat not assigned");
+    const nextCaller = callerAfter(players, previousRound!.hands[0].starterId);
+    if (nextCaller === null) {
+      throw new Error("Could not rotate briscola caller from previous round");
     }
-    const newStarterSeat = seatAfter(lastStarterPlayer.seat);
-    const newStarter = players.find((p) => p.seat === newStarterSeat);
-    if (!newStarter) {
-      throw new Error("New starter not found");
-    }
-    starterId = newStarter.id;
+    starterId = nextCaller;
   }
 
   logger.info(
@@ -293,29 +360,7 @@ async function setBriscolaUnlocked({
     throw new Error("Briscola already set for this round");
 
   // Verify it's the correct player's turn to choose
-  let callerPlayerId: number | null = null;
-
-  if (currentRound.number === 1) {
-    const quattroDenara = await prisma.playerCard.findFirst({
-      where: { roundId: currentRound.id, suit: "denara", value: "quattro" },
-    });
-    callerPlayerId = quattroDenara?.playerId ?? null;
-  } else {
-    const previousRound = await prisma.round.findFirst({
-      where: { gameRoomId, number: currentRound.number - 1 },
-      include: { hands: { orderBy: { number: "asc" }, take: 1 } },
-    });
-    if (previousRound && previousRound.hands.length > 0) {
-      const prevCaller = gameRoom.players.find(
-        (p) => p.id === previousRound.hands[0].starterId,
-      );
-      if (prevCaller && prevCaller.seat !== null) {
-        const nextSeat = seatAfter(prevCaller.seat);
-        const nextPlayer = gameRoom.players.find((p) => p.seat === nextSeat);
-        callerPlayerId = nextPlayer?.id ?? null;
-      }
-    }
-  }
+  const callerPlayerId = await resolveCaller(currentRound, gameRoom.players);
 
   if (playerId !== callerPlayerId) {
     throw new Error("It's not your turn to choose briscola");
