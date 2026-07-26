@@ -26,6 +26,22 @@ ESPERTO_MAX_SECONDS = 5.0
 
 NEURAL_TIERS = ["facile", "forte"]
 
+# Checkpoints are not committed (gitignored .pt files), so on a fresh clone —
+# CI included — only the checkpoint-free heuristic tier is servable. Tests that
+# drive a real network skip rather than fail there.
+AVAILABLE_TIERS = {t.name for t in available_tiers()}
+
+
+def needs_checkpoint(tier: str):
+    return pytest.mark.skipif(
+        tier not in AVAILABLE_TIERS,
+        reason=f"tier {tier!r} needs a checkpoint file not present in this clone",
+    )
+
+
+def tier_params(names):
+    return [pytest.param(name, marks=needs_checkpoint(name)) for name in names]
+
 
 @pytest.fixture
 def client():
@@ -58,7 +74,7 @@ def test_tiers_endpoint_lists_available_tiers(client):
     assert names == [t.name for t in available_tiers()]
 
 
-@pytest.mark.parametrize("tier", sorted(TIERS))
+@pytest.mark.parametrize("tier", tier_params(sorted(TIERS)))
 def test_every_tier_chooses_a_legal_briscola(client, tier):
     game = BeccaGame(seed=11)
     assert game.phase == GamePhase.CHOOSE_BRISCOLA
@@ -71,7 +87,7 @@ def test_every_tier_chooses_a_legal_briscola(client, tier):
     assert Suit(move["suit"]) in game.legal_actions()
 
 
-@pytest.mark.parametrize("tier", NEURAL_TIERS)
+@pytest.mark.parametrize("tier", tier_params(NEURAL_TIERS))
 def test_bot_plays_a_legal_card_from_its_own_hand(client, tier):
     game = BeccaGame(seed=12)
     game.step(Suit.DENARA)
@@ -85,7 +101,7 @@ def test_bot_plays_a_legal_card_from_its_own_hand(client, tier):
     assert card in game.round.player_hands[seat]
 
 
-@pytest.mark.parametrize("tier", NEURAL_TIERS)
+@pytest.mark.parametrize("tier", tier_params(NEURAL_TIERS))
 def test_bot_completes_a_full_round_legally(client, tier):
     """The real diagnostic: a bot drives every seat through 10 tricks.
 
@@ -109,6 +125,7 @@ def test_bot_completes_a_full_round_legally(client, tier):
     assert all(s in {sig.value for sig in Signal} for s in signals_declared)
 
 
+@needs_checkpoint("forte")
 def test_follower_never_receives_a_signal(client):
     """Only the trick leader may signal; a follower move must carry none."""
     game = BeccaGame(seed=14)
@@ -154,6 +171,7 @@ def test_temperature_out_of_range_is_rejected(client):
     assert response.status_code == 422
 
 
+@needs_checkpoint("forte")
 def test_legal_move_gate_accepts_an_agreeing_backend(client):
     game = BeccaGame(seed=19)
     game.step(Suit.DENARA)
@@ -164,6 +182,7 @@ def test_legal_move_gate_accepts_an_agreeing_backend(client):
     assert response.status_code == 200, response.text
 
 
+@needs_checkpoint("forte")
 def test_legal_move_gate_rejects_a_disagreeing_backend(client):
     """A backend whose legal set differs is looking at a different board."""
     game = BeccaGame(seed=19)
@@ -180,6 +199,7 @@ def test_legal_move_gate_rejects_a_disagreeing_backend(client):
     assert "legal-move disagreement" in response.json()["detail"]
 
 
+@needs_checkpoint("esperto")
 def test_esperto_search_stays_within_its_latency_budget(client):
     """Guards the PIMC rollout policy: net rollouts would take ~39 s per move."""
     game = BeccaGame(seed=20)
