@@ -4,13 +4,9 @@ import { Input } from "@/components/ui/input";
 import { MessageCircle, X, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSocket } from "@/sockets/socketClient";
+import type { ChatMessagePayload } from "@/sockets/events";
 
-interface ChatMessage {
-  userId: number;
-  username: string;
-  message: string;
-  timestamp: string;
-}
+type ChatMessage = ChatMessagePayload;
 
 interface GameChatProps {
   roomCode: string;

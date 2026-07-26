@@ -1,6 +1,15 @@
 // Normalized player shape that pages consume, mapped from the API's raw room
 // player objects (which nest username under `user`).
 
+export interface RawRoomPlayer {
+  id: number;
+  userId: number;
+  seat: number | null;
+  team: number | null;
+  isReady: boolean;
+  user?: { username?: string };
+}
+
 export interface ApiPlayer {
   id: number;
   userId: number;
@@ -10,7 +19,7 @@ export interface ApiPlayer {
   isReady: boolean;
 }
 
-export function normalizePlayer(p: any): ApiPlayer {
+export function normalizePlayer(p: RawRoomPlayer): ApiPlayer {
   return {
     id: p.id,
     userId: p.userId,

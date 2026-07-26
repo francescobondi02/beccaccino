@@ -6,8 +6,12 @@ import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 import { toast } from "sonner";
 import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
+import { apiGet, apiPost } from "@/lib/api";
 
-const API_URL = import.meta.env.VITE_API_URL;
+interface AuthUser {
+  id: number;
+  username: string;
+}
 
 interface LeaderboardEntry {
   username: string;
@@ -27,14 +31,9 @@ const Leaderboard = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch(`${API_URL}/users/me`, {
-          credentials: "include",
-        });
-        if (res.ok) {
-          const user = await res.json();
-          setUsername(user.username);
-          setSentryUser({ id: user.id, username: user.username });
-        }
+        const user = await apiGet<AuthUser>("/users/me");
+        setUsername(user.username);
+        setSentryUser({ id: user.id, username: user.username });
       } catch {
         // Not logged in — that's fine, leaderboard is public
       }
@@ -47,11 +46,9 @@ const Leaderboard = () => {
     const fetchLeaderboard = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`${API_URL}/users/leaderboard`);
-        if (!res.ok) {
-          throw new Error("Failed to fetch leaderboard");
-        }
-        const data = await res.json();
+        const data = await apiGet<{ leaderboard?: LeaderboardEntry[] }>(
+          "/users/leaderboard",
+        );
         setLeaderboard(data.leaderboard ?? []);
       } catch (error) {
         console.error("Error fetching leaderboard:", error);
@@ -66,10 +63,7 @@ const Leaderboard = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch(`${API_URL}/users/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
+      await apiPost("/users/logout");
       setUsername(undefined);
       clearSentryUser();
       toast.success("Logout effettuato");

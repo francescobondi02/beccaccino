@@ -8,6 +8,7 @@ import Header from "@/components/Header";
 import { Trophy, Users, Star, Clock, Edit2, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,8 +20,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 interface RecentGame {
   id: number;
@@ -62,27 +61,20 @@ const Profile = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch(`${API_URL}/users/me`, {
-          credentials: "include",
-        });
+        const user = await apiGet<{ id: number; username: string }>(
+          "/users/me",
+        );
+        setUsername(user.username);
+        setNewUsername(user.username);
+        setUserId(user.id);
+        setIsAuthenticated(true);
+        setSentryUser({ id: user.id, username: user.username });
 
-        if (res.ok) {
-          const user = await res.json();
-          setUsername(user.username);
-          setNewUsername(user.username);
-          setUserId(user.id);
-          setIsAuthenticated(true);
-          setSentryUser({ id: user.id, username: user.username });
-
-          // Fetch stats
-          await fetchStats();
-        } else {
-          toast.error("Devi effettuare l'accesso");
-          navigate("/");
-        }
+        // Fetch stats
+        await fetchStats();
       } catch (error) {
         console.error("Auth check error:", error);
-        toast.error("Errore di autenticazione");
+        toast.error("Devi effettuare l'accesso");
         navigate("/");
       } finally {
         setIsLoading(false);
@@ -94,14 +86,8 @@ const Profile = () => {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch(`${API_URL}/users/me/stats`, {
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        const data: UserStats = await res.json();
-        setStats(data);
-      }
+      const data = await apiGet<UserStats>("/users/me/stats");
+      setStats(data);
     } catch (error) {
       console.error("Error fetching stats:", error);
     }
@@ -120,19 +106,9 @@ const Profile = () => {
 
     setIsSaving(true);
     try {
-      const res = await fetch(`${API_URL}/users/me`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ username: newUsername.trim() }),
+      const updatedUser = await apiPatch<{ username: string }>("/users/me", {
+        username: newUsername.trim(),
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Errore nell'aggiornamento");
-      }
-
-      const updatedUser = await res.json();
       setUsername(updatedUser.username);
       setNewUsername(updatedUser.username);
       setIsEditing(false);
@@ -148,16 +124,7 @@ const Profile = () => {
 
   const handleDeleteAccount = async () => {
     try {
-      const res = await fetch(`${API_URL}/users/me`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Errore nell'eliminazione");
-      }
-
+      await apiDelete("/users/me");
       toast.success("Account eliminato");
       navigate("/");
     } catch (error) {
@@ -169,10 +136,7 @@ const Profile = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch(`${API_URL}/users/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
+      await apiPost("/users/logout");
       clearSentryUser();
       toast.success("Logout effettuato");
       navigate("/");

@@ -6,8 +6,12 @@ import { ArrowLeft, Bot, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import { toast } from "sonner";
 import { setSentryUser } from "@/lib/sentryUser";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
 
-const API_URL = import.meta.env.VITE_API_URL;
+interface AuthUser {
+  id: number;
+  username: string;
+}
 
 /**
  * Difficulty tiers, mirroring backend `botService.ts` and `ai/serving/tiers.py`.
@@ -45,43 +49,33 @@ const Practice = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const res = await fetch(`${API_URL}/users/me`, { credentials: "include" });
-      if (!res.ok) {
-        toast.error("Accedi per giocare contro i bot");
-        navigate("/");
-        return;
-      }
-      const user = await res.json();
+      const user = await apiGet<AuthUser>("/users/me");
       setUsername(user.username);
       setSentryUser({ id: user.id, username: user.username });
     };
 
-    checkAuth().catch(() => navigate("/"));
+    checkAuth().catch(() => {
+      toast.error("Accedi per giocare contro i bot");
+      navigate("/");
+    });
   }, [navigate]);
 
   const startPractice = async (tier: string) => {
     setStartingTier(tier);
     try {
-      const res = await fetch(`${API_URL}/rooms/practice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ tier }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        // Already mid-game: send them back to it rather than stranding them.
-        if (res.status === 409 && data.activeRoomCode) {
-          toast.error("Sei già in una partita attiva");
-          navigate(`/game/${data.activeRoomCode}`);
-          return;
-        }
-        throw new Error(data.error || "Impossibile iniziare la partita");
-      }
-
+      const data = await apiPost<{ code: string }>("/rooms/practice", { tier });
       navigate(`/game/${data.code}`);
     } catch (error) {
+      // Already mid-game: send them back to it rather than stranding them.
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.body?.activeRoomCode
+      ) {
+        toast.error("Sei già in una partita attiva");
+        navigate(`/game/${error.body.activeRoomCode}`);
+        return;
+      }
       toast.error(
         error instanceof Error ? error.message : "Impossibile iniziare la partita",
       );

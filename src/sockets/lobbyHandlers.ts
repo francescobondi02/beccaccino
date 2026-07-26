@@ -1,21 +1,18 @@
 // src/sockets/lobbyHandlers.ts
 import { getSocket, isSocketConnected } from "./socketClient";
+import type {
+  LobbyRoom,
+  RoomUpdatedPayload,
+  RoomCodePayload,
+} from "./events";
 
-export type Room = {
-  id: string;
-  code: string;
-  currentPlayers: number;
-  maxPlayers: number;
-};
+export type Room = LobbyRoom;
 
 // Registrazione dei callback
-let roomCreatedCallbacks: ((room: Room) => void)[] = [];
-let roomUpdatedCallbacks: ((data: {
-  roomCode: string;
-  currentPlayers: number;
-}) => void)[] = [];
-let roomFullCallbacks: ((data: { roomCode: string }) => void)[] = [];
-let roomDeletedCallbacks: ((data: { roomCode: string }) => void)[] = [];
+const roomCreatedCallbacks: ((room: Room) => void)[] = [];
+const roomUpdatedCallbacks: ((data: RoomUpdatedPayload) => void)[] = [];
+const roomFullCallbacks: ((data: RoomCodePayload) => void)[] = [];
+const roomDeletedCallbacks: ((data: RoomCodePayload) => void)[] = [];
 
 // Store userId for reconnection
 let currentLobbyUserId: number | null = null;
@@ -28,12 +25,6 @@ let lobbyReconnectHandler: (() => void) | null = null;
  * Da chiamare una sola volta (es: al mount della pagina Lobby).
  */
 export const registerLobbyHandlers = (userId: number) => {
-  // Clear previous callbacks to prevent duplicates on re-mount
-  roomCreatedCallbacks = [];
-  roomUpdatedCallbacks = [];
-  roomFullCallbacks = [];
-  roomDeletedCallbacks = [];
-
   currentLobbyUserId = userId;
 
   const socket = getSocket();
@@ -63,31 +54,23 @@ export const registerLobbyHandlers = (userId: number) => {
   socket.on("connect", lobbyReconnectHandler);
 
   socket.off("room_created");
-  socket.on("room_created", (data: { room: Room }) => {
+  socket.on("room_created", (data) => {
     roomCreatedCallbacks.forEach((cb) => cb(data.room));
   });
 
   socket.off("room_updated");
-  socket.on(
-    "room_updated",
-    (data: { roomCode: string; currentPlayers: number }) => {
-      roomUpdatedCallbacks.forEach((cb) => cb(data));
-    },
-  );
+  socket.on("room_updated", (data) => {
+    roomUpdatedCallbacks.forEach((cb) => cb(data));
+  });
 
   socket.off("room_full");
-  socket.on("room_full", (data: { roomCode: string }) => {
+  socket.on("room_full", (data) => {
     roomFullCallbacks.forEach((cb) => cb(data));
   });
 
   socket.off("room_deleted");
-  socket.on("room_deleted", (data: { roomCode: string }) => {
+  socket.on("room_deleted", (data) => {
     roomDeletedCallbacks.forEach((cb) => cb(data));
-  });
-
-  socket.off("error");
-  socket.on("error", (data: { message: string }) => {
-    console.error("❌ Lobby socket error:", data.message);
   });
 };
 
@@ -112,18 +95,38 @@ export const onRoomCreated = (callback: (room: Room) => void) => {
   roomCreatedCallbacks.push(callback);
 };
 
+export const offRoomCreated = (callback: (room: Room) => void) => {
+  const idx = roomCreatedCallbacks.indexOf(callback);
+  if (idx !== -1) roomCreatedCallbacks.splice(idx, 1);
+};
+
 export const onRoomUpdated = (
-  callback: (data: { roomCode: string; currentPlayers: number }) => void,
+  callback: (data: RoomUpdatedPayload) => void,
 ) => {
   roomUpdatedCallbacks.push(callback);
 };
 
-export const onRoomFull = (callback: (data: { roomCode: string }) => void) => {
+export const offRoomUpdated = (
+  callback: (data: RoomUpdatedPayload) => void,
+) => {
+  const idx = roomUpdatedCallbacks.indexOf(callback);
+  if (idx !== -1) roomUpdatedCallbacks.splice(idx, 1);
+};
+
+export const onRoomFull = (callback: (data: RoomCodePayload) => void) => {
   roomFullCallbacks.push(callback);
 };
 
-export const onRoomDeleted = (
-  callback: (data: { roomCode: string }) => void,
-) => {
+export const offRoomFull = (callback: (data: RoomCodePayload) => void) => {
+  const idx = roomFullCallbacks.indexOf(callback);
+  if (idx !== -1) roomFullCallbacks.splice(idx, 1);
+};
+
+export const onRoomDeleted = (callback: (data: RoomCodePayload) => void) => {
   roomDeletedCallbacks.push(callback);
+};
+
+export const offRoomDeleted = (callback: (data: RoomCodePayload) => void) => {
+  const idx = roomDeletedCallbacks.indexOf(callback);
+  if (idx !== -1) roomDeletedCallbacks.splice(idx, 1);
 };

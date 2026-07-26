@@ -24,8 +24,11 @@ import {
 import {
   onConnectionStatusChange,
   getConnectionStatus,
+  registerErrorToast,
 } from "@/sockets/socketClient";
-import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { useAuth, logout } from "@/hooks/useAuth";
+import { normalizePlayer, type RawRoomPlayer } from "@/lib/player";
 
 interface Player {
   id: number;
@@ -44,14 +47,12 @@ interface Room {
   players: Player[];
 }
 
-const API_URL = import.meta.env.VITE_API_URL;
-
 const GameRoom = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
-  const [username, setUsername] = useState<string>("");
-  const [userId, setUserId] = useState<number | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { user } = useAuth({ redirectOnFail: true });
+  const userId = user?.id ?? null;
+  const username = user?.username ?? "";
   const [room, setRoom] = useState<Room | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [myPlayer, setMyPlayer] = useState<Player | null>(null);
@@ -78,25 +79,14 @@ const GameRoom = () => {
     if (!uid || !code) return;
 
     try {
-      const res = await fetch(`${API_URL}/rooms/${code}`, {
-        credentials: "include",
-      });
-
-      if (!res.ok) return;
-
-      const roomData: Room = await res.json();
-      const players: Player[] = roomData.players.map((p: any) => ({
-        id: p.id,
-        userId: p.userId,
-        username: p.user?.username ?? "Sconosciuto",
-        seat: p.seat,
-        team: p.team,
-        isReady: p.isReady,
-      }));
+      const roomData = await apiGet<Omit<Room, "players"> & { players: RawRoomPlayer[] }>(
+        `/rooms/${code}`,
+      );
+      const players: Player[] = roomData.players.map(normalizePlayer);
 
       setRoom({ ...roomData, players });
 
-      const me = roomData.players.find((p: any) => p.userId === uid);
+      const me = players.find((p) => p.userId === uid);
       setMyPlayer(me || null);
     } catch (error) {
       console.error("Error refetching room on reconnect:", error);
@@ -126,34 +116,6 @@ const GameRoom = () => {
     return unsubscribe;
   }, [refetchRoom]);
 
-  // Controlla autenticazione
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const res = await fetch(`${API_URL}/users/me`, {
-          credentials: "include",
-        });
-
-        if (res.ok) {
-          const user = await res.json();
-          setUsername(user.username);
-          setUserId(user.id);
-          setIsAuthenticated(true);
-          setSentryUser({ id: user.id, username: user.username });
-        } else {
-          toast.error("Devi effettuare l'accesso");
-          navigate("/");
-        }
-      } catch (error) {
-        console.error("Auth check error:", error);
-        toast.error("Errore di autenticazione");
-        navigate("/");
-      }
-    };
-
-    checkAuth();
-  }, [navigate]);
-
   // Carica i dati della stanza
   useEffect(() => {
     if (!userId || !roomCode) return;
@@ -161,36 +123,12 @@ const GameRoom = () => {
     const fetchRoom = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(
-          `${API_URL}/rooms/${roomCode}?userId=${userId}`,
-          {
-            credentials: "include",
-          },
+        const roomData = await apiGet<Room>(
+          `/rooms/${roomCode}?userId=${userId}`,
         );
 
-        if (!res.ok) {
-          if (res.status === 404) {
-            toast.error("Stanza non trovata");
-          } else if (res.status === 403) {
-            toast.error("Non sei un giocatore in questa stanza");
-          } else {
-            toast.error("Errore nel caricamento della stanza");
-          }
-          navigate("/");
-          return;
-        }
-
-        const roomData: Room = await res.json();
-
         // Normalizza i giocatori per compatibilità con l'interfaccia
-        const players: Player[] = roomData.players.map((p: any) => ({
-          id: p.id,
-          userId: p.userId,
-          username: p.user?.username ?? "Sconosciuto",
-          seat: p.seat,
-          team: p.team,
-          isReady: p.isReady,
-        }));
+        const players: Player[] = roomData.players.map(normalizePlayer);
 
         setRoom({ ...roomData, players });
 
@@ -198,8 +136,18 @@ const GameRoom = () => {
         const me = roomData.players.find((p) => p.userId === userId);
         setMyPlayer(me || null);
       } catch (error) {
-        console.error("Error fetching room:", error);
-        toast.error("Impossibile caricare i dati della stanza");
+        if (error instanceof ApiError) {
+          if (error.status === 404) {
+            toast.error("Stanza non trovata");
+          } else if (error.status === 403) {
+            toast.error("Non sei un giocatore in questa stanza");
+          } else {
+            toast.error("Errore nel caricamento della stanza");
+          }
+        } else {
+          console.error("Error fetching room:", error);
+          toast.error("Impossibile caricare i dati della stanza");
+        }
         navigate("/");
       } finally {
         setIsLoading(false);
@@ -219,6 +167,7 @@ const GameRoom = () => {
 
     // Connessione a registrazione handler
     registerRoomHandlers(roomCode, user);
+    const unsubscribeErrorToast = registerErrorToast();
 
     // Callback per quando un nuovo player si unisce
     const handlePlayerJoined = (joinedPlayer: Player) => {
@@ -279,18 +228,20 @@ const GameRoom = () => {
 
     // Callback per quando la partita inizia
 
-    // Registra la callback
-    onPlayerJoined(handlePlayerJoined);
-    onPlayerLeft(handlePlayerLeft);
-    onTeamChosen(handleTeamChosen);
-    onReadyChanged(handleReadyChanged);
-    onGameStarted(() => {
+    const handleGameStarted = () => {
       gameStarted = true; // 🔥 Non disconnettere quando si naviga a GameTable
       toast.success("La partita sta per iniziare! Redirecting...");
       setTimeout(() => {
         navigate(`/game/${roomCode}`);
       }, 5000);
-    });
+    };
+
+    // Registra la callback
+    onPlayerJoined(handlePlayerJoined);
+    onPlayerLeft(handlePlayerLeft);
+    onTeamChosen(handleTeamChosen);
+    onReadyChanged(handleReadyChanged);
+    onGameStarted(handleGameStarted);
 
     return () => {
       // Cleanup: rimuovi solo i listener locali
@@ -298,7 +249,8 @@ const GameRoom = () => {
       offPlayerLeft(handlePlayerLeft);
       offTeamChosen(handleTeamChosen);
       offReadyChanged(handleReadyChanged);
-      offGameStarted();
+      offGameStarted(handleGameStarted);
+      unsubscribeErrorToast();
       // 🔥 Lascia la room socket SOLO se la partita NON è iniziata
       if (!gameStarted) {
         leaveRoom(roomCode);
@@ -312,19 +264,10 @@ const GameRoom = () => {
     const newReadyState = !myPlayer.isReady;
 
     try {
-      const res = await fetch(`${API_URL}/rooms/${roomCode}/ready`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ isReady: newReadyState }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Errore nell'impostare lo stato");
-      }
-
-      const data = await res.json();
+      const data = await apiPost<{ allReady?: boolean }>(
+        `/rooms/${roomCode}/ready`,
+        { isReady: newReadyState },
+      );
 
       // Aggiorna lo stato locale
       setMyPlayer({ ...myPlayer, isReady: newReadyState });
@@ -352,27 +295,7 @@ const GameRoom = () => {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      const res = await fetch(`${API_URL}/users/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        throw new Error("Errore durante il logout");
-      }
-
-      setUsername("");
-      setIsAuthenticated(false);
-      clearSentryUser();
-      toast.success("Logout effettuato");
-      navigate("/");
-    } catch (error) {
-      console.error("Logout error:", error);
-      toast.error("Errore durante il logout");
-    }
-  };
+  const handleLogout = () => logout(navigate);
 
   const handleShareLink = () => {
     const inviteUrl = `${window.location.origin}/room/${roomCode}`;
@@ -382,12 +305,7 @@ const GameRoom = () => {
 
   const handleLeaveRoom = async () => {
     try {
-      await fetch(`${API_URL}/rooms/${roomCode}/leave`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+      await apiPost(`/rooms/${roomCode}/leave`, {});
 
       toast.success("Hai lasciato la stanza");
       navigate("/");
@@ -401,17 +319,7 @@ const GameRoom = () => {
     if (!userId) return;
 
     try {
-      const res = await fetch(`${API_URL}/rooms/${roomCode}/choose-team`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ team }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Errore nella scelta del team");
-      }
+      await apiPost(`/rooms/${roomCode}/choose-team`, { team });
 
       // Aggiorna lo stato locale
       if (myPlayer) {

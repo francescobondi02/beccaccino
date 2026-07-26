@@ -11,13 +11,18 @@ import AuthDialog from "@/components/AuthDialog";
 import {
   registerLobbyHandlers,
   onRoomCreated,
+  offRoomCreated,
   onRoomUpdated,
+  offRoomUpdated,
   onRoomFull,
+  offRoomFull,
   leaveLobby,
   onRoomDeleted,
+  offRoomDeleted,
 } from "@/sockets/lobbyHandlers";
 import { getSocket, isSocketConnected } from "@/sockets/socketClient";
 import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
 
 // Lista delle 40 carte italiane
 const cardFilenames = [
@@ -75,7 +80,7 @@ const getRandomCards = (count: number) => {
 };
 
 interface Room {
-  id: string;
+  id: number;
   code: string;
   currentPlayers: number;
   maxPlayers: number;
@@ -88,8 +93,6 @@ interface Room {
     };
   }>;
 }
-
-const API_URL = import.meta.env.VITE_API_URL;
 
 const Index = () => {
   const navigate = useNavigate();
@@ -120,38 +123,23 @@ const Index = () => {
   const fetchAvailableRooms = async (_userIdParam?: number) => {
     setIsLoadingRooms(true);
     try {
-      const res = await fetch(
-        `${API_URL}/rooms/available`,
-        {
-          credentials: "include",
-        },
-      );
+      type ApiRoom = Pick<Room, "id" | "code" | "players">;
+      const data = await apiGet<{
+        availableRooms: ApiRoom[];
+        activeGames: ApiRoom[];
+      }>("/rooms/available");
 
-      if (!res.ok) {
-        throw new Error("Errore nel recupero delle stanze");
-      }
-
-      const data = await res.json();
-
-      // Mappa le stanze disponibili (non iniziate)
-      const mappedAvailableRooms: Room[] = data.availableRooms.map(
-        (room: any) => ({
-          id: room.id,
-          code: room.code,
-          currentPlayers: room.players?.length ?? 0,
-          maxPlayers: 4,
-          players: room.players,
-        }),
-      );
-
-      // Mappa i giochi attivi (partite iniziate in cui sono dentro)
-      const mappedActiveGames: Room[] = data.activeGames.map((room: any) => ({
+      const toRoom = (room: ApiRoom): Room => ({
         id: room.id,
         code: room.code,
         currentPlayers: room.players?.length ?? 0,
         maxPlayers: 4,
         players: room.players,
-      }));
+      });
+
+      // Stanze disponibili (non iniziate) e giochi attivi in cui sono dentro
+      const mappedAvailableRooms = data.availableRooms.map(toRoom);
+      const mappedActiveGames = data.activeGames.map(toRoom);
 
       setAvailableRooms(mappedAvailableRooms);
       setActiveGames(mappedActiveGames);
@@ -165,14 +153,7 @@ const Index = () => {
 
   const handleLogout = async () => {
     try {
-      const res = await fetch(`${API_URL}/users/logout`, {
-        method: "POST",
-        credentials: "include", // IMPORTANTE per HTTP-only cookies
-      });
-
-      if (!res.ok) {
-        throw new Error("Errore durante il logout");
-      }
+      await apiPost("/users/logout");
 
       setUsername("");
       setIsAuthenticated(false);
@@ -188,28 +169,22 @@ const Index = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch(`${API_URL}/users/me`, {
-          credentials: "include", // IMPORTANTE per HTTP-only cookies
-        });
+        const user = await apiGet<{ id: number; username: string }>(
+          "/users/me",
+        );
+        setUsername(user.username);
+        setUserId(user.id);
+        setIsAuthenticated(true);
+        setSentryUser({ id: user.id, username: user.username });
 
-        if (res.ok) {
-          const user = await res.json();
-          setUsername(user.username);
-          setUserId(user.id);
-          setIsAuthenticated(true);
-          setSentryUser({ id: user.id, username: user.username });
-
-          // Carica le stanze disponibili
-          await fetchAvailableRooms(user.id);
-        } else {
-          setIsAuthenticated(false);
-          setUsername("");
-          setUserId(null);
-          clearSentryUser();
-        }
-      } catch (error) {
-        console.error("Auth check error:", error);
+        // Carica le stanze disponibili
+        await fetchAvailableRooms(user.id);
+      } catch {
         // Utente non autenticato, ignora l'errore
+        setIsAuthenticated(false);
+        setUsername("");
+        setUserId(null);
+        clearSentryUser();
       }
     };
 
@@ -233,30 +208,45 @@ const Index = () => {
     socket.on("disconnect", handleDisconnect);
 
     // Callback: nuova stanza
-    onRoomCreated((room) => {
+    const handleRoomCreated = (room: Room) => {
       setAvailableRooms((prev) => [...prev, room]);
-    });
+    };
 
     // Callback: stanza aggiornata
-    onRoomUpdated(({ roomCode, currentPlayers }) => {
+    const handleRoomUpdated = ({
+      roomCode,
+      currentPlayers,
+    }: {
+      roomCode: string;
+      currentPlayers: number;
+    }) => {
       setAvailableRooms((prev) =>
         prev.map((r) => (r.code === roomCode ? { ...r, currentPlayers } : r)),
       );
-    });
+    };
 
     // Callback: stanza piena
-    onRoomFull(({ roomCode }) => {
+    const handleRoomFull = ({ roomCode }: { roomCode: string }) => {
       setAvailableRooms((prev) => prev.filter((r) => r.code !== roomCode));
-    });
+    };
 
     // Callback: stanza eliminata
-    onRoomDeleted(({ roomCode }) => {
+    const handleRoomDeleted = ({ roomCode }: { roomCode: string }) => {
       setAvailableRooms((prev) => prev.filter((r) => r.code !== roomCode));
-    });
+    };
+
+    onRoomCreated(handleRoomCreated);
+    onRoomUpdated(handleRoomUpdated);
+    onRoomFull(handleRoomFull);
+    onRoomDeleted(handleRoomDeleted);
 
     // Cleanup
     return () => {
       leaveLobby();
+      offRoomCreated(handleRoomCreated);
+      offRoomUpdated(handleRoomUpdated);
+      offRoomFull(handleRoomFull);
+      offRoomDeleted(handleRoomDeleted);
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
     };
@@ -282,27 +272,19 @@ const Index = () => {
     }
 
     try {
-      const res = await fetch(`${API_URL}/rooms/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({}),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        if (res.status === 409 && data.activeRoomCode) {
-          toast.error("Sei già in una partita attiva");
-          navigate(`/game/${data.activeRoomCode}`);
-          return;
-        }
-        throw new Error(data.error || "Errore nella creazione della stanza");
-      }
-
-      const room = await res.json();
+      const room = await apiPost<{ code: string }>("/rooms/", {});
       toast.success("Stanza creata!");
       navigate(`/room/${room.code}`);
     } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.body?.activeRoomCode
+      ) {
+        toast.error("Sei già in una partita attiva");
+        navigate(`/game/${error.body.activeRoomCode}`);
+        return;
+      }
       console.error("Error creating room:", error);
       toast.error(
         error instanceof Error
@@ -324,26 +306,20 @@ const Index = () => {
     }
 
     try {
-      const res = await fetch(`${API_URL}/rooms/join`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ roomCode: code }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        if (res.status === 409 && data.activeRoomCode) {
-          toast.error("Sei già in una partita attiva");
-          navigate(`/game/${data.activeRoomCode}`);
-          return;
-        }
-        throw new Error(data.error || "Errore nell'entrare nella stanza");
-      }
+      await apiPost("/rooms/join", { roomCode: code });
 
       toast.success(`Accesso alla stanza ${code}`);
       navigate(`/room/${code}`);
     } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.body?.activeRoomCode
+      ) {
+        toast.error("Sei già in una partita attiva");
+        navigate(`/game/${error.body.activeRoomCode}`);
+        return;
+      }
       console.error("Error joining room:", error);
       toast.error(
         error instanceof Error
@@ -369,26 +345,20 @@ const Index = () => {
     }
 
     try {
-      const res = await fetch(`${API_URL}/rooms/join`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ roomCode: roomCode.trim() }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        if (res.status === 409 && data.activeRoomCode) {
-          toast.error("Sei già in una partita attiva");
-          navigate(`/game/${data.activeRoomCode}`);
-          return;
-        }
-        throw new Error(data.error || "Errore nell'entrare nella stanza");
-      }
+      await apiPost("/rooms/join", { roomCode: roomCode.trim() });
 
       toast.success(`Accesso alla stanza ${roomCode}`);
       navigate(`/room/${roomCode}`);
     } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.body?.activeRoomCode
+      ) {
+        toast.error("Sei già in una partita attiva");
+        navigate(`/game/${error.body.activeRoomCode}`);
+        return;
+      }
       console.error("Error joining room:", error);
       toast.error(
         error instanceof Error

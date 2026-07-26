@@ -95,7 +95,7 @@ describe("AuthDialog", () => {
   it("calls fetch with login endpoint on login submit", async () => {
     const mockResponse = {
       ok: true,
-      json: () => Promise.resolve({ username: "TestUser", id: 1 }),
+      text: () => Promise.resolve(JSON.stringify({ username: "TestUser", id: 1 })),
     };
     (global.fetch as any).mockResolvedValue(mockResponse);
 
@@ -126,7 +126,7 @@ describe("AuthDialog", () => {
   it("calls fetch with register endpoint when in register mode", async () => {
     const mockResponse = {
       ok: true,
-      json: () => Promise.resolve({ username: "NewUser", id: 2 }),
+      text: () => Promise.resolve(JSON.stringify({ username: "NewUser", id: 2 })),
     };
     (global.fetch as any).mockResolvedValue(mockResponse);
 
@@ -158,7 +158,7 @@ describe("AuthDialog", () => {
   it("calls onAuthSuccess and onOpenChange on successful login", async () => {
     const mockResponse = {
       ok: true,
-      json: () => Promise.resolve({ username: "TestUser", id: 42 }),
+      text: () => Promise.resolve(JSON.stringify({ username: "TestUser", id: 42 })),
     };
     (global.fetch as any).mockResolvedValue(mockResponse);
 
@@ -184,7 +184,8 @@ describe("AuthDialog", () => {
   it("shows error toast on failed login", async () => {
     const mockResponse = {
       ok: false,
-      json: () => Promise.resolve({ error: "Credenziali non valide" }),
+      status: 401,
+      text: () => Promise.resolve(JSON.stringify({ error: "Credenziali non valide" })),
     };
     (global.fetch as any).mockResolvedValue(mockResponse);
 

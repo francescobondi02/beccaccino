@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { Mail, Loader2 } from "lucide-react";
 import { setSentryUser } from "@/lib/sentryUser";
+import { apiPost } from "@/lib/api";
 
 interface AuthDialogProps {
   open: boolean;
@@ -19,7 +20,10 @@ interface AuthDialogProps {
   onAuthSuccess: (username: string, userId: number) => void;
 }
 
-const API_URL = import.meta.env.VITE_API_URL;
+interface AuthResponse {
+  id: number;
+  username: string;
+}
 
 const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -49,18 +53,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
 
     try {
       const endpoint = isLogin ? "/users/login" : "/users/register";
-      const res = await fetch(`${API_URL}${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include", // IMPORTANTE per HTTP-only cookies
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Errore durante l'autenticazione");
-      }
+      const data = await apiPost<AuthResponse>(endpoint, { username, password });
 
       toast.success(
         isLogin ? "Accesso effettuato!" : "Registrazione completata!"

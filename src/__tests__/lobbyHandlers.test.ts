@@ -22,6 +22,7 @@ import {
   registerLobbyHandlers,
   leaveLobby,
   onRoomCreated,
+  offRoomCreated,
   onRoomUpdated,
   onRoomFull,
   onRoomDeleted,
@@ -47,42 +48,28 @@ describe("lobbyHandlers", () => {
       expect(mockSocket.off).toHaveBeenCalledWith("room_updated");
       expect(mockSocket.off).toHaveBeenCalledWith("room_full");
       expect(mockSocket.off).toHaveBeenCalledWith("room_deleted");
-      expect(mockSocket.off).toHaveBeenCalledWith("error");
 
       expect(mockSocket.on).toHaveBeenCalledWith("connect", expect.any(Function));
       expect(mockSocket.on).toHaveBeenCalledWith("room_created", expect.any(Function));
       expect(mockSocket.on).toHaveBeenCalledWith("room_updated", expect.any(Function));
       expect(mockSocket.on).toHaveBeenCalledWith("room_full", expect.any(Function));
       expect(mockSocket.on).toHaveBeenCalledWith("room_deleted", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("error", expect.any(Function));
     });
 
-    it("clears previous callbacks on re-registration", () => {
-      const cb1 = vi.fn();
-      const cb2 = vi.fn();
-
+    it("offRoomCreated removes a registered callback", () => {
       registerLobbyHandlers(1);
-      onRoomCreated(cb1);
 
-      // Re-register — should clear cb1
-      registerLobbyHandlers(1);
-      onRoomCreated(cb2);
+      const cb = vi.fn();
+      onRoomCreated(cb);
+      offRoomCreated(cb);
 
-      // Simulate room_created event
       const onCall = mockSocket.on.mock.calls.find(
         (call: any[]) => call[0] === "room_created"
       );
       const handler = onCall![1];
-      handler({ room: { id: "1", code: "ABC123", currentPlayers: 1, maxPlayers: 4 } });
+      handler({ room: { id: 1, code: "ABC123", currentPlayers: 1, maxPlayers: 4 } });
 
-      // Only cb2 should fire (cb1 was cleared)
-      expect(cb1).not.toHaveBeenCalled();
-      expect(cb2).toHaveBeenCalledWith({
-        id: "1",
-        code: "ABC123",
-        currentPlayers: 1,
-        maxPlayers: 4,
-      });
+      expect(cb).not.toHaveBeenCalled();
     });
   });
 

@@ -1,9 +1,13 @@
 // src/sockets/socketClient.ts
 import { io, Socket } from "socket.io-client";
+import { toast } from "sonner";
+import type { ServerToClientEvents, ClientToServerEvents } from "./events";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:8000";
 
-let socket: Socket | null = null;
+export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+
+let socket: AppSocket | null = null;
 
 // Connection status tracking
 type ConnectionStatus = "connected" | "disconnected" | "reconnecting";
@@ -22,7 +26,7 @@ function setStatus(status: ConnectionStatus) {
   });
 }
 
-export function getSocket(): Socket {
+export function getSocket(): AppSocket {
   if (!socket) {
     socket = io(SOCKET_URL, {
       transports: ["websocket", "polling"],
@@ -102,4 +106,19 @@ export function disconnectSocket() {
     socket = null;
     setStatus("disconnected");
   }
+}
+
+/**
+ * Register the single shared listener for server-emitted `error` events,
+ * surfacing the message via toast. Idempotent: re-registering (e.g. on
+ * component remount) replaces the previous listener rather than stacking.
+ * Returns an unsubscribe function for cleanup.
+ */
+export function registerErrorToast(): () => void {
+  const s = getSocket();
+  s.off("error");
+  s.on("error", ({ message }) => {
+    toast.error(message);
+  });
+  return () => s.off("error");
 }

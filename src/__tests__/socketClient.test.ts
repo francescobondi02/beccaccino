@@ -18,8 +18,18 @@ vi.mock("socket.io-client", () => ({
   io: vi.fn(() => mockSocket),
 }));
 
+const toastError = vi.fn();
+vi.mock("sonner", () => ({
+  toast: { error: (msg: string) => toastError(msg) },
+}));
+
 // Must import after mocking
-import { getSocket, isSocketConnected, disconnectSocket } from "@/sockets/socketClient";
+import {
+  getSocket,
+  isSocketConnected,
+  disconnectSocket,
+  registerErrorToast,
+} from "@/sockets/socketClient";
 
 describe("socketClient", () => {
   beforeEach(() => {
@@ -71,6 +81,26 @@ describe("socketClient", () => {
       // Already disconnected in beforeEach
       disconnectSocket(); // should not throw
       expect(mockSocket.disconnect).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("registerErrorToast", () => {
+    it("surfaces server error messages via toast", () => {
+      registerErrorToast();
+
+      const onCall = mockSocket.on.mock.calls.find(
+        (call) => call[0] === "error"
+      );
+      const handler = onCall![1];
+      handler({ message: "Room not found" });
+
+      expect(toastError).toHaveBeenCalledWith("Room not found");
+    });
+
+    it("unsubscribe removes the error listener", () => {
+      const unsubscribe = registerErrorToast();
+      unsubscribe();
+      expect(mockSocket.off).toHaveBeenCalledWith("error");
     });
   });
 });

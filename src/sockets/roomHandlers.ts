@@ -1,33 +1,23 @@
 // src/sockets/roomHandlers.ts
 import { getSocket, isSocketConnected, disconnectSocket } from "./socketClient";
+import type {
+  Player,
+  PlayerJoinedPayload,
+  PlayerLeftPayload,
+  TeamChosenPayload,
+  ReadyChangedPayload,
+} from "./events";
+
+export type { Player };
 
 type UserShort = { userId: number; username: string };
-
-export type Player = {
-  id: number;
-  userId: number;
-  username: string;
-  seat: number | null;
-  team: number | null;
-  isReady: boolean;
-};
-
-type PlayerJoinedPayload = {
-  player: Player;
-};
 
 // Callback registry
 const playerJoinedCallbacks: ((player: Player) => void)[] = [];
 const playerLeftCallbacks: ((userId: number) => void)[] = [];
-const teamChosenCallbacks: ((data: {
-  userId: number;
-  team: number;
-}) => void)[] = [];
-const readyChangedCallbacks: ((data: {
-  userId: number;
-  isReady: boolean;
-}) => void)[] = [];
-let onGameStartedCallbacks: (() => void) | null = null;
+const teamChosenCallbacks: ((data: TeamChosenPayload) => void)[] = [];
+const readyChangedCallbacks: ((data: ReadyChangedPayload) => void)[] = [];
+const gameStartedCallbacks: (() => void)[] = [];
 
 // Track our own reconnect handler so we can remove it without nuking other listeners
 let reconnectHandler: (() => void) | null = null;
@@ -79,12 +69,12 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
 
   // Handler: player left
   socket.off("player_left");
-  socket.on("player_left", (payload: { userId: number }) => {
+  socket.on("player_left", (payload: PlayerLeftPayload) => {
     playerLeftCallbacks.forEach((cb) => cb(payload.userId));
   });
 
   socket.off("team_chosen");
-  socket.on("team_chosen", (data: { userId: number; team: number }) => {
+  socket.on("team_chosen", (data: TeamChosenPayload) => {
     teamChosenCallbacks.forEach((cb) => {
       try {
         cb(data);
@@ -95,7 +85,7 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
   });
 
   socket.off("ready_changed");
-  socket.on("ready_changed", (data: { userId: number; isReady: boolean }) => {
+  socket.on("ready_changed", (data: ReadyChangedPayload) => {
     readyChangedCallbacks.forEach((cb) => {
       try {
         cb(data);
@@ -107,7 +97,13 @@ export const registerRoomHandlers = (roomCode: string, user: UserShort) => {
 
   socket.off("game_started");
   socket.on("game_started", () => {
-    if (onGameStartedCallbacks) onGameStartedCallbacks();
+    gameStartedCallbacks.forEach((cb) => {
+      try {
+        cb();
+      } catch (err) {
+        console.error("Callback error in game_started:", err);
+      }
+    });
   });
 };
 
@@ -148,39 +144,40 @@ export const offPlayerLeft = (cb: (userId: number) => void) => {
 };
 
 // Callbacks per team_chosen
-export const onTeamChosen = (
-  callback: (data: { userId: number; team: number }) => void,
-) => {
+export const onTeamChosen = (callback: (data: TeamChosenPayload) => void) => {
   teamChosenCallbacks.push(callback);
 };
 
-export const offTeamChosen = (
-  callback: (data: { userId: number; team: number }) => void,
-) => {
+export const offTeamChosen = (callback: (data: TeamChosenPayload) => void) => {
   const idx = teamChosenCallbacks.indexOf(callback);
   if (idx !== -1) teamChosenCallbacks.splice(idx, 1);
 };
 
 // Callbacks per ready_changed
 export const onReadyChanged = (
-  callback: (data: { userId: number; isReady: boolean }) => void,
+  callback: (data: ReadyChangedPayload) => void,
 ) => {
   readyChangedCallbacks.push(callback);
 };
 
 export const offReadyChanged = (
-  callback: (data: { userId: number; isReady: boolean }) => void,
+  callback: (data: ReadyChangedPayload) => void,
 ) => {
   const idx = readyChangedCallbacks.indexOf(callback);
   if (idx !== -1) readyChangedCallbacks.splice(idx, 1);
 };
 
 export const onGameStarted = (cb: () => void) => {
-  onGameStartedCallbacks = cb;
+  gameStartedCallbacks.push(cb);
 };
 
-export const offGameStarted = () => {
-  onGameStartedCallbacks = null;
+export const offGameStarted = (cb?: () => void) => {
+  if (cb) {
+    const idx = gameStartedCallbacks.indexOf(cb);
+    if (idx !== -1) gameStartedCallbacks.splice(idx, 1);
+  } else {
+    gameStartedCallbacks.length = 0;
+  }
 };
 
 // Stato connessione

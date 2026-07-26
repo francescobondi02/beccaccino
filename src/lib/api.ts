@@ -9,13 +9,20 @@ if (!API_URL) {
   );
 }
 
+// Error payloads the backend sends alongside non-2xx statuses.
+interface ApiErrorBody {
+  error?: string;
+  activeRoomCode?: string;
+  [key: string]: unknown;
+}
+
 // Thrown on any non-2xx response. `body` carries the parsed JSON body when
 // available so callers can read fields beyond `message` (e.g. activeRoomCode).
 export class ApiError extends Error {
   status: number;
-  body?: any;
+  body?: ApiErrorBody;
 
-  constructor(status: number, message: string, body?: any) {
+  constructor(status: number, message: string, body?: ApiErrorBody) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -23,7 +30,7 @@ export class ApiError extends Error {
   }
 }
 
-async function parseBody(res: Response): Promise<any> {
+async function parseBody(res: Response): Promise<unknown> {
   const text = await res.text();
   if (!text) return undefined;
   try {
@@ -45,7 +52,7 @@ async function request<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  const parsed = await parseBody(res);
+  const parsed = (await parseBody(res)) as ApiErrorBody | undefined;
 
   if (!res.ok) {
     const message = parsed?.error ?? `Request failed (${res.status})`;
@@ -61,6 +68,10 @@ export function apiGet<T>(path: string): Promise<T> {
 
 export function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return request<T>("POST", path, body);
+}
+
+export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>("PATCH", path, body);
 }
 
 export function apiDelete<T>(path: string): Promise<T> {

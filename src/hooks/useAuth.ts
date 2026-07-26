@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, type NavigateFunction } from "react-router-dom";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 
 export interface AuthUser {
@@ -10,7 +10,7 @@ export interface AuthUser {
 }
 
 interface UseAuthOptions {
-  // Redirect to "/" when the /users/me check returns 401 (protected pages).
+  // Redirect to "/" when the /users/me check fails for any reason (protected pages).
   redirectOnFail?: boolean;
 }
 
@@ -30,10 +30,13 @@ export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
         setUser(me);
         setSentryUser({ id: me.id, username: me.username });
       })
-      .catch((err) => {
+      .catch(() => {
         if (cancelled) return;
         setUser(null);
-        if (redirectOnFail && err instanceof ApiError && err.status === 401) {
+        // Any failure (401, 404, 5xx, or a network error while the backend is
+        // down/cold-starting) leaves a protected page unusable — send the
+        // visitor home rather than stranding them on the loading spinner.
+        if (redirectOnFail) {
           navigate("/");
         }
       })

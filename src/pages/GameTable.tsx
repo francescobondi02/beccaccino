@@ -24,8 +24,20 @@ import {
   getSocket,
   onConnectionStatusChange,
   getConnectionStatus,
+  registerErrorToast,
 } from "@/sockets/socketClient";
-import { setSentryUser } from "@/lib/sentryUser";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
+import { normalizePlayer } from "@/lib/player";
+import type {
+  BriscolaChosenPayload,
+  RoundEndedPayload,
+  GameFinishedPayload,
+  TurnTimerStartedPayload,
+  AutoPlayedPayload,
+  PlayerKickedTimeoutPayload,
+  PlayerDisconnectedPayload,
+} from "@/sockets/events";
 
 type PlayerPosition = "bottom" | "top" | "left" | "right";
 
@@ -68,15 +80,38 @@ interface PlayedCardData {
   handNumber?: number;
 }
 
+// Shape of GET /games/:code/state (backend gameController.getGameState).
+interface GameStateResponse {
+  round: { id: number; number: number; briscola: string | null; cricca?: boolean };
+  currentHandNumber: number | null;
+  callerUserId: number | null;
+  myCards: PlayerCard[];
+  currentTurnUserId: number | null;
+  playedCards: PlayedCardData[];
+  lastHandCards: PlayedCardData[];
+  totalPoints: {
+    team0Points: number;
+    team1Points: number;
+    team0Figures: number;
+    team1Figures: number;
+  };
+  turnTimer: {
+    turnUserId: number;
+    remainingMs: number;
+    totalMs: number;
+    phase: string;
+  } | null;
+  isPractice: boolean;
+  allHands: RevealedHand[] | null;
+}
 
-const API_URL = import.meta.env.VITE_API_URL;
 
 const GameTable = () => {
   const { gameRoomCode } = useParams();
   const navigate = useNavigate();
-  const [username, setUsername] = useState<string>("");
-  const [userId, setUserId] = useState<number | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { user } = useAuth({ redirectOnFail: true });
+  const userId = user?.id ?? null;
+  const username = user?.username ?? "";
   const [room, setRoom] = useState<Room | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [myPlayer, setMyPlayer] = useState<Player | null>(null);
@@ -194,34 +229,6 @@ const GameTable = () => {
     ]);
   }, []);
 
-  // Controlla autenticazione
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const res = await fetch(`${API_URL}/users/me`, {
-          credentials: "include",
-        });
-
-        if (res.ok) {
-          const user = await res.json();
-          setUsername(user.username);
-          setUserId(user.id);
-          setIsAuthenticated(true);
-          setSentryUser({ id: user.id, username: user.username });
-        } else {
-          toast.error("Devi effettuare l'accesso");
-          navigate("/");
-        }
-      } catch (error) {
-        console.error("Auth check error:", error);
-        toast.error("Errore di autenticazione");
-        navigate("/");
-      }
-    };
-
-    checkAuth();
-  }, [navigate]);
-
   // Carica i dati della stanza
   useEffect(() => {
     if (!userId || !gameRoomCode) return;
@@ -229,26 +236,7 @@ const GameTable = () => {
     const fetchRoom = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(
-          `${API_URL}/rooms/${gameRoomCode}`,
-          {
-            credentials: "include",
-          },
-        );
-
-        if (!res.ok) {
-          if (res.status === 404) {
-            toast.error("Stanza non trovata");
-          } else if (res.status === 403) {
-            toast.error("Non sei un giocatore in questa stanza");
-          } else {
-            toast.error("Errore nel caricamento della stanza");
-          }
-          navigate("/");
-          return;
-        }
-
-        const roomData: Room = await res.json();
+        const roomData = await apiGet<Room>(`/rooms/${gameRoomCode}`);
 
         // Verifica che la partita sia iniziata
         if (!roomData.started) {
@@ -258,14 +246,7 @@ const GameTable = () => {
         }
 
         // Normalizza i giocatori per compatibilità con l'interfaccia
-        const players: Player[] = roomData.players.map((p: any) => ({
-          id: p.id,
-          userId: p.userId,
-          username: p.user?.username ?? "Sconosciuto",
-          seat: p.seat,
-          team: p.team,
-          isReady: p.isReady,
-        }));
+        const players: Player[] = roomData.players.map(normalizePlayer);
 
         setRoom({ ...roomData, players });
 
@@ -273,8 +254,18 @@ const GameTable = () => {
         const me = players.find((p) => p.userId === userId);
         setMyPlayer(me || null);
       } catch (error) {
-        console.error("Error fetching room:", error);
-        toast.error("Impossibile caricare i dati della stanza");
+        if (error instanceof ApiError) {
+          if (error.status === 404) {
+            toast.error("Stanza non trovata");
+          } else if (error.status === 403) {
+            toast.error("Non sei un giocatore in questa stanza");
+          } else {
+            toast.error("Errore nel caricamento della stanza");
+          }
+        } else {
+          console.error("Error fetching room:", error);
+          toast.error("Impossibile caricare i dati della stanza");
+        }
         navigate("/");
       } finally {
         setIsLoading(false);
@@ -290,12 +281,7 @@ const GameTable = () => {
 
     const fetchGameState = async () => {
       try {
-        const res = await fetch(
-          `${API_URL}/games/${gameRoomCode}/state`,
-          { credentials: "include" },
-        );
-        if (!res.ok) return;
-        const data = await res.json();
+        const data = await apiGet<GameStateResponse>(`/games/${gameRoomCode}/state`);
         setCurrentRound(data.round);
         setCallerUserId(data.callerUserId);
         setMyCards(data.myCards ?? []);
@@ -334,12 +320,9 @@ const GameTable = () => {
 
     const fetchPlayableCards = async () => {
       try {
-        const res = await fetch(
-          `${API_URL}/games/playable-cards/${gameRoomCode}`,
-          { credentials: "include" },
+        const data = await apiGet<{ playableCards?: PlayerCard[] }>(
+          `/games/playable-cards/${gameRoomCode}`,
         );
-        if (!res.ok) return;
-        const data = await res.json();
         setPlayableCards(data.playableCards ?? []);
       } catch (error) {
         console.error("Error fetching playable cards:", error);
@@ -356,60 +339,50 @@ const GameTable = () => {
     if (!uid || !code) return;
 
     try {
-      const res = await fetch(
-        `${API_URL}/games/${code}/state`,
-        { credentials: "include" },
+      const data = await apiGet<GameStateResponse>(`/games/${code}/state`);
+      setCurrentRound(data.round);
+      setCallerUserId(data.callerUserId);
+      setMyCards(data.myCards ?? []);
+      setCurrentTurnUserId(data.currentTurnUserId ?? null);
+      setPlayedCards(data.playedCards ?? []);
+      setLastHand(data.lastHandCards ?? []);
+      setCurrentHandNumber(data.currentHandNumber ?? null);
+      setTotalPoints(
+        data.totalPoints ?? {
+          team0Points: 0,
+          team1Points: 0,
+          team0Figures: 0,
+          team1Figures: 0,
+        },
       );
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentRound(data.round);
-        setCallerUserId(data.callerUserId);
-        setMyCards(data.myCards ?? []);
-        setCurrentTurnUserId(data.currentTurnUserId ?? null);
-        setPlayedCards(data.playedCards ?? []);
-        setLastHand(data.lastHandCards ?? []);
-        setCurrentHandNumber(data.currentHandNumber ?? null);
-        setTotalPoints(
-          data.totalPoints ?? {
-            team0Points: 0,
-            team1Points: 0,
-            team0Figures: 0,
-            team1Figures: 0,
-          },
+
+      setIsPractice(data.isPractice ?? false);
+      setAllHands(data.allHands ?? null);
+
+      // Se sono il caller e briscola non è ancora scelta, apri il dialog
+      if (data.round?.briscola === null && data.callerUserId === uid) {
+        setTrumpDialogOpen(true);
+      }
+
+      // Fetch playable cards immediately if it's our turn
+      if (data.currentTurnUserId === uid && data.round?.briscola) {
+        const pcData = await apiGet<{ playableCards?: PlayerCard[] }>(
+          `/games/playable-cards/${code}`,
         );
+        setPlayableCards(pcData.playableCards ?? []);
+      }
 
-        setIsPractice(data.isPractice ?? false);
-        setAllHands(data.allHands ?? null);
-
-        // Se sono il caller e briscola non è ancora scelta, apri il dialog
-        if (data.round?.briscola === null && data.callerUserId === uid) {
-          setTrumpDialogOpen(true);
-        }
-
-        // Fetch playable cards immediately if it's our turn
-        if (data.currentTurnUserId === uid && data.round?.briscola) {
-          const pcRes = await fetch(
-            `${API_URL}/games/playable-cards/${code}`,
-            { credentials: "include" },
-          );
-          if (pcRes.ok) {
-            const pcData = await pcRes.json();
-            setPlayableCards(pcData.playableCards ?? []);
-          }
-        }
-
-        // Sync turn timer from server state (for reconnecting players)
-        if (data.turnTimer) {
-          setTurnTimer({
-            turnUserId: data.turnTimer.turnUserId,
-            totalMs: data.turnTimer.totalMs,
-            serverTimestamp:
-              Date.now() - (data.turnTimer.totalMs - data.turnTimer.remainingMs),
-            phase: data.turnTimer.phase,
-          });
-        } else {
-          setTurnTimer(null);
-        }
+      // Sync turn timer from server state (for reconnecting players)
+      if (data.turnTimer) {
+        setTurnTimer({
+          turnUserId: data.turnTimer.turnUserId,
+          totalMs: data.turnTimer.totalMs,
+          serverTimestamp:
+            Date.now() - (data.turnTimer.totalMs - data.turnTimer.remainingMs),
+          phase: data.turnTimer.phase,
+        });
+      } else {
+        setTurnTimer(null);
       }
     } catch (error) {
       console.error("Error refetching game state:", error);
@@ -482,6 +455,7 @@ const GameTable = () => {
     };
 
     onPlayerLeft(handlePlayerLeft);
+    const unsubscribeErrorToast = registerErrorToast();
 
     const socket = getSocket();
 
@@ -521,11 +495,7 @@ const GameTable = () => {
       });
     };
 
-    const handleBriscolaChosen = (data: {
-      briscola: string;
-      roundNumber: number;
-      starterId: number;
-    }) => {
+    const handleBriscolaChosen = (data: BriscolaChosenPayload) => {
       setTurnTimer(null);
       setCurrentRound((prev) => {
         if (!prev) return prev;
@@ -535,12 +505,7 @@ const GameTable = () => {
       setTimeout(() => refetchGameState(), 300);
     };
 
-    const handleRoundEnded = (data: {
-      roundNumber: number;
-      team0: { points: number; figures: number };
-      team1: { points: number; figures: number };
-      winnerTeam: number;
-    }) => {
+    const handleRoundEnded = (data: RoundEndedPayload) => {
       setRoundEndData({
         roundNumber: data.roundNumber,
         team0Points: data.team0.points,
@@ -557,12 +522,7 @@ const GameTable = () => {
       refetchGameState();
     };
 
-    const handleGameFinished = (data: {
-      winnerTeam: number;
-      totalRounds: number;
-      finalScores: { team0: number; team1: number };
-      roundsWon: { team0: number; team1: number };
-    }) => {
+    const handleGameFinished = (data: GameFinishedPayload) => {
       setGameFinishedData(data);
       setGameFinishedDialogOpen(true);
       setRoundEndDialogOpen(false);
@@ -570,30 +530,22 @@ const GameTable = () => {
     };
 
     // Handler for opponent disconnect notification
-    const handlePlayerDisconnected = (data: { userId: number; username: string }) => {
+    const handlePlayerDisconnected = (data: PlayerDisconnectedPayload) => {
       toast.warning(`${data.username} si è disconnesso`);
     };
 
-    const handleTurnTimerStarted = (data: {
-      turnUserId: number;
-      totalMs: number;
-      serverTimestamp: number;
-      phase: string;
-    }) => {
+    const handleTurnTimerStarted = (data: TurnTimerStartedPayload) => {
       setTurnTimer(data);
     };
 
-    const handleAutoPlayed = (data: { userId: number; phase: string }) => {
+    const handleAutoPlayed = (data: AutoPlayedPayload) => {
       const playerName =
         room?.players.find((p) => p.userId === data.userId)?.username ??
         "Giocatore";
       toast.info(`${playerName} ha giocato automaticamente (tempo scaduto)`);
     };
 
-    const handlePlayerKickedTimeout = (data: {
-      userId: number;
-      username: string;
-    }) => {
+    const handlePlayerKickedTimeout = (data: PlayerKickedTimeoutPayload) => {
       toast.warning(`${data.username} è stato rimosso per inattività`);
     };
 
@@ -609,6 +561,7 @@ const GameTable = () => {
 
     return () => {
       offPlayerLeft(handlePlayerLeft);
+      unsubscribeErrorToast();
       socket.off("card_played", handleCardPlayed);
       socket.off("briscola_chosen", handleBriscolaChosen);
       socket.off("round_ended", handleRoundEnded);
@@ -675,25 +628,16 @@ const GameTable = () => {
   ) => {
     setIsPlayingCard(true);
     try {
-      const res = await fetch(`${API_URL}/games/play-card`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          roomCode: gameRoomCode,
-          suit: card.suit,
-          value: card.value,
-          signal: signal || null,
-        }),
+      await apiPost(`/games/play-card`, {
+        roomCode: gameRoomCode,
+        suit: card.suit,
+        value: card.value,
+        signal: signal || null,
       });
-
-      if (!res.ok) {
-        const data = await res.json();
-        toast.error(data.error || "Errore nel giocare la carta");
-        return;
-      }
     } catch (error) {
-      toast.error("Errore nel giocare la carta");
+      const message =
+        error instanceof ApiError ? error.body?.error : undefined;
+      toast.error(message || "Errore nel giocare la carta");
     } finally {
       setIsPlayingCard(false);
     }
@@ -739,26 +683,20 @@ const GameTable = () => {
   const handleTrumpSelect = async (suit: string) => {
     if (!myPlayer || !room) return;
     try {
-      const res = await fetch(`${API_URL}/games/choose-briscola`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          gameRoomId: room.id,
-          suit,
-        }),
+      await apiPost(`/games/choose-briscola`, {
+        gameRoomId: room.id,
+        suit,
       });
-      if (!res.ok) {
-        const data = await res.json();
-        toast.error(data.error || "Errore nella scelta della briscola");
-        return;
-      }
       setCurrentRound((prev) => (prev ? { ...prev, briscola: suit } : prev));
       setTrumpDialogOpen(false);
       toast.success(`Briscola scelta: ${suit}`);
     } catch (error) {
-      console.error("Error choosing briscola:", error);
-      toast.error("Errore nella scelta della briscola");
+      if (error instanceof ApiError) {
+        toast.error(error.body?.error || "Errore nella scelta della briscola");
+      } else {
+        console.error("Error choosing briscola:", error);
+        toast.error("Errore nella scelta della briscola");
+      }
     }
   };
 
