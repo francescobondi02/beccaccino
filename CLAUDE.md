@@ -211,7 +211,7 @@ ruff format .          # Auto-format
 Design + first findings: `docs/BOT_PLAY_DESIGN.md`.
 
 ```bash
-# 1. Serve the four tiers (needs checkpoints/kaggle-runb/checkpoints/*.pt)
+# 1. Serve the four tiers (facile: checkpoints/kaggle-runb/, forte+esperto: checkpoints/kaggle-runc/)
 uvicorn serving.app:app --port 8011
 curl localhost:8011/tiers            # which tiers this process can actually serve
 

@@ -22,7 +22,9 @@ from evaluation.heuristic import HeuristicAgent
 from training.checkpoint import build_net, load_checkpoint
 
 _AI_ROOT = Path(__file__).resolve().parent.parent
-CHECKPOINT_DIR = _AI_ROOT / "checkpoints" / "kaggle-runb" / "checkpoints"
+# Tier checkpoints are per-run paths under checkpoints/: the ladder mixes runs on
+# purpose (facile stays on Run B's weak BC net; forte/esperto ship Run C).
+CHECKPOINT_DIR = _AI_ROOT / "checkpoints"
 
 # PIMC search budget. 10 determinizations measures ~135 ms/move against the 60s
 # turn budget; the default 20 roughly doubles that for little strength gain.
@@ -47,7 +49,7 @@ TIERS: dict[str, Tier] = {
     "facile": Tier(
         name="facile",
         label="Facile",
-        checkpoint="runB_bc.pt",
+        checkpoint="kaggle-runb/checkpoints/runB_bc.pt",
         description="Imitates the scripted baseline; loses to it (Elo 877).",
     ),
     "medio": Tier(
@@ -56,16 +58,19 @@ TIERS: dict[str, Tier] = {
         checkpoint=None,
         description="Scripted heuristic, no neural network. The yardstick.",
     ),
+    # Run C final, not best.pt: on a held-out deal block final scores 81.8% vs
+    # heuristic to best.pt's 76.0% — the selection eval overstated update 450
+    # (winner's curse, SYSTEM_ANALYSIS H7). Numbers in docs/TRAINING_RUNBOOK.md §7.
     "forte": Tier(
         name="forte",
         label="Forte",
-        checkpoint="runB_rl.pt",
-        description="PPO self-play with signals + CTDE critic (Elo 1123).",
+        checkpoint="kaggle-runc/checkpoints/runC_rl.pt",
+        description="PPO self-play with signals + CTDE critic (~82% vs heuristic).",
     ),
     "esperto": Tier(
         name="esperto",
         label="Esperto",
-        checkpoint="runB_rl.pt",
+        checkpoint="kaggle-runc/checkpoints/runC_rl.pt",
         description="The Forte network plus PIMC search over sampled hands.",
     ),
 }

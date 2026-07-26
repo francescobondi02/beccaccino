@@ -192,22 +192,57 @@ Prefer `best.pt` over `final.pt` when it scores higher. Self-play is non-monoton
 and, before Run C, only the final weights were kept — Run B's peak was around
 update 300 of 915 and was unrecoverable.
 
-## 7. What success looks like for Run C
+## 7. Run C — results (completed 2026-07-26)
 
-| Metric | Run B | Run C target | How to check |
+Kaggle T4, all 915 updates, GPU confirmed (~780 sps). BC: 246k samples, 97.4%
+accuracy. Every number below was scored on the checkpoint FILE (per §6), 400 games
+at wp=41, Wilson CIs; "held-out" is a deal block far from both the frozen eval
+block and training seeds.
+
+| Checkpoint | frozen block | held-out block |
+|---|---|---|
+| Run B final (baseline) | 71.8% [67.1, 75.9] | 71.0% [66.4, 75.2] |
+| **Run C final (upd 915)** | **83.0% [79.0, 86.4]** | **81.8% [77.7, 85.2]** |
+| Run C best.pt (upd 450) | 80.2% [76.1, 83.9] | 76.0% [71.6, 79.9] |
+
+**Strength: +11 points over Run B, CIs non-overlapping, holds on unseen deals.**
+Two honest observations the numbers force:
+- The best.pt-selection eval (83.5% at 100–200 games) overstated update 450; on the
+  held-out block the FINAL weights beat "best" (81.8% vs 76.0%). Exactly the
+  winner's-curse behaviour SYSTEM_ANALYSIS H7 predicts — ship `runC_rl.pt`, and
+  treat best.pt as a candidate to re-score, never as automatically superior.
+- Run C also learned faster: it passed Run B's ~71% by update ~100.
+
+**Signal honesty followed the anneal, then decayed** (20 games ≈ 1300 leads each):
+
+| Checkpoint | declared | honest |
+|---|---|---|
+| BC warm-start (`runC_bc.pt`) | 85% of leads | **98%** |
+| best.pt (upd 450, anneal just ended) | 94% | 52% |
+| final (upd 915, coef=0 for half the run) | 89% | 43% |
+
+So the convention WAS learned (98% post-BC), and once the honesty term annealed to
+zero the policy drifted back toward arbitrary signals — while getting STRONGER.
+A masked-signal ablation on the final weights (zeroing the signal-mask features)
+moved the win rate 83.0% → 80.8% (CIs overlap): the signal channel carries little
+measurable team value for this policy against a non-signalling opponent. Fair
+conclusion: honesty-as-convention does not survive on score gradient alone; if the
+product wants honest bots, hold the coefficient at a small non-zero floor
+(`--signal-honesty-coef-final 0.02` or so) instead of annealing to zero — the +11pt
+strength gain came from the better BC (97.4% vs ~93%) and the extra grounded
+channel early, not from late-run dishonesty.
+
+## 7b. What success looked like (the pre-run targets)
+
+| Metric | Run B | target | Run C actual |
 |---|---|---|---|
-| vs heuristic (wp=41) | ~71% | ≥ 71% (must not regress) | score `best.pt` directly |
-| explained variance | 0.60 | ≥ 0.55 | metrics.csv |
-| signal honesty | 28–45% (≈chance) | **> 80% on declared signals** | `watch_bots` |
-| signal usage | 88% of leads, arbitrary | any rate, as long as honest | `watch_bots` |
+| vs heuristic (wp=41) | ~71% | ≥ 71% | **81.8–83.0%** ✅ |
+| explained variance | 0.60 | ≥ 0.55 | 0.66 ✅ |
+| signal honesty | ≈chance | > 80% declared | 98% post-BC, 43% final ⚠️ |
+| signal usage | arbitrary | any, if honest | 89%, drifting ⚠️ |
 
-The headline question is honesty, not usage rate. A policy that signals on 30% of
-leads and is honest 90% of the time is a *better* result than one that signals
-always — it means the shaping taught the convention and the score then decided when
-the convention is worth invoking.
-
-**Strength must not regress.** If vs-heuristic drops materially below Run B, the
-shaping is distorting play and the coefficient is too high.
+The honesty target was met while the term was active and lost when it reached
+zero — a finding about the anneal schedule, not the mechanism.
 
 ## 8. Known limitations
 
