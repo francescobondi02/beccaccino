@@ -15,6 +15,19 @@ const FIXTURE_PATH = path.resolve(
   "../../../ai/serving/fixtures/bot_states.json",
 );
 
+// The fixture lives in the `ai` sibling submodule and is absent on a standalone
+// backend checkout (CI clones this repo alone). Skip the whole suite with a
+// visible note rather than crash at collection time when it is missing.
+const hasFixture = fs.existsSync(FIXTURE_PATH);
+if (!hasFixture) {
+  console.warn(
+    `[skip] bot-state parity suite: ${FIXTURE_PATH} not found — requires the ` +
+      "full beccaccino monorepo (ai/ submodule; regenerate via " +
+      "`cd ai && python -m scripts.gen_bot_fixtures`).",
+  );
+}
+const describeFixtures = hasFixture ? describe : describe.skip;
+
 /**
  * Cross-language parity for the bot state serializer (BOT_PLAY_DESIGN.md §5.3b).
  *
@@ -29,13 +42,13 @@ const FIXTURE_PATH = path.resolve(
  * change which cards are legal, so the runtime 409 gate cannot catch them. A
  * wrong board would just make the bot play badly, and we would blame the model.
  */
-describe("Bot state serializer matches the Python fixtures", () => {
+describeFixtures("Bot state serializer matches the Python fixtures", () => {
   const cases: {
     name: string;
     description: string;
     seat: number;
     state: BotState;
-  }[] = JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8")).cases;
+  }[] = hasFixture ? JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8")).cases : [];
 
   beforeEach(async () => {
     await clearDatabase();
