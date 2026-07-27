@@ -284,6 +284,16 @@ def _load_resume_components(args, device: torch.device) -> tuple[dict, torch.nn.
     return ck, build_net(ck, device), _critic_from_checkpoint(ck, device)
 
 
+def _resolve_anchors(args, resume_ckpt: dict | None, device: torch.device) -> list[dict] | None:
+    if not args.anchor_bc:
+        return None
+    if resume_ckpt is not None and resume_ckpt.get("anchors") is not None:
+        return resume_ckpt["anchors"]
+    if Path(args.bc_ckpt).exists():
+        return [load_checkpoint(args.bc_ckpt, map_location=device)["model"]]
+    return None
+
+
 def phase1_bc(args, device) -> torch.nn.Module:
     """Either load a saved BC ckpt, train a new one, or skip BC entirely."""
     if args.bc_load:
@@ -443,9 +453,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     learner_team_per_env = np.array([i % 2 for i in range(cfg.num_envs)], dtype=np.int64)
 
     # Permanent opponent-pool anchor from the BC snapshot (anti-collapse).
-    anchors = None
-    if args.anchor_bc and Path(args.bc_ckpt).exists():
-        anchors = [load_checkpoint(args.bc_ckpt, map_location=device)["model"]]
+    anchors = _resolve_anchors(args, resume_ckpt, device)
     pool = OpponentPool(max_size=cfg.opponent_pool_size, anchors=anchors)
     return_normalizer = ReturnNormalizer(gamma=cfg.gamma)
 
@@ -497,6 +505,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             "net_config": dict(net.config),
             "best_wr_heuristic": best_wr_heur,
             "best_update": best_update,
+            "anchors": pool.anchors,
         }
         if critic is not None:
             extra["critic"] = critic.state_dict()

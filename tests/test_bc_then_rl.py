@@ -14,7 +14,7 @@ import torch
 
 from becca_env.observation import FULL_STATE_SIZE
 from scripts import bc_then_rl
-from scripts.bc_then_rl import _load_resume_components, parse_args, phase2_rl
+from scripts.bc_then_rl import _load_resume_components, _resolve_anchors, parse_args, phase2_rl
 from training.checkpoint import load_checkpoint, rng_state, save_checkpoint
 from training.config import TrainConfig
 from training.network import CentralizedCritic, create_network
@@ -85,16 +85,25 @@ def _fresh_net(a):
 
 
 def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
-    import torch
-
-    a = _args(tmp_path, centralized_critic=True)
-    phase2_rl(a, torch.device("cpu"), _fresh_net(a))
+    a = _args(tmp_path, centralized_critic=True, anchor_bc=True)
+    net = _fresh_net(a)
+    torch.save({"model": net.state_dict(), "config": net.config}, a.bc_ckpt)
+    phase2_rl(a, torch.device("cpu"), net)
     last = tmp_path / "last.pt"
     assert last.exists() and (tmp_path / "final.pt").exists()
     ck = load_checkpoint(last)
     assert ck["format"] == 2
     assert ck.get("critic") is not None  # critic persisted
     assert ck["normalizer"] is not None
+    assert len(ck["anchors"]) == 1
+
+    (tmp_path / "bc.pt").unlink()
+    restored = _resolve_anchors(a, ck, torch.device("cpu"))
+    assert restored is not None
+    assert all(
+        torch.equal(actual, expected)
+        for actual, expected in zip(restored[0].values(), ck["anchors"][0].values())
+    )
 
 
 def test_rl_phase_resume_continues(tmp_path):
