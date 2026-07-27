@@ -679,7 +679,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
         include_full_obs=critic is not None,
     )
     t0 = time.time()
-    session_steps = 0
+    session_env_steps = 0
     deadline = (
         time.monotonic() + args.max_hours * SECONDS_PER_HOUR if args.max_hours is not None else None
     )
@@ -737,7 +737,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             critic=critic,
         )
         step_count += buf.ptr
-        session_steps += buf.ptr
+        session_env_steps += cfg.batch_size
         games_total += buf.games_done
 
         batch = buf.get_batch(
@@ -763,7 +763,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             rets = batch["returns"].numpy()
             var_ret = rets.var()
             ev = (1 - (rets - vals).var() / (var_ret + 1e-8)) if var_ret > 0 else 0.0
-        sps = session_steps / (time.time() - t0)
+        sps = session_env_steps / (time.time() - t0)
         mean_reward = float(buf.rewards[: buf.ptr].mean())
         mean_returns_by_wp = _mean_episode_returns_by_wp(buf, env_win_points)
 

@@ -97,11 +97,11 @@ def benchmark_training_rollout(
             device=torch_device,
             critic=critic,
         )
-        learner_steps = 0
+        env_steps = 0
         start = time.perf_counter()
         deadline = start + seconds
-        while time.perf_counter() < deadline or learner_steps == 0:
-            buffer = collect_self_play_rollout_vec(
+        while time.perf_counter() < deadline or env_steps == 0:
+            collect_self_play_rollout_vec(
                 vec,
                 learner,
                 opponent,
@@ -110,8 +110,8 @@ def benchmark_training_rollout(
                 device=torch_device,
                 critic=critic,
             )
-            learner_steps += buffer.ptr
-        return learner_steps / (time.perf_counter() - start)
+            env_steps += rollout_steps * num_envs
+        return env_steps / (time.perf_counter() - start)
     finally:
         vec.close()
 
@@ -138,7 +138,7 @@ def main():
         return
 
     env_counts = [int(value.strip()) for value in args.sweep_envs.split(",")]
-    print("num_envs,learner_steps_per_s")
+    print("num_envs,env_steps_per_s")
     for num_envs in env_counts:
         steps_per_second = benchmark_training_rollout(
             num_envs,
