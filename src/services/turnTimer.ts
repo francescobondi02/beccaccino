@@ -82,7 +82,10 @@ export function startTurnTimer(
   // If this player has been kicked, auto-play immediately
   const kicked = kickedPlayers.get(roomCode);
   if (kicked?.has(currentTurnUserId)) {
-    setTimeout(() => executeAutoPlay(roomCode, currentTurnUserId, phase), 500);
+    setTimeout(
+      () => executeAutoPlay(roomCode, currentTurnUserId, phase),
+      500,
+    ).unref();
     return;
   }
 
@@ -354,37 +357,23 @@ const cleanupStaleTimers = setInterval(() => {
 }, 10 * 60 * 1000); // every 10 minutes
 cleanupStaleTimers.unref();
 
+/**
+ * Forget a player's accrued timeouts. Called on every successful HUMAN action
+ * (REST play-card / choose-briscola), so only genuinely abandoned turns count
+ * toward the 3-timeout kick — a laggy player who keeps playing stays in.
+ */
+export function resetTimeoutCount(roomCode: string, userId: number): void {
+  timeoutCounts.get(roomCode)?.delete(userId);
+}
+
+const KICK_TIMEOUT_LIMIT = 3;
+
 async function executeAutoPlay(
   roomCode: string,
   userId: number,
   phase: Phase,
 ): Promise<void> {
-  // Increment timeout count for this player
-  if (!timeoutCounts.has(roomCode)) {
-    timeoutCounts.set(roomCode, new Map());
-  }
-  const roomCounts = timeoutCounts.get(roomCode)!;
-  const currentCount = (roomCounts.get(userId) || 0) + 1;
-  roomCounts.set(userId, currentCount);
-
   const io = getSocketInstance();
-
-  // Check if player should be kicked (3 timeouts)
-  if (currentCount >= 3) {
-    if (!kickedPlayers.has(roomCode)) {
-      kickedPlayers.set(roomCode, new Set());
-    }
-    kickedPlayers.get(roomCode)!.add(userId);
-
-    // Find player username for the notification
-    const player = await prisma.player.findFirst({
-      where: { userId, gameRoom: { code: roomCode } },
-      include: { user: true },
-    });
-    const username = player?.user?.username ?? "Giocatore";
-
-    io.to(roomCode).emit("player_kicked_timeout", { userId, username });
-  }
 
   try {
     if (phase === "choose_briscola") {
@@ -394,6 +383,33 @@ async function executeAutoPlay(
     }
 
     io.to(roomCode).emit("auto_played", { userId, phase });
+
+    // Count the timeout only after the auto-play actually happened — a failed
+    // attempt (usually the player acting first and winning the race) is not an
+    // abandoned turn.
+    if (!timeoutCounts.has(roomCode)) {
+      timeoutCounts.set(roomCode, new Map());
+    }
+    const roomCounts = timeoutCounts.get(roomCode)!;
+    const currentCount = (roomCounts.get(userId) || 0) + 1;
+    roomCounts.set(userId, currentCount);
+
+    const alreadyKicked = kickedPlayers.get(roomCode)?.has(userId) ?? false;
+    if (currentCount >= KICK_TIMEOUT_LIMIT && !alreadyKicked) {
+      if (!kickedPlayers.has(roomCode)) {
+        kickedPlayers.set(roomCode, new Set());
+      }
+      kickedPlayers.get(roomCode)!.add(userId);
+
+      // Find player username for the notification
+      const player = await prisma.player.findFirst({
+        where: { userId, gameRoom: { code: roomCode } },
+        include: { user: true },
+      });
+      const username = player?.user?.username ?? "Giocatore";
+
+      io.to(roomCode).emit("player_kicked_timeout", { userId, username });
+    }
   } catch (error) {
     // The most common cause is a benign race: the player already acted
     // between the timer firing and our DB read. We still surface to Sentry

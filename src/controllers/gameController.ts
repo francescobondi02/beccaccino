@@ -10,9 +10,11 @@ import {
   resolveCurrentTurnUserId,
 } from "../services/gameService";
 import { cumulativeScore } from "../utils/score";
+import { GameError } from "../utils/gameError";
 import { playableCards } from "../services/cardService";
 import {
   getTurnTimerState,
+  resetTimeoutCount,
   restoreBotSeats,
   startTurnTimer,
 } from "../services/turnTimer";
@@ -39,23 +41,18 @@ export const chooseBriscola = async (req: Request, res: Response) => {
 
   try {
     const result = await setBriscola({ gameRoomId, playerId: player.id, suit });
+    // A real human action: this turn was not abandoned.
+    resetTimeoutCount(result.roomCode, userId);
     return res.status(200).json({
       message: "Briscola set successfully",
       round: result.round,
       hand: result.hand,
     });
   } catch (error) {
-    const message = (error as Error).message;
-    if (message.includes("not found")) {
-      return res.status(404).json({ error: message });
+    if (error instanceof GameError) {
+      return res.status(error.status).json({ error: error.message });
     }
-    if (message.includes("not your turn") || message.includes("not in this")) {
-      return res.status(403).json({ error: message });
-    }
-    if (message.includes("already set")) {
-      return res.status(400).json({ error: message });
-    }
-    return res.status(500).json({ error: message });
+    return res.status(500).json({ error: (error as Error).message });
   }
 };
 
@@ -64,20 +61,14 @@ export const handlePlayCard = async (req: Request, res: Response) => {
     const userId = req.user!.userId;
     const { roomCode, suit, value, signal } = req.body;
     await playCard({ roomCode, userId, suit, value, signal });
+    // A real human action: this turn was not abandoned.
+    resetTimeoutCount(roomCode, userId);
     return res.status(200).json({ message: "Card played successfully" });
   } catch (error) {
-    const message = (error as Error).message;
-    if (
-      message.includes("not your turn") ||
-      message.includes("not this player's turn") ||
-      message.includes("not in this")
-    ) {
-      return res.status(403).json({ error: message });
+    if (error instanceof GameError) {
+      return res.status(error.status).json({ error: error.message });
     }
-    if (message.includes("not found")) {
-      return res.status(404).json({ error: message });
-    }
-    return res.status(400).json({ error: message });
+    return res.status(400).json({ error: (error as Error).message });
   }
 };
 
@@ -89,7 +80,11 @@ export const getPlayableCards = async (req: Request, res: Response) => {
     const cards = await playableCards({ roomCode, userId });
     return res.status(200).json({ playableCards: cards });
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    if (error instanceof GameError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    logger.error({ err: error, roomCode, userId }, "get_playable_cards_failed");
+    return res.status(500).json({ error: "Failed to fetch playable cards" });
   }
 };
 

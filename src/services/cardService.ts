@@ -1,6 +1,7 @@
 // src/services/cardService.ts
 
 import { prisma } from "../db";
+import { GameError } from "../utils/gameError";
 import { determineHandWinner } from "../utils/determineHandWinner";
 
 enum Suit {
@@ -53,15 +54,22 @@ export async function playableCards({
   });
 
   if (!room || room.started === false) {
-    throw new Error("Game room not found or not started");
+    throw new GameError("Game room not found or not started", 404);
   }
 
-  const currentRound = room.rounds[0];
-  const currentHand = currentRound?.hands[0];
   const player = room.players.find((p) => p.userId === userId);
   if (!player) {
-    throw new Error("Player not in this game room");
+    throw new GameError("Player not in this game room", 403);
   }
+
+  // Before briscola is chosen there is no Hand yet — nothing is playable,
+  // which is an ordinary state, not an error.
+  const currentRound = room.rounds[0];
+  const currentHand = currentRound?.hands[0];
+  if (!currentRound || !currentHand) {
+    return [];
+  }
+
   const cardsInHand = await prisma.playerCard.findMany({
     where: {
       playerId: player.id,

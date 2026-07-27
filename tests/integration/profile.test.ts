@@ -102,10 +102,10 @@ describe("Profile API", () => {
       });
       expect(finishedRoom!.finished).toBe(true);
 
-      // Login as one of the players (user "A") to check stats
+      // Login as one of the players (user "userA") to check stats
       const loginRes = await request(getServer())
         .post("/api/users/login")
-        .send({ username: "A", password: "test123" });
+        .send({ username: "userA", password: "test123" });
       expect(loginRes.statusCode).toBe(200);
 
       const cookie = extractAuthCookie(loginRes);
@@ -240,7 +240,7 @@ describe("Profile API", () => {
       // Login as player A who is in the active game
       const loginRes = await request(getServer())
         .post("/api/users/login")
-        .send({ username: "A", password: "test123" });
+        .send({ username: "userA", password: "test123" });
       expect(loginRes.statusCode).toBe(200);
 
       const cookie = extractAuthCookie(loginRes);

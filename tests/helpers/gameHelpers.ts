@@ -100,7 +100,7 @@ export async function clearDatabase() {
 
 export async function setupGame() {
   // Register users sequentially to avoid race conditions on the DB
-  const usernames = ["A", "B", "C", "D"];
+  const usernames = ["userA", "userB", "userC", "userD"];
   const userIds: number[] = [];
   for (const name of usernames) {
     const res = await api()

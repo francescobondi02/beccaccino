@@ -78,7 +78,7 @@ describe("Room API", () => {
 
     it("rejects joining a full room", async () => {
       const users = await Promise.all(
-        ["A", "B", "C", "D", "E"].map((n) => createUser(n))
+        ["userA", "userB", "userC", "userD", "userE"].map((n) => createUser(n))
       );
 
       const createRes = await apiAs(users[0].id, users[0].username)
@@ -134,7 +134,7 @@ describe("Room API", () => {
 
     it("rejects team if already full (2 players)", async () => {
       const users = await Promise.all(
-        ["A", "B", "C"].map((n) => createUser(n))
+        ["userA", "userB", "userC"].map((n) => createUser(n))
       );
 
       const createRes = await apiAs(users[0].id, users[0].username)
@@ -206,7 +206,7 @@ describe("Room API", () => {
   describe("Game Start Trigger (all ready with 2+2 teams)", () => {
     it("starts the game when all 4 players are ready with valid teams", async () => {
       const users = await Promise.all(
-        ["P1", "P2", "P3", "P4"].map((n) => createUser(n))
+        ["player1", "player2", "player3", "player4"].map((n) => createUser(n))
       );
 
       const createRes = await apiAs(users[0].id, users[0].username)
@@ -252,7 +252,7 @@ describe("Room API", () => {
 
     it("does not start if teams are unbalanced (3v1)", async () => {
       const users = await Promise.all(
-        ["P1", "P2", "P3", "P4"].map((n) => createUser(n))
+        ["player1", "player2", "player3", "player4"].map((n) => createUser(n))
       );
 
       const createRes = await apiAs(users[0].id, users[0].username)
@@ -283,7 +283,7 @@ describe("Room API", () => {
 
     it("rejects joining a room that has already started", async () => {
       const users = await Promise.all(
-        ["P1", "P2", "P3", "P4", "P5"].map((n) => createUser(n))
+        ["player1", "player2", "player3", "player4", "player5"].map((n) => createUser(n))
       );
 
       const createRes = await apiAs(users[0].id, users[0].username)

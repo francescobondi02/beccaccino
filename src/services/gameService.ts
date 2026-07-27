@@ -4,6 +4,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { GameError } from "../utils/gameError";
 import { determineHandWinner } from "../utils/determineHandWinner";
 import { computePoints } from "../utils/computePoints";
 import { cumulativeScore, decideGameWinner } from "../utils/score";
@@ -344,7 +345,7 @@ export async function setBriscola(args: {
     where: { id: args.gameRoomId },
     select: { code: true },
   });
-  if (!room) throw new Error("Game room not found");
+  if (!room) throw new GameError("Game room not found", 404);
   return withRoomLock(room.code, () => setBriscolaUnlocked(args));
 }
 
@@ -361,27 +362,27 @@ async function setBriscolaUnlocked({
     where: { id: gameRoomId },
     include: { players: true },
   });
-  if (!gameRoom) throw new Error("Game room not found");
+  if (!gameRoom) throw new GameError("Game room not found", 404);
 
   // Clear timer before processing (prevents race with auto-play)
   clearTurnTimer(gameRoom.code);
 
   const player = gameRoom.players.find((p) => p.id === playerId);
-  if (!player) throw new Error("Player not in this game room");
+  if (!player) throw new GameError("Player not in this game room", 403);
 
   const currentRound = await prisma.round.findFirst({
     where: { gameRoomId },
     orderBy: { number: "desc" },
   });
-  if (!currentRound) throw new Error("No active round found");
+  if (!currentRound) throw new GameError("No active round found", 500);
   if (currentRound.briscola !== null)
-    throw new Error("Briscola already set for this round");
+    throw new GameError("Briscola already set for this round", 400);
 
   // Verify it's the correct player's turn to choose
   const callerPlayerId = await resolveCaller(currentRound, gameRoom.players);
 
   if (playerId !== callerPlayerId) {
-    throw new Error("It's not your turn to choose briscola");
+    throw new GameError("It's not your turn to choose briscola", 403);
   }
 
   // Check for Cricca: caller has Tre + Due + Asso of the chosen briscola suit
@@ -497,20 +498,20 @@ async function playCardUnlocked({
   });
 
   if (!room || !room.started)
-    throw new Error("Room not found or game not started");
+    throw new GameError("Room not found or game not started", 404);
 
-  if (room.finished) throw new Error("Game is already finished");
+  if (room.finished) throw new GameError("Game is already finished", 400);
 
   const currentRound = room.rounds[0];
   const currentHand = currentRound?.hands[0];
   if (!currentRound || !currentHand)
-    throw new Error("No active round or hand found");
+    throw new GameError("No active round or hand found", 400);
 
   const playedCards = currentHand.cards;
 
   //^ 2. Controlla che la mano corrente non sia già completa (4 carte giocate)
   if (playedCards.length >= 4) {
-    throw new Error("Hand is already full");
+    throw new GameError("Hand is already full", 400);
   }
 
   //^ 3. Determina l'ordine di gioco a partire da starterId
@@ -524,11 +525,11 @@ async function playCardUnlocked({
     (p) => p.seat === seatOrder[playedCards.length],
   );
   if (!currentTurnPlayer || currentTurnPlayer.userId !== userId)
-    throw new Error("It's not this player's turn");
+    throw new GameError("It's not this player's turn", 403);
 
   //^ 4. Controlla che il giocatore abbia effettivamente la carta specificata in mano
   const player = room.players.find((p) => p.userId === userId);
-  if (!player) throw new Error("Player not found in this room");
+  if (!player) throw new GameError("Player not found in this room", 404);
 
   const playerCard = await prisma.playerCard.findFirst({
     where: {
@@ -539,7 +540,7 @@ async function playCardUnlocked({
     },
   });
 
-  if (!playerCard) throw new Error("Player does not have this card");
+  if (!playerCard) throw new GameError("Player does not have this card", 400);
 
   // Only the trick leader (position 0) can declare a signal
   const validSignal =

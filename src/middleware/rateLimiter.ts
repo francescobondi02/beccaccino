@@ -18,15 +18,11 @@ interface RateLimiterOptions {
   message?: string; // Custom error message
 }
 
-const stores = new Map<string, Map<string, RateLimitEntry>>();
-
 export function rateLimiter(options: RateLimiterOptions) {
   const { windowMs, maxRequests, message = "Too many requests, please try again later" } = options;
 
   // Each rateLimiter call gets its own store so different routes can have different limits
   const store = new Map<string, RateLimitEntry>();
-  const storeId = `store_${stores.size}`;
-  stores.set(storeId, store);
 
   // Cleanup old entries periodically (every 60s) to prevent memory leaks
   const cleanupInterval = setInterval(() => {

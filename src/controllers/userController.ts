@@ -9,6 +9,7 @@ import { generateToken } from "../utils/jwt";
 import { logger } from "../logger";
 import { RANKED_FINISHED_GAME } from "../utils/statsFilters";
 import { cumulativeScore } from "../utils/score";
+import { validateUsername } from "../utils/validateUsername";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isCrossOrigin =
@@ -35,6 +36,12 @@ export const register = async (req: Request, res: Response) => {
       .json({ error: "Username and password are required" });
   }
 
+  const validated = validateUsername(username);
+  if (!validated.ok) {
+    return res.status(400).json({ error: validated.error });
+  }
+  const normalizedUsername = validated.value;
+
   if (password.length < 6) {
     return res
       .status(400)
@@ -44,7 +51,7 @@ export const register = async (req: Request, res: Response) => {
   try {
     // Verifica se username esiste già
     const existingUser = await prisma.user.findUnique({
-      where: { username },
+      where: { username: normalizedUsername },
     });
 
     if (existingUser) {
@@ -68,7 +75,7 @@ export const register = async (req: Request, res: Response) => {
     // Crea utente
     const user = await prisma.user.create({
       data: {
-        username,
+        username: normalizedUsername,
         password: hashedPassword,
         email: email || null,
       },
@@ -310,12 +317,11 @@ export const updateCurrentUser = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Username is required" });
     }
 
-    const trimmed = username.trim();
-    if (trimmed.length < 3) {
-      return res
-        .status(400)
-        .json({ error: "Username must be at least 3 characters" });
+    const validated = validateUsername(username);
+    if (!validated.ok) {
+      return res.status(400).json({ error: validated.error });
     }
+    const trimmed = validated.value;
 
     // Check uniqueness (unless it's the same user keeping the same name)
     const existing = await prisma.user.findUnique({

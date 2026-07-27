@@ -70,21 +70,3 @@ export const authenticateToken = (
   req.user = decoded;
   next();
 };
-
-// Middleware opzionale: continua anche senza token
-export const optionalAuth = (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
-  const token = req.cookies?.authToken;
-
-  if (token) {
-    const decoded = verifyToken(token);
-    if (decoded) {
-      req.user = decoded;
-    }
-  }
-
-  next();
-};

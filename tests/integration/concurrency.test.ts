@@ -176,7 +176,7 @@ describe("Concurrent play-card requests", () => {
 
 describe("Concurrent join-room requests", () => {
   it("only one of two simultaneous joins into a room with 3 players succeeds", async () => {
-    const usernames = ["A", "B", "C", "D", "E"];
+    const usernames = ["userA", "userB", "userC", "userD", "userE"];
     const userIds: number[] = [];
     for (const name of usernames) {
       const res = await api()
