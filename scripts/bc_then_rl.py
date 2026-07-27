@@ -3,8 +3,8 @@
 Phase 1 — IMITATION
   - Self-play with HeuristicAgent on both teams to build a (obs, action,
     return) dataset of ~250k transitions.
-  - Train V3 (factorized head) policy & value network with masked CE +
-    value MSE for a few epochs.
+  - Train the selected policy/value network (V4 transformer for current
+    long-run presets) with masked CE + value MSE for a few epochs.
   - Snapshot the warm-started checkpoint.
 
 Phase 2 — RL
@@ -309,9 +309,25 @@ def _critic_from_checkpoint(ck: dict, device: torch.device) -> CentralizedCritic
     return critic
 
 
+def _apply_resume_architecture(args, ck: dict) -> None:
+    net_config = net_config_of(ck)
+    args.network_version = net_config["version"]
+    args.layers = net_config["num_layers"]
+    if args.network_version == 4:
+        args.d_model = net_config["d_model"]
+        args.nhead = net_config["nhead"]
+        args.dim_feedforward = net_config["dim_feedforward"]
+    else:
+        args.hidden = net_config["hidden_size"]
+
+    if ck.get("critic") is not None:
+        args.hidden = ck["train_config"]["hidden_size"]
+
+
 def _load_resume_components(args, device: torch.device) -> tuple[dict, torch.nn.Module, object]:
     ck = load_checkpoint(args.resume, map_location=device)
     _validate_resume_architecture(args, ck)
+    _apply_resume_architecture(args, ck)
     return ck, build_net(ck, device), _critic_from_checkpoint(ck, device)
 
 
@@ -476,6 +492,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             resume_ckpt, net, critic = _load_resume_components(args, device)
         else:
             _validate_resume_architecture(args, resume_ckpt)
+            _apply_resume_architecture(args, resume_ckpt)
             net = build_net(resume_ckpt, device)
             critic = _critic_from_checkpoint(resume_ckpt, device)
 
@@ -787,7 +804,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     torch.save(
         {
             "model": net.state_dict(),
-            "config": _net_config_dict(args),
+            "config": dict(net.config),
             "steps": step_count,
             "phase": "rl",
         },

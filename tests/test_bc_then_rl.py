@@ -223,6 +223,8 @@ def test_resume_rebuilds_policy_and_critic_from_checkpoint(tmp_path):
     _, net, critic = _load_resume_components(args, torch.device("cpu"))
 
     assert net.config == expected_net.config
+    assert (args.network_version, args.d_model, args.nhead) == (4, 48, 2)
+    assert (args.layers, args.dim_feedforward, args.hidden) == (2, 96, 40)
     assert critic is not None
     assert critic.value_head[0].in_features == expected_critic.value_head[0].in_features
     assert all(
@@ -231,6 +233,22 @@ def test_resume_rebuilds_policy_and_critic_from_checkpoint(tmp_path):
             critic.state_dict().values(), expected_critic.state_dict().values()
         )
     )
+
+
+def test_resume_final_checkpoint_uses_rebuilt_network_config(tmp_path):
+    path, expected_net, _ = _write_resume_checkpoint(tmp_path)
+    args = _args(
+        tmp_path,
+        resume=str(path),
+        centralized_critic=True,
+        total_rl_steps=1536,
+    )
+    args._explicit_options = {"--resume", "--centralized-critic"}
+
+    phase2_rl(args, torch.device("cpu"), _fresh_net(args))
+
+    final = load_checkpoint(tmp_path / "final.pt")
+    assert final["config"] == expected_net.config
 
 
 def test_resume_rejects_explicit_architecture_mismatch(tmp_path):
