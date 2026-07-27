@@ -444,13 +444,6 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     opponent_net = create_network(**net.config).to(device)
     opponent_net.load_state_dict(net.state_dict())
 
-    vec = create_vec_env(
-        num_envs=cfg.num_envs,
-        seed=cfg.seed,
-        win_points=cfg.win_points,
-        sync=False,
-        signal_honesty_coef=signal_honesty_schedule(cfg, 1),
-    )
     shaping_signals = cfg.signal_honesty_coef != 0.0 or cfg.signal_honesty_coef_final != 0.0
     learner_team_per_env = np.array([i % 2 for i in range(cfg.num_envs)], dtype=np.int64)
 
@@ -495,6 +488,22 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     # resumed run inherits the previous session's bar, or its first mediocre eval
     # would overwrite a better best.pt.
     best_wr_heur, best_update = resumed_best
+
+    if start_update > cfg.total_updates:
+        raise SystemExit(
+            f"resume checkpoint is already at update {start_update - 1} of "
+            f"{cfg.total_updates}: this run is complete. Extending it requires a "
+            "larger --total-rl-steps and reshapes the LR, entropy, and signal "
+            "schedules; prefer starting a new run from this checkpoint."
+        )
+
+    vec = create_vec_env(
+        num_envs=cfg.num_envs,
+        seed=cfg.seed + games_total,
+        win_points=cfg.win_points,
+        sync=False,
+        signal_honesty_coef=signal_honesty_schedule(cfg, start_update),
+    )
     t0 = time.time()
     deadline = (
         time.monotonic() + args.max_hours * SECONDS_PER_HOUR if args.max_hours is not None else None
@@ -521,15 +530,6 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             normalizer=return_normalizer,
             pool=pool,
             extra=extra,
-        )
-
-    if start_update > cfg.total_updates:
-        vec.close()
-        raise SystemExit(
-            f"resume checkpoint is already at update {start_update - 1} of "
-            f"{cfg.total_updates}: this run is complete. Extending it requires a "
-            "larger --total-rl-steps and reshapes the LR, entropy, and signal "
-            "schedules; prefer starting a new run from this checkpoint."
         )
 
     for update in range(start_update, cfg.total_updates + 1):

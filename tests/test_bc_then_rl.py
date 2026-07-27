@@ -107,12 +107,19 @@ def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
     )
 
 
-def test_rl_phase_resume_continues(tmp_path):
-    import torch
+def test_rl_phase_resume_continues(tmp_path, monkeypatch):
+    seeds = []
+    create_vec_env = bc_then_rl.create_vec_env
 
+    def capture_seed(**kwargs):
+        seeds.append(kwargs["seed"])
+        return create_vec_env(**kwargs)
+
+    monkeypatch.setattr(bc_then_rl, "create_vec_env", capture_seed)
     a = _args(tmp_path, centralized_critic=True)
     phase2_rl(a, torch.device("cpu"), _fresh_net(a))
-    first = load_checkpoint(tmp_path / "last.pt")["update"]
+    first_checkpoint = load_checkpoint(tmp_path / "last.pt")
+    first = first_checkpoint["update"]
 
     a2 = _args(
         tmp_path, centralized_critic=True, total_rl_steps=4096, resume=str(tmp_path / "last.pt")
@@ -123,9 +130,11 @@ def test_rl_phase_resume_continues(tmp_path):
     rows = list(csv.DictReader((tmp_path / "run" / "metrics.csv").open()))
     assert [int(row["update"]) for row in rows] == list(range(1, second + 1))
     assert (tmp_path / "run" / "metrics.csv").read_text().count("phase,update,") == 1
+    assert seeds[:2] == [a.seed, a.seed + first_checkpoint["games"]]
 
     with pytest.raises(SystemExit, match=r"already at update .* this run is complete"):
         phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))
+    assert len(seeds) == 2, "completed resume should fail before creating vector envs"
 
 
 def test_centralized_critic_requires_vec(tmp_path):
