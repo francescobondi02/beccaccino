@@ -1,17 +1,70 @@
-"""Tests for the PPO update, focused on the KL early-stopping contract.
-
-The subtle bug these guard against: KL early-stop must compare the CURRENT
-epoch's mean divergence to target_kl. An accumulator that spans all epochs is
-diluted by epoch-0's near-zero KL, so the brake engages far too late (or never).
-"""
+"""Tests for PPO update stabilization."""
 
 from __future__ import annotations
 
 import torch
+import torch.nn as nn
 
 from becca_env.observation import OBS_SIZE
 from training.network import ACTION_SIZE, BeccaNetV2
 from training.ppo import ppo_update
+
+
+class _TinyActorCritic(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.policy_logits = nn.Parameter(torch.zeros(2))
+        self.value = nn.Parameter(torch.tensor(0.0))
+
+    def get_action_and_value(
+        self,
+        obs: torch.Tensor,
+        action_mask: torch.Tensor,
+        action: torch.Tensor | None = None,
+    ):
+        logits = self.policy_logits.expand(obs.shape[0], -1)
+        logits = logits + (1 - action_mask) * -1e8
+        dist = torch.distributions.Categorical(logits=logits)
+        if action is None:
+            action = dist.sample()
+        return action, dist.log_prob(action), dist.entropy(), self.value.expand(obs.shape[0])
+
+
+class _TinyCentralizedCritic(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.value = nn.Parameter(torch.tensor(0.0))
+
+    def forward(self, full_obs: torch.Tensor) -> torch.Tensor:
+        return self.value.expand(full_obs.shape[0])
+
+
+def _make_tiny_batch(
+    net: _TinyActorCritic,
+    advantages: torch.Tensor,
+    returns: torch.Tensor,
+    critic: _TinyCentralizedCritic | None = None,
+) -> dict[str, torch.Tensor]:
+    n = advantages.shape[0]
+    obs = torch.zeros(n, 1)
+    masks = torch.ones(n, 2)
+    actions = torch.arange(n) % 2
+    full_obs = torch.zeros(n, 1)
+    with torch.no_grad():
+        _, log_probs, _, actor_values = net.get_action_and_value(obs, masks, actions)
+        values = critic(full_obs) if critic is not None else actor_values
+    batch = {
+        "obs": obs,
+        "masks": masks,
+        "actions": actions,
+        "log_probs": log_probs,
+        "values": values,
+        "advantages": advantages,
+        "returns": returns,
+    }
+    if critic is not None:
+        batch["full_obs"] = full_obs
+    return batch
 
 
 def _make_batch(n: int, net: BeccaNetV2, seed: int = 0) -> dict[str, torch.Tensor]:
@@ -32,6 +85,47 @@ def _make_batch(n: int, net: BeccaNetV2, seed: int = 0) -> dict[str, torch.Tenso
         "advantages": torch.randn(n),
         "returns": torch.randn(n),
     }
+
+
+def test_combined_policy_and_critic_gradients_are_clipped_before_step():
+    net = _TinyActorCritic()
+    critic = _TinyCentralizedCritic()
+    batch = _make_tiny_batch(
+        net,
+        advantages=torch.zeros(4),
+        returns=torch.full((4,), 1e6),
+        critic=critic,
+    )
+    params = list(net.parameters()) + list(critic.parameters())
+    optimizer = torch.optim.SGD(params, lr=0.01)
+    max_grad_norm = 0.05
+    raw_critic_grad_norms: list[float] = []
+    step_grad_norms: list[float] = []
+    hook = critic.value.register_hook(lambda grad: raw_critic_grad_norms.append(grad.norm().item()))
+    original_step = optimizer.step
+
+    def inspect_gradients_then_step():
+        grad_norms = [param.grad.norm() for param in params if param.grad is not None]
+        step_grad_norms.append(torch.stack(grad_norms).norm().item())
+        return original_step()
+
+    optimizer.step = inspect_gradients_then_step
+    ppo_update(
+        net,
+        optimizer,
+        batch,
+        vf_coef=1.0,
+        ent_coef=0.0,
+        max_grad_norm=max_grad_norm,
+        num_epochs=1,
+        minibatch_size=4,
+        target_kl=None,
+        critic=critic,
+    )
+    hook.remove()
+
+    assert raw_critic_grad_norms[0] > max_grad_norm * 100
+    assert step_grad_norms[0] <= max_grad_norm + 1e-6
 
 
 def test_kl_early_stop_engages_before_cumulative_average_would():

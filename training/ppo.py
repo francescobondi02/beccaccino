@@ -42,6 +42,7 @@ def ppo_update(
     advantages = batch["advantages"].to(device)
     returns = batch["returns"].to(device)
     full_obs = batch["full_obs"].to(device) if critic is not None else None
+    params = list(net.parameters()) + (list(critic.parameters()) if critic is not None else [])
 
     # Normalize advantages
     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -94,7 +95,7 @@ def ppo_update(
             loss = pi_loss + vf_coef * v_loss + ent_coef * e_loss
             optimizer.zero_grad()
             loss.backward()
-            nn.utils.clip_grad_norm_(net.parameters(), max_grad_norm)
+            nn.utils.clip_grad_norm_(params, max_grad_norm)
             optimizer.step()
 
             # Metrics
