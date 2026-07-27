@@ -67,6 +67,10 @@ def test_est_hours_matches_throughput_model():
     assert est_hours(steps) == pytest.approx(1.0)
 
 
+def test_run_c_empirical_cost_model():
+    assert est_hours(30_000_000) == pytest.approx(11.0, abs=0.05)
+
+
 def test_launch_refuses_large_run_without_confirm(monkeypatch):
     """A run above the smoke threshold must be REFUSED unless --confirm-cost."""
     # Guard against any accidental network call: fail loudly if _run is reached.

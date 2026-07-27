@@ -138,23 +138,35 @@ Why 0.05: a round-end reward spans ±1, so an honest signal is worth ~1/20 of a
 round's swing — small enough that farming honesty bonuses can never beat winning
 points.
 
-Set the final step target in session 1. Every resumed session must use that same
-`--total-rl-steps`, `--num-envs`, and `--steps-per-env`; those values define the
-LR, entropy, and signal schedules.
+### Multi-session protocol
+
+Set the final step target in session 1. Every resumed session must keep the same
+run ID, `--total-rl-steps`, `--num-envs`, `--steps-per-env`, and training
+hyperparameters; the checkpoint manifest enforces this contract.
 
 ```bash
-# Session 1 and every resume use the same final target.
-python -m scripts.kaggle_run launch --preset runc \
+# Session 1: set the final target once.
+python -m scripts.kaggle_run launch --preset rund \
   --total-rl-steps 60000000 --confirm-cost
 
-python -m scripts.kaggle_run launch --preset runc \
-  --total-rl-steps 60000000 --resume /kaggle/input/<dataset>/checkpoints/last.pt \
-  --confirm-cost
+# After each capped session:
+python -m scripts.kaggle_run status
+python -m scripts.kaggle_run pull -p checkpoints/kaggle-rund
+python -m scripts.kaggle_run push-state \
+  --from checkpoints/kaggle-rund -m "runD session N"
+python -m scripts.kaggle_run launch --preset rund \
+  --total-rl-steps 60000000 --resume-state --confirm-cost
 ```
 
 Resume rebuilds the policy and critic from the checkpoint stamps. Explicit
 architecture flags are accepted only when they match. Resuming a completed target
-is a hard error instead of a successful no-op.
+is a hard error instead of a successful no-op. The state dataset carries
+`last.pt`, the prior `best.pt`, and `metrics.csv`; the generated kernel validates
+the run manifest before restoring them.
+
+Before spending the long-run quota, perform the same sequence with `--preset
+smoke --max-hours 0.05`. Create the state dataset on the first drill with
+`push-state --create`; subsequent pushes version it without `--create`.
 
 ## 5. Verifying a smoke run before spending hours
 

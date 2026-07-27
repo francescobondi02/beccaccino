@@ -53,7 +53,7 @@ STATE_MANIFEST = "state-manifest.json"
 STATE_ALLOWLIST = ("checkpoints/last.pt", "checkpoints/best.pt")
 
 # Throughput / cost model (observed T4 transformer throughput).
-MEASURED_SPS = 1150
+MEASURED_SPS = 760  # Run C empirical: 30M steps in 11.0h on T4
 KAGGLE_SESSION_CAP_HOURS = 12
 SECONDS_PER_HOUR = 3600
 SMOKE_MAX_STEPS = 1_000_000  # anything above this needs --confirm-cost
