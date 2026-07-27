@@ -511,6 +511,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
         win_points=cfg.win_points,
         sync=False,
         signal_honesty_coef=signal_honesty_schedule(cfg, start_update),
+        include_full_obs=critic is not None,
     )
     t0 = time.time()
     deadline = (

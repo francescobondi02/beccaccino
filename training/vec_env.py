@@ -13,6 +13,7 @@ def make_env(
     win_points: int = 41,
     trick_shaping_coef: float = 0.0,
     signal_honesty_coef: float = 0.0,
+    include_full_obs: bool = True,
 ):
     """Factory function for creating BeccaEnv instances (required by VectorEnv)."""
 
@@ -22,6 +23,7 @@ def make_env(
             win_points=win_points,
             trick_shaping_coef=trick_shaping_coef,
             signal_honesty_coef=signal_honesty_coef,
+            include_full_obs=include_full_obs,
         )
 
     return _init
@@ -34,6 +36,7 @@ def create_vec_env(
     sync: bool = False,
     trick_shaping_coef: float = 0.0,
     signal_honesty_coef: float = 0.0,
+    include_full_obs: bool = True,
 ) -> gym.vector.VectorEnv:
     """Create a vectorized environment with num_envs parallel games.
 
@@ -41,7 +44,13 @@ def create_vec_env(
     Use sync=True only for debugging.
     """
     env_fns = [
-        make_env(seed + i, win_points, trick_shaping_coef, signal_honesty_coef)
+        make_env(
+            seed=seed + i,
+            win_points=win_points,
+            trick_shaping_coef=trick_shaping_coef,
+            signal_honesty_coef=signal_honesty_coef,
+            include_full_obs=include_full_obs,
+        )
         for i in range(num_envs)
     ]
 

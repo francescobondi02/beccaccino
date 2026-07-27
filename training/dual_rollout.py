@@ -65,6 +65,9 @@ def collect_self_play_rollout_vec(
     num_envs = vec_env.num_envs
     buf = RolloutBuffer(steps_per_env * num_envs)
     obs_dict, _ = vec_env.reset()
+    assert critic is None or "full_obs" in obs_dict, (
+        "centralized critic requires vector environments with include_full_obs=True"
+    )
 
     learner_net.eval()
     if opponent_net is not None:

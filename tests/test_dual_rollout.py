@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
 
 from becca_env.game import TEAM_OF_SEAT
@@ -90,6 +91,30 @@ def test_works_with_none_opponent():
     finally:
         vec.close()
     assert buf.ptr > 0
+
+
+def test_critic_requires_full_observation_key():
+    learner, opponent = _make_nets()
+    vec = create_vec_env(
+        num_envs=2,
+        seed=3,
+        win_points=5,
+        sync=True,
+        include_full_obs=False,
+    )
+    try:
+        with pytest.raises(AssertionError, match="include_full_obs=True"):
+            collect_self_play_rollout_vec(
+                vec,
+                learner,
+                opponent,
+                np.zeros(2, dtype=np.int64),
+                steps_per_env=1,
+                device=torch.device("cpu"),
+                critic=object(),
+            )
+    finally:
+        vec.close()
 
 
 def test_terminal_residuals_credited_to_learner_only():

@@ -75,6 +75,7 @@ class BeccaEnv(gym.Env):
         win_points: int = 41,
         trick_shaping_coef: float = 0.0,
         signal_honesty_coef: float = 0.0,
+        include_full_obs: bool = True,
     ):
         super().__init__()
         self._base_seed = seed
@@ -82,22 +83,21 @@ class BeccaEnv(gym.Env):
         self._win_points = win_points
         self.trick_shaping_coef = float(trick_shaping_coef)
         self.signal_honesty_coef = float(signal_honesty_coef)
+        self.include_full_obs = include_full_obs
         self.game: BeccaGame | None = None
         self._pending_rewards: dict[int, float] = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
 
         self.action_space = spaces.Discrete(160)
-        self.observation_space = spaces.Dict(
-            {
-                "obs": spaces.Box(low=0.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32),
-                # Full state (actor obs + hidden hands) for the centralized critic.
-                # Train-time only; the policy and serving never read it.
-                "full_obs": spaces.Box(
-                    low=0.0, high=1.0, shape=(FULL_STATE_SIZE,), dtype=np.float32
-                ),
-                "action_mask": spaces.Box(low=0.0, high=1.0, shape=(160,), dtype=np.float32),
-                "current_seat": spaces.Discrete(4),
-            }
-        )
+        observation_spaces = {
+            "obs": spaces.Box(low=0.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32),
+            "action_mask": spaces.Box(low=0.0, high=1.0, shape=(160,), dtype=np.float32),
+            "current_seat": spaces.Discrete(4),
+        }
+        if include_full_obs:
+            observation_spaces["full_obs"] = spaces.Box(
+                low=0.0, high=1.0, shape=(FULL_STATE_SIZE,), dtype=np.float32
+            )
+        self.observation_space = spaces.Dict(observation_spaces)
 
     def set_trick_shaping_coef(self, coef: float) -> None:
         """Adjust the trick-shaping coefficient (e.g. for annealing)."""
@@ -221,17 +221,21 @@ class BeccaEnv(gym.Env):
     def _get_obs(self) -> dict:
         seat = self.game.current_seat
         obs = encode_observation(self.game, seat)
-        return {
+        result = {
             "obs": obs,
-            "full_obs": encode_full_state(self.game, seat, obs),
             "action_mask": encode_action_mask(self.game, seat),
             "current_seat": np.int64(seat),
         }
+        if self.include_full_obs:
+            result["full_obs"] = encode_full_state(self.game, seat, obs)
+        return result
 
     def _terminal_obs(self) -> dict:
-        return {
+        result = {
             "obs": np.zeros(OBS_SIZE, dtype=np.float32),
-            "full_obs": np.zeros(FULL_STATE_SIZE, dtype=np.float32),
             "action_mask": np.zeros(160, dtype=np.float32),
             "current_seat": np.int64(-1),
         }
+        if self.include_full_obs:
+            result["full_obs"] = np.zeros(FULL_STATE_SIZE, dtype=np.float32)
+        return result

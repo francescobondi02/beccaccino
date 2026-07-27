@@ -28,6 +28,16 @@ class TestBeccaEnv:
         assert obs["action_mask"].shape == (160,)
         assert obs["action_mask"].sum() > 0  # at least one legal action
 
+    def test_full_observation_can_be_omitted(self):
+        env = BeccaEnv(seed=1, include_full_obs=False)
+        obs, _ = env.reset()
+        assert "full_obs" not in obs
+        assert "full_obs" not in env.observation_space.spaces
+
+        action = int(np.where(obs["action_mask"] > 0)[0][0])
+        next_obs, _, _, _, _ = env.step(action)
+        assert "full_obs" not in next_obs
+
     def test_step_returns_correct_shapes(self):
         env = BeccaEnv(seed=1)
         obs, info = env.reset()

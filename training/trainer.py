@@ -150,6 +150,7 @@ def train(config: TrainConfig):
             sync=False,
             trick_shaping_coef=config.trick_shaping_coef,
             signal_honesty_coef=signal_honesty_schedule(config, start_update),
+            include_full_obs=config.centralized_critic,
         )
     else:
         single_env = BeccaEnv(
@@ -157,6 +158,7 @@ def train(config: TrainConfig):
             win_points=win_points,
             trick_shaping_coef=config.trick_shaping_coef,
             signal_honesty_coef=signal_honesty_schedule(config, start_update),
+            include_full_obs=False,
         )
 
     # Permanent opponent-pool anchor(s): a frozen reference policy (e.g. BC) that
@@ -428,6 +430,7 @@ def train(config: TrainConfig):
                                 sync=False,
                                 trick_shaping_coef=config.trick_shaping_coef,
                                 signal_honesty_coef=signal_coef,
+                                include_full_obs=config.centralized_critic,
                             )
                         else:
                             single_env = BeccaEnv(
@@ -435,6 +438,7 @@ def train(config: TrainConfig):
                                 win_points=win_points,
                                 trick_shaping_coef=config.trick_shaping_coef,
                                 signal_honesty_coef=signal_coef,
+                                include_full_obs=False,
                             )
                 else:
                     curriculum_confirm = 0
