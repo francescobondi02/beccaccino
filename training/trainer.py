@@ -30,6 +30,7 @@ from training.ppo import ppo_update
 from training.rollout import collect_rollout
 from training.self_play import OpponentPool
 from training.vec_env import create_vec_env
+from training.vec_env import learner_team_per_env as learner_teams
 
 SECONDS_PER_HOUR = 3600
 
@@ -189,7 +190,7 @@ def train(config: TrainConfig):
 
     # Per-env learner team assignment (balanced)
     if config.balance_learner_teams and use_vec:
-        learner_team_per_env = np.array([i % 2 for i in range(config.num_envs)], dtype=np.int64)
+        learner_team_per_env = learner_teams(config.num_envs)
     else:
         learner_team_per_env = np.zeros(config.num_envs, dtype=np.int64)
 

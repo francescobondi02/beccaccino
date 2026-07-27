@@ -10,7 +10,7 @@ from becca_env.game import TEAM_OF_SEAT
 from becca_env.observation import FULL_STATE_SIZE
 from training.dual_rollout import collect_self_play_rollout_vec
 from training.network import CentralizedCritic, create_network
-from training.vec_env import create_vec_env, win_points_per_env
+from training.vec_env import create_vec_env, learner_team_per_env, win_points_per_env
 
 
 def _make_nets():
@@ -21,8 +21,12 @@ def _make_nets():
 
 def test_mixed_win_points_are_balanced_across_learner_teams():
     assert win_points_per_env(4, 5) == [5, 5, 5, 5]
+    # Pair the two REAL production assignments (team split and win-point stride)
+    # so the guard breaks if either side drifts — a confound between them is
+    # exactly the failure this test exists to catch.
     assigned = win_points_per_env(64, [5, 41])
-    pairs = [(index % 2, win_points) for index, win_points in enumerate(assigned)]
+    teams = learner_team_per_env(64)
+    pairs = [(int(team), win_points) for team, win_points in zip(teams, assigned)]
     assert set(pairs) == {(0, 5), (1, 5), (0, 41), (1, 41)}
     assert {pair: pairs.count(pair) for pair in set(pairs)} == {
         (0, 5): 16,

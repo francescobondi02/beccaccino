@@ -125,7 +125,14 @@ def parse_args(argv=None):
     )
     parser.add_argument("--seconds", type=float, default=10.0)
     parser.add_argument("--win-points", type=int, default=5)
-    parser.add_argument("--include-full-obs", action="store_true")
+    # Default ON: the long-run recipe (Run D) trains with a centralized critic, so
+    # honest throughput must include full-state encode + IPC. Pass --no-include-full-obs
+    # to measure the critic-free path.
+    parser.add_argument(
+        "--include-full-obs",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--device")
     parser.add_argument("--rollout-steps", type=int, default=64)
     return parser.parse_args(argv)

@@ -3,14 +3,20 @@
 import numpy as np
 
 from becca_env import env as env_module
+from becca_env import observation as observation_module
 from becca_env.env import BeccaEnv
 from becca_env.observation import OBS_SIZE
 
 
 class TestBeccaEnv:
     def test_reset_encodes_actor_observation_once(self, monkeypatch):
+        # The pre-fix double-encode lived INSIDE encode_full_state, which calls
+        # the observation-module binding of encode_observation — a different
+        # namespace from the env module's. Count both so the guard actually
+        # catches a regression (old code encoded twice: once in _get_obs, once
+        # inside encode_full_state).
         calls = 0
-        encode_observation = env_module.encode_observation
+        encode_observation = observation_module.encode_observation
 
         def counted(*args):
             nonlocal calls
@@ -18,6 +24,7 @@ class TestBeccaEnv:
             return encode_observation(*args)
 
         monkeypatch.setattr(env_module, "encode_observation", counted)
+        monkeypatch.setattr(observation_module, "encode_observation", counted)
         BeccaEnv(seed=1).reset()
         assert calls == 1
 

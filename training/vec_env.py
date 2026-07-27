@@ -3,13 +3,26 @@
 from __future__ import annotations
 
 import gymnasium as gym
+import numpy as np
 from gymnasium.vector import AutoresetMode
 
 from becca_env.env import BeccaEnv
 
 
+def learner_team_per_env(num_envs: int) -> np.ndarray:
+    """Alternate the learner team by env so both teams get equal experience."""
+    return np.array([index % 2 for index in range(num_envs)], dtype=np.int64)
+
+
 def win_points_per_env(num_envs: int, win_points: int | list[int]) -> list[int]:
-    """Assign game lengths in team-balanced env pairs."""
+    """Assign game lengths in team-balanced env pairs.
+
+    The `index // 2` stride is deliberately paired with the `index % 2` team
+    split in `learner_team_per_env`: it holds the win-point value constant across
+    each consecutive (team-0, team-1) env pair, so every (learner_team, win_points)
+    combination is covered equally. A naive `index % len` would alias with the team
+    split and, for a 2-value mix, train each team on only one game length.
+    """
     if isinstance(win_points, int):
         values = [win_points]
     else:

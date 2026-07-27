@@ -259,8 +259,12 @@ def test_multi_round_game_activates_score_and_round_features():
     else:
         raise AssertionError("game did not reach a second round")
 
+    # The score feature is now live (was dead at wp=5). At least one team has
+    # scored — the +3 last-trick bonus guarantees it, so this is seed-robust,
+    # unlike requiring BOTH teams positive (a team can legitimately score 0).
     scores = obs["obs"][432:434]
-    assert np.all((scores > 0.0) & (scores < 1.0))
+    assert scores.sum() > 0.0
+    assert np.all(scores < 1.0)
     assert obs["obs"][423:432].sum() == 1.0
 
 

@@ -57,7 +57,7 @@ from training.normalization import ReturnNormalizer
 from training.ppo import ppo_update
 from training.self_play import OpponentPool
 from training.trainer import _apply_signal_honesty_coef, signal_honesty_schedule
-from training.vec_env import create_vec_env, win_points_per_env
+from training.vec_env import create_vec_env, learner_team_per_env, win_points_per_env
 
 SECONDS_PER_HOUR = 3600
 RESUME_CONTRACT_FORMAT = 1
@@ -614,7 +614,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     opponent_net.load_state_dict(net.state_dict())
 
     shaping_signals = cfg.signal_honesty_coef != 0.0 or cfg.signal_honesty_coef_final != 0.0
-    learner_team_per_env = np.array([i % 2 for i in range(cfg.num_envs)], dtype=np.int64)
+    learner_teams = learner_team_per_env(cfg.num_envs)
 
     # Permanent opponent-pool anchor from the BC snapshot (anti-collapse).
     anchors = _resolve_anchors(args, resume_ckpt, device)
@@ -731,7 +731,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             vec,
             net,
             opponent_net,
-            learner_team_per_env,
+            learner_teams,
             cfg.steps_per_env,
             device,
             critic=critic,
