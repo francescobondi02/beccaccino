@@ -47,6 +47,9 @@ interface Room {
   players: Player[];
 }
 
+// Long enough to read the "starting" toast before landing on the table.
+const GAME_START_REDIRECT_MS = 5000;
+
 const GameRoom = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
@@ -228,12 +231,13 @@ const GameRoom = () => {
 
     // Callback per quando la partita inizia
 
+    let gameStartTimeout: ReturnType<typeof setTimeout> | undefined;
     const handleGameStarted = () => {
       gameStarted = true; // 🔥 Non disconnettere quando si naviga a GameTable
       toast.success("La partita sta per iniziare! Redirecting...");
-      setTimeout(() => {
+      gameStartTimeout = setTimeout(() => {
         navigate(`/game/${roomCode}`);
-      }, 5000);
+      }, GAME_START_REDIRECT_MS);
     };
 
     // Registra la callback
@@ -250,6 +254,7 @@ const GameRoom = () => {
       offTeamChosen(handleTeamChosen);
       offReadyChanged(handleReadyChanged);
       offGameStarted(handleGameStarted);
+      clearTimeout(gameStartTimeout);
       unsubscribeErrorToast();
       // 🔥 Lascia la room socket SOLO se la partita NON è iniziata
       if (!gameStarted) {
