@@ -9,13 +9,26 @@ import torch
 from becca_env.game import TEAM_OF_SEAT
 from training.dual_rollout import collect_self_play_rollout_vec
 from training.network import create_network
-from training.vec_env import create_vec_env
+from training.vec_env import create_vec_env, win_points_per_env
 
 
 def _make_nets():
     learner = create_network(version=2, hidden_size=64, num_layers=2)
     opponent = create_network(version=2, hidden_size=64, num_layers=2)
     return learner, opponent
+
+
+def test_mixed_win_points_are_balanced_across_learner_teams():
+    assert win_points_per_env(4, 5) == [5, 5, 5, 5]
+    assigned = win_points_per_env(64, [5, 41])
+    pairs = [(index % 2, win_points) for index, win_points in enumerate(assigned)]
+    assert set(pairs) == {(0, 5), (1, 5), (0, 41), (1, 41)}
+    assert {pair: pairs.count(pair) for pair in set(pairs)} == {
+        (0, 5): 16,
+        (1, 5): 16,
+        (0, 41): 16,
+        (1, 41): 16,
+    }
 
 
 def test_only_learner_team_transitions_stored():

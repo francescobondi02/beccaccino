@@ -11,6 +11,7 @@ class TrainConfig:
     num_envs: int = 64
     steps_per_env: int = 512
     win_points: int = 41
+    wp_mix: list[int] | None = None
     # Used in eval matches; if None falls back to win_points. Train short
     # for fast credit assignment, eval at full length for honest skill numbers.
     eval_win_points: int | None = None

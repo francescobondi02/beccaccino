@@ -15,6 +15,7 @@ from scripts.kaggle_run import (
     DATASET_SLUG,
     MEASURED_SPS,
     RUN_B_SPEC,
+    RUN_D_SPEC,
     SECONDS_PER_HOUR,
     SMOKE_MAX_STEPS,
     SMOKE_SPEC,
@@ -60,6 +61,18 @@ def test_strengthener_flags_render_only_when_set():
 def test_runb_preset_exceeds_smoke_threshold():
     """The overnight preset must trip the safety gate (needs --confirm-cost)."""
     assert RUN_B_SPEC.total_rl_steps > SMOKE_MAX_STEPS
+
+
+def test_rund_uses_mixed_win_points_and_fixed_batch_geometry(monkeypatch):
+    from scripts import bc_then_rl
+
+    assert RUN_D_SPEC.wp_mix == [5, 41]
+    assert RUN_D_SPEC.win_points is None
+    assert RUN_D_SPEC.num_envs * RUN_D_SPEC.steps_per_env == 32768
+    monkeypatch.setattr(sys, "argv", ["prog", *RUN_D_SPEC.to_cli_args()])
+    args = bc_then_rl.parse_args()
+    assert args.wp_mix == [5, 41]
+    assert args.win_points is None
 
 
 def test_est_hours_matches_throughput_model():

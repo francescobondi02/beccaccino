@@ -245,6 +245,25 @@ def test_briscola_one_hot_when_chosen():
     np.testing.assert_array_equal(briscola_block, expected)
 
 
+def test_multi_round_game_activates_score_and_round_features():
+    from becca_env.env import BeccaEnv
+
+    env = BeccaEnv(seed=7, win_points=41, include_full_obs=False)
+    obs, _ = env.reset()
+    for _ in range(500):
+        action = int(np.flatnonzero(obs["action_mask"])[0])
+        obs, _, terminated, _, _ = env.step(action)
+        assert not terminated
+        if env.game.round.number >= 2:
+            break
+    else:
+        raise AssertionError("game did not reach a second round")
+
+    scores = obs["obs"][432:434]
+    assert np.all((scores > 0.0) & (scores < 1.0))
+    assert obs["obs"][423:432].sum() == 1.0
+
+
 def test_signal_mask_zero_when_no_signals():
     g = BeccaGame(seed=5)
     obs = encode_observation(g, seat=0)

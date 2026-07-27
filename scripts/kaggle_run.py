@@ -93,7 +93,8 @@ class RunSpec:
     total_rl_steps: int = 5_000_000
     num_envs: int = 32
     steps_per_env: int = 512
-    win_points: int = 5
+    win_points: int | None = 5
+    wp_mix: list[int] | None = None
     eval_win_points: int = 41
     eval_every: int = 25
     eval_games: int = 100
@@ -146,8 +147,6 @@ class RunSpec:
             str(self.num_envs),
             "--steps-per-env",
             str(self.steps_per_env),
-            "--win-points",
-            str(self.win_points),
             "--eval-win-points",
             str(self.eval_win_points),
             "--eval-every",
@@ -175,6 +174,12 @@ class RunSpec:
             "--final-ckpt",
             self.final_ckpt,
         ]
+        if self.wp_mix is not None:
+            args += ["--wp-mix", ",".join(str(value) for value in self.wp_mix)]
+        elif self.win_points is not None:
+            args += ["--win-points", str(self.win_points)]
+        else:
+            raise ValueError("RunSpec requires win_points or wp_mix")
         if self.run_id is not None:
             args += ["--run-id", self.run_id]
         if self.centralized_critic:
@@ -258,6 +263,19 @@ RUN_C_SPEC = dataclasses.replace(
     out_dir="/kaggle/working/runs/runC",
     bc_ckpt="/kaggle/working/checkpoints/runC_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/runC_rl.pt",
+)
+
+RUN_D_SPEC = dataclasses.replace(
+    RUN_C_SPEC,
+    total_rl_steps=60_000_000,
+    win_points=None,
+    wp_mix=[5, 41],
+    save_last_every=10,
+    max_hours=9.75,
+    run_id="runD",
+    out_dir="/kaggle/working/runs/runD",
+    bc_ckpt="/kaggle/working/checkpoints/runD_bc.pt",
+    final_ckpt="/kaggle/working/checkpoints/runD_rl.pt",
 )
 
 
@@ -486,7 +504,12 @@ def pull(dest: str) -> None:
     _run(["kaggle", "kernels", "output", KERNEL_SLUG, "-p", dest])
 
 
-_PRESETS = {"smoke": SMOKE_SPEC, "runb": RUN_B_SPEC, "runc": RUN_C_SPEC}
+_PRESETS = {
+    "smoke": SMOKE_SPEC,
+    "runb": RUN_B_SPEC,
+    "runc": RUN_C_SPEC,
+    "rund": RUN_D_SPEC,
+}
 
 
 def _spec_from_args(a: argparse.Namespace) -> RunSpec:
@@ -530,11 +553,12 @@ def build_parser() -> argparse.ArgumentParser:
     ln = sub.add_parser("launch", help="render + push a run kernel")
     ln.add_argument(
         "--preset",
-        choices=["smoke", "runb", "runc"],
+        choices=["smoke", "runb", "runc", "rund"],
         default=None,
         help="smoke: cheap full-recipe validation; runb: the original "
         "overnight run (critic + anchors + 11h cap); runc: runb "
-        "plus signal-honesty shaping and best.pt tracking.",
+        "plus signal-honesty shaping and best.pt tracking; rund: resumable "
+        "60M-step mixed wp=5/41 long run.",
     )
     ln.add_argument(
         "--confirm-cost",

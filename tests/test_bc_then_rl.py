@@ -100,6 +100,8 @@ def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
         anchor_bc=True,
         pool_save_every=100,
         save_last_every=1,
+        win_points=None,
+        wp_mix=[5, 41],
     )
     net = _fresh_net(a)
     torch.save({"model": net.state_dict(), "config": net.config}, a.bc_ckpt)
@@ -112,6 +114,9 @@ def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
     assert ck["normalizer"] is not None
     assert len(ck["anchors"]) == 1
     assert ck["pool"] == [], "pool cadence should be independent from last.pt cadence"
+    metric_fields = csv.DictReader((tmp_path / "run" / "metrics.csv").open()).fieldnames
+    assert metric_fields is not None
+    assert {"mean_episode_return_wp_5", "mean_episode_return_wp_41"} <= set(metric_fields)
 
     (tmp_path / "bc.pt").unlink()
     restored = _resolve_anchors(a, ck, torch.device("cpu"))

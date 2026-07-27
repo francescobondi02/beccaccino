@@ -57,10 +57,20 @@ from training.normalization import ReturnNormalizer
 from training.ppo import ppo_update
 from training.self_play import OpponentPool
 from training.trainer import _apply_signal_honesty_coef, signal_honesty_schedule
-from training.vec_env import create_vec_env
+from training.vec_env import create_vec_env, win_points_per_env
 
 SECONDS_PER_HOUR = 3600
 RESUME_CONTRACT_FORMAT = 1
+
+
+def _parse_wp_mix(value: str) -> list[int]:
+    try:
+        result = [int(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--wp-mix must be comma-separated integers") from exc
+    if not result or any(item <= 0 for item in result):
+        raise argparse.ArgumentTypeError("--wp-mix must contain positive integers")
+    return result
 
 
 def parse_args(argv: list[str] | None = None):
@@ -96,7 +106,14 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument("--total-rl-steps", type=int, default=4_000_000)
     p.add_argument("--num-envs", type=int, default=16)
     p.add_argument("--steps-per-env", type=int, default=256)
-    p.add_argument("--win-points", type=int, default=5)
+    win_points = p.add_mutually_exclusive_group()
+    win_points.add_argument("--win-points", type=int, default=None)
+    win_points.add_argument(
+        "--wp-mix",
+        type=_parse_wp_mix,
+        default=None,
+        help='Comma-separated training game lengths, for example "5,41".',
+    )
     p.add_argument(
         "--eval-win-points",
         type=int,
@@ -188,6 +205,8 @@ def parse_args(argv: list[str] | None = None):
         help="Resume the RL phase from a last.pt written by a prior run (skips BC).",
     )
     args = p.parse_args(raw_args)
+    if args.win_points is None and args.wp_mix is None:
+        args.win_points = 5
     args._explicit_options = {
         token.split("=", 1)[0] for token in raw_args if token.startswith("--")
     }
@@ -313,6 +332,7 @@ def _resume_contract(args, cfg: TrainConfig, net, critic) -> dict:
             "num_envs",
             "steps_per_env",
             "win_points",
+            "wp_mix",
             "eval_win_points",
             "lr",
             "gamma",
@@ -397,12 +417,13 @@ def phase1_bc(args, device) -> torch.nn.Module:
 
     # Quick eval BEFORE BC to see the lift
     net = make_net(args, device)
+    eval_win_points = args.eval_win_points or args.win_points or max(args.wp_mix)
     pre_wr_h = evaluate_against_heuristic(
         net,
         num_games=80,
         device=device,
         seed=args.seed + 9999,
-        win_points=args.eval_win_points or args.win_points,
+        win_points=eval_win_points,
     )
     print(f"  pre-BC: vs heuristic = {pre_wr_h:.1%}")
 
@@ -422,7 +443,7 @@ def phase1_bc(args, device) -> torch.nn.Module:
         num_games=200,
         device=device,
         seed=args.seed + 99999,
-        win_points=args.eval_win_points or args.win_points,
+        win_points=eval_win_points,
     )
     pre_wr_r = evaluate_against_random(
         net,
@@ -461,7 +482,8 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     cfg = TrainConfig(
         num_envs=args.num_envs,
         steps_per_env=args.steps_per_env,
-        win_points=args.win_points,
+        win_points=args.win_points if args.win_points is not None else args.wp_mix[0],
+        wp_mix=args.wp_mix,
         eval_win_points=args.eval_win_points,
         lr=args.lr,
         ent_coef=args.ent_coef,
@@ -483,6 +505,9 @@ def phase2_rl(args, device, net, resume_ckpt=None):
         use_wandb=False,
     )
     eval_wp = cfg.eval_win_points if cfg.eval_win_points is not None else cfg.win_points
+    training_win_points = cfg.wp_mix or cfg.win_points
+    env_win_points = win_points_per_env(cfg.num_envs, training_win_points)
+    metric_win_points = sorted(set(env_win_points))
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -504,6 +529,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
                     "approx_kl",
                     "explained_variance",
                     "mean_reward",
+                    *[f"mean_episode_return_wp_{wp}" for wp in metric_win_points],
                     "opponent_source",
                     "wr_random",
                     "wr_heuristic",
@@ -585,7 +611,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     vec = create_vec_env(
         num_envs=cfg.num_envs,
         seed=cfg.seed + games_total,
-        win_points=cfg.win_points,
+        win_points=training_win_points,
         sync=False,
         signal_honesty_coef=signal_honesty_schedule(cfg, start_update),
         include_full_obs=critic is not None,
@@ -675,6 +701,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             ev = (1 - (rets - vals).var() / (var_ret + 1e-8)) if var_ret > 0 else 0.0
         sps = step_count / (time.time() - t0)
         mean_reward = float(buf.rewards[: buf.ptr].mean())
+        mean_returns_by_wp = _mean_episode_returns_by_wp(buf, env_win_points)
 
         if update % args.pool_save_every == 0:
             pool.add_policy(net.state_dict())
@@ -718,6 +745,12 @@ def phase2_rl(args, device, net, resume_ckpt=None):
                     f"{m['approx_kl']:.5f}",
                     f"{ev:.4f}",
                     f"{mean_reward:.4f}",
+                    *[
+                        f"{mean_returns_by_wp[wp]:.4f}"
+                        if np.isfinite(mean_returns_by_wp[wp])
+                        else "nan"
+                        for wp in metric_win_points
+                    ],
                     opp_source,
                     f"{last_wr_random:.4f}",
                     f"{last_wr_heur:.4f}",
@@ -769,6 +802,23 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     vec.close()
 
     plot_results(csv_path, out)
+
+
+def _mean_episode_returns_by_wp(buf, env_win_points: list[int]) -> dict[int, float]:
+    completed_returns: dict[int, list[float]] = {
+        win_points: [] for win_points in sorted(set(env_win_points))
+    }
+    running = np.zeros(len(env_win_points), dtype=np.float64)
+    for index in range(buf.ptr):
+        env_index = int(buf.env_idx[index])
+        running[env_index] += float(buf.rewards[index])
+        if buf.dones[index]:
+            completed_returns[env_win_points[env_index]].append(running[env_index])
+            running[env_index] = 0.0
+    return {
+        win_points: float(np.mean(returns)) if returns else float("nan")
+        for win_points, returns in completed_returns.items()
+    }
 
 
 def plot_results(csv_path: Path, out_dir: Path):
