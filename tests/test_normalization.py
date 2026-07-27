@@ -47,17 +47,43 @@ def test_rms_handles_empty_update():
 
 
 def test_return_normalizer_resets_on_done():
-    """A done=True must reset the running return for that (env, seat)."""
+    """A done=True must reset every seat's chain for the completed environment."""
     rn = ReturnNormalizer(gamma=0.5)
-    # env 0 seat 0 stream: r=1 (no done), r=1 (done), r=10 (no done)
-    rn.normalize(0, 0, 1.0, done=False)  # return chain: 1.0
-    rn.normalize(0, 0, 1.0, done=True)  # return chain: 0.5*1 + 1 = 1.5; then RESET
-    # After reset, next sample should start fresh: return = 0.5*0 + 10 = 10
+    rn.normalize(0, 0, 1.0, done=False)
+    rn.normalize(0, 1, 2.0, done=False)
+    rn.normalize(1, 0, 3.0, done=False)
+    rn.normalize(0, 0, 1.0, done=True)
+
+    assert (0, 0) not in rn._returns
+    assert (0, 1) not in rn._returns
+    assert rn._returns[(1, 0)] == 3.0
+
     rn.normalize(0, 0, 10.0, done=False)
-    # We can't easily inspect the chain directly, but the rms should now
-    # have seen returns: 1.0, 1.5, 10.0  (three samples)
-    # Approximate count check (count = 1e-4 + 3)
-    assert rn.rms.count > 2.99
+    assert rn._returns[(0, 0)] == 10.0
+
+
+def test_rollout_batch_resets_transient_return_chains():
+    from becca_env.observation import OBS_SIZE
+    from training.rollout import RolloutBuffer
+
+    rn = ReturnNormalizer(gamma=0.5)
+    rn.normalize(0, 0, 100.0, done=False)
+    buf = RolloutBuffer(size=1)
+    buf.store(
+        np.zeros(OBS_SIZE, dtype=np.float32),
+        np.ones(160, dtype=np.float32),
+        action=0,
+        log_prob=0.0,
+        value=0.0,
+        reward=2.0,
+        done=False,
+        seat=0,
+        env_idx=0,
+    )
+
+    buf.get_batch(return_normalizer=rn)
+
+    assert rn._returns[(0, 0)] == 2.0
 
 
 def test_return_normalizer_isolates_envs_and_seats():

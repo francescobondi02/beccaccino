@@ -130,6 +130,10 @@ class RolloutBuffer:
         """
         n = self.ptr
         if return_normalizer is not None and n > 0:
+            # Every collector starts this buffer with env.reset(), so transient
+            # discounted-return chains from the previous buffer must not cross
+            # that artificial episode boundary. Running variance remains intact.
+            return_normalizer.reset_returns()
             scaled = return_normalizer.normalize_batch(
                 self.env_idx[:n], self.seats[:n], self.rewards[:n], self.dones[:n]
             )

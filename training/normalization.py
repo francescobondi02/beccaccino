@@ -94,11 +94,23 @@ class ReturnNormalizer:
     def normalize(self, env_idx: int, seat: int, reward: float, done: bool) -> float:
         key = (int(env_idx), int(seat))
         prev = self._returns.get(key, 0.0)
-        new_return = self.gamma * prev * (0.0 if done else 1.0) + reward
-        self._returns[key] = 0.0 if done else new_return
+        new_return = self.gamma * prev + reward
         # Update running stats with this return sample
         self.rms.update(np.array([new_return], dtype=np.float32))
+        if done:
+            self.reset_env(env_idx)
+        else:
+            self._returns[key] = new_return
         return reward / (np.sqrt(self.rms.var) + self.epsilon)
+
+    def reset_env(self, env_idx: int) -> None:
+        """Clear every seat's discounted-return chain for one finished game."""
+        env_idx = int(env_idx)
+        self._returns = {key: value for key, value in self._returns.items() if key[0] != env_idx}
+
+    def reset_returns(self) -> None:
+        """Clear transient chains when collection starts from freshly reset envs."""
+        self._returns.clear()
 
     def normalize_batch(
         self,
@@ -119,9 +131,8 @@ class ReturnNormalizer:
         return scaled.astype(np.float32)
 
     def to_dict(self) -> dict:
-        """Serialize the load-bearing running-std state. The transient per-(env,
-        seat) _returns dict is NOT persisted — it's rebuilt within a rollout and
-        carries no cross-run information."""
+        """Serialize the load-bearing running-std state. Transient return chains
+        are rebuilt within each rollout and carry no cross-run information."""
         return {"gamma": self.gamma, "epsilon": self.epsilon, "rms": self.rms.to_dict()}
 
     def from_dict(self, state: dict) -> None:
