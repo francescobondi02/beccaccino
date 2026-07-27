@@ -322,80 +322,85 @@ export const joinRoom = async (req: Request, res: Response) => {
       });
     }
 
-    //^ Troviamo la stanza a cui l'utente vuole unirsi
-    const room = await prisma.gameRoom.findUnique({
-      where: { code: roomCode },
-      include: { players: true },
-    });
-
-    if (!room) {
-      return res.status(404).json({ error: "Room not found" });
-    }
-
-    if (room.started) {
-      return res.status(400).json({ error: "Room has already started" });
-    }
-
-    if (room.players.length >= 4) {
-      return res.status(400).json({ error: "Room is full" });
-    }
-
-    //^ Verifichiamo che l'utente non sia già un giocatore dentro quella stanza
-    const alreadyInRoom = room.players.some(
-      (player) => player.userId === userId,
-    );
-    if (alreadyInRoom) {
-      return res.status(400).json({ error: "User already in the room" });
-    }
-
-    //^ Creiamo un nuovo Player (ponte fra User e GameRoom)
-    await prisma.player.create({
-      data: {
-        userId,
-        gameRoomId: room.id,
-        seat: null,
-        team: null,
-      },
-    });
-
-    //^ Prendiamo la stanza aggiornata con il nuovo giocatore e la restituiamo
-    const updatedRoom = await prisma.gameRoom.findUnique({
-      where: { code: roomCode },
-      include: {
-        players: {
-          include: { user: true },
-        },
-      },
-    });
-
-    // 🔥 Notifica la lobby se la stanza è diventata piena o è stata aggiornata
-    try {
-      const io = getSocketInstance();
-      const currentPlayers = updatedRoom?.players.length || 0;
-
-      if (currentPlayers >= 4) {
-        // Stanza piena - rimuovila dalla lista disponibili
-        io.to("lobby").emit("room_full", {
-          roomCode: roomCode,
-        });
-      } else {
-        // Aggiorna il conteggio giocatori
-        io.to("lobby").emit("room_updated", {
-          roomCode: roomCode,
-          currentPlayers: currentPlayers,
-        });
-      }
-    } catch (socketError) {
-      Sentry.captureException(socketError, {
-        extra: { event: "join_room_broadcast", roomCode },
+    // Serialize the room-full / already-in checks with the player.create per
+    // room so two simultaneous joins can't both pass the checks and overfill
+    // the room (same pattern as setPlayerReady below).
+    const result = await withRoomLock(roomCode, async () => {
+      //^ Troviamo la stanza a cui l'utente vuole unirsi
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
       });
-      (req.log ?? logger).warn(
-        { err: socketError, roomCode },
-        "join_room_broadcast_failed",
-      );
-    }
 
-    return res.json(updatedRoom);
+      if (!room) return { status: 404, body: { error: "Room not found" } };
+
+      if (room.started) {
+        return { status: 400, body: { error: "Room has already started" } };
+      }
+
+      if (room.players.length >= 4) {
+        return { status: 400, body: { error: "Room is full" } };
+      }
+
+      //^ Verifichiamo che l'utente non sia già un giocatore dentro quella stanza
+      const alreadyInRoom = room.players.some(
+        (player) => player.userId === userId,
+      );
+      if (alreadyInRoom) {
+        return { status: 400, body: { error: "User already in the room" } };
+      }
+
+      //^ Creiamo un nuovo Player (ponte fra User e GameRoom)
+      await prisma.player.create({
+        data: {
+          userId,
+          gameRoomId: room.id,
+          seat: null,
+          team: null,
+        },
+      });
+
+      //^ Prendiamo la stanza aggiornata con il nuovo giocatore e la restituiamo
+      const updatedRoom = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: {
+          players: {
+            include: { user: true },
+          },
+        },
+      });
+
+      // 🔥 Notifica la lobby se la stanza è diventata piena o è stata aggiornata
+      try {
+        const io = getSocketInstance();
+        const currentPlayers = updatedRoom?.players.length || 0;
+
+        if (currentPlayers >= 4) {
+          // Stanza piena - rimuovila dalla lista disponibili
+          io.to("lobby").emit("room_full", {
+            roomCode: roomCode,
+          });
+        } else {
+          // Aggiorna il conteggio giocatori
+          io.to("lobby").emit("room_updated", {
+            roomCode: roomCode,
+            currentPlayers: currentPlayers,
+          });
+        }
+      } catch (socketError) {
+        Sentry.captureException(socketError, {
+          extra: { event: "join_room_broadcast", roomCode },
+        });
+        (req.log ?? logger).warn(
+          { err: socketError, roomCode },
+          "join_room_broadcast_failed",
+        );
+      }
+
+      return { status: 200, body: updatedRoom };
+    });
+
+    return res.status(result.status).json(result.body);
   } catch (error) {
     Sentry.captureException(error, {
       extra: { op: "join_room", roomCode, userId },

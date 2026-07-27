@@ -3,6 +3,7 @@ import {
   clearDatabase,
   setupGame,
   chooseBriscola,
+  api,
   apiAs,
 } from "../helpers/gameHelpers";
 
@@ -170,5 +171,50 @@ describe("Concurrent play-card requests", () => {
       where: { playerId: otherPlayer.id, roundId: round.id },
     });
     expect(otherRemainingCards.length).toBe(10);
+  });
+});
+
+describe("Concurrent join-room requests", () => {
+  it("only one of two simultaneous joins into a room with 3 players succeeds", async () => {
+    const usernames = ["A", "B", "C", "D", "E"];
+    const userIds: number[] = [];
+    for (const name of usernames) {
+      const res = await api()
+        .post("/api/users/register")
+        .send({ username: name, password: "test123" });
+      expect(res.statusCode).toBe(201);
+      userIds.push(res.body.id);
+    }
+
+    // Room reaches 3 players: creator (seat 0) plus two sequential joins.
+    const createRes = await apiAs(userIds[0], usernames[0])
+      .post("/api/rooms")
+      .send({});
+    expect(createRes.statusCode).toBe(201);
+    const roomCode = createRes.body.code;
+
+    for (let i = 1; i < 3; i++) {
+      const joinRes = await apiAs(userIds[i], usernames[i])
+        .post("/api/rooms/join")
+        .send({ roomCode });
+      expect(joinRes.statusCode).toBe(200);
+    }
+
+    const [res1, res2] = await Promise.all([
+      apiAs(userIds[3], usernames[3]).post("/api/rooms/join").send({ roomCode }),
+      apiAs(userIds[4], usernames[4]).post("/api/rooms/join").send({ roomCode }),
+    ]);
+
+    const statuses = [res1.statusCode, res2.statusCode].sort();
+    expect(statuses).toEqual([200, 400]);
+
+    const failedRes = res1.statusCode !== 200 ? res1 : res2;
+    expect(failedRes.body.error).toMatch(/full/i);
+
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: roomCode },
+      include: { players: true },
+    });
+    expect(room!.players.length).toBe(4);
   });
 });
