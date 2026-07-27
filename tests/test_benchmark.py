@@ -1,4 +1,5 @@
-from scripts.benchmark import RUN_D_NETWORK, benchmark_training_rollout
+from scripts.bc_then_rl import parse_args
+from scripts.benchmark import RUN_D_CRITIC, RUN_D_NETWORK, benchmark_training_rollout
 from scripts.kaggle_run import RUN_D_SPEC
 
 
@@ -9,6 +10,18 @@ def test_benchmark_network_matches_run_d():
         "nhead": RUN_D_SPEC.nhead,
         "num_layers": RUN_D_SPEC.layers,
         "dim_feedforward": RUN_D_SPEC.dim_feedforward,
+    }
+
+
+def test_benchmark_critic_matches_run_d():
+    # bc_then_rl builds the critic from args.hidden/args.layers; derive them the
+    # way a real Run D launch does — by parsing the rendered preset flags — so
+    # the benchmark measures the same critic the run trains.
+    args = parse_args(RUN_D_SPEC.to_cli_args())
+    assert RUN_D_CRITIC == {
+        "hidden_size": args.hidden,
+        "num_layers": args.layers,
+        "use_layer_norm": True,
     }
 
 

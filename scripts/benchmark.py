@@ -20,6 +20,14 @@ RUN_D_NETWORK = {
     "num_layers": 4,
     "dim_feedforward": 384,
 }
+# Critic config the long-run recipe uses (bc_then_rl: hidden_size=args.hidden,
+# num_layers=args.layers). Duplicated here so the benchmark stays importable
+# without kaggle_run; a drift test asserts both dicts against RUN_D_SPEC.
+RUN_D_CRITIC = {
+    "hidden_size": 256,
+    "num_layers": 4,
+    "use_layer_norm": True,
+}
 
 
 def play_random_game(seed: int) -> int:
@@ -70,12 +78,7 @@ def benchmark_training_rollout(
     opponent = create_network(**learner.config).to(torch_device)
     opponent.load_state_dict(learner.state_dict())
     critic = (
-        CentralizedCritic(
-            FULL_STATE_SIZE,
-            hidden_size=256,
-            num_layers=4,
-            use_layer_norm=True,
-        ).to(torch_device)
+        CentralizedCritic(FULL_STATE_SIZE, **RUN_D_CRITIC).to(torch_device)
         if include_full_obs
         else None
     )

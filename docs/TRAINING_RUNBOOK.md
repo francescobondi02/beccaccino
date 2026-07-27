@@ -165,6 +165,11 @@ is a hard error instead of a successful no-op. The state dataset carries
 the run manifest before restoring them. Resume trims any CSV rows newer than the
 checkpoint (hard-preemption recovery) and reports SPS for the new session only.
 
+Only `--resume-state` attaches the state dataset and carries `metrics.csv`/
+`best.pt` forward. An explicit `--resume <path>` renders a kernel with the code
+dataset only — a hand-written `/kaggle/input/...` path will not exist there. Use
+`--resume-state` for every Kaggle resume; explicit paths are for local runs.
+
 Before spending the long-run quota, perform the same sequence with `--preset
 smoke --max-hours 0.05`. Create the state dataset on the first drill with
 `push-state --create`; subsequent pushes version it without `--create`.
@@ -182,9 +187,9 @@ checkpoint's resume contract.
 A smoke is only useful if you check it. Confirm all five:
 
 1. **It used the GPU.** Look for `device='cuda'` and a throughput around
-   ~700–1150 sps. A silent CPU fallback shows up as ~34 sps. (Kaggle's default GPU
-   is a P100 whose arch current stock torch dropped; the tool pins a T4 for this
-   reason.)
+   ~700–800 sps (Run C measured ~760). A silent CPU fallback shows up as ~34 sps.
+   (Kaggle's default GPU is a P100 whose arch current stock torch dropped; the
+   tool pins a T4 for this reason.)
 2. **BC accuracy is sane** — roughly 60–95% on heuristic actions.
 3. **`best.pt` exists** and its `best_update` is > 0.
 4. **Signal shaping was active** — the rendered flags include

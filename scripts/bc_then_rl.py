@@ -396,9 +396,21 @@ def _validate_resume_contract(checkpoint: dict, current: dict) -> None:
         return
     if saved == current:
         return
-    differing = sorted(
-        key for key in saved.keys() | current.keys() if saved.get(key) != current.get(key)
-    )
+    # Name nested fields (e.g. train_config.wp_mix) so the operator sees the
+    # exact offending flag, not just "train_config".
+    differing = []
+    for key in sorted(saved.keys() | current.keys()):
+        saved_value, current_value = saved.get(key), current.get(key)
+        if saved_value == current_value:
+            continue
+        if isinstance(saved_value, dict) and isinstance(current_value, dict):
+            differing += [
+                f"{key}.{sub}"
+                for sub in sorted(saved_value.keys() | current_value.keys())
+                if saved_value.get(sub) != current_value.get(sub)
+            ]
+        else:
+            differing.append(key)
     raise SystemExit(
         "resume configuration differs from checkpoint for: "
         + ", ".join(differing)
@@ -539,6 +551,16 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             _apply_resume_architecture(args, resume_ckpt)
             net = build_net(resume_ckpt, device)
             critic = _critic_from_checkpoint(resume_ckpt, device)
+        # Flat checkpoints ({"model","config"} — the shipped runB/runC files and
+        # this script's own --final-ckpt output) carry no optimizer/counter
+        # state and were never resumable; without this guard they die later in
+        # opt.load_state_dict with a bare KeyError.
+        if resume_ckpt.get("optimizer") is None:
+            raise SystemExit(
+                f"{args.resume} has no optimizer state; --resume requires a "
+                "last.pt written by this pipeline (flat checkpoints are for "
+                "eval/serving only)"
+            )
 
     cfg = TrainConfig(
         num_envs=args.num_envs,
@@ -565,8 +587,11 @@ def phase2_rl(args, device, net, resume_ckpt=None):
         signal_honesty_frac=args.signal_honesty_frac,
         use_wandb=False,
     )
-    eval_wp = cfg.eval_win_points if cfg.eval_win_points is not None else cfg.win_points
     training_win_points = cfg.wp_mix or cfg.win_points
+    # Fallback mirrors phase 1's (max of the mix), so BC and RL evals agree
+    # when --eval-win-points is not passed.
+    default_eval_wp = max(cfg.wp_mix) if cfg.wp_mix else cfg.win_points
+    eval_wp = cfg.eval_win_points if cfg.eval_win_points is not None else default_eval_wp
     env_win_points = win_points_per_env(cfg.num_envs, training_win_points)
     metric_win_points = sorted(set(env_win_points))
 
@@ -662,12 +687,18 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     if resume_ckpt is not None:
         _validate_resume_contract(resume_ckpt, contract)
 
-    if start_update > cfg.total_updates:
+    if cfg.total_updates < 1:
+        raise SystemExit(
+            f"--total-rl-steps {cfg.total_timesteps} is below one batch "
+            f"({cfg.batch_size}); no update would run"
+        )
+    if resume_ckpt is not None and start_update > cfg.total_updates:
         raise SystemExit(
             f"resume checkpoint is already at update {start_update - 1} of "
-            f"{cfg.total_updates}: this run is complete. Extending it requires a "
-            "larger --total-rl-steps and reshapes the LR, entropy, and signal "
-            "schedules; prefer starting a new run from this checkpoint."
+            f"{cfg.total_updates}: this run is complete. Start a new run from "
+            "this checkpoint instead (extending --total-rl-steps would trip "
+            "the resume contract, and would reshape the LR, entropy, and "
+            "signal schedules)."
         )
 
     vec = create_vec_env(
@@ -763,6 +794,9 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             rets = batch["returns"].numpy()
             var_ret = rets.var()
             ev = (1 - (rets - vals).var() / (var_ret + 1e-8)) if var_ret > 0 else 0.0
+        # env-steps/s over THIS session (matches the kaggle_run cost model);
+        # the `steps` column counts learner transitions (~half), so steps/sps
+        # is not elapsed time.
         sps = session_env_steps / (time.time() - t0)
         mean_reward = float(buf.rewards[: buf.ptr].mean())
         mean_returns_by_wp = _mean_episode_returns_by_wp(buf, env_win_points)
@@ -953,7 +987,10 @@ def main():
     device = torch.device(args.device)
     if args.resume:
         print(f"Resuming RL from {args.resume} (skipping BC)")
-        resume_ckpt, net, _ = _load_resume_components(args, device)
+        # Load once; phase2_rl validates the architecture and builds net+critic
+        # from the checkpoint stamp.
+        resume_ckpt = load_checkpoint(args.resume, map_location=device)
+        net = None
     else:
         resume_ckpt = None
         net = phase1_bc(args, device)

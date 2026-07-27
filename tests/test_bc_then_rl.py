@@ -146,6 +146,8 @@ def test_rl_phase_resume_continues(tmp_path, monkeypatch):
     phase2_rl(a, torch.device("cpu"), _fresh_net(a))
     first_checkpoint = load_checkpoint(tmp_path / "last.pt")
     first = first_checkpoint["update"]
+    # The seed-offset assertion below is vacuous when games == 0.
+    assert first_checkpoint["games"] > 0
     metrics_path = tmp_path / "run" / "metrics.csv"
     with metrics_path.open(newline="") as f:
         fieldnames = csv.DictReader(f).fieldnames
@@ -291,6 +293,20 @@ def test_resume_rejects_critic_flag_mismatch(tmp_path):
 
     with pytest.raises(SystemExit, match="checkpoint has a critic"):
         _load_resume_components(args, torch.device("cpu"))
+
+
+def test_resume_rejects_flat_checkpoint(tmp_path):
+    """The shipped runB/runC files and --final-ckpt output carry no optimizer
+    state; resuming one must fail with a named error, not a KeyError."""
+    net = create_network(version=4, d_model=48, nhead=2, num_layers=2, dim_feedforward=96)
+    flat_path = tmp_path / "flat.pt"
+    torch.save({"model": net.state_dict(), "config": dict(net.config)}, flat_path)
+
+    args = _args(tmp_path, resume=str(flat_path), centralized_critic=False)
+    args._explicit_options = {"--resume"}
+
+    with pytest.raises(SystemExit, match="no optimizer state"):
+        phase2_rl(args, torch.device("cpu"), None)
 
 
 def test_rl_resume_restores_checkpoint_rng(tmp_path, monkeypatch):
