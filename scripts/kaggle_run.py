@@ -57,6 +57,8 @@ MEASURED_SPS = 760  # Run C empirical: 30M steps in 11.0h on T4
 KAGGLE_SESSION_CAP_HOURS = 12
 SECONDS_PER_HOUR = 3600
 SMOKE_MAX_STEPS = 1_000_000  # anything above this needs --confirm-cost
+SMOKE_BENCHMARK_ENVS = (8, 16, 32, 64)
+SMOKE_BENCHMARK_SECONDS = 10
 
 # Dirs/patterns stripped from the ai/ upload (bloat / secrets / local state).
 STAGE_IGNORE = shutil.ignore_patterns(
@@ -339,6 +341,15 @@ def render_kernel_script(spec: RunSpec) -> str:
         "sys.path.insert(0, WORK)\n"
         "subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'gymnasium>=1.0'])\n"
         "os.makedirs(os.path.dirname(FINAL_CKPT), exist_ok=True)\n"
+        f"SMOKE_BENCHMARK_ENVS = {SMOKE_BENCHMARK_ENVS!r}\n"
+        f"SMOKE_BENCHMARK_SECONDS = {SMOKE_BENCHMARK_SECONDS!r}\n"
+        "if EXPECTED_RUN_ID == 'smoke' and '--resume' not in FLAGS:\n"
+        "    subprocess.check_call([\n"
+        "        sys.executable, '-m', 'scripts.benchmark', '--sweep-envs',\n"
+        "        ','.join(str(value) for value in SMOKE_BENCHMARK_ENVS),\n"
+        "        '--seconds', str(SMOKE_BENCHMARK_SECONDS), '--win-points', '5',\n"
+        "        '--include-full-obs',\n"
+        "    ])\n"
         # The generated kernel guards against Kaggle's stock torch build
         # mismatching the session GPU arch ('no kernel image is available'): it
         # verifies CUDA can actually run a kernel and falls back to CPU if not,

@@ -168,6 +168,11 @@ Before spending the long-run quota, perform the same sequence with `--preset
 smoke --max-hours 0.05`. Create the state dataset on the first drill with
 `push-state --create`; subsequent pushes version it without `--create`.
 
+The first smoke session prints an environment sweep for 8, 16, 32, and 64
+workers. Select the highest-throughput count before Run D session 1 and adjust
+`steps_per_env` so the batch remains 32,768. Freeze both values for every resume
+session; changing either one invalidates the checkpoint's resume contract.
+
 ## 5. Verifying a smoke run before spending hours
 
 A smoke is only useful if you check it. Confirm all five:

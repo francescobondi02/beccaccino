@@ -121,6 +121,7 @@ def test_stage_ignore_excludes_junk():
 def test_rendered_kernel_script_compiles():
     """The generated kernel body must be valid Python."""
     compile(render_kernel_script(SMOKE_SPEC), "<kernel>", "exec")
+    assert "scripts.benchmark" in render_kernel_script(SMOKE_SPEC)
 
 
 def _write_state_source(root: Path, run_id: str = "smoke") -> None:
