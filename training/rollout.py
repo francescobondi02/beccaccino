@@ -70,7 +70,7 @@ class RolloutBuffer:
             self.games_done += 1
         self.ptr += 1
 
-    def compute_gae(self, gamma: float, lam: float) -> tuple[np.ndarray, np.ndarray]:
+    def _compute_gae(self, gamma: float, lam: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Per-(env, seat) GAE: each (env_idx, seat) is its own trajectory.
 
         For step t belonging to (E, S):
@@ -80,12 +80,16 @@ class RolloutBuffer:
 
         When done=True at step t, only the OWNING env's seats reset (because
         only env E ended). Other envs continue their chains undisturbed.
+
+        A live chain's final transition has no next same-seat observation. It
+        is used only as the bootstrap value for its predecessor and excluded
+        from the returned training mask.
         """
         n = self.ptr
         advantages = np.zeros(n, dtype=np.float32)
+        training_mask = np.ones(n, dtype=bool)
 
         # (env_idx, seat) -> last seen advantage / value / done flag.
-        # default-True for "no future seen yet" (terminal-tail bootstrap = 0).
         last_adv: dict[tuple[int, int], float] = {}
         last_value: dict[tuple[int, int], float] = {}
         last_done: dict[tuple[int, int], bool] = {}
@@ -103,6 +107,13 @@ class RolloutBuffer:
                     last_done[key] = True
 
             key = (env, seat)
+            if key not in last_value:
+                training_mask[t] = False
+                last_adv[key] = 0.0
+                last_value[key] = self.values[t]
+                last_done[key] = False
+                continue
+
             next_value = last_value.get(key, 0.0)
             next_nonterminal = 0.0 if last_done.get(key, True) else 1.0
             delta = self.rewards[t] + gamma * next_value * next_nonterminal - self.values[t]
@@ -113,7 +124,11 @@ class RolloutBuffer:
             last_done[key] = False
 
         returns = advantages + self.values[:n]
-        return advantages, returns
+        return advantages, returns, training_mask
+
+    def compute_gae(self, gamma: float, lam: float) -> tuple[np.ndarray, np.ndarray]:
+        advantages, returns, training_mask = self._compute_gae(gamma, lam)
+        return advantages[training_mask], returns[training_mask]
 
     def get_batch(
         self,
@@ -141,21 +156,24 @@ class RolloutBuffer:
             original = self.rewards[:n].copy()
             self.rewards[:n] = scaled
             try:
-                advs, rets = self.compute_gae(gamma, lam)
+                advs, rets, training_mask = self._compute_gae(gamma, lam)
             finally:
                 self.rewards[:n] = original
         else:
-            advs, rets = self.compute_gae(gamma, lam)
+            advs, rets, training_mask = self._compute_gae(gamma, lam)
+
+        if not training_mask.any():
+            raise ValueError("rollout has no complete transitions after trimming live tails")
 
         return {
-            "obs": torch.from_numpy(self.obs[:n]),
-            "masks": torch.from_numpy(self.masks[:n]),
-            "actions": torch.from_numpy(self.actions[:n]),
-            "log_probs": torch.from_numpy(self.log_probs[:n]),
-            "values": torch.from_numpy(self.values[:n]),
-            "advantages": torch.from_numpy(advs),
-            "returns": torch.from_numpy(rets),
-            "full_obs": torch.from_numpy(self.full_obs[:n]),
+            "obs": torch.from_numpy(self.obs[:n][training_mask]),
+            "masks": torch.from_numpy(self.masks[:n][training_mask]),
+            "actions": torch.from_numpy(self.actions[:n][training_mask]),
+            "log_probs": torch.from_numpy(self.log_probs[:n][training_mask]),
+            "values": torch.from_numpy(self.values[:n][training_mask]),
+            "advantages": torch.from_numpy(advs[training_mask]),
+            "returns": torch.from_numpy(rets[training_mask]),
+            "full_obs": torch.from_numpy(self.full_obs[:n][training_mask]),
         }
 
 

@@ -105,7 +105,7 @@ def test_buffer_stores_and_returns_full_obs():
         0.0,
         1.0,
         0.5,
-        False,
+        True,
         seat=0,
         env_idx=0,
         full_obs=fo,

@@ -68,22 +68,23 @@ def test_rollout_batch_resets_transient_return_chains():
 
     rn = ReturnNormalizer(gamma=0.5)
     rn.normalize(0, 0, 100.0, done=False)
-    buf = RolloutBuffer(size=1)
-    buf.store(
-        np.zeros(OBS_SIZE, dtype=np.float32),
-        np.ones(160, dtype=np.float32),
-        action=0,
-        log_prob=0.0,
-        value=0.0,
-        reward=2.0,
-        done=False,
-        seat=0,
-        env_idx=0,
-    )
+    buf = RolloutBuffer(size=2)
+    for _ in range(2):
+        buf.store(
+            np.zeros(OBS_SIZE, dtype=np.float32),
+            np.ones(160, dtype=np.float32),
+            action=0,
+            log_prob=0.0,
+            value=0.0,
+            reward=2.0,
+            done=False,
+            seat=0,
+            env_idx=0,
+        )
 
     buf.get_batch(return_normalizer=rn)
 
-    assert rn._returns[(0, 0)] == 2.0
+    assert rn._returns[(0, 0)] == 3.0
 
 
 def test_return_normalizer_isolates_envs_and_seats():

@@ -7,8 +7,9 @@ import pytest
 import torch
 
 from becca_env.game import TEAM_OF_SEAT
+from becca_env.observation import FULL_STATE_SIZE
 from training.dual_rollout import collect_self_play_rollout_vec
-from training.network import create_network
+from training.network import CentralizedCritic, create_network
 from training.vec_env import create_vec_env, win_points_per_env
 
 
@@ -128,6 +129,39 @@ def test_critic_requires_full_observation_key():
             )
     finally:
         vec.close()
+
+
+def test_centralized_critic_batch_trims_each_live_learner_chain_tail():
+    num_envs = 4
+    learner_team = np.array([0, 1, 0, 1], dtype=np.int64)
+    learner, opponent = _make_nets()
+    critic = CentralizedCritic(FULL_STATE_SIZE, hidden_size=64, num_layers=2)
+    vec = create_vec_env(
+        num_envs=num_envs,
+        seed=3,
+        win_points=41,
+        sync=True,
+        include_full_obs=True,
+    )
+    try:
+        buf = collect_self_play_rollout_vec(
+            vec,
+            learner,
+            opponent,
+            learner_team,
+            steps_per_env=16,
+            device=torch.device("cpu"),
+            critic=critic,
+        )
+    finally:
+        vec.close()
+
+    stored = buf.ptr
+    batch = buf.get_batch()
+
+    assert buf.ptr == stored
+    assert batch["obs"].shape[0] == stored - (num_envs * 2)
+    assert batch["full_obs"].shape[0] == batch["obs"].shape[0]
 
 
 def test_terminal_residuals_credited_to_learner_only():

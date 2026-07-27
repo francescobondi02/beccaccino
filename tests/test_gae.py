@@ -32,14 +32,12 @@ def test_single_seat_gae_matches_standard():
 
     advs, rets = buf.compute_gae(gamma, lam)
 
-    # Manual standard GAE
-    expected_advs = np.zeros(5, dtype=np.float32)
+    # The final live transition is bootstrap-only because its next same-seat
+    # observation is outside this rollout.
+    expected_advs = np.zeros(4, dtype=np.float32)
     last_adv = 0.0
-    for t in reversed(range(5)):
-        if t == 4:
-            next_val = 0.0
-        else:
-            next_val = values[t + 1]
+    for t in reversed(range(4)):
+        next_val = values[t + 1]
         delta = rewards[t] + gamma * next_val - values[t]
         last_adv = delta + gamma * lam * last_adv
         expected_advs[t] = last_adv
@@ -60,12 +58,13 @@ def test_game_boundary_resets_all_seats():
 
     advs, _ = buf.compute_gae(gamma, lam)
 
-    # Step 3 (seat 1, after game boundary): no future chaining
-    # delta = 0.2 + 0.99 * 0.0 - 1.0 = -0.8 (last_done for seat 1 = True after done at step 2)
-    assert advs[3] == pytest.approx(0.2 + gamma * 0.0 - 1.0, abs=1e-5)
+    # Step 3 is the incomplete tail of the new game and is excluded.
+    assert len(advs) == 3
 
     # Step 2 (terminal): delta = 5.0 + 0 - 1.0 = 4.0, no future
     assert advs[2] == pytest.approx(5.0 - 1.0, abs=1e-5)
+    # The terminal at step 2 also cuts seat 1's earlier chain.
+    assert advs[1] == pytest.approx(0.3 - 1.0, abs=1e-5)
 
 
 def test_multi_seat_interleaving():
@@ -87,16 +86,32 @@ def test_multi_seat_interleaving():
 
     advs, _ = buf.compute_gae(gamma, lam)
 
-    # Seat 0 trajectory: steps 0, 2, 4
-    # Step 4: last for seat 0, next_val=0, delta = 0.6 - 1.5 = -0.9
-    assert advs[4] == pytest.approx(0.6 - 1.5, abs=1e-5)
+    # Steps 4 and 5 are bootstrap-only tails and are excluded.
+    assert len(advs) == 4
 
-    # Step 2: next seat 0 step is 4, next_val=1.5
+    # Step 2: next seat 0 step is 4, whose value is the bootstrap.
     # delta = 0.8 + 0.99 * 1.5 - 1.8 = 0.485
-    # adv = 0.485 + 0.99 * 0.95 * (-0.9) = 0.485 - 0.84645 = -0.36145
     expected_delta_2 = 0.8 + gamma * 1.5 - 1.8
-    expected_adv_2 = expected_delta_2 + gamma * lam * advs[4]
-    assert advs[2] == pytest.approx(expected_adv_2, abs=1e-5)
+    assert advs[2] == pytest.approx(expected_delta_2, abs=1e-5)
+
+
+def test_live_chain_tails_are_bootstrap_only_in_training_batch():
+    buf = RolloutBuffer(4)
+
+    for marker, seat, reward, value in [
+        (10.0, 0, 1.0, 2.0),
+        (20.0, 1, 2.0, 3.0),
+        (30.0, 0, 0.0, 5.0),
+        (40.0, 1, 0.0, 7.0),
+    ]:
+        obs = OBS.copy()
+        obs[0] = marker
+        buf.store(obs, MASK, 0, 0.0, value, reward, False, seat)
+
+    batch = buf.get_batch(gamma=0.9, lam=0.95)
+
+    assert batch["obs"][:, 0].tolist() == [10.0, 20.0]
+    np.testing.assert_allclose(batch["returns"].numpy(), [5.5, 8.3], atol=1e-6)
 
 
 def test_per_env_isolation_no_cross_env_leakage():
@@ -159,17 +174,9 @@ def test_per_env_isolation_no_cross_env_leakage():
 
     advs, _ = buf.compute_gae(gamma, lam)
 
-    # env0 is its own chain (steps 0 and 2):
-    #   step 2 last for env0 seat 0: delta = 1.5 + 0 - 11.0 = -9.5
-    #   step 0: next_val=11.0, delta = 1.0 + 0.99*11.0 - 10.0 = 1.89
-    #           adv = 1.89 + 0.99*0.95*(-9.5) = 1.89 - 8.93475 = -7.04475
-    expected_step0 = 1.0 + gamma * 11.0 - 10.0 + gamma * lam * (1.5 - 11.0)
-
-    # env1 chain (steps 1 and 3):
-    #   step 3 last for env1: delta = 2.5 + 0 - 98.0 = -95.5
-    #   step 1: next_val=98.0, delta = 2.0 + 0.99*98.0 - 99.0 = -0.98
-    #           adv = -0.98 + 0.99*0.95*(-95.5)
-    expected_step1 = 2.0 + gamma * 98.0 - 99.0 + gamma * lam * (2.5 - 98.0)
+    # Steps 2 and 3 are each env's bootstrap-only tail.
+    expected_step0 = 1.0 + gamma * 11.0 - 10.0
+    expected_step1 = 2.0 + gamma * 98.0 - 99.0
 
     assert advs[0] == pytest.approx(expected_step0, abs=1e-4), (
         f"env0 step0 leaked from env1: got {advs[0]}, expected {expected_step0}"
@@ -193,14 +200,10 @@ def test_done_only_resets_owning_env():
 
     advs, _ = buf.compute_gae(gamma, lam)
 
-    # env1 step 1 is the last seat-0 entry for env1, no done → next_val=0
-    #   delta = 0.6 + 0 - 5.0 = -4.4
-    assert advs[3] == pytest.approx(-4.4, abs=1e-5)
-
-    # env1 step 0 should chain to env1 step 1 (NOT be reset by env0's done):
-    #   delta = 0.4 + 0.99 * 5.0 - 5.0 = 0.35... wait: 0.4 + 4.95 - 5.0 = 0.35
-    #   adv = 0.35 + 0.99 * 0.95 * (-4.4) = 0.35 - 4.1382 = -3.7882
-    expected_step1 = 0.4 + gamma * 5.0 - 5.0 + gamma * lam * (-4.4)
+    # env1 step 1 is its bootstrap-only tail. env1 step 0 still bootstraps
+    # from its value and is not reset by env0's terminal.
+    assert len(advs) == 3
+    expected_step1 = 0.4 + gamma * 5.0 - 5.0
     assert advs[1] == pytest.approx(expected_step1, abs=1e-5), (
         f"env0's done=True leaked into env1's chain: got {advs[1]}"
     )
