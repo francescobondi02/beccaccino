@@ -9,10 +9,12 @@ import RoundEndDialog from "@/components/RoundEndDialog";
 import GameFinishedDialog from "@/components/GameFinishedDialog";
 import GameChat from "@/components/GameChat";
 import SignalDialog from "@/components/SignalDialog";
-import SignalBadge from "@/components/SignalBadge";
+import ConnectionBanner from "@/components/ConnectionBanner";
+import PlayerSeat from "@/components/PlayerSeat";
+import TableCenter from "@/components/TableCenter";
 import PracticePanel, { RevealedHand } from "@/components/PracticePanel";
 import { MoveLogEntry } from "@/components/MoveLog";
-import { Loader2, WifiOff, RefreshCw } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   registerRoomHandlers,
@@ -735,21 +737,7 @@ const GameTable = () => {
       <div className="absolute inset-0 bg-gradient-warm opacity-20 pointer-events-none" />
 
       {/* Connection Status Banner */}
-      {connectionStatus !== "connected" && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-destructive/90 text-destructive-foreground px-4 py-2 flex items-center justify-center gap-2 text-sm font-medium backdrop-blur-sm">
-          {connectionStatus === "reconnecting" ? (
-            <>
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              Riconnessione in corso...
-            </>
-          ) : (
-            <>
-              <WifiOff className="h-4 w-4" />
-              Connessione persa. Riconnessione automatica...
-            </>
-          )}
-        </div>
-      )}
+      <ConnectionBanner status={connectionStatus} />
 
       <div className="absolute top-4 right-4 text-sm text-muted-foreground">
         Room:{" "}
@@ -810,32 +798,19 @@ const GameTable = () => {
           {playersWithPositions
             .filter((p) => p.position === "top")
             .map((player) => (
-              <Card
+              <PlayerSeat
                 key={player.id}
-                data-testid={`player-seat-top`}
-                data-userid={player.userId}
-                data-is-turn={currentTurnUserId === player.userId}
-                className={`px-4 py-2 bg-card/80 backdrop-blur-sm transition-all ${
-                  currentTurnUserId === player.userId
-                    ? "ring-2 ring-primary shadow-lg"
-                    : ""
-                }`}
-              >
-                <p className="text-sm font-semibold text-foreground">
-                  {player.username}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {player.isTeammate ? "Socio" : "Avversario"}
-                </p>
-                {currentTurnUserId === player.userId && countdown !== null && (
-                  <p className={`text-xs font-bold mt-0.5 ${countdown <= 10 ? "text-destructive animate-pulse" : "text-muted-foreground"}`}>
-                    {countdown}s
-                  </p>
-                )}
-                {currentSignal?.userId === player.userId && (
-                  <SignalBadge signal={currentSignal.signal} />
-                )}
-              </Card>
+                testId="player-seat-top"
+                player={player}
+                isTurn={currentTurnUserId === player.userId}
+                showRole
+                countdown={countdown}
+                signal={
+                  currentSignal?.userId === player.userId
+                    ? currentSignal.signal
+                    : null
+                }
+              />
             ))}
         </div>
 
@@ -847,22 +822,17 @@ const GameTable = () => {
               {playersWithPositions
                 .filter((p) => p.position === "left")
                 .map((player) => (
-                  <Card
+                  <PlayerSeat
                     key={player.id}
-                    className={`px-3 py-2 bg-card/80 backdrop-blur-sm transition-all ${
-                      currentTurnUserId === player.userId
-                        ? "ring-2 ring-primary shadow-lg"
-                        : ""
-                    }`}
-                  >
-                    <p className="text-sm font-semibold">{player.username}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {player.isTeammate ? "Socio" : "Avversario"}
-                    </p>
-                    {currentSignal?.userId === player.userId && (
-                      <SignalBadge signal={currentSignal.signal} />
-                    )}
-                  </Card>
+                    player={player}
+                    isTurn={currentTurnUserId === player.userId}
+                    showRole
+                    signal={
+                      currentSignal?.userId === player.userId
+                        ? currentSignal.signal
+                        : null
+                    }
+                  />
                 ))}
             </div>
 
@@ -871,85 +841,39 @@ const GameTable = () => {
               {playersWithPositions
                 .filter((p) => p.position === "right")
                 .map((player) => (
-                  <Card
+                  <PlayerSeat
                     key={player.id}
-                    className={`px-3 py-2 bg-card/80 backdrop-blur-sm transition-all ${
-                      currentTurnUserId === player.userId
-                        ? "ring-2 ring-primary shadow-lg"
-                        : ""
-                    }`}
-                  >
-                    <p className="text-sm font-semibold">{player.username}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {player.isTeammate ? "Socio" : "Avversario"}
-                    </p>
-                    {currentSignal?.userId === player.userId && (
-                      <SignalBadge signal={currentSignal.signal} />
-                    )}
-                  </Card>
+                    player={player}
+                    isTurn={currentTurnUserId === player.userId}
+                    showRole
+                    signal={
+                      currentSignal?.userId === player.userId
+                        ? currentSignal.signal
+                        : null
+                    }
+                  />
                 ))}
             </div>
 
             {/* Central Table with Played Cards */}
-            <div className="relative w-80 h-80 rounded-full bg-gradient-to-br from-primary/5 to-accent/5 border-4 border-primary/20 shadow-2xl flex items-center justify-center" data-testid="game-table-center">
-              {playedCards.length > 0 ? (
-                playedCards.map((playedCard, idx) => {
-                  // Mappa userId a posizione visuale
-                  const player = playersWithPositions.find(
+            <TableCenter
+              cards={playedCards.map((playedCard) => ({
+                userId: playedCard.userId,
+                suit: playedCard.suit,
+                value: playedCard.value,
+                position:
+                  playersWithPositions.find(
                     (p) => p.userId === playedCard.userId,
-                  );
-                  const visualPosition = player?.position ?? "bottom";
-
-                  // Animation class based on player direction
-                  const animationClass =
-                    visualPosition === "bottom"
-                      ? "animate-card-from-bottom"
-                      : visualPosition === "top"
-                        ? "animate-card-from-top"
-                        : visualPosition === "left"
-                          ? "animate-card-from-left"
-                          : "animate-card-from-right";
-
-                  // Cards are placed near center with small offsets toward their player's side
-                  const positionClass =
-                    visualPosition === "bottom"
-                      ? "top-1/2 left-1/2 -translate-x-1/2 translate-y-2"
-                      : visualPosition === "top"
-                        ? "top-1/2 left-1/2 -translate-x-1/2 -translate-y-full"
-                        : visualPosition === "left"
-                          ? "top-1/2 left-1/2 -translate-y-1/2 -translate-x-full"
-                          : "top-1/2 left-1/2 -translate-y-1/2 translate-x-2";
-
-                  return (
-                    <div
-                      key={`${playedCard.userId}-${playedCard.suit}-${playedCard.value}`}
-                      className={`absolute ${animationClass} ${positionClass}`}
-                    >
-                      <PlayingCard
-                        suit={playedCard.suit}
-                        value={playedCard.value}
-                        size="md"
-                      />
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-center">
-                  <p className="text-muted-foreground text-sm">
-                    {currentRound?.briscola === null
-                      ? "In attesa che venga scelta la briscola..."
-                      : `In attesa di ${playersWithPositions.find((p) => p.userId === currentTurnUserId)?.username ?? "giocatore"}...`}
-                  </p>
-                  {countdown !== null && (
-                    <div
-                      className={`mt-2 text-2xl font-bold ${countdown <= 10 ? "text-destructive animate-pulse" : "text-primary"}`}
-                    >
-                      {countdown}s
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                  )?.position ?? "bottom",
+              }))}
+              briscolaChosen={currentRound?.briscola !== null}
+              waitingForUsername={
+                playersWithPositions.find(
+                  (p) => p.userId === currentTurnUserId,
+                )?.username ?? "giocatore"
+              }
+              countdown={countdown}
+            />
           </div>
         </div>
 
@@ -984,19 +908,12 @@ const GameTable = () => {
           {playersWithPositions
             .filter((p) => p.position === "bottom")
             .map((player) => (
-              <Card
+              <PlayerSeat
                 key={player.id}
-                data-testid="player-seat-bottom"
-                data-userid={player.userId}
-                data-is-turn={currentTurnUserId === player.userId}
-                className={`px-4 py-2 bg-card/80 backdrop-blur-sm transition-all ${
-                  currentTurnUserId === player.userId
-                    ? "ring-2 ring-primary shadow-lg"
-                    : ""
-                }`}
-              >
-                <p className="text-sm font-semibold">{player.username}</p>
-              </Card>
+                testId="player-seat-bottom"
+                player={player}
+                isTurn={currentTurnUserId === player.userId}
+              />
             ))}
         </div>
       </div>
