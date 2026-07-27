@@ -18,8 +18,8 @@ def test_evaluate_mirrored_reuses_deals_with_swapped_teams(monkeypatch):
     baseline = object()
     calls = []
     results = [
-        MatchResult(team0_wins=3, team1_wins=1),
-        MatchResult(team0_wins=2, team1_wins=2),
+        MatchResult(team0_wins=3, team1_wins=1, winners=[0, 0, 0, 1]),
+        MatchResult(team0_wins=2, team1_wins=2, winners=[0, 0, 1, 1]),
     ]
 
     def fake_play_match(team0, team1, *, num_games, win_points, seed):
@@ -28,9 +28,12 @@ def test_evaluate_mirrored_reuses_deals_with_swapped_teams(monkeypatch):
 
     monkeypatch.setattr(score_checkpoints, "play_match", fake_play_match)
 
-    wins, games = score_checkpoints.evaluate_mirrored(candidate, baseline, games=4, seed=123)
+    wins, games, paired_scores = score_checkpoints.evaluate_mirrored(
+        candidate, baseline, games=4, seed=123
+    )
 
     assert (wins, games) == (5, 8)
+    assert paired_scores == (0.5, 0.5, 1.0, 0.5)
     assert calls == [
         (candidate, baseline, 4, 41, 123),
         (baseline, candidate, 4, 41, 123),
@@ -67,7 +70,8 @@ def test_score_checkpoints_loads_helpers_and_scores_each_path(monkeypatch):
 
     def fake_evaluate(candidate, baseline, *, games):
         evaluated.append((candidate, baseline, games))
-        return (7 if candidate.net.endswith("best.pt") else 5), 10
+        wins = 7 if candidate.net.endswith("best.pt") else 5
+        return wins, 10, tuple([wins / 10] * games)
 
     monkeypatch.setattr(score_checkpoints, "load_checkpoint", fake_load)
     monkeypatch.setattr(score_checkpoints, "build_net", fake_build)
@@ -93,13 +97,35 @@ def test_checkpoint_score_uses_wilson_95_interval():
     assert "Wilson 95% CI" in score_checkpoints.format_score(result)
 
 
+def test_checkpoint_score_uses_paired_deal_interval_when_available():
+    result = CheckpointScore(
+        "best.pt",
+        wins=5,
+        games=8,
+        paired_scores=(0.5, 0.5, 1.0, 0.5),
+    )
+    assert result.win_rate == 0.625
+    assert result.interval == score_checkpoints.paired_mean_interval(result.paired_scores)
+    assert "paired 95% CI" in score_checkpoints.format_score(result)
+
+
 def test_verdict_selects_known_stronger_result():
     results = [
-        CheckpointScore("weaker.pt", wins=6, games=10),
-        CheckpointScore("stronger.pt", wins=8, games=10),
+        CheckpointScore(
+            "weaker.pt",
+            wins=0,
+            games=8,
+            paired_scores=(0.0, 0.0, 0.0, 0.0),
+        ),
+        CheckpointScore(
+            "stronger.pt",
+            wins=8,
+            games=8,
+            paired_scores=(1.0, 1.0, 1.0, 1.0),
+        ),
     ]
     assert score_checkpoints.verdict(results) == (
-        "VERDICT: ship stronger.pt (80.00%, highest held-out win rate)"
+        "VERDICT: ship stronger.pt (100.00%; paired lead is positive at 95%)"
     )
 
 
@@ -111,10 +137,40 @@ def test_verdict_reports_tied_paths_in_deterministic_order():
     assert score_checkpoints.verdict(results) == "VERDICT: tie at 70.00%: a.pt, z.pt"
 
 
+def test_verdict_is_inconclusive_when_paired_lead_crosses_zero():
+    results = [
+        CheckpointScore(
+            "leader.pt",
+            wins=5,
+            games=8,
+            paired_scores=(1.0, 0.5, 0.5, 0.5),
+        ),
+        CheckpointScore(
+            "other.pt",
+            wins=4,
+            games=8,
+            paired_scores=(0.0, 1.0, 0.5, 0.5),
+        ),
+    ]
+    assert score_checkpoints.verdict(results).startswith(
+        "VERDICT: inconclusive; leader.pt vs other.pt"
+    )
+
+
 def test_main_prints_results_and_verdict(monkeypatch, capsys):
     results = [
-        CheckpointScore("best.pt", wins=14, games=20),
-        CheckpointScore("last.pt", wins=12, games=20),
+        CheckpointScore(
+            "best.pt",
+            wins=20,
+            games=20,
+            paired_scores=tuple([1.0] * 10),
+        ),
+        CheckpointScore(
+            "last.pt",
+            wins=0,
+            games=20,
+            paired_scores=tuple([0.0] * 10),
+        ),
     ]
 
     monkeypatch.setattr(score_checkpoints, "score_checkpoints", lambda *args, **kwargs: results)
@@ -127,5 +183,5 @@ def test_main_prints_results_and_verdict(monkeypatch, capsys):
         f"..{score_checkpoints.HELDOUT_SEED_BASE + 9}; 10 mirrored deals (20 games), wp=41"
         in output
     )
-    assert "best.pt: 14/20 wins (70.00%); Wilson 95% CI" in output
+    assert "best.pt: 20/20 wins (100.00%); paired 95% CI" in output
     assert "VERDICT: ship best.pt" in output

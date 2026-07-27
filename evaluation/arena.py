@@ -6,7 +6,7 @@ Supports: trained model vs random baseline, model vs model, Elo tracking.
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 
@@ -67,6 +67,7 @@ class MatchResult:
     team1_wins: int = 0
     draws: int = 0
     total_rounds: int = 0
+    winners: list[int] = field(default_factory=list)
 
     @property
     def total_games(self) -> int:
@@ -104,6 +105,7 @@ def play_match(
             game.step(action)
 
         winner = game.result.winner_team
+        result.winners.append(winner)
         if winner == 0:
             result.team0_wins += 1
         else:

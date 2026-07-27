@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -10,7 +11,7 @@ import torch
 
 from evaluation.arena import EVAL_SEED_BASE, NeuralAgent, play_match
 from evaluation.heuristic import HeuristicAgent
-from evaluation.stats import wilson_interval
+from evaluation.stats import DEFAULT_Z, wilson_interval
 from training.checkpoint import build_net, load_checkpoint
 
 DEFAULT_GAMES = 1_000
@@ -28,6 +29,7 @@ class CheckpointScore:
     checkpoint: str
     wins: int
     games: int
+    paired_scores: tuple[float, ...] = ()
 
     @property
     def win_rate(self) -> float:
@@ -35,7 +37,41 @@ class CheckpointScore:
 
     @property
     def interval(self) -> tuple[float, float]:
+        if self.paired_scores:
+            return paired_mean_interval(self.paired_scores)
         return wilson_interval(self.wins, self.games)
+
+
+def paired_mean_interval(scores: Sequence[float], z: float = DEFAULT_Z) -> tuple[float, float]:
+    if not scores:
+        raise ValueError("at least one paired score is required")
+    mean = sum(scores) / len(scores)
+    if len(scores) < 2:
+        return (0.0, 1.0)
+    variance = sum((score - mean) ** 2 for score in scores) / (len(scores) - 1)
+    half_width = z * math.sqrt(variance / len(scores))
+    return max(0.0, mean - half_width), min(1.0, mean + half_width)
+
+
+def paired_difference_interval(
+    leader: CheckpointScore,
+    competitor: CheckpointScore,
+    z: float = DEFAULT_Z,
+) -> tuple[float, float]:
+    if len(leader.paired_scores) != len(competitor.paired_scores):
+        raise ValueError("checkpoint scores must cover the same held-out deals")
+    differences = [
+        leader_score - competitor_score
+        for leader_score, competitor_score in zip(leader.paired_scores, competitor.paired_scores)
+    ]
+    if not differences:
+        raise ValueError("paired deal scores are required for a shipping verdict")
+    mean = sum(differences) / len(differences)
+    if len(differences) < 2:
+        return (-1.0, 1.0)
+    variance = sum((difference - mean) ** 2 for difference in differences) / (len(differences) - 1)
+    half_width = z * math.sqrt(variance / len(differences))
+    return mean - half_width, mean + half_width
 
 
 def evaluate_mirrored(
@@ -45,8 +81,8 @@ def evaluate_mirrored(
     games: int = DEFAULT_GAMES,
     seed: int = HELDOUT_SEED_BASE,
     win_points: int = WIN_POINTS,
-) -> tuple[int, int]:
-    """Play every seeded deal twice and return candidate wins and total games."""
+) -> tuple[int, int, tuple[float, ...]]:
+    """Play every seeded deal twice and preserve its paired candidate score."""
     if games <= 0:
         raise ValueError("games must be positive")
 
@@ -64,8 +100,14 @@ def evaluate_mirrored(
         win_points=win_points,
         seed=seed,
     )
+    if len(candidate_team0.winners) != games or len(candidate_team1.winners) != games:
+        raise RuntimeError("arena did not return one winner per mirrored deal")
+    paired_scores = tuple(
+        ((winner0 == 0) + (winner1 == 1)) / 2
+        for winner0, winner1 in zip(candidate_team0.winners, candidate_team1.winners)
+    )
     wins = candidate_team0.team0_wins + candidate_team1.team1_wins
-    return wins, 2 * games
+    return wins, 2 * games, paired_scores
 
 
 def score_checkpoints(
@@ -85,21 +127,22 @@ def score_checkpoints(
         net = build_net(checkpoint, torch_device)
         candidate = NeuralAgent(net, torch_device, temperature=0.0)
         baseline = HeuristicAgent(seed=HELDOUT_SEED_BASE + 10_000)
-        wins, total_games = evaluate_mirrored(candidate, baseline, games=games)
-        results.append(CheckpointScore(path, wins, total_games))
+        wins, total_games, paired_scores = evaluate_mirrored(candidate, baseline, games=games)
+        results.append(CheckpointScore(path, wins, total_games, paired_scores=paired_scores))
     return results
 
 
 def format_score(result: CheckpointScore) -> str:
     low, high = result.interval
+    interval_name = "paired 95% CI" if result.paired_scores else "Wilson 95% CI"
     return (
         f"{result.checkpoint}: {result.wins}/{result.games} wins "
-        f"({result.win_rate:.2%}); Wilson 95% CI [{low:.2%}, {high:.2%}]"
+        f"({result.win_rate:.2%}); {interval_name} [{low:.2%}, {high:.2%}]"
     )
 
 
 def verdict(results: Sequence[CheckpointScore]) -> str:
-    """Choose the highest point estimate, reporting equal leaders as a tie."""
+    """Ship only when the paired held-out lead is positive at 95% confidence."""
     if not results:
         raise ValueError("at least one result is required")
 
@@ -107,7 +150,25 @@ def verdict(results: Sequence[CheckpointScore]) -> str:
     leaders = sorted(result.checkpoint for result in results if result.win_rate == best_rate)
     if len(leaders) > 1:
         return f"VERDICT: tie at {best_rate:.2%}: {', '.join(leaders)}"
-    return f"VERDICT: ship {leaders[0]} ({best_rate:.2%}, highest held-out win rate)"
+    leader = next(result for result in results if result.checkpoint == leaders[0])
+    competitors = [result for result in results if result is not leader]
+    if not competitors:
+        return f"VERDICT: only candidate {leader.checkpoint}; no comparison available"
+    if not leader.paired_scores or any(not competitor.paired_scores for competitor in competitors):
+        return "VERDICT: inconclusive; paired deal outcomes are required"
+
+    intervals = [
+        (competitor, paired_difference_interval(leader, competitor)) for competitor in competitors
+    ]
+    if all(low > 0.0 for _, (low, _) in intervals):
+        return (
+            f"VERDICT: ship {leader.checkpoint} ({best_rate:.2%}; paired lead is positive at 95%)"
+        )
+    closest, (low, high) = min(intervals, key=lambda item: item[1][0])
+    return (
+        f"VERDICT: inconclusive; {leader.checkpoint} vs {closest.checkpoint} "
+        f"paired lead CI [{low:.2%}, {high:.2%}] crosses zero"
+    )
 
 
 def _positive_int(value: str) -> int:
