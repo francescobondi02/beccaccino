@@ -406,6 +406,50 @@ def _validate_resume_contract(checkpoint: dict, current: dict) -> None:
     )
 
 
+def _reconcile_metrics_csv(csv_path: Path, checkpoint_update: int) -> None:
+    if not csv_path.exists():
+        return
+
+    with csv_path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        if (
+            reader.fieldnames is None
+            or "phase" not in reader.fieldnames
+            or "update" not in reader.fieldnames
+        ):
+            raise SystemExit(f"invalid metrics CSV header: {csv_path}")
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    kept = []
+    rl_row_index: dict[int, int] = {}
+    changed = False
+    for row in rows:
+        if row["phase"] != "rl":
+            kept.append(row)
+            continue
+        try:
+            update = int(row["update"])
+        except ValueError as exc:
+            raise SystemExit(f"invalid metrics update {row['update']!r}: {csv_path}") from exc
+        if update > checkpoint_update:
+            changed = True
+            continue
+        if update in rl_row_index:
+            kept[rl_row_index[update]] = row
+            changed = True
+            continue
+        rl_row_index[update] = len(kept)
+        kept.append(row)
+
+    if not changed:
+        return
+    with csv_path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(kept)
+
+
 def phase1_bc(args, device) -> torch.nn.Module:
     """Either load a saved BC ckpt, train a new one, or skip BC entirely."""
     if args.bc_load:
@@ -600,6 +644,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
         )
         if resume_ckpt.get("rng") is not None:
             restore_rng(resume_ckpt["rng"])
+        _reconcile_metrics_csv(csv_path, start_update - 1)
         print(f"  resumed at update {start_update}, {step_count:,} steps")
 
     n_params = sum(p.numel() for p in net.parameters())
@@ -634,6 +679,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
         include_full_obs=critic is not None,
     )
     t0 = time.time()
+    session_steps = 0
     deadline = (
         time.monotonic() + args.max_hours * SECONDS_PER_HOUR if args.max_hours is not None else None
     )
@@ -691,6 +737,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             critic=critic,
         )
         step_count += buf.ptr
+        session_steps += buf.ptr
         games_total += buf.games_done
 
         batch = buf.get_batch(
@@ -716,7 +763,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             rets = batch["returns"].numpy()
             var_ret = rets.var()
             ev = (1 - (rets - vals).var() / (var_ret + 1e-8)) if var_ret > 0 else 0.0
-        sps = step_count / (time.time() - t0)
+        sps = session_steps / (time.time() - t0)
         mean_reward = float(buf.rewards[: buf.ptr].mean())
         mean_returns_by_wp = _mean_episode_returns_by_wp(buf, env_win_points)
 

@@ -17,6 +17,7 @@ from becca_env.observation import FULL_STATE_SIZE
 from scripts import bc_then_rl
 from scripts.bc_then_rl import (
     _load_resume_components,
+    _reconcile_metrics_csv,
     _resolve_anchors,
     _validate_resume_contract,
     parse_args,
@@ -145,6 +146,14 @@ def test_rl_phase_resume_continues(tmp_path, monkeypatch):
     phase2_rl(a, torch.device("cpu"), _fresh_net(a))
     first_checkpoint = load_checkpoint(tmp_path / "last.pt")
     first = first_checkpoint["update"]
+    metrics_path = tmp_path / "run" / "metrics.csv"
+    with metrics_path.open(newline="") as f:
+        fieldnames = csv.DictReader(f).fieldnames
+    assert fieldnames is not None
+    stale_row = dict.fromkeys(fieldnames, "0")
+    stale_row.update(phase="rl", update="999")
+    with metrics_path.open("a", newline="") as f:
+        csv.DictWriter(f, fieldnames=fieldnames).writerow(stale_row)
 
     a2 = _args(
         tmp_path,
@@ -155,14 +164,24 @@ def test_rl_phase_resume_continues(tmp_path, monkeypatch):
     phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))
     second = load_checkpoint(tmp_path / "last.pt")["update"]
     assert second > first, "resume did not advance the update count"
-    rows = list(csv.DictReader((tmp_path / "run" / "metrics.csv").open()))
+    rows = list(csv.DictReader(metrics_path.open()))
     assert [int(row["update"]) for row in rows] == list(range(1, second + 1))
-    assert (tmp_path / "run" / "metrics.csv").read_text().count("phase,update,") == 1
+    assert metrics_path.read_text().count("phase,update,") == 1
     assert seeds[:2] == [a.seed, a.seed + first_checkpoint["games"]]
 
     with pytest.raises(SystemExit, match=r"already at update .* this run is complete"):
         phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))
     assert len(seeds) == 2, "completed resume should fail before creating vector envs"
+
+
+def test_metrics_reconciliation_truncates_ahead_rows_and_keeps_latest_duplicate(tmp_path):
+    path = tmp_path / "metrics.csv"
+    path.write_text("phase,update,sps\nrl,1,10\nrl,2,20\nrl,3,30\nrl,2,22\n")
+
+    _reconcile_metrics_csv(path, checkpoint_update=2)
+
+    rows = list(csv.DictReader(path.open()))
+    assert [(int(row["update"]), row["sps"]) for row in rows] == [(1, "10"), (2, "22")]
 
 
 def test_resume_contract_rejects_run_identity_or_schedule_changes():
