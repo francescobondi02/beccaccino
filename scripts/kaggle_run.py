@@ -10,6 +10,7 @@ autonomously launch a multi-hour run.
 
 Verbs:
   push-code [--create] [-m MSG]   sync ai/ -> new dataset version (or create)
+  push-state [--create] [-m MSG]  sync resumable state -> dedicated dataset
   configure                       write+push kernel metadata (GPU + internet on)
   launch [--preset smoke] [flags] render a script kernel from a RunSpec and push
   status                          poll kernel run state
@@ -30,6 +31,7 @@ from pathlib import Path
 # --- Single source of truth for slugs/paths (edit KAGGLE_USER for your account) ---
 KAGGLE_USER = "fbondi"
 DATASET_SLUG = f"{KAGGLE_USER}/becca-ai"
+STATE_DATASET_SLUG = f"{KAGGLE_USER}/becca-ai-state"
 # Distinct from any hand-created notebook (Kaggle won't convert a notebook kernel
 # to a script kernel), so this tool owns its own script kernel.
 KERNEL_SLUG = f"{KAGGLE_USER}/becca-training-cli"
@@ -46,6 +48,9 @@ WORK_DIR_ON_KAGGLE = "/kaggle/working/ai"
 # the supported arch list, so this sidesteps the issue without reinstalling torch.
 MACHINE_SHAPE = "NvidiaTeslaT4"
 PULL_DIR = "checkpoints/kaggle"
+AUTO_RESUME = "AUTO"
+STATE_MANIFEST = "state-manifest.json"
+STATE_ALLOWLIST = ("checkpoints/last.pt", "checkpoints/best.pt")
 
 # Throughput / cost model (observed T4 transformer throughput).
 MEASURED_SPS = 1150
@@ -93,11 +98,13 @@ class RunSpec:
     eval_every: int = 25
     eval_games: int = 100
     pool_save_every: int = 30
+    save_last_every: int = 10
     p_latest_opponent: float = 0.5
     device: str = "cuda"
     out_dir: str = "/kaggle/working/runs/run"
     bc_ckpt: str = "/kaggle/working/checkpoints/run_bc.pt"
     final_ckpt: str = "/kaggle/working/checkpoints/run_rl.pt"
+    run_id: str | None = None
     # Strengtheners / long-run survival (map to bc_then_rl store_true / value flags).
     centralized_critic: bool = False
     anchor_bc: bool = False
@@ -149,6 +156,8 @@ class RunSpec:
             str(self.eval_games),
             "--pool-save-every",
             str(self.pool_save_every),
+            "--save-last-every",
+            str(self.save_last_every),
             "--p-latest-opponent",
             str(self.p_latest_opponent),
             "--signal-honesty-coef",
@@ -166,6 +175,8 @@ class RunSpec:
             "--final-ckpt",
             self.final_ckpt,
         ]
+        if self.run_id is not None:
+            args += ["--run-id", self.run_id]
         if self.centralized_critic:
             args.append("--centralized-critic")
         if self.anchor_bc:
@@ -199,6 +210,7 @@ SMOKE_SPEC = RunSpec(
     anchor_bc=True,
     signal_honesty_coef=SIGNAL_HONESTY_COEF,
     signal_honesty_frac=SIGNAL_HONESTY_FRAC,
+    run_id="smoke",
     out_dir="/kaggle/working/runs/smoke",
     bc_ckpt="/kaggle/working/checkpoints/smoke_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/smoke_rl.pt",
@@ -223,6 +235,7 @@ RUN_B_SPEC = RunSpec(
     centralized_critic=True,
     anchor_bc=True,
     max_hours=11.0,
+    run_id="runB",
     out_dir="/kaggle/working/runs/runB",
     bc_ckpt="/kaggle/working/checkpoints/runB_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/runB_rl.pt",
@@ -241,6 +254,7 @@ RUN_C_SPEC = dataclasses.replace(
     RUN_B_SPEC,
     signal_honesty_coef=SIGNAL_HONESTY_COEF,
     signal_honesty_frac=SIGNAL_HONESTY_FRAC,
+    run_id="runC",
     out_dir="/kaggle/working/runs/runC",
     bc_ckpt="/kaggle/working/checkpoints/runC_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/runC_rl.pt",
@@ -258,20 +272,55 @@ def render_kernel_script(spec: RunSpec) -> str:
     The code dir is auto-detected by walking /kaggle/input for the marker file,
     so the kernel is robust to however Kaggle mounts/extracts the dataset."""
     return (
-        "import os, sys, shutil, subprocess\n"
+        "import json, os, sys, shutil, subprocess\n"
         f"INPUT_ROOT = {KAGGLE_INPUT_ROOT!r}\n"
         f"MARKER = {CODE_MARKER!r}\n"
         f"WORK = {WORK_DIR_ON_KAGGLE!r}\n"
-        "code_dir = next((d for d, _, _ in os.walk(INPUT_ROOT)\n"
-        "                 if os.path.isfile(os.path.join(d, MARKER))), None)\n"
-        "assert code_dir, f'{MARKER} not found under {INPUT_ROOT}; is the dataset attached?'\n"
+        f"STATE_MANIFEST = {STATE_MANIFEST!r}\n"
+        f"AUTO_RESUME = {AUTO_RESUME!r}\n"
+        f"OUT_DIR = {spec.out_dir!r}\n"
+        f"FINAL_CKPT = {spec.final_ckpt!r}\n"
+        f"EXPECTED_RUN_ID = {spec.run_id!r}\n"
+        "code_dirs = [d for d, _, _ in os.walk(INPUT_ROOT)\n"
+        "             if os.path.isfile(os.path.join(d, MARKER))]\n"
+        "assert len(code_dirs) == 1, (\n"
+        "    f'expected exactly one {MARKER} under {INPUT_ROOT}; found {code_dirs}'\n"
+        ")\n"
+        "code_dir = code_dirs[0]\n"
         "if not os.path.exists(WORK):\n"
         "    shutil.copytree(code_dir, WORK)\n"
+        f"FLAGS = {spec.to_cli_args()!r}\n"
+        "if '--resume' in FLAGS and FLAGS[FLAGS.index('--resume') + 1] == AUTO_RESUME:\n"
+        "    last_matches = [os.path.join(d, 'last.pt') for d, _, files in os.walk(INPUT_ROOT)\n"
+        "                    if 'last.pt' in files]\n"
+        "    assert len(last_matches) == 1, (\n"
+        "        f'expected exactly one last.pt under {INPUT_ROOT}; found {last_matches}'\n"
+        "    )\n"
+        "    state_root = os.path.dirname(os.path.dirname(last_matches[0]))\n"
+        "    manifest_path = os.path.join(state_root, STATE_MANIFEST)\n"
+        "    assert os.path.isfile(manifest_path), f'missing state manifest: {manifest_path}'\n"
+        "    with open(manifest_path) as f:\n"
+        "        manifest = json.load(f)\n"
+        "    if EXPECTED_RUN_ID is not None:\n"
+        "        assert manifest.get('run_id') == EXPECTED_RUN_ID, (\n"
+        "            f\"state run_id={manifest.get('run_id')!r} does not match \"\n"
+        "            f'expected {EXPECTED_RUN_ID!r}'\n"
+        "        )\n"
+        "    FLAGS[FLAGS.index('--resume') + 1] = last_matches[0]\n"
+        "    metrics_src = os.path.join(\n"
+        "        state_root, 'runs', os.path.basename(OUT_DIR.rstrip('/')), 'metrics.csv'\n"
+        "    )\n"
+        "    if os.path.isfile(metrics_src):\n"
+        "        os.makedirs(OUT_DIR, exist_ok=True)\n"
+        "        shutil.copy2(metrics_src, os.path.join(OUT_DIR, 'metrics.csv'))\n"
+        "    best_src = os.path.join(state_root, 'checkpoints', 'best.pt')\n"
+        "    if os.path.isfile(best_src):\n"
+        "        os.makedirs(os.path.dirname(FINAL_CKPT), exist_ok=True)\n"
+        "        shutil.copy2(best_src, os.path.join(os.path.dirname(FINAL_CKPT), 'best.pt'))\n"
         "os.chdir(WORK)\n"
         "sys.path.insert(0, WORK)\n"
         "subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'gymnasium>=1.0'])\n"
-        "os.makedirs('/kaggle/working/checkpoints', exist_ok=True)\n"
-        f"FLAGS = {spec.to_cli_args()!r}\n"
+        "os.makedirs(os.path.dirname(FINAL_CKPT), exist_ok=True)\n"
         # The generated kernel guards against Kaggle's stock torch build
         # mismatching the session GPU arch ('no kernel image is available'): it
         # verifies CUDA can actually run a kernel and falls back to CPU if not,
@@ -304,6 +353,62 @@ def push_code(create: bool, message: str) -> None:
         shutil.copytree(AI_ROOT, staged, ignore=STAGE_IGNORE)
         meta = {"title": "becca-ai", "id": DATASET_SLUG, "licenses": [{"name": "CC0-1.0"}]}
         (Path(tmp) / "dataset-metadata.json").write_text(json.dumps(meta, indent=2))
+        if create:
+            _run(["kaggle", "datasets", "create", "-p", tmp, "-r", "zip"])
+        else:
+            _run(["kaggle", "datasets", "version", "-p", tmp, "-m", message, "-r", "zip"])
+
+
+def push_state(source: str, create: bool, message: str) -> None:
+    """Publish only resumable checkpoints and CSV history to the state dataset."""
+    source_dir = Path(source)
+    last_path = source_dir / STATE_ALLOWLIST[0]
+    if not last_path.is_file():
+        raise SystemExit(f"missing resumable checkpoint: {last_path}")
+
+    from training.checkpoint import load_checkpoint
+
+    checkpoint = load_checkpoint(last_path, map_location="cpu")
+    contract = checkpoint.get("resume_contract")
+    if not isinstance(contract, dict) or not contract.get("run_id"):
+        raise SystemExit("last.pt has no run identity; start the run with the current trainer")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        staged_root = Path(tmp)
+        staged_files = []
+        for relative in STATE_ALLOWLIST:
+            src = source_dir / relative
+            if not src.is_file():
+                continue
+            dest = staged_root / relative
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            staged_files.append(relative)
+
+        runs_dir = source_dir / "runs"
+        if runs_dir.is_dir():
+            for src in sorted(runs_dir.rglob("metrics.csv")):
+                relative = src.relative_to(source_dir)
+                dest = staged_root / relative
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+                staged_files.append(relative.as_posix())
+
+        manifest = {
+            "format": 1,
+            "run_id": contract["run_id"],
+            "update": checkpoint.get("update"),
+            "step": checkpoint.get("step"),
+            "files": sorted(staged_files),
+            "resume_contract": contract,
+        }
+        (staged_root / STATE_MANIFEST).write_text(json.dumps(manifest, indent=2))
+        metadata = {
+            "title": "becca-ai-state",
+            "id": STATE_DATASET_SLUG,
+            "licenses": [{"name": "CC0-1.0"}],
+        }
+        (staged_root / "dataset-metadata.json").write_text(json.dumps(metadata, indent=2))
         if create:
             _run(["kaggle", "datasets", "create", "-p", tmp, "-r", "zip"])
         else:
@@ -352,6 +457,9 @@ def launch(spec: RunSpec, confirm_cost: bool) -> None:
             "the run will be killed. Use --max-hours in the spec so it saves last.pt."
         )
     with tempfile.TemporaryDirectory() as tmp:
+        dataset_sources = [DATASET_SLUG]
+        if spec.resume == AUTO_RESUME:
+            dataset_sources.append(STATE_DATASET_SLUG)
         meta = {
             "id": KERNEL_SLUG,
             "title": "becca-training-cli",
@@ -361,7 +469,7 @@ def launch(spec: RunSpec, confirm_cost: bool) -> None:
             "enable_gpu": True,
             "machine_shape": MACHINE_SHAPE,
             "enable_internet": True,
-            "dataset_sources": [DATASET_SLUG],
+            "dataset_sources": dataset_sources,
             "is_private": True,
         }
         (Path(tmp) / "kernel-metadata.json").write_text(json.dumps(meta, indent=2))
@@ -387,10 +495,20 @@ def _spec_from_args(a: argparse.Namespace) -> RunSpec:
     else:
         spec = RunSpec()
     # Only override fields the user explicitly set on the CLI (None = unset).
-    for name in ("total_rl_steps", "num_envs", "d_model", "layers", "resume"):
+    for name in (
+        "total_rl_steps",
+        "num_envs",
+        "steps_per_env",
+        "d_model",
+        "layers",
+        "max_hours",
+        "resume",
+    ):
         val = getattr(a, name, None)
         if val is not None:
             setattr(spec, name, val)
+    if getattr(a, "resume_state", False):
+        spec.resume = AUTO_RESUME
     return spec
 
 
@@ -401,6 +519,11 @@ def build_parser() -> argparse.ArgumentParser:
     pc = sub.add_parser("push-code", help="sync ai/ to the dataset")
     pc.add_argument("--create", action="store_true", help="create the dataset (first time)")
     pc.add_argument("-m", "--message", default="update", help="version message")
+
+    ps = sub.add_parser("push-state", help="sync resumable state to its dataset")
+    ps.add_argument("--from", dest="source", default=PULL_DIR)
+    ps.add_argument("--create", action="store_true", help="create the dataset (first time)")
+    ps.add_argument("-m", "--message", default="update state", help="version message")
 
     sub.add_parser("configure", help="enable GPU+internet and attach the dataset")
 
@@ -421,10 +544,18 @@ def build_parser() -> argparse.ArgumentParser:
     # A curated subset of the most-tuned RunSpec fields; the rest keep defaults.
     ln.add_argument("--total-rl-steps", type=int)
     ln.add_argument("--num-envs", type=int)
+    ln.add_argument("--steps-per-env", type=int)
     ln.add_argument("--d-model", dest="d_model", type=int)
     ln.add_argument("--layers", type=int)
-    ln.add_argument(
+    ln.add_argument("--max-hours", type=float)
+    resume = ln.add_mutually_exclusive_group()
+    resume.add_argument(
         "--resume", type=str, help="resume the RL phase from a prior last.pt on the dataset"
+    )
+    resume.add_argument(
+        "--resume-state",
+        action="store_true",
+        help="resume from the dedicated state dataset",
     )
 
     sub.add_parser("status", help="poll the kernel run state")
@@ -438,6 +569,8 @@ def main() -> None:
     a = build_parser().parse_args()
     if a.cmd == "push-code":
         push_code(create=a.create, message=a.message)
+    elif a.cmd == "push-state":
+        push_state(source=a.source, create=a.create, message=a.message)
     elif a.cmd == "configure":
         configure()
     elif a.cmd == "launch":
