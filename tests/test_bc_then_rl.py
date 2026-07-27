@@ -13,8 +13,9 @@ import pytest
 import torch
 
 from becca_env.observation import FULL_STATE_SIZE
+from scripts import bc_then_rl
 from scripts.bc_then_rl import _load_resume_components, parse_args, phase2_rl
-from training.checkpoint import load_checkpoint, save_checkpoint
+from training.checkpoint import load_checkpoint, rng_state, save_checkpoint
 from training.config import TrainConfig
 from training.network import CentralizedCritic, create_network
 
@@ -185,3 +186,26 @@ def test_resume_rejects_critic_flag_mismatch(tmp_path):
 
     with pytest.raises(SystemExit, match="checkpoint has a critic"):
         _load_resume_components(args, torch.device("cpu"))
+
+
+def test_rl_resume_restores_checkpoint_rng(tmp_path, monkeypatch):
+    path, _, _ = _write_resume_checkpoint(tmp_path)
+    checkpoint = load_checkpoint(path)
+    checkpoint["update"] = 99
+    checkpoint["rng"] = rng_state()
+    torch.save(checkpoint, path)
+    restored = []
+    monkeypatch.setattr(bc_then_rl, "restore_rng", restored.append)
+
+    args = _args(
+        tmp_path,
+        resume=str(path),
+        centralized_critic=True,
+        total_rl_steps=2048,
+    )
+    args._explicit_options = {"--resume", "--centralized-critic"}
+    phase2_rl(args, torch.device("cpu"), _fresh_net(args))
+
+    assert len(restored) == 1
+    assert restored[0]["python"] == checkpoint["rng"]["python"]
+    assert torch.equal(restored[0]["torch"], checkpoint["rng"]["torch"])

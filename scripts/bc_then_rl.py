@@ -45,6 +45,7 @@ from training.checkpoint import (
     build_net,
     load_checkpoint,
     net_config_of,
+    restore_rng,
     save_checkpoint,
     seed_everything,
 )
@@ -469,6 +470,8 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             resume_ckpt.get("best_wr_heuristic", -1.0),
             resume_ckpt.get("best_update", 0),
         )
+        if resume_ckpt.get("rng") is not None:
+            restore_rng(resume_ckpt["rng"])
         print(f"  resumed at update {start_update}, {step_count:,} steps")
 
     n_params = sum(p.numel() for p in net.parameters())
