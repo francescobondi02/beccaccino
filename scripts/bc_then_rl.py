@@ -137,6 +137,12 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument("--eval-games", type=int, default=100)
     p.add_argument("--pool-save-every", type=int, default=20)
     p.add_argument(
+        "--save-last-every",
+        type=int,
+        default=10,
+        help="Write resumable last.pt every N updates, independently of pool snapshots.",
+    )
+    p.add_argument(
         "--hidden",
         type=int,
         default=256,
@@ -371,6 +377,8 @@ def phase1_bc(args, device) -> torch.nn.Module:
 
 
 def phase2_rl(args, device, net, resume_ckpt=None):
+    if args.save_last_every <= 0:
+        raise ValueError("--save-last-every must be positive")
     critic = None
     if args.resume:
         if resume_ckpt is None:
@@ -646,7 +654,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
 
         # Resumable mid-run checkpoint (last.pt beside the final ckpt).
         last_path = Path(args.final_ckpt).with_name("last.pt")
-        if update % args.pool_save_every == 0:
+        if update % args.save_last_every == 0:
             Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
             _save(last_path, update)
 

@@ -53,6 +53,8 @@ def _args(tmp_path, **overrides) -> argparse.Namespace:
         "6",
         "--pool-save-every",
         "1",
+        "--save-last-every",
+        "1",
         "--device",
         "cpu",
         "--out-dir",
@@ -86,7 +88,13 @@ def _fresh_net(a):
 
 
 def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
-    a = _args(tmp_path, centralized_critic=True, anchor_bc=True)
+    a = _args(
+        tmp_path,
+        centralized_critic=True,
+        anchor_bc=True,
+        pool_save_every=100,
+        save_last_every=1,
+    )
     net = _fresh_net(a)
     torch.save({"model": net.state_dict(), "config": net.config}, a.bc_ckpt)
     phase2_rl(a, torch.device("cpu"), net)
@@ -97,6 +105,7 @@ def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
     assert ck.get("critic") is not None  # critic persisted
     assert ck["normalizer"] is not None
     assert len(ck["anchors"]) == 1
+    assert ck["pool"] == [], "pool cadence should be independent from last.pt cadence"
 
     (tmp_path / "bc.pt").unlink()
     restored = _resolve_anchors(a, ck, torch.device("cpu"))
