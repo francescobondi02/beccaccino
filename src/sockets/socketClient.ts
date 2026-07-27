@@ -72,6 +72,27 @@ export function getSocket(): AppSocket {
 
     socket.on("connect_error", (error) => {
       console.error("🔴 Socket connection error:", error.message);
+
+      // The server rejects the handshake with these exact messages when the
+      // auth cookie is missing or expired (backend src/index.ts io.use).
+      // Retrying can never succeed — tell the user to log in again instead of
+      // showing an endless "reconnecting" banner.
+      if (
+        error.message === "Authentication required" ||
+        error.message === "Invalid or expired token"
+      ) {
+        socket?.disconnect();
+        setStatus("disconnected");
+        toast.error("Sessione scaduta. Accedi di nuovo per continuare.", {
+          id: "socket-auth-expired",
+          action: {
+            label: "Accedi",
+            onClick: () => {
+              window.location.href = "/";
+            },
+          },
+        });
+      }
     });
   }
 

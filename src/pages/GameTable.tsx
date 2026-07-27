@@ -191,7 +191,7 @@ const GameTable = () => {
     const totalMs = turnTimer.totalMs;
 
     const tick = () => {
-      const elapsed = Date.now() - turnTimer.serverTimestamp;
+      const elapsed = Date.now() - turnTimer.startedAt;
       const remaining = Math.max(0, Math.ceil((totalMs - elapsed) / 1000));
       setCountdown(remaining);
     };

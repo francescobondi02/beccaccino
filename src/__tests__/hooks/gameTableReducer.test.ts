@@ -92,7 +92,7 @@ describe("gameTableReducer", () => {
     expect(state.turnTimer).toEqual({
       turnUserId: 12,
       totalMs: 60_000,
-      serverTimestamp: 80_000,
+      startedAt: 80_000,
       phase: "play_card",
     });
   });
@@ -144,7 +144,7 @@ describe("gameTableReducer", () => {
   it("card_played clears the running timer and appends to the move log", () => {
     const withTimer: GameTableState = {
       ...initialGameTableState,
-      turnTimer: { turnUserId: 11, totalMs: 60_000, serverTimestamp: 0, phase: "play_card" },
+      turnTimer: { turnUserId: 11, totalMs: 60_000, startedAt: 0, phase: "play_card" },
     };
 
     const state = playCard(withTimer, cardPlayed());
@@ -159,7 +159,7 @@ describe("gameTableReducer", () => {
     const inRound: GameTableState = {
       ...initialGameTableState,
       currentRound: { id: 7, number: 2, briscola: null },
-      turnTimer: { turnUserId: 11, totalMs: 90_000, serverTimestamp: 0, phase: "choose_briscola" },
+      turnTimer: { turnUserId: 11, totalMs: 90_000, startedAt: 0, phase: "choose_briscola" },
     };
 
     const state = gameTableReducer(inRound, {
@@ -223,7 +223,7 @@ describe("gameTableReducer", () => {
   });
 
   it("turn_timer_started replaces the timer", () => {
-    const timer = { turnUserId: 12, totalMs: 60_000, serverTimestamp: 500, phase: "play_card" };
+    const timer = { turnUserId: 12, totalMs: 60_000, startedAt: 500, phase: "play_card" };
     const state = gameTableReducer(initialGameTableState, {
       type: "turn_timer_started",
       timer,

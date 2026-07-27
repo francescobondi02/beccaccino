@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { User, LogOut, Trophy, Settings } from "lucide-react";
+import { User, LogOut, Trophy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
@@ -75,10 +75,6 @@ const Header = ({ username, onLogout }: HeaderProps) => {
               <DropdownMenuItem onClick={() => navigate("/leaderboard")}>
                 <Trophy className="mr-2 h-4 w-4" />
                 <span>Classifica</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/settings")}>
-                <Settings className="mr-2 h-4 w-4" />
-                <span>Impostazioni</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>

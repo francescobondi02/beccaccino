@@ -47,10 +47,12 @@ export interface TotalPoints {
 }
 
 // totalMs is null for bot turns (no deadline to count down to).
+// startedAt is on the CLIENT clock — the server's timestamp lives on a
+// different clock, and skew would corrupt the countdown.
 export interface TurnTimer {
   turnUserId: number;
   totalMs: number | null;
-  serverTimestamp: number;
+  startedAt: number;
   phase: string;
 }
 
@@ -173,7 +175,7 @@ export function gameTableReducer(
               totalMs: data.turnTimer.totalMs,
               // Rebuild the local start timestamp from the server's remaining
               // time so reconnecting players resume the countdown mid-flight.
-              serverTimestamp:
+              startedAt:
                 now - (data.turnTimer.totalMs - data.turnTimer.remainingMs),
               phase: data.turnTimer.phase,
             }
@@ -422,7 +424,17 @@ export function useGameTable(
     };
 
     const handleTurnTimerStarted = (data: TurnTimerStartedPayload) => {
-      dispatch({ type: "turn_timer_started", timer: data });
+      // Anchor on receipt time, not the server's clock (skew-safe: the timer
+      // just started, so transit latency is the only error).
+      dispatch({
+        type: "turn_timer_started",
+        timer: {
+          turnUserId: data.turnUserId,
+          totalMs: data.totalMs,
+          startedAt: Date.now(),
+          phase: data.phase,
+        },
+      });
     };
 
     const handleAutoPlayed = (data: AutoPlayedPayload) => {
