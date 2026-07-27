@@ -13,10 +13,11 @@ describe("generateRoomCode", () => {
     expect(generateRoomCode(1)).toHaveLength(1);
   });
 
-  it("only contains uppercase letters and digits", () => {
+  it("only contains unambiguous uppercase letters and digits", () => {
     for (let i = 0; i < 100; i++) {
       const code = generateRoomCode();
-      expect(code).toMatch(/^[A-Z0-9]+$/);
+      // 0/O and 1/I are excluded: codes get read aloud.
+      expect(code).toMatch(/^[A-HJ-NP-Z2-9]+$/);
     }
   });
 

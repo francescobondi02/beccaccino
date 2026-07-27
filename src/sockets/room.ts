@@ -121,10 +121,10 @@ export function registerRoomSocket(socket: Socket, io: Server) {
 
   /**
    * CHOOSE_TEAM — Deprecated socket handler.
-   * The authoritative path is POST /api/rooms/:roomCode/choose-team which
-   * validates, persists, and broadcasts team_chosen via the global io instance.
-   * This handler exists only to give a clear error to any client that tries
-   * the socket path directly.
+   * The authoritative path is POST /api/rooms/:roomCode/choose-team; the real
+   * frontend only uses REST. This handler still validates, persists, and
+   * broadcasts team_chosen (integration tests exercise it), but unlike the
+   * REST path it runs outside withRoomLock — do not add new callers.
    */
   socket.on("choose_team", async (data: ChooseTeamData) => {
     const { roomCode, team } = data;

@@ -1,7 +1,8 @@
 import { getRng } from "./random";
 
 export function generateRoomCode(length: number = 6): string {
-  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  // No 0/O or 1/I: codes get read aloud to friends joining a room.
+  const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const rng = getRng();
   let result = "";
   for (let i = 0; i < length; i++) {

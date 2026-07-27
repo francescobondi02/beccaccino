@@ -32,7 +32,7 @@ src/
   utils/
     computePoints.ts    Raw points → {points, figures} per team
     determineHandWinner.ts  Trick winner logic (briscola > lead suit > off-suit)
-    generateRoomCode.ts 4-char uppercase room codes
+    generateRoomCode.ts 6-char room codes (unambiguous charset — no 0/O, 1/I)
     jwt.ts              Sign/verify JWT tokens
     password.ts         bcrypt hash/compare
     random.ts           Seeded RNG for deterministic card shuffle (Fisher-Yates)
