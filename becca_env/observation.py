@@ -238,7 +238,7 @@ def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
     return obs
 
 
-def encode_full_state(game: BeccaGame, seat: int) -> np.ndarray:
+def encode_full_state(game: BeccaGame, seat: int, obs: np.ndarray | None = None) -> np.ndarray:
     """Full-state encoding for the centralized critic (train time only).
 
     Actor obs ⊕ the 3 hidden hands as binary card vectors, ordered by relative
@@ -247,7 +247,7 @@ def encode_full_state(game: BeccaGame, seat: int) -> np.ndarray:
     value head can fit returns it otherwise can't explain in a hidden-hand game.
     """
     full = np.zeros(FULL_STATE_SIZE, dtype=np.float32)
-    full[:OBS_SIZE] = encode_observation(game, seat)
+    full[:OBS_SIZE] = encode_observation(game, seat) if obs is None else obs
     r = game.round
     for rel in (1, 2, 3):
         other_seat = (seat + rel) % 4

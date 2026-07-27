@@ -220,9 +220,10 @@ class BeccaEnv(gym.Env):
 
     def _get_obs(self) -> dict:
         seat = self.game.current_seat
+        obs = encode_observation(self.game, seat)
         return {
-            "obs": encode_observation(self.game, seat),
-            "full_obs": encode_full_state(self.game, seat),
+            "obs": obs,
+            "full_obs": encode_full_state(self.game, seat, obs),
             "action_mask": encode_action_mask(self.game, seat),
             "current_seat": np.int64(seat),
         }

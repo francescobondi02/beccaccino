@@ -29,9 +29,10 @@ def test_full_state_size_and_actor_prefix():
     assert FULL_STATE_SIZE == OBS_SIZE + 3 * NUM_CARDS == 582
     g = BeccaGame(seed=3)
     seat = g.current_seat
-    full = encode_full_state(g, seat)
+    obs = encode_observation(g, seat)
+    full = encode_full_state(g, seat, obs)
     assert full.shape == (FULL_STATE_SIZE,)
-    np.testing.assert_array_equal(full[:OBS_SIZE], encode_observation(g, seat))
+    np.testing.assert_array_equal(full[:OBS_SIZE], obs)
 
 
 def test_full_state_hidden_hands_match_other_seats():

@@ -2,11 +2,25 @@
 
 import numpy as np
 
+from becca_env import env as env_module
 from becca_env.env import BeccaEnv
 from becca_env.observation import OBS_SIZE
 
 
 class TestBeccaEnv:
+    def test_reset_encodes_actor_observation_once(self, monkeypatch):
+        calls = 0
+        encode_observation = env_module.encode_observation
+
+        def counted(*args):
+            nonlocal calls
+            calls += 1
+            return encode_observation(*args)
+
+        monkeypatch.setattr(env_module, "encode_observation", counted)
+        BeccaEnv(seed=1).reset()
+        assert calls == 1
+
     def test_reset_returns_valid_obs(self):
         env = BeccaEnv(seed=1)
         obs, info = env.reset()
