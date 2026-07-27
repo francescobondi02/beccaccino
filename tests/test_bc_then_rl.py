@@ -10,10 +10,13 @@ from __future__ import annotations
 import argparse
 
 import pytest
+import torch
 
-from scripts.bc_then_rl import parse_args, phase2_rl
-from training.checkpoint import load_checkpoint
-from training.network import create_network
+from becca_env.observation import FULL_STATE_SIZE
+from scripts.bc_then_rl import _load_resume_components, parse_args, phase2_rl
+from training.checkpoint import load_checkpoint, save_checkpoint
+from training.config import TrainConfig
+from training.network import CentralizedCritic, create_network
 
 
 def _args(tmp_path, **overrides) -> argparse.Namespace:
@@ -114,3 +117,71 @@ def test_centralized_critic_requires_vec(tmp_path):
     a = _args(tmp_path, centralized_critic=True, num_envs=1)
     with pytest.raises(ValueError, match="num-envs > 1"):
         phase2_rl(a, torch.device("cpu"), _fresh_net(a))
+
+
+def _write_resume_checkpoint(tmp_path):
+    net = create_network(version=4, d_model=48, nhead=2, num_layers=2, dim_feedforward=96)
+    critic = CentralizedCritic(
+        input_size=FULL_STATE_SIZE, hidden_size=40, num_layers=2, use_layer_norm=True
+    )
+    optimizer = torch.optim.Adam([*net.parameters(), *critic.parameters()])
+    path = tmp_path / "resume.pt"
+    save_checkpoint(
+        path,
+        net=net,
+        optimizer=optimizer,
+        config=TrainConfig(
+            network_version=4,
+            d_model=48,
+            nhead=2,
+            num_layers=2,
+            dim_feedforward=96,
+            hidden_size=40,
+            centralized_critic=True,
+        ),
+        step=10,
+        update=2,
+        extra={"critic": critic.state_dict()},
+    )
+    return path, net, critic
+
+
+def test_resume_rebuilds_policy_and_critic_from_checkpoint(tmp_path):
+    path, expected_net, expected_critic = _write_resume_checkpoint(tmp_path)
+    args = _args(tmp_path, resume=str(path), centralized_critic=True)
+    args._explicit_options = {"--resume", "--centralized-critic"}
+
+    _, net, critic = _load_resume_components(args, torch.device("cpu"))
+
+    assert net.config == expected_net.config
+    assert critic is not None
+    assert critic.value_head[0].in_features == expected_critic.value_head[0].in_features
+    assert all(
+        torch.equal(actual, expected)
+        for actual, expected in zip(
+            critic.state_dict().values(), expected_critic.state_dict().values()
+        )
+    )
+
+
+def test_resume_rejects_explicit_architecture_mismatch(tmp_path):
+    path, _, _ = _write_resume_checkpoint(tmp_path)
+    args = _args(
+        tmp_path,
+        resume=str(path),
+        centralized_critic=True,
+        d_model=32,
+    )
+    args._explicit_options = {"--resume", "--centralized-critic", "--d-model"}
+
+    with pytest.raises(SystemExit, match=r"--d-model=32.*checkpoint d_model=48"):
+        _load_resume_components(args, torch.device("cpu"))
+
+
+def test_resume_rejects_critic_flag_mismatch(tmp_path):
+    path, _, _ = _write_resume_checkpoint(tmp_path)
+    args = _args(tmp_path, resume=str(path), centralized_critic=False)
+    args._explicit_options = {"--resume"}
+
+    with pytest.raises(SystemExit, match="checkpoint has a critic"):
+        _load_resume_components(args, torch.device("cpu"))

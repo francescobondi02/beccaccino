@@ -1,7 +1,12 @@
-"""Tests for PPO update stabilization."""
+"""Tests for PPO update direction and stabilization.
+
+The loss-direction tests use tiny fixed modules so failures point to PPO math,
+not production-network initialization.
+"""
 
 from __future__ import annotations
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -57,8 +62,8 @@ def _make_tiny_batch(
         "obs": obs,
         "masks": masks,
         "actions": actions,
-        "log_probs": log_probs,
-        "values": values,
+        "log_probs": log_probs.clone(),
+        "values": values.clone(),
         "advantages": advantages,
         "returns": returns,
     }
@@ -85,6 +90,92 @@ def _make_batch(n: int, net: BeccaNetV2, seed: int = 0) -> dict[str, torch.Tenso
         "advantages": torch.randn(n),
         "returns": torch.randn(n),
     }
+
+
+def test_policy_moves_taken_actions_in_advantage_direction():
+    net = _TinyActorCritic()
+    batch = _make_tiny_batch(
+        net,
+        advantages=torch.tensor([1.0, -1.0]),
+        returns=torch.zeros(2),
+    )
+    before = batch["log_probs"].clone()
+    optimizer = torch.optim.SGD(net.parameters(), lr=0.5)
+
+    ppo_update(
+        net,
+        optimizer,
+        batch,
+        vf_coef=0.0,
+        ent_coef=0.0,
+        max_grad_norm=10.0,
+        num_epochs=1,
+        minibatch_size=2,
+        target_kl=None,
+    )
+
+    with torch.no_grad():
+        _, after, _, _ = net.get_action_and_value(batch["obs"], batch["masks"], batch["actions"])
+    assert after[0] > before[0]
+    assert after[1] < before[1]
+
+
+@pytest.mark.parametrize("use_critic", [False, True], ids=["actor-value", "centralized-critic"])
+def test_value_prediction_moves_toward_returns(use_critic: bool):
+    net = _TinyActorCritic()
+    critic = _TinyCentralizedCritic() if use_critic else None
+    batch = _make_tiny_batch(
+        net,
+        advantages=torch.zeros(4),
+        returns=torch.ones(4),
+        critic=critic,
+    )
+    params = list(net.parameters()) + (list(critic.parameters()) if critic is not None else [])
+    optimizer = torch.optim.SGD(params, lr=0.2)
+    value = critic.value if critic is not None else net.value
+    before_error = (value.detach() - 1.0).square()
+
+    for _ in range(5):
+        ppo_update(
+            net,
+            optimizer,
+            batch,
+            clip_eps=10.0,
+            vf_coef=1.0,
+            ent_coef=0.0,
+            max_grad_norm=10.0,
+            num_epochs=1,
+            minibatch_size=4,
+            target_kl=None,
+            critic=critic,
+        )
+
+    after_error = (value.detach() - 1.0).square()
+    assert after_error < before_error
+
+
+def test_tiny_target_kl_stops_before_epoch_budget():
+    net = _TinyActorCritic()
+    batch = _make_tiny_batch(
+        net,
+        advantages=torch.tensor([1.0, -1.0]),
+        returns=torch.zeros(2),
+    )
+    optimizer = torch.optim.SGD(net.parameters(), lr=1.0)
+
+    metrics = ppo_update(
+        net,
+        optimizer,
+        batch,
+        vf_coef=0.0,
+        ent_coef=0.0,
+        max_grad_norm=10.0,
+        num_epochs=8,
+        minibatch_size=2,
+        target_kl=1e-8,
+    )
+
+    assert metrics["epochs_used"] < 8
 
 
 def test_combined_policy_and_critic_gradients_are_clipped_before_step():

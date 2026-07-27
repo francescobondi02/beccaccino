@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 import time
 from pathlib import Path
 
@@ -40,7 +41,13 @@ import torch
 from becca_env.observation import FULL_STATE_SIZE
 from evaluation.arena import evaluate_against_random
 from evaluation.heuristic import evaluate_against_heuristic
-from training.checkpoint import load_checkpoint, save_checkpoint, seed_everything
+from training.checkpoint import (
+    build_net,
+    load_checkpoint,
+    net_config_of,
+    save_checkpoint,
+    seed_everything,
+)
 from training.config import TrainConfig
 from training.dual_rollout import collect_self_play_rollout_vec
 from training.imitation import behavioral_clone, collect_heuristic_dataset
@@ -54,7 +61,8 @@ from training.vec_env import create_vec_env
 SECONDS_PER_HOUR = 3600
 
 
-def parse_args():
+def parse_args(argv: list[str] | None = None):
+    raw_args = sys.argv[1:] if argv is None else argv
     p = argparse.ArgumentParser()
     # BC phase
     p.add_argument(
@@ -166,7 +174,11 @@ def parse_args():
         default=None,
         help="Resume the RL phase from a last.pt written by a prior run (skips BC).",
     )
-    return p.parse_args()
+    args = p.parse_args(raw_args)
+    args._explicit_options = {
+        token.split("=", 1)[0] for token in raw_args if token.startswith("--")
+    }
+    return args
 
 
 def _net_config_dict(args) -> dict:
@@ -204,6 +216,71 @@ def make_net(args, device):
         num_layers=args.layers,
         use_layer_norm=True,
     ).to(device)
+
+
+def _validate_resume_architecture(args, ck: dict) -> None:
+    net_config = net_config_of(ck)
+    explicit = getattr(args, "_explicit_options", set())
+    flag_config_pairs = [
+        ("--network-version", "network_version", "version"),
+        ("--layers", "layers", "num_layers"),
+    ]
+    if net_config["version"] == 4:
+        flag_config_pairs.extend(
+            [
+                ("--d-model", "d_model", "d_model"),
+                ("--nhead", "nhead", "nhead"),
+                ("--dim-feedforward", "dim_feedforward", "dim_feedforward"),
+            ]
+        )
+    else:
+        flag_config_pairs.append(("--hidden", "hidden", "hidden_size"))
+
+    for flag, arg_name, config_name in flag_config_pairs:
+        cli_value = getattr(args, arg_name)
+        checkpoint_value = net_config[config_name]
+        if flag in explicit and cli_value != checkpoint_value:
+            raise SystemExit(
+                f"{flag}={cli_value} conflicts with checkpoint {config_name}="
+                f"{checkpoint_value}; resume continues the checkpoint architecture"
+            )
+
+    checkpoint_has_critic = ck.get("critic") is not None
+    if checkpoint_has_critic and not args.centralized_critic:
+        raise SystemExit("checkpoint has a critic; refusing to resume without --centralized-critic")
+    if args.centralized_critic and not checkpoint_has_critic:
+        raise SystemExit("checkpoint has no critic; refusing to resume with --centralized-critic")
+
+    train_config = ck.get("train_config") or {}
+    if checkpoint_has_critic and "--hidden" in explicit:
+        checkpoint_hidden = train_config.get("hidden_size")
+        if checkpoint_hidden is not None and args.hidden != checkpoint_hidden:
+            raise SystemExit(
+                f"--hidden={args.hidden} conflicts with checkpoint critic hidden_size="
+                f"{checkpoint_hidden}"
+            )
+
+
+def _critic_from_checkpoint(ck: dict, device: torch.device) -> CentralizedCritic | None:
+    if ck.get("critic") is None:
+        return None
+    train_config = ck.get("train_config")
+    if not isinstance(train_config, dict):
+        raise SystemExit("critic checkpoint is missing its stamped train_config")
+    critic = CentralizedCritic(
+        input_size=FULL_STATE_SIZE,
+        hidden_size=train_config["hidden_size"],
+        num_layers=train_config["num_layers"],
+        use_layer_norm=train_config.get("use_layer_norm", True),
+    ).to(device)
+    critic.load_state_dict(ck["critic"])
+    return critic
+
+
+def _load_resume_components(args, device: torch.device) -> tuple[dict, torch.nn.Module, object]:
+    ck = load_checkpoint(args.resume, map_location=device)
+    _validate_resume_architecture(args, ck)
+    return ck, build_net(ck, device), _critic_from_checkpoint(ck, device)
 
 
 def phase1_bc(args, device) -> torch.nn.Module:
@@ -282,7 +359,16 @@ def phase1_bc(args, device) -> torch.nn.Module:
     return net
 
 
-def phase2_rl(args, device, net):
+def phase2_rl(args, device, net, resume_ckpt=None):
+    critic = None
+    if args.resume:
+        if resume_ckpt is None:
+            resume_ckpt, net, critic = _load_resume_components(args, device)
+        else:
+            _validate_resume_architecture(args, resume_ckpt)
+            net = build_net(resume_ckpt, device)
+            critic = _critic_from_checkpoint(resume_ckpt, device)
+
     cfg = TrainConfig(
         num_envs=args.num_envs,
         steps_per_env=args.steps_per_env,
@@ -331,8 +417,7 @@ def phase2_rl(args, device, net):
 
     # Centralized (CTDE) critic — value head over the full state. Its params
     # join the actor's under one optimizer, mirroring training/trainer.py.
-    critic = None
-    if args.centralized_critic:
+    if critic is None and args.centralized_critic:
         if cfg.num_envs <= 1:
             raise ValueError("--centralized-critic requires --num-envs > 1")
         critic = CentralizedCritic(
@@ -343,7 +428,7 @@ def phase2_rl(args, device, net):
         ).to(device)
     params = list(net.parameters()) + (list(critic.parameters()) if critic else [])
     opt = torch.optim.Adam(params, lr=cfg.lr, eps=1e-5)
-    opponent_net = make_net(args, device)
+    opponent_net = create_network(**net.config).to(device)
     opponent_net.load_state_dict(net.state_dict())
 
     vec = create_vec_env(
@@ -370,21 +455,20 @@ def phase2_rl(args, device, net):
     start_update = 1
     resumed_best = (-1.0, 0)
     if args.resume:
-        ck = load_checkpoint(args.resume, map_location=device)
-        net.load_state_dict(ck["model"])
-        opt.load_state_dict(ck["optimizer"])
-        if critic is not None and ck.get("critic") is not None:
-            critic.load_state_dict(ck["critic"])
-        if ck.get("normalizer") is not None:
-            return_normalizer.from_dict(ck["normalizer"])
-        if ck.get("pool"):
+        opt.load_state_dict(resume_ckpt["optimizer"])
+        if resume_ckpt.get("normalizer") is not None:
+            return_normalizer.from_dict(resume_ckpt["normalizer"])
+        if resume_ckpt.get("pool"):
             pool = OpponentPool.from_serialized(
-                ck["pool"], max_size=cfg.opponent_pool_size, anchors=anchors
+                resume_ckpt["pool"], max_size=cfg.opponent_pool_size, anchors=anchors
             )
-        step_count = ck.get("step", 0)
-        games_total = ck.get("games", 0)
-        start_update = ck.get("update", 0) + 1
-        resumed_best = (ck.get("best_wr_heuristic", -1.0), ck.get("best_update", 0))
+        step_count = resume_ckpt.get("step", 0)
+        games_total = resume_ckpt.get("games", 0)
+        start_update = resume_ckpt.get("update", 0) + 1
+        resumed_best = (
+            resume_ckpt.get("best_wr_heuristic", -1.0),
+            resume_ckpt.get("best_update", 0),
+        )
         print(f"  resumed at update {start_update}, {step_count:,} steps")
 
     n_params = sum(p.numel() for p in net.parameters())
@@ -407,7 +491,7 @@ def phase2_rl(args, device, net):
         extra = {
             "games": games_total,
             "phase": "rl",
-            "net_config": _net_config_dict(args),
+            "net_config": dict(net.config),
             "best_wr_heuristic": best_wr_heur,
             "best_update": best_update,
         }
@@ -648,12 +732,12 @@ def main():
     seed_everything(args.seed)
     device = torch.device(args.device)
     if args.resume:
-        # Resuming the RL phase: rebuild the net from the checkpoint and skip BC.
         print(f"Resuming RL from {args.resume} (skipping BC)")
-        net = make_net(args, device)
+        resume_ckpt, net, _ = _load_resume_components(args, device)
     else:
+        resume_ckpt = None
         net = phase1_bc(args, device)
-    phase2_rl(args, device, net)
+    phase2_rl(args, device, net, resume_ckpt=resume_ckpt)
 
 
 if __name__ == "__main__":
