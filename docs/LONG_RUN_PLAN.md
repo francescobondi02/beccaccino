@@ -450,8 +450,49 @@ size heuristic dataset (the printout in `phase1_bc` already reports this).
   — out of scope for this run. Keep the runc signal shaping as-is.
 - **P100 / dual-T4 / DDP / AMP-in-rollout** — see §1 fact 2. The pin stays
   `MACHINE_SHAPE = "NvidiaTeslaT4"`.
-- **MAPPO / league training / architecture growth** — separate research track
-  (`becca_ai_plateau`), not a readiness item.
+- **MAPPO / league training / new architecture families (RNN, GNN, sequence-token
+  encoder)** — separate research track (`becca_ai_plateau`), not a readiness item. A
+  *controlled scale-up of the existing V4 transformer* is NOT excluded — that is P3.5.
+
+### P3.5 — (Experiment, after Run D) Run E capacity probe: bigger V4, everything else frozen
+
+**Files:** `scripts/kaggle_run.py` (one new preset), `docs/TRAINING_RUNBOOK.md`.
+No training-code changes — `RunSpec` already carries `d_model/nhead/layers/
+dim_feedforward`, and checkpoints stamp `net_config`, so serving/ONNX rebuild the bigger
+net automatically via `build_net`.
+**Why:** Run B plateaued at update ~300/915, which reads as the learning signal saturating
+— but a capacity ceiling produces the same curve from outside, and the current net is
+genuinely small (~1.25M params). Two facts make the probe cheap: training is CPU-bound
+(the GPU idles waiting for game simulation, so a 3–4× net barely moves wall-clock — verify,
+don't assume: see budget note), and it needs no new code, only a preset. One run settles
+whether capacity is part of the plateau story.
+**Change:** `RUN_E_SPEC = dataclasses.replace(RUN_D_SPEC, d_model=256, nhead=8, layers=6,
+dim_feedforward=512, out_dir=".../runE", bc_ckpt=".../runE_bc.pt",
+final_ckpt=".../runE_rl.pt")` and `"rune"` in `_PRESETS`. Everything else — step budget,
+wp-mix, critic, anchors, signal shaping, LR, entropy schedule — is byte-identical to Run D;
+that is what makes the comparison attributable. BC must retrain (Run D's BC checkpoint has
+a different architecture — do not `--bc-load` it). Have the launch path print the param
+count (`sum(p.numel() ...)` is already printed by `phase2_rl`) and record it in the
+runbook next to Run D's.
+**Two ways the probe can be INCONCLUSIVE (check both, don't just read the win rate):**
+1. *Throughput:* if measured sps drops materially below Run D's (GPU no longer hiding the
+   bigger forward), the equal-step comparison is still valid but the budget isn't — session
+   1's log must be checked after ~30 min and `est_hours` re-derived from the observed sps.
+2. *Optimization instability:* a bigger transformer at the same LR may trip the KL
+   early-stop constantly (`approx_kl` in metrics.csv persistently at/above
+   `target_kl=0.02` — note `epochs_used` is returned by `ppo_update` but NOT logged to the
+   CSV, so KL is the observable) or show diverging value loss. If so, the result is "this
+   LR can't train this size", not "capacity doesn't help" — note it in the runbook; an
+   LR-adjusted rerun is a NEW experiment, not a retry.
+**Gate:** operator green-light after Run D ships (it costs a full week of quota — same 60M
+steps ≈ 3 sessions). Independent of P3.3; do not run both in the same week.
+**Verify (decision rule, pre-registered here so the outcome can't be argued into either
+bucket):** score Run E's winner (best-vs-last via P3.2, 1000 games held-out, wp=41)
+against Run D's shipped number. Run E wins only if its Wilson 95% interval clears Run D's
+point estimate by ≥ 2 points. If it wins: capacity was binding — a further size step
+(d_model 384) becomes a candidate next run. If it ties or loses: capacity is settled as
+NOT the bottleneck at this data budget; next investment goes to P3.3 (PIMC teacher) or the
+research track (belief head / league training).
 
 ---
 
@@ -480,7 +521,13 @@ size heuristic dataset (the printout in `phase1_bc` already reports this).
    (P3.2) at wp=41; ship the winner to `checkpoints/`; update serving tiers if it beats
    runC. **Acceptance bar:** ≥ Run C's 82% held-out vs heuristic at wp=41; the OOD probe
    features are exercised in training (assert via a sampled batch or the P3.1 test).
-5. If Run D ≥ bar, evaluate continuing another 30M steps (week 2) before touching P3.3.
+5. **After Run D ships, pick ONE follow-up for the next week's quota** (each costs a full
+   week; the operator chooses based on what Run D showed):
+   - Run D's curve still climbing at 60M → continue the same run another 30M steps
+     (new run seeded from the shipped checkpoint — NOT a resume past the target, see P0.5).
+   - Run D plateaued like Run B → **Run E capacity probe (P3.5)**, decision rule
+     pre-registered there.
+   - PIMC teacher timing already measured and viable → P3.3.
 
 ---
 
