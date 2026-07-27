@@ -647,24 +647,32 @@ async function deleteRoomAndPlay(gameRoomId: number): Promise<void> {
 export const getExitedRooms = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 
-  const rooms = await prisma.gameRoom.findMany({
-    where: {
-      players: {
-        some: { userId },
+  try {
+    const rooms = await prisma.gameRoom.findMany({
+      where: {
+        players: {
+          some: { userId },
+        },
+        finished: false,
       },
-      finished: false,
-    },
-    include: {
-      players: true,
-    },
-  });
+      include: {
+        players: true,
+      },
+    });
 
-  const formatted = rooms.map((room) => ({
-    id: room.id,
-    code: room.code,
-    currentPlayers: room.players.length,
-    maxPlayers: 4,
-  }));
+    const formatted = rooms.map((room) => ({
+      id: room.id,
+      code: room.code,
+      currentPlayers: room.players.length,
+      maxPlayers: 4,
+    }));
 
-  return res.status(200).json(formatted);
+    return res.status(200).json(formatted);
+  } catch (error) {
+    Sentry.captureException(error, {
+      extra: { op: "get_exited_rooms", userId },
+    });
+    (req.log ?? logger).error({ err: error, userId }, "get_exited_rooms_failed");
+    return res.status(500).json({ error: "Failed to fetch rooms" });
+  }
 };
