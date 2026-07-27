@@ -1,6 +1,7 @@
 # BECCA AI — Long-Run Readiness: Implementation Plan
 
-**Status:** Locked plan, not yet implemented.
+**Status:** Core implementation landed locally on 2026-07-27. The full local suite passes,
+but no paid run should launch until the Kaggle resume drill in P4.1 succeeds.
 **Goal:** Make a multi-session Kaggle training run (12h sessions chained via checkpoints)
 actually work end-to-end, fix the silent-corruption class of training defects, close the
 wp=5→wp=41 distribution gap, and squeeze more throughput out of the T4 — so the next long
@@ -17,7 +18,9 @@ anchor on the quoted function/identifier, not the number.
 1. **Never touch the rules engine** (`becca_env/deck.py`, `rules.py`, `game.py`) or the
    observation LAYOUT (`becca_env/observation.py` offsets). Rules parity with the backend is
    verified and exact; the serving fixtures (`serving/fixtures/bot_states.json`) pin the
-   encoding. If a change would alter any fixture, stop — the change is wrong.
+   encoding for this work. An unexpected fixture change means stop and investigate. A future
+   intentional layout migration is allowed only as a coordinated Python/backend/fixture
+   contract change.
 2. **Verify after every item:** `cd ai && pytest -x` (all green) and `ruff check . && ruff
    format --check .` (ruff is pinned `==0.15.13`). Items that add behaviour add tests.
 3. **Keep backward compatibility with existing checkpoints.** `checkpoints/kaggle-runb/` and
@@ -29,6 +32,19 @@ anchor on the quoted function/identifier, not the number.
 5. **One item = one commit**, message `fix(ai): <item id> <summary>` or `feat(ai): ...`.
    Implement in the order given: P0 → P1 → P2 → P3. Later items assume earlier ones.
 
+### Implementation snapshot
+
+| Scope | Local status |
+|---|---|
+| P0.1–P0.7 | Implemented and unit-tested |
+| P1.0–P1.7 | Implemented and unit-tested; real Kaggle round-trip still pending |
+| P2.1–P2.2 | Implemented and fixture-checked |
+| P2.3 | Sweep instrumentation implemented; winning worker count needs Kaggle measurement |
+| P2.4 | Rejected: T4 hardware does not support TF32 |
+| P3.1–P3.2 | Implemented and unit-tested |
+| P3.3, P3.5 | Optional experiments, not implemented |
+| P4 | Operator protocol, not executed |
+
 ---
 
 ## 1. Background — what the review found
@@ -36,7 +52,8 @@ anchor on the quoted function/identifier, not the number.
 Full findings: `docs/SYSTEM_ANALYSIS.md` (H/M/L ids referenced below) plus a 2026-07-27
 re-verification pass. The four facts that shaped this plan:
 
-1. **The multi-session resume chain has never worked.** Run C (30M steps) fit in one 11h
+1. **Before this implementation, the multi-session resume chain had never worked.** Run C
+   (30M steps) fit in one 11h
    session, so `--resume` was never exercised on Kaggle. Tracing it end-to-end: `last.pt` is
    written to ephemeral `/kaggle/working`, `push-code` strips `checkpoints/` from the dataset
    (`STAGE_IGNORE` in `kaggle_run.py`), and the kernel attaches only the code dataset — so a
@@ -53,10 +70,12 @@ re-verification pass. The four facts that shaped this plan:
    activated during training. Serving plays wp=41 (~6.7 rounds): those features are live and
    out-of-distribution, and multi-round match management (protect a lead, desperation when
    behind) is entirely untaught. This is the biggest remaining strength lever (P3.1).
-4. **A cluster of silent-corruption defects** on exactly the paths a long run exercises:
+4. **A cluster of silent-corruption defects** existed on exactly the paths a long run
+   exercises:
    critic gradients unclipped (H2), resume rebuilds the net from CLI flags instead of the
-   checkpoint stamp (H4), RNG not restored (H3), zero tests on PPO loss direction (H9).
-   Cheap to fix, and they protect everything downstream (P0).
+   checkpoint stamp (H4), RNG not restored (H3), return-normalizer chains crossing game
+   boundaries (M19), truncated-rollout zero bootstrap (M21), and zero tests on PPO loss
+   direction (H9). P0 fixes these.
 
 ---
 
@@ -112,7 +131,9 @@ reconstructed separately from `ck.get("critic")`); construct the critic iff
 `ck.get("critic") is not None` (and error clearly if the CLI flag contradicts the
 checkpoint: "checkpoint has a critic; refusing to resume without --centralized-critic" and
 vice versa). Same principle for `d_model`/`layers` etc.: the stamped `net_config` wins; if
-an explicit CLI flag disagrees, `SystemExit` with a message naming both values.
+an explicit CLI flag disagrees, `SystemExit` with a message naming both values. Replace
+unstated CLI defaults with the checkpoint architecture before rebuilding `TrainConfig`, and
+stamp the final flat checkpoint from `net.config`, not from the original CLI namespace.
 **Verify:** New test: save a checkpoint from a tiny critic-enabled run, resume it in-process
 with mismatched flags, assert `SystemExit`; resume with no arch flags at all, assert the
 rebuilt net matches the stamped config and the critic exists.
@@ -152,6 +173,34 @@ starting a new run from this checkpoint.")`. Update the resume example in
 `docs/TRAINING_RUNBOOK.md` to show the set-final-target-once protocol.
 **Verify:** Test asserting `SystemExit` (nonzero) in that condition. Runbook example updated.
 
+### P0.6 — Reset return-normalizer chains at game and rollout boundaries (M19)
+
+**Files:** `training/normalization.py`, `training/rollout.py`,
+`tests/test_normalization.py`.
+**Why:** Only one transition carries the terminal flag, but the normalizer keeps one
+discounted-return accumulator per `(env, seat)`. Resetting only that transition's seat leaks
+the other seats' return chains into the next game. Collectors also reset their environments
+at every rollout, so transient chains must not cross that artificial boundary.
+**Change:** A terminal transition resets all seat chains for its environment.
+`RolloutBuffer.get_batch` resets transient chains at the start of each buffer while retaining
+the running variance estimate across updates.
+**Verify:** Tests cover co-seat reset, per-env isolation, and rollout-boundary reset.
+
+### P0.7 — Bootstrap truncated rollout tails without biased targets (M21)
+
+**Files:** `training/rollout.py`, `tests/test_gae.py`,
+`tests/test_dual_rollout.py`.
+**Why:** A live `(env, seat)` chain's final stored transition has no next same-seat
+observation, so the old reverse pass treated it as terminal and bootstrapped from zero. That
+biased its target and propagated the error backward through GAE.
+**Change:** Treat the final live transition as a bootstrap-only state: exclude it from the
+PPO batch, seed the preceding transition with its stored value, and start that boundary with
+zero next advantage. Real terminal tails remain in the batch with zero bootstrap. This is
+unbiased and avoids a collector redesign, at the cost of dropping at most two learner
+transitions per vector environment (about 0.8% of Run D's learner batch).
+**Verify:** Tests pin the bootstrap arithmetic, terminal behavior, env/seat isolation, and
+the exact tail count under a centralized-critic vector rollout.
+
 ---
 
 ## Phase P1 — Wire the multi-session resume chain (the blocker)
@@ -162,6 +211,20 @@ never the whole pulled output (the pull contains a full copy of the code tree un
 `/kaggle/working/ai`, and re-uploading it would let the kernel's first-marker-wins code
 detection run *stale code* from session 2 onward). The operator loop per session becomes:
 `status` → `pull` → `push-state` → `launch --preset runX --resume-state --confirm-cost`.
+
+### P1.0 — Stamp immutable run identity and resume contract
+
+**Files:** `scripts/bc_then_rl.py`, `scripts/kaggle_run.py`, tests.
+**Why:** A checkpoint path is not a run identity. Resuming with a different batch geometry,
+schedule horizon, architecture, critic, win-point mix, or evaluation contract silently turns
+one run into a different experiment.
+**Change:** Every current checkpoint carries a stable `run_id` and a versioned
+`resume_contract` containing the immutable training definition. Resume compares the saved and
+current contracts and names any mismatched fields. `push-state` writes the identity, progress,
+file allowlist, and contract to `state-manifest.json`; the kernel validates the manifest
+before restoring state.
+**Verify:** Tests cover matching resumes, mismatches, legacy checkpoints, and state-manifest
+generation/validation.
 
 ### P1.1 — `push-state` verb + state-dataset plumbing in `kaggle_run.py`
 
@@ -193,12 +256,13 @@ datasets and the AUTO sentinel in FLAGS.
 
 **Files:** `scripts/kaggle_run.py` (`render_kernel_script`).
 **Why:** The kernel is the only place that knows where Kaggle mounted the state dataset; and
-`metrics.csv` must be seeded into `--out-dir` before training starts or the learning curve
-restarts from zero every session (see P1.4).
+`metrics.csv` and the prior `best.pt` must be seeded before training starts or the learning
+curve and best-checkpoint candidate silently restart every session (see P1.4).
 **Change:** In the generated kernel body, when `"--resume"` is in FLAGS with value `"AUTO"`:
 walk `/kaggle/input` for a file named `last.pt`, assert exactly one match, and substitute its
-absolute path into FLAGS. If a `metrics.csv` sits in the state mount, copy it into the
-spec's `--out-dir` before invoking `bc_then_rl`. If no `last.pt` is found, fail loudly
+absolute path into FLAGS. Validate `state-manifest.json`, copy the run's `metrics.csv` into
+the spec's `--out-dir`, and restore `best.pt` beside the final checkpoint before invoking
+`bc_then_rl`. If no `last.pt` is found, fail loudly
 (assert) — do NOT fall back to a fresh run, which would silently burn the session retraining
 from scratch.
 **Verify:** Extend the kernel-render test: generated script contains the AUTO-resolution
@@ -230,12 +294,13 @@ assert `pool.anchors` is non-empty and byte-equal to the saved anchor.
 wandb is hardcoded off in this recipe (`use_wandb=False`), the CSV is the *only*
 cross-session training record — winner's-curse checkpoint decisions (which bit Run C) need
 the full curve.
-**Change:** Write header only when the file doesn't already exist:
-`new_file = not csv_path.exists(); with csv_path.open("a" if not new_file else "w") ...` —
-simplest: always open `"a"`, write the header iff the file was absent. (P1.2 already copies
-the previous session's CSV into `out_dir` on Kaggle.)
-**Verify:** Test: run 2 updates, "resume" in-process for 2 more into the same out_dir;
-assert one header line and 4+ data rows in order.
+**Change:** Always append and write the header only when the file is absent. On resume,
+reconcile the carried CSV to the checkpoint update first: drop rows newer than `last.pt` and
+deduplicate updates, keeping the latest row. This handles hard preemption between metric and
+checkpoint writes. Compute SPS from steps completed in the current session rather than the
+cumulative checkpoint counter. (P1.2 copies the previous CSV into `out_dir` on Kaggle.)
+**Verify:** Resume tests inject an ahead row and a duplicate update, then assert one header,
+one ordered row per checkpointed update, and continuation from the saved update.
 
 ### P1.5 — Advance the deal stream across sessions
 
@@ -301,7 +366,7 @@ every step of every env.
 when provided, copy it into `full[:OBS_SIZE]` instead of re-encoding. In `_get_obs`, encode
 once and pass it in. No layout change — the fixtures must not move.
 **Verify:** `pytest tests/test_observation.py` green; `python -m scripts.gen_bot_fixtures`
-is a no-op (`git diff --exit-code serving/fixtures/`); quick benchmark (see P2.4) shows the
+is a no-op (`git diff --exit-code serving/fixtures/`); quick benchmark (see P2.3) shows the
 env-step rate improvement.
 
 ### P2.2 — Gate full-state encoding + IPC behind an env flag
@@ -335,27 +400,26 @@ assert fires when misconfigured.
 Kaggle gives 4 vCPUs, where 64 async subprocesses mostly thrash the scheduler. Fewer envs
 with the same total batch (via `steps_per_env`) may be strictly faster — but this must be
 measured on Kaggle hardware, not assumed.
-**Change:** (a) Ensure `scripts/benchmark.py` can sweep `num_envs ∈ {8, 16, 32, 64}` for a
-fixed wall-clock and print env-steps/s. (b) Add the sweep to the SMOKE kernel path (a few
-minutes of the smoke budget) so the numbers come from the real machine. (c) After the
-operator reads the numbers: set the winning `num_envs` (and compensating `steps_per_env`,
-keeping `num_envs * steps_per_env = 32768`) in the long-run preset. Batch/minibatch sizes
-are otherwise untouched.
+**Change:** (a) Sweep `num_envs ∈ {8, 16, 32, 64}` for a fixed wall-clock through the real
+Run D collection path: actor and opponent forwards, centralized critic, full-state encoding,
+IPC, and buffer storage. Print simulated env-steps/s, the unit used by the 760 SPS cost
+model and the trainer's `sps` metric. (b) Add
+the sweep to the SMOKE kernel path so the numbers come from the real machine after CUDA is
+validated. (c) After the operator reads the numbers: set the winning `num_envs` (and
+compensating `steps_per_env`, keeping `num_envs * steps_per_env = 32768`) in the long-run
+preset. Batch/minibatch sizes are otherwise untouched.
 **Constraint:** `num_envs`/`steps_per_env` may only change BEFORE a run starts — never
 between resume sessions of the same run (they feed `batch_size` → `total_updates` → every
 schedule; see P0.5). The preset change lands before Run D's session 1, then freezes.
 **Verify:** Smoke log contains the sweep table. Preset change is a follow-up commit citing
 the measured numbers in its message.
 
-### P2.4 — (Optional, last) Enable TF32 for the update phase
+### P2.4 — Rejected: TF32 on the T4
 
-**Files:** `scripts/bc_then_rl.py` / `training/trainer.py` (one-time device setup).
-**Why:** The T4's tensor cores are unused; `torch.backends.cuda.matmul.allow_tf32 = True` +
-`torch.backends.cudnn.allow_tf32 = True` is free accuracy-safe speedup for the PPO update
-matmuls. Modest (the update phase is a minority of wall-clock) — do it only because it's
-two lines, and do it last so any numeric drift is attributable.
-**Verify:** Loss curves on a 20-update CPU-vs-CUDA smoke remain within noise; no test
-regressions.
+TF32 is an Ampere-generation feature; Kaggle's pinned Tesla T4 is Turing hardware. Setting
+PyTorch's TF32 flags therefore cannot accelerate this run and would make the plan claim a
+hardware capability that is not present. Reconsider only if the machine pin moves to an
+Ampere-or-newer GPU, and benchmark the update phase separately before adopting it.
 
 ---
 
@@ -400,21 +464,23 @@ byte-identical to today.
 ### P3.2 — Post-run checkpoint decision: large held-out re-score of best.pt vs last.pt (H7)
 
 **Files:** `scripts/score_checkpoints.py` (new, small), `docs/TRAINING_RUNBOOK.md`.
-**Why:** `best.pt` selection maximizes over ~600 noisy 200-game evals on the FROZEN block —
-a winner's-curse machine. It already bit Run C: final (81.8% held-out) beat "best" (76.0%
-held-out) and the shipped checkpoint had to be chosen manually. The decision needs a
-scripted, held-out, high-N procedure instead of tribal knowledge.
+**Why:** Run C's `best.pt` selection maximized over roughly 19 noisy 200-game evals on the
+FROZEN block — enough to create winner's-curse bias. It already bit Run C: final (81.8%
+held-out) beat "best" (76.0% held-out) and the shipped checkpoint had to be chosen manually.
+The decision needs a scripted, held-out, high-N procedure instead of tribal knowledge.
 **Change:** A CLI that takes N checkpoint paths and scores each on a HELD-OUT seed block,
 mirrored team assignment — play each deal twice with teams swapped (this machinery does
 NOT exist yet: `evaluate_against_heuristic` plays different deals per side; `elo_ladder`
 has side-swap but not per-deal mirroring — build it in this script) at wp=41 with
-`--games` (default 1000), printing win rates with Wilson intervals and a verdict line.
+`--games` (default 1000). Preserve each deal pair, print pairing-aware 95% intervals, and
+emit a ship verdict only when the leader's paired difference interval clears zero; otherwise
+report the result as inconclusive.
 **Held-out block:** use `HELDOUT_SEED_BASE = EVAL_SEED_BASE + 1_000_000` (module constant),
 with a comment documenting the three ranges it must clear: (a) the frozen block
 `EVAL_SEED_BASE..+eval_games`, (b) the random-eval `EVAL_SEED_BASE+10000` offset, (c) the
 training deal range `cfg.seed + games_total + i` (starts near 0; Run D reaches ~3M —
 comfortably below `EVAL_SEED_BASE = 20,260,724`).
-Runbook: "after every run, run this on best.pt + last.pt; ship the winner."
+Runbook: "after every run, run this on best.pt + last.pt; ship only a definitive winner."
 **Verify:** Test with two tiny nets (random vs BC-ish fixture or heuristic-vs-random
 sanity): the known-stronger agent wins the verdict; mirroring is exercised (each seed
 appears twice with swapped teams).
@@ -431,10 +497,12 @@ magnitude slower per move; 6000 games of collection cannot fit a Kaggle session.
 **Change:** (a) Add `--bc-dataset` (path to an `.npz` produced by the collector) so a
 dataset collected overnight on a local machine can ship inside the code dataset (put it
 under `data/`, which `STAGE_IGNORE` does not strip — verified). (b) A collection
-script/flag that uses the PIMC agent (heuristic rollouts) as the acting policy, with signal
-declarations from the same convention the heuristic uses. Caveat: `pimc_choose_action`
-requires a `net` argument even on the heuristic-rollout branch (it calls `net.eval()` and
-reads the device) — pass a small random-init net; it is never forwarded. (c) FIRST, a
+script/flag that uses the PIMC agent (heuristic rollouts) as the acting policy. Apply the
+heuristic's signal convention explicitly when converting the chosen card into a
+card-plus-signal training action; the PIMC search result alone does not define the signal
+slot. Caveat: `pimc_choose_action` requires a `net` argument even on the heuristic-rollout
+branch (it calls `net.eval()` and reads the device) — pass a small random-init net; it is
+never forwarded. (c) FIRST, a
 10-minute timing measurement of PIMC moves/s to size the collection run — if collection
 would exceed ~12h local CPU for 6000 games, reduce games or sims and note it.
 **Gate:** run only if the operator green-lights after seeing the timing number. Everything
@@ -463,9 +531,9 @@ net automatically via `build_net`.
 **Why:** Run B plateaued at update ~300/915, which reads as the learning signal saturating
 — but a capacity ceiling produces the same curve from outside, and the current net is
 genuinely small (~1.25M params). Two facts make the probe cheap: training is CPU-bound
-(the GPU idles waiting for game simulation, so a 3–4× net barely moves wall-clock — verify,
-don't assume: see budget note), and it needs no new code, only a preset. One run settles
-whether capacity is part of the plateau story.
+(the proposed net is ~3.26M params, about 2.6× Run D; the GPU may still hide much of that
+cost, but verify rather than assume — see budget note), and it needs no new code, only a
+preset. One run settles whether capacity is part of the plateau story.
 **Change:** `RUN_E_SPEC = dataclasses.replace(RUN_D_SPEC, d_model=256, nhead=8, layers=6,
 dim_feedforward=512, out_dir=".../runE", bc_ckpt=".../runE_bc.pt",
 final_ckpt=".../runE_rl.pt")` and `"rune"` in `_PRESETS`. Everything else — step budget,
@@ -487,9 +555,9 @@ runbook next to Run D's.
 **Gate:** operator green-light after Run D ships (it costs a full week of quota — same 60M
 steps ≈ 3 sessions). Independent of P3.3; do not run both in the same week.
 **Verify (decision rule, pre-registered here so the outcome can't be argued into either
-bucket):** score Run E's winner (best-vs-last via P3.2, 1000 games held-out, wp=41)
-against Run D's shipped number. Run E wins only if its Wilson 95% interval clears Run D's
-point estimate by ≥ 2 points. If it wins: capacity was binding — a further size step
+bucket):** score Run E's winner (best-vs-last via P3.2, 1000 mirrored deals, wp=41)
+alongside Run D's shipped checkpoint. Run E wins only if the lower bound of its paired lead
+interval is at least 2 points. If it wins: capacity was binding — a further size step
 (d_model 384) becomes a candidate next run. If it ties or loses: capacity is settled as
 NOT the bottleneck at this data budget; next investment goes to P3.3 (PIMC teacher) or the
 research track (belief head / league training).
@@ -518,8 +586,11 @@ research track (belief head / league training).
    `--resume-state --total-rl-steps 60000000` (same value; the P0.5 guard is the safety
    net against resuming a finished run).
 4. **Ship decision:** `python -m scripts.score_checkpoints best.pt last.pt --games 1000`
-   (P3.2) at wp=41; ship the winner to `checkpoints/`; update serving tiers if it beats
-   runC. **Acceptance bar:** ≥ Run C's 82% held-out vs heuristic at wp=41; the OOD probe
+   (P3.2) at wp=41. This means 1,000 held-out deals, each played with both team
+   assignments (2,000 games per checkpoint). Ship only when the pairing-aware verdict is
+   definitive; otherwise retain the current shipped model or collect more held-out deals.
+   Update serving tiers only if it beats runC. **Acceptance bar:** ≥ Run C's 82% held-out
+   vs heuristic at wp=41; the OOD probe
    features are exercised in training (assert via a sampled batch or the P3.1 test).
 5. **After Run D ships, pick ONE follow-up for the next week's quota** (each costs a full
    week; the operator chooses based on what Run D showed):

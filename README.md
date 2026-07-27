@@ -23,7 +23,7 @@ pip install wandb && wandb login
 ## Running Tests
 
 ```bash
-pytest                     # Full suite (~200 tests, a few seconds)
+pytest                     # Full suite
 pytest tests/test_gae.py   # Just GAE correctness tests
 pytest -x                  # Stop on first failure
 ruff check .               # Lint
@@ -43,8 +43,12 @@ CLI with `scripts/kaggle_run.py` (see "Kaggle GPU runs" below).
 python -m scripts.bc_then_rl \
   --network-version 4 --d-model 128 --nhead 4 --layers 3 --dim-feedforward 256 \
   --bc-games 3000 --bc-epochs 5 --total-rl-steps 5000000 \
-  --num-envs 32 --win-points 5 --eval-win-points 41 --device cuda
+  --num-envs 32 --wp-mix 5,41 --eval-win-points 41 --device cuda
 ```
+
+`--wp-mix 5,41` balances both game lengths across learner teams inside each
+rollout. Use `--win-points N` instead when intentionally training one length;
+the two options are mutually exclusive.
 
 ### Pure PPO trainer (`training/trainer.py`)
 
@@ -236,6 +240,18 @@ block to rank strong checkpoints against each other:
 python -m scripts.elo_ladder checkpoints/a.pt checkpoints/b.pt --num-games 100
 ```
 
+For the final shipping decision, compare candidates against the heuristic on a
+held-out mirrored deal block:
+
+```bash
+python -m scripts.score_checkpoints \
+  checkpoints/best.pt checkpoints/last.pt --games 1000
+```
+
+`--games 1000` means 1,000 deals played with both team assignments, or 2,000
+games per checkpoint. Ship only when the pairing-aware verdict is definitive;
+an inconclusive result means retain the current model or collect more deals.
+
 ## Kaggle GPU runs
 
 Drive Kaggle GPU training from the CLI (no notebook editing). Ships `ai/` as a
@@ -249,6 +265,26 @@ python -m scripts.kaggle_run launch --preset smoke
 python -m scripts.kaggle_run status
 python -m scripts.kaggle_run pull -p checkpoints/kaggle
 ```
+
+Run D is the resumable 60M-step mixed `wp=5,41` preset. Keep its final target
+and batch geometry unchanged across sessions:
+
+```bash
+# Session 1
+python -m scripts.kaggle_run launch --preset rund --confirm-cost
+
+# After each capped session
+python -m scripts.kaggle_run status
+python -m scripts.kaggle_run pull -p checkpoints/kaggle-rund
+python -m scripts.kaggle_run push-state \
+  --from checkpoints/kaggle-rund --create -m "runD session 1"
+python -m scripts.kaggle_run launch \
+  --preset rund --resume-state --confirm-cost
+```
+
+Use `--create` only for the first state-dataset upload. Before Run D, perform
+the same stop/pull/push/resume sequence with the `smoke` preset as documented
+in `docs/TRAINING_RUNBOOK.md`.
 
 ## ONNX Export & Serving
 
@@ -273,11 +309,15 @@ curl -X POST http://localhost:8090/predict \
 python scripts/benchmark.py
 # Expected: ~2400 games/sec single-threaded
 
-# Training throughput (with network inference)
-# Expected with production config on Apple Silicon:
-#   - 64 envs, 512 hidden: ~5000-8000 SPS
-#   - 128 envs, 512 hidden: ~8000-12000 SPS
+# End-to-end Run D rollout sweep used by the Kaggle smoke
+python -m scripts.benchmark \
+  --sweep-envs 8,16,32,64 --seconds 10 --win-points 5 \
+  --include-full-obs --device cpu
 ```
+
+On Kaggle the smoke passes `--device cuda`. The sweep includes learner and
+opponent inference, the centralized critic, encoding, IPC, and buffer storage,
+and reports simulated environment steps per second.
 
 ## Architecture
 
@@ -287,7 +327,8 @@ training/           BC + PPO self-play, GAE, opponent pool + anchors, CTDE criti
                     unified checkpoint/resume, V1–V4 networks
 evaluation/         Arena (agent vs agent), Wilson CIs, Elo + round-robin ladder
 serving/            FastAPI + ONNX inference (V4-capable export)
-scripts/            bc_then_rl (BC→PPO), elo_ladder, kaggle_run, benchmark
+scripts/            bc_then_rl (BC→PPO), score_checkpoints, elo_ladder,
+                    kaggle_run, benchmark
 inference/          PIMC (perfect-information Monte Carlo) — not yet wired to serving
 ```
 

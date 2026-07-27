@@ -162,16 +162,20 @@ Resume rebuilds the policy and critic from the checkpoint stamps. Explicit
 architecture flags are accepted only when they match. Resuming a completed target
 is a hard error instead of a successful no-op. The state dataset carries
 `last.pt`, the prior `best.pt`, and `metrics.csv`; the generated kernel validates
-the run manifest before restoring them.
+the run manifest before restoring them. Resume trims any CSV rows newer than the
+checkpoint (hard-preemption recovery) and reports SPS for the new session only.
 
 Before spending the long-run quota, perform the same sequence with `--preset
 smoke --max-hours 0.05`. Create the state dataset on the first drill with
 `push-state --create`; subsequent pushes version it without `--create`.
+Run D remains blocked until that real dataset round-trip passes.
 
-The first smoke session prints an environment sweep for 8, 16, 32, and 64
-workers. Select the highest-throughput count before Run D session 1 and adjust
-`steps_per_env` so the batch remains 32,768. Freeze both values for every resume
-session; changing either one invalidates the checkpoint's resume contract.
+The first smoke session prints an end-to-end Run D rollout sweep for 8, 16, 32,
+and 64 workers, including actor/opponent inference, the centralized critic,
+encoding, IPC, and buffer storage. Select the highest env-SPS count before
+Run D session 1 and adjust `steps_per_env` so the batch remains 32,768. Freeze
+both values for every resume session; changing either one invalidates the
+checkpoint's resume contract.
 
 ## 5. Verifying a smoke run before spending hours
 
@@ -197,13 +201,25 @@ forward. Run B's last row read 74.5% while the real number was ~71%. **Always sc
 the checkpoint file directly:**
 
 ```bash
-python -m evaluation.arena --help          # or use evaluate_against_heuristic
-python -m scripts.elo_ladder <ckpt>...     # cross-checkpoint ranking
+# Final best.pt vs last.pt decision on 1,000 mirrored deals
+# (2,000 games per checkpoint, wp=41).
+python -m scripts.score_checkpoints \
+  checkpoints/best.pt checkpoints/last.pt --games 1000
+
+# Optional cross-checkpoint head-to-head ranking.
+python -m scripts.elo_ladder <ckpt>... --num-games 100
 ```
+
+The scoring command preserves each mirrored deal pair, prints pairing-aware 95%
+intervals, and emits `ship` only when the leader's paired difference interval
+clears zero. An `inconclusive` result means retain the current shipped model or
+collect more held-out deals. `best.pt` is only a candidate selected on the noisy
+frozen training-eval block.
 
 **The `steps` column counts learner-team transitions, not env steps.** A team owns
 2 of 4 seats, so only ~half of each batch is stored: the log shows ~15M while ~30M
-env steps were simulated. This 2× gap is units, not a bug.
+env steps were simulated. The `sps` column is simulated env steps per second so it
+matches the cost model. This 2× gap is units, not a bug.
 
 Then audit behaviour, which win rate cannot show:
 
@@ -285,5 +301,3 @@ zero — a finding about the anneal schedule, not the mechanism.
   Beccaccino conventions vary by region, and expert play includes deliberate
   deception. This grounds a *baseline* meaning so signals are teachable; the
   annealed term then lets the policy deviate when deviating scores better.
-- **`last.pt`'s `train_config` records the wrong architecture** for provenance
-  (the accurate one is in `net_config`). Cosmetic, but do not trust that field.

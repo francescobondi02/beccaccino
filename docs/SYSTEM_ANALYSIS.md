@@ -2,6 +2,11 @@
 
 *Consolidated findings from a full six-dimension senior review — architecture, engine/observation, evaluation, serving/inference, testing/ops, and RL training soundness (PPO/self-play/BC plus reward and credit assignment) — every finding adversarially verified against the code. This document is the standalone deliverable for the upcoming restructure.*
 
+**2026-07-27 update:** This document preserves the pre-implementation audit snapshot.
+`LONG_RUN_PLAN.md` tracks current status. In particular, M21 is resolved: incomplete live
+chain tails are now bootstrap-only states, excluded from PPO while their stored values
+bootstrap the preceding same-seat transitions.
+
 ---
 
 ## 1. Executive Summary
@@ -329,6 +334,11 @@ The clipped value loss clamps `new_val - old_values` to `[-clip_eps, +clip_eps]`
 #### M21 — Truncated rollout tail is treated as terminal (bootstrap value = 0), biasing value targets
 
 **Location:** `training/rollout.py:78-96`
+
+**Resolved 2026-07-27.** `RolloutBuffer` now excludes each incomplete live chain tail from
+the training batch and uses its stored value to bootstrap the preceding same-seat transition.
+Terminal tails remain trainable with zero bootstrap. The original finding follows for
+historical context.
 
 `compute_gae` has no bootstrap-value input. On the reverse pass, the first time each `(env_idx, seat)` key is seen (which is that chain's LAST transition in forward time) `last_done.get(key, True)` defaults to True, forcing `next_nonterminal=0` and `next_value=0` (`rollout.py:96`). This is correct for transitions that actually carry `done=True`, but the code cannot distinguish a game-over terminal from a rollout-window truncation: when the fixed-size window closes mid-game (the common case, since games are variable-length and rarely align to the step budget), the last stored transition of every live `(env,seat)` chain is bootstrapped from 0 instead of from `V(next_obs)`. Its return (`returns = advantages + values`) collapses to just its own reward and its advantage to `r - V`, so both the advantage estimate and the critic's regression target for that transition are biased. No collection function (`collect_rollout`, `collect_rollout_vec`, `collect_self_play_rollout_vec`) computes a bootstrap value for the post-window observation; each starts from a fresh `vec_env.reset()`. This is a genuine deviation from standard PPO/GAE, but scoped: it zeroes ~`num_envs × learner_seats` tail transitions per rollout (order ~1% of the buffer), so it degrades rather than corrupts. **Better:** capture the value of the final `next_obs` per live `(env,seat)` at window close (one extra critic/actor forward on the last obs) and seed `last_value`/`last_done` from it for non-done tails; at minimum, document that this systematically zeroes the tail transitions and quantify the bias.
 

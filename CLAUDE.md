@@ -43,16 +43,18 @@ serving/
 inference/          PIMC (perfect-information Monte Carlo) — served as the "esperto" tier
 scripts/
   bc_then_rl.py     BC warm-start → PPO self-play pipeline (the strong recipe)
+  score_checkpoints.py  Mirrored held-out best.pt vs last.pt scoring
   elo_ladder.py     Cross-checkpoint Elo ranking CLI
   kaggle_run.py     Drive Kaggle GPU runs from the CLI (smoke-gated)
   watch_bots.py     Audit signal honesty (volo => void, busso => holds strength)
   gen_bot_fixtures.py  Regenerate serving/fixtures/bot_states.json
-  benchmark.py      Environment throughput benchmark
+  benchmark.py      Bare-engine and end-to-end rollout throughput benchmark
 docs/
   TRAINING_RUNBOOK.md  How to run + verify a training run (READ BEFORE A GPU RUN)
+  LONG_RUN_PLAN.md     Long-run readiness status, residual risks, and Run D protocol
   BOT_PLAY_DESIGN.md   Playing against the bots in the real UI
 checkpoints/        Saved model checkpoints (.pt files); best.pt = peak, final.pt = last
-tests/              292 tests (pytest); mirrors the modules above
+tests/              Pytest suite mirroring the modules above
 ```
 
 ## Game Engine (game.py)
@@ -127,15 +129,17 @@ wandb, entropy annealing, signal-honesty shaping, and `best.pt` tracking.
 
 Two things worth knowing before trusting any run's numbers:
 - **`best.pt` is the peak, `final.pt` is merely the last.** Self-play is non-monotone;
-  prefer whichever scores higher, and score the checkpoint file rather than reading the
-  final CSV row (rows after the last eval carry the previous value forward).
+  compare checkpoint files with `scripts.score_checkpoints` rather than reading the final
+  CSV row (rows after the last eval carry the previous value forward). Ship only a
+  pairing-aware definitive result.
 - **The `steps` column counts learner-team transitions, not env steps** — a team owns 2
   of 4 seats, so it reads ~half the simulated env steps. Units, not a bug.
 
 ```bash
 # Recommended: BC + PPO on the transformer (see scripts/kaggle_setup.md for GPU)
 python -m scripts.bc_then_rl --network-version 4 --bc-games 3000 \
-  --total-rl-steps 5000000 --num-envs 32 --win-points 5 --device cuda
+  --total-rl-steps 5000000 --num-envs 32 --wp-mix 5,41 \
+  --eval-win-points 41 --device cuda
 
 # With a meaningful signal channel (anneals the honesty term to 0 by mid-run)
 python -m scripts.bc_then_rl --network-version 4 --signal-honesty-coef 0.05 \
@@ -149,6 +153,16 @@ python -m training.trainer --curriculum --steps 100000000 --device mps
 
 # Resume across sessions (writes last.pt; --max-hours for Kaggle's 12h cap)
 python -m training.trainer --resume checkpoints/last.pt --steps 50000000 --max-hours 11
+
+# Kaggle Run D: preserve run ID, final target, and batch geometry across sessions
+python -m scripts.kaggle_run launch --preset rund --confirm-cost
+python -m scripts.kaggle_run pull -p checkpoints/kaggle-rund
+python -m scripts.kaggle_run push-state \
+  --from checkpoints/kaggle-rund --create -m "runD session 1"
+python -m scripts.kaggle_run launch --preset rund --resume-state --confirm-cost
+
+# Final checkpoint decision: ships only when the paired lead clears zero
+python -m scripts.score_checkpoints checkpoints/best.pt checkpoints/last.pt --games 1000
 
 # Without wandb (offline)
 python -m training.trainer --no-wandb --win-points 5 --steps 5000000
