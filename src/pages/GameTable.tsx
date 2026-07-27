@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,34 +12,18 @@ import SignalDialog from "@/components/SignalDialog";
 import ConnectionBanner from "@/components/ConnectionBanner";
 import PlayerSeat from "@/components/PlayerSeat";
 import TableCenter from "@/components/TableCenter";
-import PracticePanel, { RevealedHand } from "@/components/PracticePanel";
-import { MoveLogEntry } from "@/components/MoveLog";
+import PracticePanel from "@/components/PracticePanel";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { onPlayerLeft, offPlayerLeft } from "@/sockets/roomHandlers";
 import {
-  registerRoomHandlers,
-  leaveRoom,
-  onPlayerLeft,
-  offPlayerLeft,
-} from "@/sockets/roomHandlers";
-import {
-  getSocket,
   onConnectionStatusChange,
   getConnectionStatus,
-  registerErrorToast,
 } from "@/sockets/socketClient";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useGameTable, PlayerCard } from "@/hooks/useGameTable";
 import { normalizePlayer } from "@/lib/player";
-import type {
-  BriscolaChosenPayload,
-  RoundEndedPayload,
-  GameFinishedPayload,
-  TurnTimerStartedPayload,
-  AutoPlayedPayload,
-  PlayerKickedTimeoutPayload,
-  PlayerDisconnectedPayload,
-} from "@/sockets/events";
 
 type PlayerPosition = "bottom" | "top" | "left" | "right";
 
@@ -63,51 +47,6 @@ interface Room {
   players: Player[];
 }
 
-interface PlayerCard {
-  id: number;
-  suit: string;
-  value: string;
-  playerId: number;
-  roundId: number;
-  inHand: boolean;
-}
-
-interface PlayedCardData {
-  playerId: number;
-  userId: number;
-  suit: string;
-  value: string;
-  position: number;
-  signal?: string | null;
-  handNumber?: number;
-}
-
-// Shape of GET /games/:code/state (backend gameController.getGameState).
-interface GameStateResponse {
-  round: { id: number; number: number; briscola: string | null; cricca?: boolean };
-  currentHandNumber: number | null;
-  callerUserId: number | null;
-  myCards: PlayerCard[];
-  currentTurnUserId: number | null;
-  playedCards: PlayedCardData[];
-  lastHandCards: PlayedCardData[];
-  totalPoints: {
-    team0Points: number;
-    team1Points: number;
-    team0Figures: number;
-    team1Figures: number;
-  };
-  turnTimer: {
-    turnUserId: number;
-    remainingMs: number;
-    totalMs: number;
-    phase: string;
-  } | null;
-  isPractice: boolean;
-  allHands: RevealedHand[] | null;
-}
-
-
 const GameTable = () => {
   const { gameRoomCode } = useParams();
   const navigate = useNavigate();
@@ -117,119 +56,44 @@ const GameTable = () => {
   const [room, setRoom] = useState<Room | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [myPlayer, setMyPlayer] = useState<Player | null>(null);
+
+  const {
+    currentRound,
+    callerUserId,
+    myCards,
+    currentTurnUserId,
+    playedCards,
+    playableCards,
+    lastHand,
+    currentHandNumber,
+    totalPoints,
+    turnTimer,
+    currentSignal,
+    isPractice,
+    allHands,
+    moveLog,
+    roundEndData,
+    gameFinishedData,
+    dismissRoundEnd,
+    applyLocalBriscola,
+  } = useGameTable(gameRoomCode, userId, username, room?.players ?? []);
+
+  // Dialog state
   const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);
   const [lastTrickDialogOpen, setLastTrickDialogOpen] = useState(false);
-  const [currentRound, setCurrentRound] = useState<{
-    id: number;
-    number: number;
-    briscola: string | null;
-  } | null>(null);
-  const [callerUserId, setCallerUserId] = useState<number | null>(null);
-  const [myCards, setMyCards] = useState<PlayerCard[]>([]);
-  const [currentTurnUserId, setCurrentTurnUserId] = useState<number | null>(
-    null,
-  );
-  const [playedCards, setPlayedCards] = useState<PlayedCardData[]>([]);
-  const [playableCards, setPlayableCards] = useState<PlayerCard[]>([]);
-  const [lastHand, setLastHand] = useState<PlayedCardData[]>([]);
-  const [currentHandNumber, setCurrentHandNumber] = useState<number | null>(
-    null,
-  );
   const [roundEndDialogOpen, setRoundEndDialogOpen] = useState(false);
-  const [roundEndData, setRoundEndData] = useState<{
-    roundNumber: number;
-    team0Points: number;
-    team1Points: number;
-    team0Figures: number;
-    team1Figures: number;
-    winnerTeam: number;
-  } | null>(null);
-  const [totalPoints, setTotalPoints] = useState<{
-    team0Points: number;
-    team1Points: number;
-    team0Figures: number;
-    team1Figures: number;
-  }>({ team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 });
   const [gameFinishedDialogOpen, setGameFinishedDialogOpen] = useState(false);
-  const [gameFinishedData, setGameFinishedData] = useState<{
-    winnerTeam: number;
-    totalRounds: number;
-    finalScores: {
-      team0: number;
-      team1: number;
-    };
-    roundsWon: {
-      team0: number;
-      team1: number;
-    };
-  } | null>(null);
 
   // Signal dialog state (pending card waiting for signal choice)
   const [pendingCard, setPendingCard] = useState<PlayerCard | null>(null);
   const [signalDialogOpen, setSignalDialogOpen] = useState(false);
-  const [currentSignal, setCurrentSignal] = useState<{
-    userId: number;
-    signal: string;
-  } | null>(null);
 
-  // Turn timer state
-  const [turnTimer, setTurnTimer] = useState<{
-    turnUserId: number;
-    totalMs: number;
-    serverTimestamp: number;
-    phase: string;
-  } | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
-
-  // Connection status & play lock
   const [connectionStatus, setConnectionStatus] = useState<
     "connected" | "disconnected" | "reconnecting"
   >(getConnectionStatus());
   const [isPlayingCard, setIsPlayingCard] = useState(false);
-
-  // Practice-game diagnostics: the move log and revealed hands only exist when
-  // the SERVER says this is a practice room (see gameController.revealAllHands).
-  const [isPractice, setIsPractice] = useState(false);
-  const [allHands, setAllHands] = useState<RevealedHand[] | null>(null);
   const [handsRevealed, setHandsRevealed] = useState(false);
-  const [moveLog, setMoveLog] = useState<MoveLogEntry[]>([]);
-
-  // Refs for values needed in socket handlers without causing re-registration
-  const userIdRef = useRef<number | null>(null);
-  const gameRoomCodeRef = useRef<string | undefined>(undefined);
-  const playersRef = useRef<Player[]>([]);
-
-  useEffect(() => {
-    userIdRef.current = userId;
-  }, [userId]);
-
-  useEffect(() => {
-    gameRoomCodeRef.current = gameRoomCode;
-  }, [gameRoomCode]);
-
-  useEffect(() => {
-    playersRef.current = room?.players ?? [];
-  }, [room]);
-
-  /**
-   * Record a played card in the diagnostic log.
-   *
-   * Reads players from a ref so the socket handlers that call it don't have to
-   * re-register whenever the room object changes.
-   */
-  const appendToMoveLog = useCallback((data: PlayedCardData) => {
-    const player = playersRef.current.find((p) => p.userId === data.userId);
-    setMoveLog((prev) => [
-      ...prev,
-      {
-        handNumber: data.handNumber ?? null,
-        username: player?.username ?? `#${data.userId}`,
-        suit: data.suit,
-        value: data.value,
-        signal: data.signal ?? null,
-      },
-    ]);
-  }, []);
 
   // Carica i dati della stanza
   useEffect(() => {
@@ -277,174 +141,8 @@ const GameTable = () => {
     fetchRoom();
   }, [userId, gameRoomCode, navigate]);
 
-  // Carica stato del round (briscola, caller)
+  // Un giocatore che abbandona sparisce dalla stanza
   useEffect(() => {
-    if (!userId || !gameRoomCode) return;
-
-    const fetchGameState = async () => {
-      try {
-        const data = await apiGet<GameStateResponse>(`/games/${gameRoomCode}/state`);
-        setCurrentRound(data.round);
-        setCallerUserId(data.callerUserId);
-        setMyCards(data.myCards ?? []);
-        setCurrentTurnUserId(data.currentTurnUserId ?? null);
-        setPlayedCards(data.playedCards ?? []);
-        setLastHand(data.lastHandCards ?? []);
-        setCurrentHandNumber(data.currentHandNumber ?? null);
-        setTotalPoints(
-          data.totalPoints ?? {
-            team0Points: 0,
-            team1Points: 0,
-            team0Figures: 0,
-            team1Figures: 0,
-          },
-        );
-        setIsPractice(data.isPractice ?? false);
-        setAllHands(data.allHands ?? null);
-        // Apri il dialog automaticamente se sono io il caller e briscola non è ancora scelta
-        if (data.round.briscola === null && data.callerUserId === userId) {
-          setTrumpDialogOpen(true);
-        }
-      } catch (error) {
-        console.error("Error fetching game state:", error);
-      }
-    };
-
-    fetchGameState();
-  }, [userId, gameRoomCode]);
-
-  // Fetch carte giocabili quando è il mio turno
-  useEffect(() => {
-    if (!userId || !gameRoomCode || currentTurnUserId !== userId) {
-      setPlayableCards([]);
-      return;
-    }
-
-    const fetchPlayableCards = async () => {
-      try {
-        const data = await apiGet<{ playableCards?: PlayerCard[] }>(
-          `/games/playable-cards/${gameRoomCode}`,
-        );
-        setPlayableCards(data.playableCards ?? []);
-      } catch (error) {
-        console.error("Error fetching playable cards:", error);
-      }
-    };
-
-    fetchPlayableCards();
-  }, [currentTurnUserId, userId, gameRoomCode, currentRound?.briscola, playedCards.length, myCards.length]);
-
-  // Helper: refetch full game state from backend
-  const refetchGameState = useCallback(async () => {
-    const uid = userIdRef.current;
-    const code = gameRoomCodeRef.current;
-    if (!uid || !code) return;
-
-    try {
-      const data = await apiGet<GameStateResponse>(`/games/${code}/state`);
-      setCurrentRound(data.round);
-      setCallerUserId(data.callerUserId);
-      setMyCards(data.myCards ?? []);
-      setCurrentTurnUserId(data.currentTurnUserId ?? null);
-      setPlayedCards(data.playedCards ?? []);
-      setLastHand(data.lastHandCards ?? []);
-      setCurrentHandNumber(data.currentHandNumber ?? null);
-      setTotalPoints(
-        data.totalPoints ?? {
-          team0Points: 0,
-          team1Points: 0,
-          team0Figures: 0,
-          team1Figures: 0,
-        },
-      );
-
-      setIsPractice(data.isPractice ?? false);
-      setAllHands(data.allHands ?? null);
-
-      // Se sono il caller e briscola non è ancora scelta, apri il dialog
-      if (data.round?.briscola === null && data.callerUserId === uid) {
-        setTrumpDialogOpen(true);
-      }
-
-      // Fetch playable cards immediately if it's our turn
-      if (data.currentTurnUserId === uid && data.round?.briscola) {
-        const pcData = await apiGet<{ playableCards?: PlayerCard[] }>(
-          `/games/playable-cards/${code}`,
-        );
-        setPlayableCards(pcData.playableCards ?? []);
-      }
-
-      // Sync turn timer from server state (for reconnecting players)
-      if (data.turnTimer) {
-        setTurnTimer({
-          turnUserId: data.turnTimer.turnUserId,
-          totalMs: data.turnTimer.totalMs,
-          serverTimestamp:
-            Date.now() - (data.turnTimer.totalMs - data.turnTimer.remainingMs),
-          phase: data.turnTimer.phase,
-        });
-      } else {
-        setTurnTimer(null);
-      }
-    } catch (error) {
-      console.error("Error refetching game state:", error);
-    }
-  }, []);
-
-  // Gestione completamento mano (4 carte giocate) - refetch dopo 3 secondi
-  useEffect(() => {
-    if (playedCards.length !== 4) return;
-
-    const timer = setTimeout(() => {
-      refetchGameState();
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [playedCards.length, refetchGameState]);
-
-  // Countdown timer interval
-  useEffect(() => {
-    if (!turnTimer) {
-      setCountdown(null);
-      return;
-    }
-
-    const tick = () => {
-      const elapsed = Date.now() - turnTimer.serverTimestamp;
-      const remaining = Math.max(
-        0,
-        Math.ceil((turnTimer.totalMs - elapsed) / 1000),
-      );
-      setCountdown(remaining);
-    };
-
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [turnTimer]);
-
-  // Connection status tracking + refetch on reconnect
-  useEffect(() => {
-    const unsubscribe = onConnectionStatusChange((status) => {
-      setConnectionStatus(status);
-
-      // When socket reconnects, refetch state to catch any missed events
-      if (status === "connected") {
-        refetchGameState();
-      }
-    });
-
-    return unsubscribe;
-  }, [refetchGameState]);
-
-  // Gestione WebSocket: mantieni la connessione alla room durante la partita
-  // NOTE: Dependencies do NOT include `room` to avoid constant re-registration
-  useEffect(() => {
-    if (!userId || !username || !gameRoomCode) return;
-
-    // Register room handlers (joins socket room, sets up reconnect auto-rejoin)
-    registerRoomHandlers(gameRoomCode, { userId, username });
-
     const handlePlayerLeft = (leftUserId: number) => {
       toast.warning("Un giocatore ha abbandonato la partita");
       setRoom((prev) => {
@@ -457,124 +155,56 @@ const GameTable = () => {
     };
 
     onPlayerLeft(handlePlayerLeft);
-    const unsubscribeErrorToast = registerErrorToast();
+    return () => offPlayerLeft(handlePlayerLeft);
+  }, []);
 
-    const socket = getSocket();
+  // Il caller vede il dialog briscola finché non sceglie (il dialog non è
+  // chiudibile in altro modo, quindi ri-aprirlo a ogni cambio di stato è
+  // equivalente al vecchio open-on-fetch).
+  useEffect(() => {
+    if (currentRound?.briscola === null && callerUserId === userId) {
+      setTrumpDialogOpen(true);
+    }
+  }, [currentRound?.briscola, callerUserId, userId]);
 
-    const handleCardPlayed = (data: PlayedCardData) => {
-      // Clear countdown — new timer will arrive via turn_timer_started
-      setTurnTimer(null);
-
-      appendToMoveLog(data);
-
-      // Track signal declaration (only on first card of a trick)
-      if (data.signal) {
-        setCurrentSignal({ userId: data.userId, signal: data.signal });
-      } else if (data.position === 0) {
-        // New trick started without signal — clear previous
-        setCurrentSignal(null);
-      }
-
-      // If the card is mine, remove it from hand
-      if (data.userId === userIdRef.current) {
-        setMyCards((prev) =>
-          prev.filter(
-            (c) => !(c.suit === data.suit && c.value === data.value),
-          ),
-        );
-      }
-
-      // Optimistic update: add card to played cards
-      setPlayedCards((prev) => {
-        const next = [...prev, data];
-        // Only refetch immediately if hand is NOT complete (< 4 cards).
-        // For complete hands (4 cards), the dedicated 3-second timer handles
-        // the refetch, giving the backend time to create the new hand.
-        if (next.length < 4) {
-          setTimeout(() => refetchGameState(), 300);
-        }
-        return next;
-      });
-    };
-
-    const handleBriscolaChosen = (data: BriscolaChosenPayload) => {
-      setTurnTimer(null);
-      setCurrentRound((prev) => {
-        if (!prev) return prev;
-        return { ...prev, briscola: data.briscola };
-      });
-      // Refetch to get updated turn info
-      setTimeout(() => refetchGameState(), 300);
-    };
-
-    const handleRoundEnded = (data: RoundEndedPayload) => {
-      setRoundEndData({
-        roundNumber: data.roundNumber,
-        team0Points: data.team0.points,
-        team1Points: data.team1.points,
-        team0Figures: data.team0.figures,
-        team1Figures: data.team1.figures,
-        winnerTeam: data.winnerTeam,
-      });
+  useEffect(() => {
+    if (roundEndData) {
       setRoundEndDialogOpen(true);
-    };
+    }
+  }, [roundEndData]);
 
-    const handleNewRoundStarted = () => {
-      toast.success("Nuovo round iniziato!");
-      refetchGameState();
-    };
-
-    const handleGameFinished = (data: GameFinishedPayload) => {
-      setGameFinishedData(data);
+  useEffect(() => {
+    if (gameFinishedData) {
       setGameFinishedDialogOpen(true);
       setRoundEndDialogOpen(false);
       setTrumpDialogOpen(false);
+    }
+  }, [gameFinishedData]);
+
+  // Countdown timer interval. totalMs is null on bot turns — no deadline,
+  // so no countdown.
+  useEffect(() => {
+    if (!turnTimer || turnTimer.totalMs === null) {
+      setCountdown(null);
+      return;
+    }
+    const totalMs = turnTimer.totalMs;
+
+    const tick = () => {
+      const elapsed = Date.now() - turnTimer.serverTimestamp;
+      const remaining = Math.max(0, Math.ceil((totalMs - elapsed) / 1000));
+      setCountdown(remaining);
     };
 
-    // Handler for opponent disconnect notification
-    const handlePlayerDisconnected = (data: PlayerDisconnectedPayload) => {
-      toast.warning(`${data.username} si è disconnesso`);
-    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [turnTimer]);
 
-    const handleTurnTimerStarted = (data: TurnTimerStartedPayload) => {
-      setTurnTimer(data);
-    };
-
-    const handleAutoPlayed = (data: AutoPlayedPayload) => {
-      const playerName =
-        room?.players.find((p) => p.userId === data.userId)?.username ??
-        "Giocatore";
-      toast.info(`${playerName} ha giocato automaticamente (tempo scaduto)`);
-    };
-
-    const handlePlayerKickedTimeout = (data: PlayerKickedTimeoutPayload) => {
-      toast.warning(`${data.username} è stato rimosso per inattività`);
-    };
-
-    socket.on("card_played", handleCardPlayed);
-    socket.on("briscola_chosen", handleBriscolaChosen);
-    socket.on("round_ended", handleRoundEnded);
-    socket.on("new_round_started", handleNewRoundStarted);
-    socket.on("game_finished", handleGameFinished);
-    socket.on("player_disconnected", handlePlayerDisconnected);
-    socket.on("turn_timer_started", handleTurnTimerStarted);
-    socket.on("auto_played", handleAutoPlayed);
-    socket.on("player_kicked_timeout", handlePlayerKickedTimeout);
-
-    return () => {
-      offPlayerLeft(handlePlayerLeft);
-      unsubscribeErrorToast();
-      socket.off("card_played", handleCardPlayed);
-      socket.off("briscola_chosen", handleBriscolaChosen);
-      socket.off("round_ended", handleRoundEnded);
-      socket.off("new_round_started", handleNewRoundStarted);
-      socket.off("game_finished", handleGameFinished);
-      socket.off("player_disconnected", handlePlayerDisconnected);
-      socket.off("turn_timer_started", handleTurnTimerStarted);
-      socket.off("auto_played", handleAutoPlayed);
-      socket.off("player_kicked_timeout", handlePlayerKickedTimeout);
-    };
-  }, [userId, username, gameRoomCode, refetchGameState]);
+  // Connection status banner
+  useEffect(() => {
+    return onConnectionStatusChange(setConnectionStatus);
+  }, []);
 
   // Calcola le posizioni relative dei giocatori
   const getPlayersWithPositions = (): Player[] => {
@@ -689,7 +319,7 @@ const GameTable = () => {
         gameRoomId: room.id,
         suit,
       });
-      setCurrentRound((prev) => (prev ? { ...prev, briscola: suit } : prev));
+      applyLocalBriscola(suit);
       setTrumpDialogOpen(false);
       toast.success(`Briscola scelta: ${suit}`);
     } catch (error) {
@@ -986,7 +616,7 @@ const GameTable = () => {
           onOpenChange={(open) => {
             setRoundEndDialogOpen(open);
             if (!open) {
-              setRoundEndData(null);
+              dismissRoundEnd();
             }
           }}
           roundNumber={roundEndData.roundNumber}
