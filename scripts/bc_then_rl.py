@@ -60,6 +60,7 @@ from training.trainer import _apply_signal_honesty_coef, signal_honesty_schedule
 from training.vec_env import create_vec_env
 
 SECONDS_PER_HOUR = 3600
+RESUME_CONTRACT_FORMAT = 1
 
 
 def parse_args(argv: list[str] | None = None):
@@ -153,6 +154,11 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument("--nhead", type=int, default=4, help="V4 only.")
     p.add_argument("--dim-feedforward", type=int, default=256, help="V4 only.")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--run-id",
+        default=None,
+        help="Stable identity for a resumable run. Defaults to the output directory name.",
+    )
     p.add_argument("--out-dir", default="runs/bc_rl")
     p.add_argument("--bc-ckpt", default="checkpoints/bc_initial.pt")
     p.add_argument("--final-ckpt", default="checkpoints/bc_rl_final.pt")
@@ -300,6 +306,70 @@ def _resolve_anchors(args, resume_ckpt: dict | None, device: torch.device) -> li
     return None
 
 
+def _resume_contract(args, cfg: TrainConfig, net, critic) -> dict:
+    immutable_config = {
+        name: getattr(cfg, name)
+        for name in (
+            "num_envs",
+            "steps_per_env",
+            "win_points",
+            "eval_win_points",
+            "lr",
+            "gamma",
+            "gae_lambda",
+            "clip_eps",
+            "vf_coef",
+            "ent_coef",
+            "ent_coef_final",
+            "max_grad_norm",
+            "num_epochs",
+            "minibatch_size",
+            "target_kl",
+            "normalize_returns",
+            "total_timesteps",
+            "seed",
+            "p_latest_opponent",
+            "signal_honesty_coef",
+            "signal_honesty_coef_final",
+            "signal_honesty_frac",
+        )
+    }
+    critic_config = None
+    if critic is not None:
+        critic_config = {
+            "hidden_size": cfg.hidden_size,
+            "num_layers": cfg.num_layers,
+            "use_layer_norm": cfg.use_layer_norm,
+        }
+    return {
+        "format": RESUME_CONTRACT_FORMAT,
+        "run_id": args.run_id or Path(args.out_dir).name,
+        "net_config": dict(net.config),
+        "critic_config": critic_config,
+        "train_config": immutable_config,
+        "pool_save_every": args.pool_save_every,
+        "anchor_bc": args.anchor_bc,
+        "eval_every": args.eval_every,
+        "eval_games": args.eval_games,
+    }
+
+
+def _validate_resume_contract(checkpoint: dict, current: dict) -> None:
+    saved = checkpoint.get("resume_contract")
+    if saved is None:
+        return
+    if saved == current:
+        return
+    differing = sorted(
+        key for key in saved.keys() | current.keys() if saved.get(key) != current.get(key)
+    )
+    raise SystemExit(
+        "resume configuration differs from checkpoint for: "
+        + ", ".join(differing)
+        + ". Resume must keep the original run definition."
+    )
+
+
 def phase1_bc(args, device) -> torch.nn.Module:
     """Either load a saved BC ckpt, train a new one, or skip BC entirely."""
     if args.bc_load:
@@ -403,6 +473,10 @@ def phase2_rl(args, device, net, resume_ckpt=None):
         seed=args.seed,
         p_latest_opponent=args.p_latest_opponent,
         network_version=args.network_version,
+        d_model=args.d_model,
+        nhead=args.nhead,
+        dim_feedforward=args.dim_feedforward,
+        centralized_critic=args.centralized_critic,
         signal_honesty_coef=args.signal_honesty_coef,
         signal_honesty_coef_final=args.signal_honesty_coef_final,
         signal_honesty_frac=args.signal_honesty_frac,
@@ -496,6 +570,9 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     # resumed run inherits the previous session's bar, or its first mediocre eval
     # would overwrite a better best.pt.
     best_wr_heur, best_update = resumed_best
+    contract = _resume_contract(args, cfg, net, critic)
+    if resume_ckpt is not None:
+        _validate_resume_contract(resume_ckpt, contract)
 
     if start_update > cfg.total_updates:
         raise SystemExit(
@@ -526,6 +603,8 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             "best_wr_heuristic": best_wr_heur,
             "best_update": best_update,
             "anchors": pool.anchors,
+            "run_id": contract["run_id"],
+            "resume_contract": contract,
         }
         if critic is not None:
             extra["critic"] = critic.state_dict()

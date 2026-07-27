@@ -15,7 +15,13 @@ import torch
 
 from becca_env.observation import FULL_STATE_SIZE
 from scripts import bc_then_rl
-from scripts.bc_then_rl import _load_resume_components, _resolve_anchors, parse_args, phase2_rl
+from scripts.bc_then_rl import (
+    _load_resume_components,
+    _resolve_anchors,
+    _validate_resume_contract,
+    parse_args,
+    phase2_rl,
+)
 from training.checkpoint import load_checkpoint, rng_state, save_checkpoint
 from training.config import TrainConfig
 from training.network import CentralizedCritic, create_network
@@ -125,13 +131,21 @@ def test_rl_phase_resume_continues(tmp_path, monkeypatch):
         return create_vec_env(**kwargs)
 
     monkeypatch.setattr(bc_then_rl, "create_vec_env", capture_seed)
-    a = _args(tmp_path, centralized_critic=True)
+    a = _args(
+        tmp_path,
+        centralized_critic=True,
+        total_rl_steps=4096,
+        max_hours=0.0,
+    )
     phase2_rl(a, torch.device("cpu"), _fresh_net(a))
     first_checkpoint = load_checkpoint(tmp_path / "last.pt")
     first = first_checkpoint["update"]
 
     a2 = _args(
-        tmp_path, centralized_critic=True, total_rl_steps=4096, resume=str(tmp_path / "last.pt")
+        tmp_path,
+        centralized_critic=True,
+        total_rl_steps=4096,
+        resume=str(tmp_path / "last.pt"),
     )
     phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))
     second = load_checkpoint(tmp_path / "last.pt")["update"]
@@ -144,6 +158,21 @@ def test_rl_phase_resume_continues(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match=r"already at update .* this run is complete"):
         phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))
     assert len(seeds) == 2, "completed resume should fail before creating vector envs"
+
+
+def test_resume_contract_rejects_run_identity_or_schedule_changes():
+    saved = {
+        "run_id": "runD",
+        "train_config": {"total_timesteps": 60_000_000},
+    }
+    with pytest.raises(SystemExit, match=r"run_id, train_config"):
+        _validate_resume_contract(
+            {"resume_contract": saved},
+            {
+                "run_id": "runE",
+                "train_config": {"total_timesteps": 90_000_000},
+            },
+        )
 
 
 def test_centralized_critic_requires_vec(tmp_path):
