@@ -513,9 +513,13 @@ def phase2_rl(args, device, net, resume_ckpt=None):
         )
 
     if start_update > cfg.total_updates:
-        print("RL phase already complete for this --total-rl-steps; nothing to do.")
         vec.close()
-        return
+        raise SystemExit(
+            f"resume checkpoint is already at update {start_update - 1} of "
+            f"{cfg.total_updates}: this run is complete. Extending it requires a "
+            "larger --total-rl-steps and reshapes the LR, entropy, and signal "
+            "schedules; prefer starting a new run from this checkpoint."
+        )
 
     for update in range(start_update, cfg.total_updates + 1):
         frac = (update - 1) / max(cfg.total_updates - 1, 1)

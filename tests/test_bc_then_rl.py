@@ -111,6 +111,9 @@ def test_rl_phase_resume_continues(tmp_path):
     second = load_checkpoint(tmp_path / "last.pt")["update"]
     assert second > first, "resume did not advance the update count"
 
+    with pytest.raises(SystemExit, match=r"already at update .* this run is complete"):
+        phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))
+
 
 def test_centralized_critic_requires_vec(tmp_path):
     import torch
@@ -204,7 +207,8 @@ def test_rl_resume_restores_checkpoint_rng(tmp_path, monkeypatch):
         total_rl_steps=2048,
     )
     args._explicit_options = {"--resume", "--centralized-critic"}
-    phase2_rl(args, torch.device("cpu"), _fresh_net(args))
+    with pytest.raises(SystemExit, match="this run is complete"):
+        phase2_rl(args, torch.device("cpu"), _fresh_net(args))
 
     assert len(restored) == 1
     assert restored[0]["python"] == checkpoint["rng"]["python"]

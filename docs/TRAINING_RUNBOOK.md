@@ -138,16 +138,23 @@ Why 0.05: a round-end reward spans ±1, so an honest signal is worth ~1/20 of a
 round's swing — small enough that farming honesty bonuses can never beat winning
 points.
 
-Resuming across Kaggle's 12h session cap:
+Set the final step target in session 1. Every resumed session must use that same
+`--total-rl-steps`, `--num-envs`, and `--steps-per-env`; those values define the
+LR, entropy, and signal schedules.
 
 ```bash
-python -m scripts.kaggle_run launch --preset runc --confirm-cost \
-  --resume /kaggle/input/<dataset>/checkpoints/last.pt
+# Session 1 and every resume use the same final target.
+python -m scripts.kaggle_run launch --preset runc \
+  --total-rl-steps 60000000 --confirm-cost
+
+python -m scripts.kaggle_run launch --preset runc \
+  --total-rl-steps 60000000 --resume /kaggle/input/<dataset>/checkpoints/last.pt \
+  --confirm-cost
 ```
 
-⚠️ Resume rebuilds the network from **CLI flags, not the checkpoint**, so a resume
-must repeat the architecture flags exactly or it crashes (or silently drops the
-critic). The presets already carry them; hand-rolled resumes are the risk.
+Resume rebuilds the policy and critic from the checkpoint stamps. Explicit
+architecture flags are accepted only when they match. Resuming a completed target
+is a hard error instead of a successful no-op.
 
 ## 5. Verifying a smoke run before spending hours
 
