@@ -343,13 +343,6 @@ def render_kernel_script(spec: RunSpec) -> str:
         "os.makedirs(os.path.dirname(FINAL_CKPT), exist_ok=True)\n"
         f"SMOKE_BENCHMARK_ENVS = {SMOKE_BENCHMARK_ENVS!r}\n"
         f"SMOKE_BENCHMARK_SECONDS = {SMOKE_BENCHMARK_SECONDS!r}\n"
-        "if EXPECTED_RUN_ID == 'smoke' and '--resume' not in FLAGS:\n"
-        "    subprocess.check_call([\n"
-        "        sys.executable, '-m', 'scripts.benchmark', '--sweep-envs',\n"
-        "        ','.join(str(value) for value in SMOKE_BENCHMARK_ENVS),\n"
-        "        '--seconds', str(SMOKE_BENCHMARK_SECONDS), '--win-points', '5',\n"
-        "        '--include-full-obs',\n"
-        "    ])\n"
         # The generated kernel guards against Kaggle's stock torch build
         # mismatching the session GPU arch ('no kernel image is available'): it
         # verifies CUDA can actually run a kernel and falls back to CPU if not,
@@ -366,6 +359,14 @@ def render_kernel_script(spec: RunSpec) -> str:
         "        return False\n"
         "if '--device' in FLAGS and not _cuda_ok():\n"
         "    FLAGS[FLAGS.index('--device') + 1] = 'cpu'\n"
+        "if EXPECTED_RUN_ID == 'smoke' and '--resume' not in FLAGS:\n"
+        "    benchmark_device = FLAGS[FLAGS.index('--device') + 1]\n"
+        "    subprocess.check_call([\n"
+        "        sys.executable, '-m', 'scripts.benchmark', '--sweep-envs',\n"
+        "        ','.join(str(value) for value in SMOKE_BENCHMARK_ENVS),\n"
+        "        '--seconds', str(SMOKE_BENCHMARK_SECONDS), '--win-points', '5',\n"
+        "        '--include-full-obs', '--device', benchmark_device,\n"
+        "    ])\n"
         "subprocess.check_call([sys.executable, '-m', 'scripts.bc_then_rl'] + FLAGS)\n"
     )
 
