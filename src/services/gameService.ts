@@ -2,6 +2,7 @@
 // This file can be used to implement game-related business logic
 // that can be reused across different controllers or parts of the application.
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { determineHandWinner } from "../utils/determineHandWinner";
 import { computePoints } from "../utils/computePoints";
@@ -163,7 +164,11 @@ function shuffleDeck<T>(deck: T[]): T[] {
   return out;
 }
 
-export async function setupRound(gameRoomId: number, roundNumber: number) {
+export async function setupRound(
+  gameRoomId: number,
+  roundNumber: number,
+  tx?: Prisma.TransactionClient,
+) {
   /**
    * Funzione che fa il setup di un round di gioco.
    *
@@ -172,12 +177,25 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
    *
    * @param gameRoomId ID della room di gioco
    * @param roundNumber Numero del round (1, 2, 3, ...)
+   * @param tx Client di transazione opzionale: se fornito le scritture vi
+   *   partecipano; altrimenti la funzione apre una propria transazione.
    * @return void
    *
    */
+  return tx
+    ? setupRoundTx(tx, gameRoomId, roundNumber)
+    : prisma.$transaction((client) =>
+        setupRoundTx(client, gameRoomId, roundNumber),
+      );
+}
 
+async function setupRoundTx(
+  tx: Prisma.TransactionClient,
+  gameRoomId: number,
+  roundNumber: number,
+) {
   //^ Prendi i player nella room (usando gameRoomId)
-  const players = await prisma.player.findMany({
+  const players = await tx.player.findMany({
     where: { gameRoomId },
     orderBy: { seat: "asc" },
   });
@@ -204,7 +222,7 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
     ];
 
     for (let seat = 0; seat < 4; seat++) {
-      await prisma.player.update({
+      await tx.player.update({
         where: { id: seatAssignments[seat].id },
         data: { seat },
       });
@@ -212,7 +230,7 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
   }
 
   //^ Prendi il round precedente (se esiste) per determinare lo starter se non è il primo round
-  const previousRound = await prisma.round.findFirst({
+  const previousRound = await tx.round.findFirst({
     where: { gameRoomId, number: roundNumber - 1 },
     include: { hands: { orderBy: { number: "asc" } } },
   });
@@ -222,7 +240,7 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
   let starterId: number;
 
   //^ 1. Crea il round utilizzando il nuovo Round Number
-  const round = await prisma.round.create({
+  const round = await tx.round.create({
     data: {
       number: newRoundNumber,
       briscola: null,
@@ -249,7 +267,7 @@ export async function setupRound(gameRoomId: number, roundNumber: number) {
       playerWithQuattroDenara = playerId;
     }
 
-    await prisma.playerCard.createMany({
+    await tx.playerCard.createMany({
       data: handCards.map((card) => ({
         playerId: playerId,
         suit: card.suit,
@@ -523,26 +541,28 @@ async function playCardUnlocked({
 
   if (!playerCard) throw new Error("Player does not have this card");
 
-  //^ 5. Rimuovi la carta dalla mano del giocatore e aggiungila alle carte giocate
-  await prisma.playerCard.delete({
-    where: {
-      id: playerCard.id,
-    },
-  });
-
   // Only the trick leader (position 0) can declare a signal
   const validSignal =
     playedCards.length === 0 && signal ? signal : null;
 
-  const played = await prisma.playedCard.create({
-    data: {
-      handId: currentHand.id,
-      playerId: player.id,
-      suit,
-      value,
-      position: playedCards.length,
-      signal: validSignal,
-    },
+  //^ 5. Rimuovi la carta dalla mano del giocatore e aggiungila alle carte giocate
+  const played = await prisma.$transaction(async (tx) => {
+    await tx.playerCard.delete({
+      where: {
+        id: playerCard.id,
+      },
+    });
+
+    return tx.playedCard.create({
+      data: {
+        handId: currentHand.id,
+        playerId: player.id,
+        suit,
+        value,
+        position: playedCards.length,
+        signal: validSignal,
+      },
+    });
   });
 
   // Notifica tramite websocket la carta giocata
@@ -595,21 +615,20 @@ async function playCardUnlocked({
       currentRound.briscola,
     );
 
-    await prisma.hand.update({
-      where: { id: currentHand.id },
-      data: {
-        winnerId: winnerPlayerId,
-      },
-    });
-
     //^ Se la mano non era l'ultima del round, crea una nuova mano
     if (currentHand.number < 10) {
-      const newHand = await prisma.hand.create({
-        data: {
-          roundId: currentRound.id,
-          number: currentHand.number + 1,
-          starterId: winnerPlayerId, // La nuova mano parte da chi ha preso quella prima
-        },
+      await prisma.$transaction(async (tx) => {
+        await tx.hand.update({
+          where: { id: currentHand.id },
+          data: { winnerId: winnerPlayerId },
+        });
+        await tx.hand.create({
+          data: {
+            roundId: currentRound.id,
+            number: currentHand.number + 1,
+            starterId: winnerPlayerId, // La nuova mano parte da chi ha preso quella prima
+          },
+        });
       });
 
       // Start timer for the trick winner (who starts the new hand)
@@ -683,16 +702,73 @@ async function playCardUnlocked({
         }
       }
 
-      // Aggiorna il round con i punti
-      await prisma.round.update({
-        where: { id: currentRound.id },
-        data: {
+      // Calcola i punteggi totali di tutti i round completati. Il round corrente
+      // non è ancora scritto (l'update avviene nella transazione sotto), quindi
+      // lo aggiungiamo in memoria con i punteggi appena calcolati.
+      const previousCompletedRounds = await prisma.round.findMany({
+        where: {
+          gameRoomId: room.id,
+          winnerTeam: { not: null },
+        },
+        select: {
+          team0Points: true,
+          team1Points: true,
+          team0Figures: true,
+          team1Figures: true,
+          winnerTeam: true,
+        },
+      });
+      const allCompletedRounds = [
+        ...previousCompletedRounds,
+        {
           team0Points: scores.team0.points,
           team1Points: scores.team1.points,
           team0Figures: scores.team0.figures,
           team1Figures: scores.team1.figures,
           winnerTeam,
         },
+      ];
+
+      const total = cumulativeScore(allCompletedRounds);
+      const totalTeam0Points = total.team0.points;
+      const totalTeam1Points = total.team1.points;
+
+      // Il caller (chi ha scelto briscola) ha guidato la prima mano del round.
+      const callerTeam = teamPlayers[allHands[0].starterId];
+
+      // Controlla se una squadra ha raggiunto la soglia di punti per vincere
+      const finalWinnerTeam = decideGameWinner(
+        total,
+        GAME_WIN_POINTS,
+        callerTeam,
+      );
+
+      let newCallerPlayerId: number | null = null;
+      await prisma.$transaction(async (tx) => {
+        await tx.hand.update({
+          where: { id: currentHand.id },
+          data: { winnerId: winnerPlayerId },
+        });
+        await tx.round.update({
+          where: { id: currentRound.id },
+          data: {
+            team0Points: scores.team0.points,
+            team1Points: scores.team1.points,
+            team0Figures: scores.team0.figures,
+            team1Figures: scores.team1.figures,
+            winnerTeam,
+          },
+        });
+        if (finalWinnerTeam !== null) {
+          await tx.gameRoom.update({
+            where: { id: room.id },
+            data: { finished: true },
+          });
+        } else {
+          newCallerPlayerId = (
+            await setupRound(room.id, currentRound.number + 1, tx)
+          ).callerPlayerId;
+        }
       });
 
       // Notifica via socket il termine del round con i punteggi
@@ -724,42 +800,7 @@ async function playCardUnlocked({
         "round_ended",
       );
 
-      // Calcola i punteggi totali di tutti i round completati
-      const allCompletedRounds = await prisma.round.findMany({
-        where: {
-          gameRoomId: room.id,
-          winnerTeam: { not: null },
-        },
-        select: {
-          team0Points: true,
-          team1Points: true,
-          team0Figures: true,
-          team1Figures: true,
-          winnerTeam: true,
-        },
-      });
-
-      const total = cumulativeScore(allCompletedRounds);
-      const totalTeam0Points = total.team0.points;
-      const totalTeam1Points = total.team1.points;
-
-      // Il caller (chi ha scelto briscola) ha guidato la prima mano del round.
-      const callerTeam = teamPlayers[allHands[0].starterId];
-
-      // Controlla se una squadra ha raggiunto la soglia di punti per vincere
-      const finalWinnerTeam = decideGameWinner(
-        total,
-        GAME_WIN_POINTS,
-        callerTeam,
-      );
-
       if (finalWinnerTeam !== null) {
-        // Segna la partita come finita
-        await prisma.gameRoom.update({
-          where: { id: room.id },
-          data: { finished: true },
-        });
-
         // Calcola statistiche aggiuntive
         const totalRounds = allCompletedRounds.length;
         const team0Wins = allCompletedRounds.filter(
@@ -794,12 +835,6 @@ async function playCardUnlocked({
 
         clearRoomTimerData(roomCode);
       } else {
-        // Crea il nuovo round
-        const { callerPlayerId: newCallerPlayerId } = await setupRound(
-          room.id,
-          currentRound.number + 1,
-        );
-
         // Notifica il nuovo round
         io.to(roomCode).emit("new_round_started", {
           roundNumber: currentRound.number + 1,
