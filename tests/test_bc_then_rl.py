@@ -8,6 +8,7 @@ already-complete resume — not learning.
 from __future__ import annotations
 
 import argparse
+import csv
 
 import pytest
 import torch
@@ -119,6 +120,9 @@ def test_rl_phase_resume_continues(tmp_path):
     phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))
     second = load_checkpoint(tmp_path / "last.pt")["update"]
     assert second > first, "resume did not advance the update count"
+    rows = list(csv.DictReader((tmp_path / "run" / "metrics.csv").open()))
+    assert [int(row["update"]) for row in rows] == list(range(1, second + 1))
+    assert (tmp_path / "run" / "metrics.csv").read_text().count("phase,update,") == 1
 
     with pytest.raises(SystemExit, match=r"already at update .* this run is complete"):
         phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))

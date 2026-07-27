@@ -405,26 +405,28 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     csv_path = out / "metrics.csv"
-    with csv_path.open("w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(
-            [
-                "phase",
-                "update",
-                "steps",
-                "games",
-                "sps",
-                "policy_loss",
-                "value_loss",
-                "entropy",
-                "approx_kl",
-                "explained_variance",
-                "mean_reward",
-                "opponent_source",
-                "wr_random",
-                "wr_heuristic",
-            ]
-        )
+    new_csv = not csv_path.exists() or csv_path.stat().st_size == 0
+    if new_csv:
+        with csv_path.open("a", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(
+                [
+                    "phase",
+                    "update",
+                    "steps",
+                    "games",
+                    "sps",
+                    "policy_loss",
+                    "value_loss",
+                    "entropy",
+                    "approx_kl",
+                    "explained_variance",
+                    "mean_reward",
+                    "opponent_source",
+                    "wr_random",
+                    "wr_heuristic",
+                ]
+            )
 
     # Centralized (CTDE) critic — value head over the full state. Its params
     # join the actor's under one optimizer, mirroring training/trainer.py.
