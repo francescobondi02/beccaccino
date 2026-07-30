@@ -35,8 +35,8 @@ src/
     lobbyHandlers.ts    Lobby socket events: room_created, room_updated, room_full, room_deleted
     roomHandlers.ts     Room socket events: join, leave, team, ready, game start
   hooks/
-    use-mobile.tsx      Responsive breakpoint hook
-    use-toast.ts        Toast hook
+    useAuth.ts          Authentication state and actions
+    useGameTable.ts     Game table state and socket coordination
   lib/
     utils.ts            cn() utility for Tailwind class merging
   assets/               Static images used in components

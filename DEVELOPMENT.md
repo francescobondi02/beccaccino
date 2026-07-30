@@ -35,7 +35,7 @@ The dev server runs at **http://localhost:8081**.
 frontend/
 ├── src/
 │   ├── main.tsx                # React entry point
-│   ├── App.tsx                 # Router + providers (QueryClient, Tooltip, Toaster)
+│   ├── App.tsx                 # Router + providers (QueryClient, Tooltip, Sonner)
 │   ├── pages/
 │   │   ├── Index.tsx           # Home/lobby page (login, room list, create/join)
 │   │   ├── GameRoom.tsx        # Waiting room (team pick, ready up)
@@ -56,8 +56,8 @@ frontend/
 │   │   ├── lobbyHandlers.ts    # Lobby events (room_created, room_updated, etc.)
 │   │   └── roomHandlers.ts     # Room events (player_joined, team_chosen, etc.)
 │   ├── hooks/
-│   │   ├── use-mobile.tsx      # Responsive breakpoint hook
-│   │   └── use-toast.ts        # Toast notification system
+│   │   ├── useAuth.ts          # Authentication state and actions
+│   │   └── useGameTable.ts     # Game table state and socket coordination
 │   └── lib/
 │       └── utils.ts            # cn() utility (clsx + tailwind-merge)
 ├── public/
