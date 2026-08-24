@@ -9,6 +9,7 @@ import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { logger } from "../logger";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
+import { withRoomLock } from "../utils/roomLock";
 
 // Interfacce per gli eventi
 interface JoinRoomData {
@@ -136,49 +137,64 @@ export function registerRoomSocket(socket: Socket, io: Server) {
     }
 
     try {
-      if (![0, 1].includes(team)) {
-        socket.emit("error", { message: "Invalid team" });
-        return;
-      }
+      await withRoomLock(roomCode, async () => {
+        if (![0, 1].includes(team)) {
+          socket.emit("error", { message: "Invalid team" });
+          return;
+        }
 
-      const room = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: { players: true },
-      });
-
-      if (!room) {
-        socket.emit("error", { message: "Room not found" });
-        return;
-      }
-
-      const player = room.players.find((p) => p.userId === userId);
-      if (!player) {
-        socket.emit("error", { message: "Player not found" });
-        return;
-      }
-
-      if (player.isReady) {
-        socket.emit("error", {
-          message: "Non puoi cambiare team dopo esserti messo pronto",
+        const room = await prisma.gameRoom.findUnique({
+          where: { code: roomCode },
+          include: { players: true },
         });
-        return;
-      }
 
-      const teamCount = room.players.filter((p) => p.team === team).length;
-      if (teamCount >= 2) {
-        socket.emit("error", { message: "Team is full" });
-        return;
-      }
+        if (!room) {
+          socket.emit("error", { message: "Room not found" });
+          return;
+        }
 
-      await prisma.player.update({
-        where: { id: player.id },
-        data: { team },
-      });
+        const player = room.players.find(
+          (candidate) => candidate.userId === userId,
+        );
+        if (!player) {
+          socket.emit("error", { message: "Player not found" });
+          return;
+        }
 
-      io.to(roomCode).emit("team_chosen", {
-        userId,
-        playerId: player.id,
-        team,
+        if (player.team === team) return;
+
+        if (room.started) {
+          socket.emit("error", {
+            message: "Cannot change team after the game has started",
+          });
+          return;
+        }
+
+        if (player.isReady) {
+          socket.emit("error", {
+            message: "Non puoi cambiare team dopo esserti messo pronto",
+          });
+          return;
+        }
+
+        const teamCount = room.players.filter(
+          (candidate) => candidate.team === team,
+        ).length;
+        if (teamCount >= 2) {
+          socket.emit("error", { message: "Team is full" });
+          return;
+        }
+
+        await prisma.player.update({
+          where: { id: player.id },
+          data: { team },
+        });
+
+        io.to(roomCode).emit("team_chosen", {
+          userId,
+          playerId: player.id,
+          team,
+        });
       });
     } catch (error) {
       Sentry.captureException(error, {

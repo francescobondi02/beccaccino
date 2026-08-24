@@ -6,8 +6,9 @@ Node 24, TypeScript, Express 5. Stateful WebSocket server for real-time card gam
 
 ```
 src/
-  index.ts              Entry point: HTTP server + Socket.IO setup + JWT socket auth
-  app.ts                Express app: CORS, helmet, cookieParser, routes
+  index.ts              Process entry: env validation, listen, metrics, shutdown
+  server.ts             HTTP + Socket.IO factory: JWT auth, IP admission, handlers
+  app.ts                Express app: middleware, routes, health/readiness probes
   db.ts                 Prisma client singleton
   socketInstance.ts     Global io getter/setter (used by services to emit events)
   controllers/
@@ -41,7 +42,7 @@ prisma/
   migrations/           7 migrations (init → indexes → signal column)
 tests/
   unit/                 Pure logic: computePoints, determineHandWinner, roomCode, chat sanitization
-  integration/          Full API tests with real DB: users, rooms, game flow, concurrency, sockets
+  integration/          Full API tests with real DB plus production server/socket tests
   helpers/              Shared: setupGame, oneRound, clearDatabase
   loadTestEnv.ts        Overrides DATABASE_URL to becca_test before Prisma loads
   setup.ts              Mocks socket.io, sets NODE_ENV=test
@@ -68,10 +69,10 @@ tests/
 ### Auth
 - Cookie name: `authToken`, httpOnly, 7-day expiry
 - Production: `secure: true`, `sameSite: 'strict'` (same-origin) or `'none'` (cross-origin)
-- Socket.IO: extracts cookie from `socket.handshake.headers.cookie`, verifies JWT, attaches `socket.data.user`
+- `createServer()` applies Socket.IO JWT auth before per-IP admission, then attaches verified identity to `socket.data.user`
 
 ### Database Notes
-- Player has unique constraint on `[gameRoomId, seat]`
+- Player has unique constraints on `[gameRoomId, seat]` and `[gameRoomId, userId]`
 - PlayedCard.signal: nullable string ("striscio"|"busso"|"volo"|null), only set for trick leader (position 0)
 - Indexes on all foreign keys (added in migration 20260517190703)
 - `binaryTargets` includes `linux-musl-arm64-openssl-3.0.x` for Docker Alpine

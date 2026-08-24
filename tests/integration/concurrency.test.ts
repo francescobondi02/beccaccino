@@ -218,3 +218,82 @@ describe("Concurrent join-room requests", () => {
     expect(room!.players.length).toBe(4);
   });
 });
+
+async function setupTeamRace() {
+  const usernames = ["teamA", "teamB", "teamC", "teamD"];
+  const userIds: number[] = [];
+  for (const username of usernames) {
+    const response = await api()
+      .post("/api/users/register")
+      .send({ username, password: "test123" });
+    userIds.push(response.body.id);
+  }
+
+  const created = await apiAs(userIds[0], usernames[0])
+    .post("/api/rooms")
+    .send({});
+  const roomCode = created.body.code;
+  for (let index = 1; index < userIds.length; index++) {
+    await apiAs(userIds[index], usernames[index])
+      .post("/api/rooms/join")
+      .send({ roomCode });
+  }
+  return { roomCode, userIds, usernames };
+}
+
+describe("Concurrent choose-team requests", () => {
+  it("allows only one concurrent third member onto a team", async () => {
+    const { roomCode, userIds, usernames } = await setupTeamRace();
+    await apiAs(userIds[0], usernames[0])
+      .post(`/api/rooms/${roomCode}/choose-team`)
+      .send({ team: 0 });
+
+    const responses = await Promise.all([
+      apiAs(userIds[1], usernames[1])
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ team: 0 }),
+      apiAs(userIds[2], usernames[2])
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ team: 0 }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([
+      200, 400,
+    ]);
+    expect(
+      await prisma.player.count({
+        where: { gameRoom: { code: roomCode }, team: 0 },
+      }),
+    ).toBe(2);
+  });
+
+  it("keeps capacity when a switch races an unassigned player", async () => {
+    const { roomCode, userIds, usernames } = await setupTeamRace();
+    for (const index of [0, 1]) {
+      await apiAs(userIds[index], usernames[index])
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ team: 0 });
+    }
+    await apiAs(userIds[2], usernames[2])
+      .post(`/api/rooms/${roomCode}/choose-team`)
+      .send({ team: 1 });
+
+    const responses = await Promise.all([
+      apiAs(userIds[0], usernames[0])
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ team: 1 }),
+      apiAs(userIds[3], usernames[3])
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .send({ team: 1 }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([
+      200, 400,
+    ]);
+    expect(
+      await prisma.player.count({
+        where: { gameRoom: { code: roomCode }, team: 1 },
+      }),
+    ).toBe(2);
+  });
+});

@@ -52,8 +52,9 @@ npm run dev
 ```
 backend/
 ├── src/
-│   ├── index.ts            # Server entry: HTTP + Socket.IO + auth middleware
-│   ├── app.ts              # Express app (CORS, routes, middleware)
+│   ├── index.ts            # Process entry: env, listen, metrics, shutdown
+│   ├── server.ts           # HTTP + Socket.IO factory, auth and IP admission
+│   ├── app.ts              # Express app, routes, health/readiness probes
 │   ├── db.ts               # Prisma client singleton
 │   ├── socketInstance.ts    # Socket.IO singleton (get/set)
 │   ├── controllers/        # Request handlers

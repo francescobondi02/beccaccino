@@ -200,6 +200,51 @@ describe("Room API", () => {
       expect(res.statusCode).toBe(400);
       expect(res.body.error).toMatch(/full/i);
     });
+
+    it("treats a same-team retry as a successful no-op", async () => {
+      const users = await Promise.all(
+        ["retryA", "retryB"].map((name) => createUser(name)),
+      );
+      const created = await apiAs(users[0].id, users[0].username)
+        .post("/api/rooms")
+        .send({});
+      await apiAs(users[1].id, users[1].username)
+        .post("/api/rooms/join")
+        .send({ roomCode: created.body.code });
+      for (const user of users) {
+        await apiAs(user.id, user.username)
+          .post(`/api/rooms/${created.body.code}/choose-team`)
+          .send({ team: 0 });
+      }
+
+      const retry = await apiAs(users[0].id, users[0].username)
+        .post(`/api/rooms/${created.body.code}/choose-team`)
+        .send({ team: 0 });
+
+      expect(retry.statusCode).toBe(200);
+      expect(retry.body.player.team).toBe(0);
+    });
+
+    it("rejects changing team after the game has started", async () => {
+      const user = await createUser("startedPlayer");
+      const created = await apiAs(user.id, user.username)
+        .post("/api/rooms")
+        .send({});
+      await apiAs(user.id, user.username)
+        .post(`/api/rooms/${created.body.code}/choose-team`)
+        .send({ team: 0 });
+      await prisma.gameRoom.update({
+        where: { code: created.body.code },
+        data: { started: true },
+      });
+
+      const response = await apiAs(user.id, user.username)
+        .post(`/api/rooms/${created.body.code}/choose-team`)
+        .send({ team: 1 });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.body.error).toMatch(/started/i);
+    });
   });
 
   describe("POST /api/rooms/:roomCode/ready", () => {

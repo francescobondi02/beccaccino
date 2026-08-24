@@ -12,6 +12,7 @@ import userRouter from "./routes/users";
 import roomRouter from "./routes/rooms";
 import gameRouter from "./routes/games";
 import { logger } from "./logger";
+import { prisma } from "./db";
 
 dotenv.config();
 
@@ -70,6 +71,21 @@ if (process.env.NODE_ENV === "test") {
 app.use("/api/users", userRouter);
 app.use("/api/rooms", roomRouter);
 app.use("/api/games", gameRouter);
+
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+app.get("/ready", async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({ status: "ready" });
+  } catch {
+    res
+      .status(503)
+      .json({ status: "not_ready", reason: "database unreachable" });
+  }
+});
 
 // Global error handler — catches unhandled errors from async routes (Express 5)
 app.use(

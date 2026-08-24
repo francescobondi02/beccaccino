@@ -6,21 +6,21 @@
  * multiple clients — verifying event delivery across rooms.
  */
 
-import http from "http";
-import { Server } from "socket.io";
 import { io as ioc, Socket as ClientSocket } from "socket.io-client";
 import request from "supertest";
-import app from "../../src/app";
-import { registerRoomSocket } from "../../src/sockets/room";
-import { setSocketInstance } from "../../src/socketInstance";
 import { prisma } from "../../src/db";
+import {
+  createServer,
+  CreatedServer,
+} from "../../src/server";
 
 // ---------------------------------------------------------------------------
 // Test server setup
 // ---------------------------------------------------------------------------
 
-let httpServer: http.Server;
-let ioServer: Server;
+let runtime: CreatedServer;
+let httpServer: CreatedServer["httpServer"];
+let ioServer: CreatedServer["io"];
 let serverUrl: string;
 
 /** All client sockets created during a test — cleaned up in afterEach */
@@ -84,30 +84,12 @@ function delay(ms: number): Promise<void> {
 // ---------------------------------------------------------------------------
 
 beforeAll((done) => {
-  httpServer = http.createServer(app);
-  ioServer = new Server(httpServer, {
-    cors: { origin: "*" },
-    path: "/socket.io/",
+  runtime = createServer({
+    allowTestAuthBypass: true,
+    corsOrigin: "*",
   });
-
-  // Override the global socket instance with the real one
-  setSocketInstance(ioServer);
-
-  // Bypass auth in test mode (same gating as src/index.ts)
-  const isTestAuthBypassEnabled =
-    process.env.NODE_ENV === "test" &&
-    process.env.ALLOW_TEST_AUTH_BYPASS === "true";
-  ioServer.use((socket, next) => {
-    if (isTestAuthBypassEnabled) {
-      return next();
-    }
-    next(new Error("Auth not configured in tests"));
-  });
-
-  // Register handlers on connection
-  ioServer.on("connection", (socket) => {
-    registerRoomSocket(socket, ioServer);
-  });
+  httpServer = runtime.httpServer;
+  ioServer = runtime.io;
 
   httpServer.listen(0, () => {
     const addr = httpServer.address();
@@ -128,13 +110,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  // Close Socket.IO and HTTP server
-  await new Promise<void>((resolve) => {
-    ioServer.close(() => resolve());
-  });
-  await new Promise<void>((resolve) => {
-    httpServer.close(() => resolve());
-  });
+  await runtime.close();
   await prisma.$disconnect();
 });
 
@@ -421,6 +397,44 @@ describe("Socket.IO real WebSocket integration", () => {
 
       const err = await errorPromise;
       expect(err.message).toBe("Team is full");
+    });
+
+    it("serializes REST and socket choices for the last team slot", async () => {
+      const u1 = await createUser("Alice");
+      const u2 = await createUser("Bob");
+      const u3 = await createUser("Carol");
+      const roomCode = await createRoom(u1);
+      await joinRoom(roomCode, u2);
+      await joinRoom(roomCode, u3);
+      await chooseTeamRest(roomCode, u1, 0);
+
+      const client2 = createClient();
+      await waitForConnect(client2);
+      client2.emit("join_room", {
+        roomCode,
+        userId: u2.id,
+        username: u2.username,
+      });
+      await delay(100);
+
+      let chosenEvents = 0;
+      client2.on("team_chosen", () => chosenEvents++);
+      client2.emit("choose_team", { roomCode, userId: u2.id, team: 0 });
+      const restResponse = await request(httpServer)
+        .post(`/api/rooms/${roomCode}/choose-team`)
+        .set(authHeaders(u3))
+        .send({ team: 0 });
+      await delay(200);
+
+      expect([200, 400]).toContain(restResponse.statusCode);
+      const team = await prisma.player.findMany({
+        where: { gameRoom: { code: roomCode }, team: 0 },
+      });
+      expect(team).toHaveLength(2);
+      expect(chosenEvents).toBe(1);
+      expect(
+        team.filter((player) => [u2.id, u3.id].includes(player.userId)),
+      ).toHaveLength(1);
     });
   });
 
