@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
 
 from becca_env.observation import LEGACY_OBS_SIZE, OBS_SIZE
 from training.checkpoint import (
+    CheckpointIntegrityError,
     build_net,
+    checkpoint_sha256,
     load_checkpoint,
+    load_resumable_checkpoint,
     restore_rng,
     rng_state,
     save_checkpoint,
+    save_checkpoint_payload,
     seed_everything,
 )
 from training.config import TrainConfig
@@ -63,9 +68,14 @@ def test_checkpoint_round_trip_model_and_optimizer(tmp_path):
     save_checkpoint(path, net=net, optimizer=opt, config=cfg, step=1000, update=5)
 
     ckpt = load_checkpoint(path)
-    assert ckpt["format"] == 2
+    assert ckpt["format"] == 3
     assert ckpt["step"] == 1000
     assert ckpt["update"] == 5
+    source = ckpt["provenance"]["source"]
+    assert set(source) == {"commit", "tree", "dirty", "dirty_sha256"}
+    assert source["dirty"] in {True, False, None}
+    assert "torch" in ckpt["provenance"]["runtime"]["dependencies"]
+    assert (tmp_path / "ckpt.pt.sha256").read_text().strip() == checkpoint_sha256(path)
 
     net2 = build_net(ckpt, torch.device("cpu"))
     assert _state_dicts_equal(net.state_dict(), net2.state_dict())
@@ -200,3 +210,83 @@ def test_rng_state_round_trip_reproduces_draw():
     expected = torch.rand(4)
     restore_rng(state)
     assert torch.equal(expected, torch.rand(4))
+
+
+def test_interrupted_save_keeps_current_checkpoint_and_hash(tmp_path, monkeypatch):
+    path = tmp_path / "last.pt"
+    save_checkpoint_payload(path, {"update": 1, "provenance": {}})
+    original_checkpoint = path.read_bytes()
+    original_hash = (tmp_path / "last.pt.sha256").read_text()
+
+    def interrupted_save(payload, destination):
+        destination.write(b"partial checkpoint")
+        destination.flush()
+        raise OSError("simulated interruption")
+
+    monkeypatch.setattr(torch, "save", interrupted_save)
+    with pytest.raises(OSError, match="simulated interruption"):
+        save_checkpoint_payload(path, {"update": 2, "provenance": {}})
+
+    assert path.read_bytes() == original_checkpoint
+    assert (tmp_path / "last.pt.sha256").read_text() == original_hash
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert load_checkpoint(path)["update"] == 1
+
+
+def test_save_rotates_verified_previous_checkpoint(tmp_path):
+    path = tmp_path / "last.pt"
+    save_checkpoint_payload(path, {"update": 1, "provenance": {}})
+    save_checkpoint_payload(path, {"update": 2, "provenance": {}})
+
+    previous = tmp_path / "last.prev.pt"
+    assert load_checkpoint(path)["update"] == 2
+    assert load_checkpoint(previous)["update"] == 1
+    assert (tmp_path / "last.prev.pt.sha256").read_text().strip() == checkpoint_sha256(previous)
+
+
+def test_load_falls_back_when_current_checkpoint_is_tampered(tmp_path):
+    path = tmp_path / "last.pt"
+    save_checkpoint_payload(path, {"update": 1, "provenance": {}})
+    save_checkpoint_payload(path, {"update": 2, "provenance": {}})
+    path.write_bytes(b"tampered")
+
+    with pytest.warns(RuntimeWarning, match="loaded fallback"):
+        checkpoint = load_resumable_checkpoint(path)
+
+    assert checkpoint["update"] == 1
+
+
+def test_load_rejects_tampered_checkpoint_without_fallback(tmp_path):
+    path = tmp_path / "last.pt"
+    save_checkpoint_payload(path, {"update": 1, "provenance": {}})
+    path.write_bytes(b"tampered")
+
+    with pytest.raises(CheckpointIntegrityError, match="hash mismatch"):
+        load_checkpoint(path)
+
+
+def test_load_rejects_when_current_and_fallback_are_tampered(tmp_path):
+    path = tmp_path / "last.pt"
+    save_checkpoint_payload(path, {"update": 1})
+    save_checkpoint_payload(path, {"update": 2})
+    path.write_bytes(b"tampered current")
+    (tmp_path / "last.prev.pt").write_bytes(b"tampered previous")
+
+    with pytest.raises(CheckpointIntegrityError, match="checkpoint and fallback are unusable"):
+        load_resumable_checkpoint(path)
+
+
+def test_load_accepts_legacy_checkpoint_without_hash(tmp_path):
+    path = tmp_path / "legacy.pt"
+    torch.save({"format": 2, "value": "legacy"}, path)
+
+    assert load_checkpoint(path)["value"] == "legacy"
+    assert not (tmp_path / "legacy.pt.sha256").exists()
+
+
+def test_resume_rejects_legacy_checkpoint_without_hash(tmp_path):
+    path = tmp_path / "legacy.pt"
+    torch.save({"format": 2, "provenance": {}}, path)
+
+    with pytest.raises(CheckpointIntegrityError, match="hash is required"):
+        load_resumable_checkpoint(path)

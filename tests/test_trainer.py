@@ -40,7 +40,7 @@ def test_train_writes_resumable_checkpoints(tmp_path):
     last = tmp_path / "last.pt"
     assert last.exists() and (tmp_path / "final.pt").exists()
     ckpt = load_checkpoint(last)
-    assert ckpt["format"] == 2
+    assert ckpt["format"] == 3
     assert ckpt["update"] == cfg.total_updates
     assert ckpt["step"] > 0
     assert ckpt["normalizer"] is not None  # normalize_returns=True

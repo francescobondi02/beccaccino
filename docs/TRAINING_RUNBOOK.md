@@ -77,6 +77,20 @@ Promote the 518-feature architecture only if held-out explained variance or
 paired playing strength improves and no predeclared slice regresses; this
 remains an unproven gate.
 
+### 2b. Checkpoint integrity and provenance
+
+Current format-3 checkpoints record the source commit, Git tree, dirty-state
+hash, resolved dependency versions, Python/platform details, and Torch/CUDA/cuDNN
+runtime. Every save writes and fsyncs a temporary file in the destination
+directory, atomically replaces the target, and writes a SHA-256 sidecar. A
+verified prior generation is retained as `*.prev.pt`; load automatically falls
+back to it when the current file is missing, truncated, hash-invalid, or cannot
+be deserialized.
+
+Resume is strict: both the integrity sidecar and format-3 provenance must be
+present. Historical sidecar-less checkpoints remain readable for inference and
+warm starts but are not exact-resume artifacts.
+
 ## 3. The signal channel (what Run C adds)
 
 The action space is 40 cards × 4 signal slots (none / striscio / busso / volo). The
@@ -234,18 +248,20 @@ python -m scripts.kaggle_run launch --preset rund \
 Resume rebuilds the policy and critic from the checkpoint stamps. Explicit
 architecture flags are accepted only when they match. Resuming a completed target
 is a hard error instead of a successful no-op. The state dataset carries
-`last.pt`, the prior `best.pt`, and `metrics.csv`; the generated kernel validates
-the run manifest before restoring them. Resume trims any CSV rows newer than the
+`last.pt`, `best.pt`, their verified previous generations and hash sidecars, and
+`metrics.csv`. The generated kernel validates every staged file's size and
+SHA-256 before restoring them. Resume trims any CSV rows newer than the
 checkpoint (hard-preemption recovery) and reports SPS for the new session only.
 
 Current checkpoints also carry `rollout_state`: all live vector games and seed
 positions, pending rewards, the current observations, and unfinished rollout
 tails. Return-normalizer live chains and global RNG are restored as part of the
 same continuation, with RNG restored after constructors that consume it. A
-checkpoint without `rollout_state`, or with a legacy 462-feature network, is not
-an exact-resume checkpoint for current training. Exact continuation is pinned on
-CPU; GPU bit-for-bit continuation is not claimed, so GPU conclusions require
-statistical replication.
+checkpoint without a format-3 integrity sidecar and provenance, without
+`rollout_state`, or with a legacy 462/470-feature network is not an exact-resume
+checkpoint for current training. Exact continuation is pinned on CPU; GPU
+bit-for-bit continuation is not claimed, so GPU conclusions require statistical
+replication.
 
 Only `--resume-state` attaches the state dataset and carries `metrics.csv`/
 `best.pt` forward. An explicit `--resume <path>` renders a kernel with the code
@@ -255,9 +271,9 @@ dataset only — a hand-written `/kaggle/input/...` path will not exist there. U
 Before spending the long-run quota, perform the same sequence with `--preset
 smoke --max-hours 0.05`. Create the state dataset on the first drill with
 `push-state --create`; subsequent pushes version it without `--create`.
-The earlier real Kaggle smoke dataset round-trip succeeded. Because A0 changed
-the checkpoint payload, a new paid run still requires a fresh smoke round-trip
-with the current code before launch.
+The earlier real Kaggle smoke dataset round-trip succeeded. Because A8 changed
+the checkpoint format and state bundle, a new paid run still requires a fresh
+smoke round-trip with the current code before launch.
 
 The first smoke session prints an end-to-end Run D rollout sweep for 8, 16, 32,
 and 64 workers, including actor/opponent inference, the centralized critic,

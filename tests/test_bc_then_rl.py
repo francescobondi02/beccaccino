@@ -23,7 +23,13 @@ from scripts.bc_then_rl import (
     parse_args,
     phase2_rl,
 )
-from training.checkpoint import load_checkpoint, rng_state, save_checkpoint
+from training.checkpoint import (
+    CheckpointIntegrityError,
+    load_checkpoint,
+    rng_state,
+    save_checkpoint,
+    save_checkpoint_payload,
+)
 from training.config import TrainConfig
 from training.network import CentralizedCritic, create_network
 from training.vec_env import create_vec_env, snapshot_vec_env_state
@@ -111,7 +117,7 @@ def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
     last = tmp_path / "last.pt"
     assert last.exists() and (tmp_path / "final.pt").exists()
     ck = load_checkpoint(last)
-    assert ck["format"] == 2
+    assert ck["format"] == 3
     assert ck.get("critic") is not None  # critic persisted
     assert ck["normalizer"] is not None
     assert len(ck["anchors"]) == 1
@@ -301,7 +307,7 @@ def test_resume_rejects_legacy_v4_signal_head(tmp_path):
     path, _, _ = _write_resume_checkpoint(tmp_path)
     checkpoint = load_checkpoint(path)
     checkpoint["net_config"]["card_conditioned_signals"] = False
-    torch.save(checkpoint, path)
+    save_checkpoint_payload(path, checkpoint)
     args = _args(tmp_path, resume=str(path), centralized_critic=True)
     args._explicit_options = {"--resume", "--centralized-critic"}
 
@@ -328,7 +334,7 @@ def test_resume_rejects_flat_checkpoint(tmp_path):
     args = _args(tmp_path, resume=str(flat_path), centralized_critic=False)
     args._explicit_options = {"--resume"}
 
-    with pytest.raises(SystemExit, match="no optimizer state"):
+    with pytest.raises(CheckpointIntegrityError, match="hash is required"):
         phase2_rl(args, torch.device("cpu"), None)
 
 
@@ -337,7 +343,7 @@ def test_rl_resume_restores_checkpoint_rng(tmp_path, monkeypatch):
     checkpoint = load_checkpoint(path)
     checkpoint["update"] = 2
     checkpoint["rng"] = rng_state()
-    torch.save(checkpoint, path)
+    save_checkpoint_payload(path, checkpoint)
     restored = []
     monkeypatch.setattr(bc_then_rl, "restore_rng", restored.append)
 

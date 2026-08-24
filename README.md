@@ -9,7 +9,7 @@ critic, curriculum learning, and wandb tracking. Four network families ship
 BC→PPO pipeline lives in `scripts/bc_then_rl.py`; `training/trainer.py` is the
 pure-PPO trainer (also BC-anchor and CTDE aware).
 
-## A0-A7 Refactor Status
+## A0-A8 Refactor Status
 
 The 2026-08-24 correctness pass changed the training contract:
 
@@ -48,6 +48,11 @@ The 2026-08-24 correctness pass changed the training contract:
   evidence manifest spanning three training seeds, a multi-class opponent
   panel, repaired-PIMC gain, deployment latency, three approximate best
   responses, and a frozen expert-state corpus.
+- **A8 — durable, attributable checkpoints:** format-3 checkpoints stamp the
+  source commit/tree/dirty hash and the resolved Python, platform, dependency,
+  Torch, CUDA, and cuDNN runtime. Saves fsync a same-directory temporary file
+  before atomic replacement, write a SHA-256 sidecar, and retain a verified
+  `.prev.pt` generation for automatic corruption fallback.
 
 Legacy 462-feature and A2 470-feature checkpoints remain loadable for inference
 because their input width is inferred or read from checkpoint metadata. They
@@ -183,11 +188,13 @@ python -m training.trainer \
 ```
 
 Exact continuation is guaranteed by regression test on CPU checkpoints written
-with the current `rollout_state` format. Resume restores the checkpoint RNG only
-after constructing objects that consume randomness. Checkpoints without
-`rollout_state`, or with a 462/470-feature input, are inference/warm-start
-artifacts only; start a new 518-feature run from regenerated BC data. Exact GPU
-bit reproducibility is not claimed.
+with the current format-3 `rollout_state`. Resume verifies the `.sha256` sidecar
+and automatically falls back to the verified `.prev.pt` generation before
+restoring RNG after constructors that consume it. Sidecar-less format-2
+checkpoints, checkpoints without `rollout_state`, and 462/470-feature artifacts
+remain loadable for inference or warm starts but cannot resume current training.
+Start a new 518-feature run from regenerated BC data. Exact GPU bit
+reproducibility is not claimed.
 
 ## Configuration Variants
 

@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import torch
 
 from scripts import kaggle_run
 from scripts.kaggle_run import (
@@ -28,6 +27,8 @@ from scripts.kaggle_run import (
     push_state,
     render_kernel_script,
 )
+from training.checkpoint import checkpoint_sha256, save_checkpoint_payload
+from training.provenance import SOURCE_MANIFEST_FILENAME
 
 
 def test_runspec_cli_args_parse_through_bc_then_rl(monkeypatch):
@@ -133,11 +134,26 @@ def _write_state_source(root: Path, run_id: str = "smoke") -> None:
         "step": 123,
     }
     (root / "checkpoints").mkdir(parents=True)
-    torch.save(checkpoint, root / "checkpoints" / "last.pt")
-    torch.save({"best": True}, root / "checkpoints" / "best.pt")
+    last_path = root / "checkpoints" / "last.pt"
+    best_path = root / "checkpoints" / "best.pt"
+    save_checkpoint_payload(last_path, {**checkpoint, "update": 2, "provenance": {}})
+    save_checkpoint_payload(last_path, {**checkpoint, "provenance": {}})
+    save_checkpoint_payload(best_path, {"best": False, "provenance": {}})
+    save_checkpoint_payload(best_path, {"best": True, "provenance": {}})
     (root / "runs" / run_id).mkdir(parents=True)
-    (root / "runs" / run_id / "metrics.csv").write_text("phase,update\nrl,1\n")
-    (root / STATE_MANIFEST).write_text(json.dumps({"format": 1, "run_id": run_id}))
+    metrics_path = root / "runs" / run_id / "metrics.csv"
+    metrics_path.write_text("phase,update\nrl,1\n")
+    relative_files = [*STATE_ALLOWLIST, metrics_path.relative_to(root).as_posix()]
+    artifacts = {
+        relative: {
+            "sha256": checkpoint_sha256(root / relative),
+            "size": (root / relative).stat().st_size,
+        }
+        for relative in relative_files
+    }
+    (root / STATE_MANIFEST).write_text(
+        json.dumps({"format": 1, "run_id": run_id, "artifacts": artifacts})
+    )
 
 
 def test_push_state_stages_only_allowlisted_state(tmp_path, monkeypatch):
@@ -164,11 +180,12 @@ def test_push_state_stages_only_allowlisted_state(tmp_path, monkeypatch):
         "dataset-metadata.json",
     }
     assert staged["manifest"]["run_id"] == "smoke"
-    assert staged["manifest"]["files"] == [
-        "checkpoints/best.pt",
-        "checkpoints/last.pt",
-        "runs/smoke/metrics.csv",
-    ]
+    assert staged["manifest"]["files"] == sorted([*STATE_ALLOWLIST, "runs/smoke/metrics.csv"])
+    assert set(staged["manifest"]["artifacts"]) == set(staged["manifest"]["files"])
+    assert all(
+        artifact["size"] > 0 and len(artifact["sha256"]) == 64
+        for artifact in staged["manifest"]["artifacts"].values()
+    )
 
 
 def test_push_state_requires_last_checkpoint(tmp_path):
@@ -225,9 +242,56 @@ def test_rendered_kernel_resolves_state_and_carries_history(tmp_path, monkeypatc
 
     training_call = calls[-1]
     resume_index = training_call.index("--resume")
-    assert training_call[resume_index + 1] == str(state_root / "checkpoints" / "last.pt")
+    assert training_call[resume_index + 1] == str(final_ckpt.parent / "last.pt")
     assert (out_dir / "metrics.csv").read_text() == "phase,update\nrl,1\n"
     assert (final_ckpt.parent / "best.pt").is_file()
+    assert (final_ckpt.parent / "best.pt.sha256").is_file()
+    assert (final_ckpt.parent / "last.prev.pt").is_file()
+
+
+def test_rendered_kernel_rejects_tampered_state_bundle(tmp_path, monkeypatch):
+    input_root = tmp_path / "input"
+    marker = input_root / "code" / kaggle_run.CODE_MARKER
+    marker.parent.mkdir(parents=True)
+    marker.write_text("")
+    state_root = input_root / "state"
+    _write_state_source(state_root)
+    (state_root / "checkpoints" / "last.pt").write_bytes(b"tampered")
+
+    monkeypatch.setattr(kaggle_run, "KAGGLE_INPUT_ROOT", str(input_root))
+    monkeypatch.setattr(kaggle_run, "WORK_DIR_ON_KAGGLE", str(tmp_path / "work"))
+    monkeypatch.setattr("subprocess.check_call", lambda command: None)
+    spec = RunSpec(
+        total_rl_steps=100,
+        device="cpu",
+        run_id="smoke",
+        out_dir=str(tmp_path / "out" / "runs" / "smoke"),
+        final_ckpt=str(tmp_path / "out" / "checkpoints" / "smoke_rl.pt"),
+        resume=AUTO_RESUME,
+    )
+
+    with pytest.raises(AssertionError, match="state artifact size mismatch"):
+        exec(render_kernel_script(spec), {})
+
+
+def test_push_code_embeds_source_manifest(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "pyproject.toml").write_text("[project]\nname='test'\nversion='0'\n")
+    expected = {"commit": "abc", "tree": "def", "dirty": False, "dirty_sha256": None}
+    captured = {}
+
+    def inspect_stage(command):
+        root = Path(command[command.index("-p") + 1])
+        captured["manifest"] = json.loads((root / "ai" / SOURCE_MANIFEST_FILENAME).read_text())
+
+    monkeypatch.setattr(kaggle_run, "AI_ROOT", source)
+    monkeypatch.setattr(kaggle_run, "source_manifest", lambda root: expected)
+    monkeypatch.setattr(kaggle_run, "_run", inspect_stage)
+
+    kaggle_run.push_code(create=True, message="test")
+
+    assert captured["manifest"] == expected
 
 
 @pytest.mark.parametrize("state_count", [0, 2])

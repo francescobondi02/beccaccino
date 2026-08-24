@@ -18,6 +18,7 @@ from becca_env.env import BeccaEnv
 from becca_env.observation import FULL_STATE_SIZE, OBS_SIZE
 from training.checkpoint import (
     load_checkpoint,
+    load_resumable_checkpoint,
     net_config_of,
     restore_rng,
     save_checkpoint,
@@ -121,7 +122,7 @@ def train(config: TrainConfig):
     resume_ckpt = None
     resume_rng = None
     if config.resume_from:
-        resume_ckpt = load_checkpoint(config.resume_from, map_location=dev)
+        resume_ckpt = load_resumable_checkpoint(config.resume_from, map_location=dev)
         checkpoint_net_config = net_config_of(resume_ckpt)
         checkpoint_obs_size = checkpoint_net_config["obs_size"]
         if checkpoint_obs_size != OBS_SIZE:

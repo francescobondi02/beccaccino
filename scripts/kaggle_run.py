@@ -28,6 +28,8 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from training.provenance import SOURCE_MANIFEST_FILENAME, source_manifest
+
 # --- Single source of truth for slugs/paths (edit KAGGLE_USER for your account) ---
 KAGGLE_USER = "fbondi"
 DATASET_SLUG = f"{KAGGLE_USER}/becca-ai"
@@ -50,7 +52,16 @@ MACHINE_SHAPE = "NvidiaTeslaT4"
 PULL_DIR = "checkpoints/kaggle"
 AUTO_RESUME = "AUTO"
 STATE_MANIFEST = "state-manifest.json"
-STATE_ALLOWLIST = ("checkpoints/last.pt", "checkpoints/best.pt")
+STATE_ALLOWLIST = (
+    "checkpoints/last.pt",
+    "checkpoints/last.pt.sha256",
+    "checkpoints/last.prev.pt",
+    "checkpoints/last.prev.pt.sha256",
+    "checkpoints/best.pt",
+    "checkpoints/best.pt.sha256",
+    "checkpoints/best.prev.pt",
+    "checkpoints/best.prev.pt.sha256",
+)
 
 # Throughput / cost model (observed T4 transformer throughput).
 MEASURED_SPS = 760  # Run C empirical: 30M steps in 11.0h on T4
@@ -292,7 +303,7 @@ def render_kernel_script(spec: RunSpec) -> str:
     The code dir is auto-detected by walking /kaggle/input for the marker file,
     so the kernel is robust to however Kaggle mounts/extracts the dataset."""
     return (
-        "import json, os, sys, shutil, subprocess\n"
+        "import hashlib, json, os, sys, shutil, subprocess\n"
         f"INPUT_ROOT = {KAGGLE_INPUT_ROOT!r}\n"
         f"MARKER = {CODE_MARKER!r}\n"
         f"WORK = {WORK_DIR_ON_KAGGLE!r}\n"
@@ -321,22 +332,40 @@ def render_kernel_script(spec: RunSpec) -> str:
         "    assert os.path.isfile(manifest_path), f'missing state manifest: {manifest_path}'\n"
         "    with open(manifest_path) as f:\n"
         "        manifest = json.load(f)\n"
+        "    for relative, expected in manifest.get('artifacts', {}).items():\n"
+        "        artifact = os.path.join(state_root, relative)\n"
+        "        assert os.path.isfile(artifact), f'missing state artifact: {artifact}'\n"
+        "        assert os.path.getsize(artifact) == expected['size'], (\n"
+        "            f'state artifact size mismatch: {artifact}'\n"
+        "        )\n"
+        "        digest = hashlib.sha256()\n"
+        "        with open(artifact, 'rb') as stream:\n"
+        "            for chunk in iter(lambda: stream.read(1024 * 1024), b''):\n"
+        "                digest.update(chunk)\n"
+        "        assert digest.hexdigest() == expected['sha256'], (\n"
+        "            f'state artifact hash mismatch: {artifact}'\n"
+        "        )\n"
         "    if EXPECTED_RUN_ID is not None:\n"
         "        assert manifest.get('run_id') == EXPECTED_RUN_ID, (\n"
         "            f\"state run_id={manifest.get('run_id')!r} does not match \"\n"
         "            f'expected {EXPECTED_RUN_ID!r}'\n"
         "        )\n"
-        "    FLAGS[FLAGS.index('--resume') + 1] = last_matches[0]\n"
+        "    checkpoint_dir = os.path.dirname(FINAL_CKPT)\n"
+        "    os.makedirs(checkpoint_dir, exist_ok=True)\n"
+        "    for name in (\n"
+        "        'last.pt', 'last.pt.sha256', 'last.prev.pt', 'last.prev.pt.sha256',\n"
+        "        'best.pt', 'best.pt.sha256', 'best.prev.pt', 'best.prev.pt.sha256',\n"
+        "    ):\n"
+        "        source = os.path.join(state_root, 'checkpoints', name)\n"
+        "        if os.path.isfile(source):\n"
+        "            shutil.copy2(source, os.path.join(checkpoint_dir, name))\n"
+        "    FLAGS[FLAGS.index('--resume') + 1] = os.path.join(checkpoint_dir, 'last.pt')\n"
         "    metrics_src = os.path.join(\n"
         "        state_root, 'runs', os.path.basename(OUT_DIR.rstrip('/')), 'metrics.csv'\n"
         "    )\n"
         "    if os.path.isfile(metrics_src):\n"
         "        os.makedirs(OUT_DIR, exist_ok=True)\n"
         "        shutil.copy2(metrics_src, os.path.join(OUT_DIR, 'metrics.csv'))\n"
-        "    best_src = os.path.join(state_root, 'checkpoints', 'best.pt')\n"
-        "    if os.path.isfile(best_src):\n"
-        "        os.makedirs(os.path.dirname(FINAL_CKPT), exist_ok=True)\n"
-        "        shutil.copy2(best_src, os.path.join(os.path.dirname(FINAL_CKPT), 'best.pt'))\n"
         "os.chdir(WORK)\n"
         "sys.path.insert(0, WORK)\n"
         "subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'gymnasium>=1.0'])\n"
@@ -381,6 +410,9 @@ def push_code(create: bool, message: str) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         staged = Path(tmp) / "ai"
         shutil.copytree(AI_ROOT, staged, ignore=STAGE_IGNORE)
+        (staged / SOURCE_MANIFEST_FILENAME).write_text(
+            json.dumps(source_manifest(AI_ROOT), indent=2, sort_keys=True)
+        )
         meta = {"title": "becca-ai", "id": DATASET_SLUG, "licenses": [{"name": "CC0-1.0"}]}
         (Path(tmp) / "dataset-metadata.json").write_text(json.dumps(meta, indent=2))
         if create:
@@ -396,9 +428,9 @@ def push_state(source: str, create: bool, message: str) -> None:
     if not last_path.is_file():
         raise SystemExit(f"missing resumable checkpoint: {last_path}")
 
-    from training.checkpoint import load_checkpoint
+    from training.checkpoint import checkpoint_sha256, load_resumable_checkpoint
 
-    checkpoint = load_checkpoint(last_path, map_location="cpu")
+    checkpoint = load_resumable_checkpoint(last_path, map_location="cpu")
     contract = checkpoint.get("resume_contract")
     if not isinstance(contract, dict) or not contract.get("run_id"):
         raise SystemExit("last.pt has no run identity; start the run with the current trainer")
@@ -430,6 +462,13 @@ def push_state(source: str, create: bool, message: str) -> None:
             "update": checkpoint.get("update"),
             "step": checkpoint.get("step"),
             "files": sorted(staged_files),
+            "artifacts": {
+                relative: {
+                    "sha256": checkpoint_sha256(staged_root / relative),
+                    "size": (staged_root / relative).stat().st_size,
+                }
+                for relative in sorted(staged_files)
+            },
             "resume_contract": contract,
         }
         (staged_root / STATE_MANIFEST).write_text(json.dumps(manifest, indent=2))

@@ -44,9 +44,11 @@ from evaluation.heuristic import evaluate_against_heuristic
 from training.checkpoint import (
     build_net,
     load_checkpoint,
+    load_resumable_checkpoint,
     net_config_of,
     restore_rng,
     save_checkpoint,
+    save_checkpoint_payload,
     seed_everything,
 )
 from training.config import TrainConfig
@@ -343,7 +345,7 @@ def _apply_resume_architecture(args, ck: dict) -> None:
 
 
 def _load_resume_components(args, device: torch.device) -> tuple[dict, torch.nn.Module, object]:
-    ck = load_checkpoint(args.resume, map_location=device)
+    ck = load_resumable_checkpoint(args.resume, map_location=device)
     _validate_resume_architecture(args, ck)
     _apply_resume_architecture(args, ck)
     return ck, build_net(ck, device), _critic_from_checkpoint(ck, device)
@@ -544,14 +546,14 @@ def phase1_bc(args, device) -> torch.nn.Module:
     print(f"  post-BC: vs random = {pre_wr_r:.1%} | vs heuristic = {post_wr_h:.1%}")
 
     Path(args.bc_ckpt).parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
+    save_checkpoint_payload(
+        args.bc_ckpt,
         {
             "model": net.state_dict(),
             "config": _net_config_dict(args),
             "phase": "bc",
             "bc_games": args.bc_games,
         },
-        args.bc_ckpt,
     )
     print(f"  saved BC checkpoint to {args.bc_ckpt}")
     return net
@@ -912,14 +914,14 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
     _save(Path(args.final_ckpt).with_name("last.pt"), cfg.total_updates)
     # Also keep the legacy flat format at --final-ckpt for existing loaders/eval.
-    torch.save(
+    save_checkpoint_payload(
+        args.final_ckpt,
         {
             "model": net.state_dict(),
             "config": dict(net.config),
             "steps": step_count,
             "phase": "rl",
         },
-        args.final_ckpt,
     )
     print(f"\nSaved final checkpoint to {args.final_ckpt}")
     if best_update:
@@ -1019,7 +1021,7 @@ def main():
         print(f"Resuming RL from {args.resume} (skipping BC)")
         # Load once; phase2_rl validates the architecture and builds net+critic
         # from the checkpoint stamp.
-        resume_ckpt = load_checkpoint(args.resume, map_location=device)
+        resume_ckpt = load_resumable_checkpoint(args.resume, map_location=device)
         net = None
     else:
         resume_ckpt = None

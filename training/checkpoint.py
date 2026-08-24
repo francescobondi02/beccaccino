@@ -9,8 +9,14 @@ loaders never guess the shape.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import random
+import shutil
+import tempfile
+import warnings
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -18,8 +24,13 @@ import torch
 import torch.nn as nn
 
 from training.network import create_network
+from training.provenance import checkpoint_provenance
 
-CKPT_FORMAT = 2
+CKPT_FORMAT = 3
+
+
+class CheckpointIntegrityError(RuntimeError):
+    """A checkpoint does not match its integrity sidecar."""
 
 
 def save_checkpoint(
@@ -53,13 +64,183 @@ def save_checkpoint(
     }
     if extra:
         payload.update(extra)
-    torch.save(payload, path)
+    save_checkpoint_payload(path, payload)
+
+
+def save_checkpoint_payload(path, payload: dict) -> None:
+    """Atomically save any checkpoint payload with provenance and integrity."""
+    stamped = dict(payload)
+    stamped["format"] = CKPT_FORMAT
+    stamped["provenance"] = checkpoint_provenance()
+    _atomic_torch_save(Path(path), stamped)
 
 
 def load_checkpoint(path, map_location="cpu") -> dict:
-    """Load a checkpoint payload dict. Callers pull the fields they need with
-    the usual ckpt[...] / ckpt.get(...) idiom."""
+    """Load a verified checkpoint, falling back to its previous known-good copy."""
+    return _load_with_fallback(Path(path), map_location, require_checksum=False)
+
+
+def load_resumable_checkpoint(path, map_location="cpu") -> dict:
+    """Load a current resumable checkpoint with mandatory integrity metadata."""
+    payload = _load_with_fallback(Path(path), map_location, require_checksum=True)
+    if payload.get("format") != CKPT_FORMAT:
+        raise CheckpointIntegrityError(
+            f"resuming requires checkpoint format {CKPT_FORMAT}; found {payload.get('format')!r}"
+        )
+    provenance = payload.get("provenance")
+    if (
+        not isinstance(provenance, dict)
+        or not isinstance(provenance.get("source"), dict)
+        or not isinstance(provenance.get("runtime"), dict)
+    ):
+        raise CheckpointIntegrityError("resuming requires checkpoint provenance")
+    return payload
+
+
+def _load_with_fallback(path: Path, map_location, *, require_checksum: bool) -> dict:
+    checkpoint_path = Path(path)
+    try:
+        return _load_verified(checkpoint_path, map_location, require_checksum=require_checksum)
+    except Exception as primary_error:
+        previous_path = _previous_path(checkpoint_path)
+        if not previous_path.is_file():
+            raise
+        try:
+            payload = _load_verified(previous_path, map_location, require_checksum=require_checksum)
+        except Exception as previous_error:
+            raise CheckpointIntegrityError(
+                f"checkpoint and fallback are unusable: {checkpoint_path}, {previous_path}"
+            ) from previous_error
+        warnings.warn(
+            f"checkpoint {checkpoint_path} is unusable ({primary_error}); "
+            f"loaded fallback {previous_path}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return payload
+
+
+def checkpoint_sha256(path) -> str:
+    """Return the SHA-256 digest of a checkpoint file."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as checkpoint:
+        for chunk in iter(lambda: checkpoint.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _atomic_torch_save(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(file_descriptor, "wb") as temporary_file:
+            torch.save(payload, temporary_file)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+
+        digest = checkpoint_sha256(temporary_path)
+        if path.is_file() and _known_good_digest(path) is not None:
+            _copy_previous(path)
+
+        os.replace(temporary_path, path)
+        _fsync_directory(path.parent)
+        _write_checksum(path, digest)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _copy_previous(path: Path) -> None:
+    previous_path = _previous_path(path)
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{previous_path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with path.open("rb") as source, os.fdopen(file_descriptor, "wb") as destination:
+            shutil.copyfileobj(source, destination, length=1024 * 1024)
+            destination.flush()
+            os.fsync(destination.fileno())
+        digest = checkpoint_sha256(temporary_path)
+        os.replace(temporary_path, previous_path)
+        _fsync_directory(path.parent)
+        _write_checksum(previous_path, digest)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _known_good_digest(path: Path) -> str | None:
+    sidecar = _checksum_path(path)
+    try:
+        if sidecar.is_file():
+            return _verify_checksum(path)
+        torch.load(path, map_location="cpu", weights_only=False)
+        return checkpoint_sha256(path)
+    except Exception:
+        return None
+
+
+def _load_verified(path: Path, map_location, *, require_checksum: bool) -> dict:
+    if require_checksum and not _checksum_path(path).is_file():
+        raise CheckpointIntegrityError(f"checkpoint hash is required: {_checksum_path(path)}")
+    if _checksum_path(path).is_file():
+        _verify_checksum(path)
     return torch.load(path, map_location=map_location, weights_only=False)
+
+
+def _verify_checksum(path: Path) -> str:
+    sidecar = _checksum_path(path)
+    try:
+        expected = sidecar.read_text().strip()
+    except OSError as exc:
+        raise CheckpointIntegrityError(f"cannot read checkpoint hash: {sidecar}") from exc
+    if len(expected) != 64 or any(character not in "0123456789abcdef" for character in expected):
+        raise CheckpointIntegrityError(f"invalid checkpoint hash: {sidecar}")
+    actual = checkpoint_sha256(path)
+    if actual != expected:
+        raise CheckpointIntegrityError(
+            f"checkpoint hash mismatch for {path}: expected {expected}, got {actual}"
+        )
+    return actual
+
+
+def _write_checksum(path: Path, digest: str) -> None:
+    sidecar = _checksum_path(path)
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{sidecar.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(file_descriptor, "w") as temporary_file:
+            temporary_file.write(f"{digest}\n")
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, sidecar)
+        _fsync_directory(path.parent)
+    except BaseException:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _checksum_path(path: Path) -> Path:
+    return path.with_name(f"{path.name}.sha256")
+
+
+def _previous_path(path: Path) -> Path:
+    return path.with_name(f"{path.stem}.prev{path.suffix}")
+
+
+def _fsync_directory(directory: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    file_descriptor = os.open(directory, flags)
+    try:
+        os.fsync(file_descriptor)
+    finally:
+        os.close(file_descriptor)
 
 
 def net_config_of(ckpt: dict) -> dict:
