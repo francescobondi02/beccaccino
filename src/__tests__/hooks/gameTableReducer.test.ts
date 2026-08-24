@@ -222,13 +222,39 @@ describe("gameTableReducer", () => {
     expect(finished.roundEndData).toBeNull();
   });
 
-  it("turn_timer_started replaces the timer", () => {
+  it("turn_timer_started advances the turn and clears the previous turn's playable cards", () => {
     const timer = { turnUserId: 12, totalMs: 60_000, startedAt: 500, phase: "play_card" };
-    const state = gameTableReducer(initialGameTableState, {
+    const currentState: GameTableState = {
+      ...initialGameTableState,
+      currentTurnUserId: 11,
+      playableCards: stateResponse.myCards,
+    };
+
+    const state = gameTableReducer(currentState, {
       type: "turn_timer_started",
       timer,
     });
 
+    expect(state.currentTurnUserId).toBe(12);
+    expect(state.playableCards).toEqual([]);
+    expect(state.turnTimer).toEqual(timer);
+  });
+
+  it("turn_timer_started clears playable cards for a new trick led by the same player", () => {
+    const timer = { turnUserId: 11, totalMs: 60_000, startedAt: 500, phase: "play_card" };
+    const currentState: GameTableState = {
+      ...initialGameTableState,
+      currentTurnUserId: 11,
+      playableCards: stateResponse.myCards,
+    };
+
+    const state = gameTableReducer(currentState, {
+      type: "turn_timer_started",
+      timer,
+    });
+
+    expect(state.currentTurnUserId).toBe(11);
+    expect(state.playableCards).toEqual([]);
     expect(state.turnTimer).toEqual(timer);
   });
 });

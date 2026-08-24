@@ -250,7 +250,12 @@ export function gameTableReducer(
       return { ...state, gameFinishedData: action.data, roundEndData: null };
 
     case "turn_timer_started":
-      return { ...state, turnTimer: action.timer };
+      return {
+        ...state,
+        currentTurnUserId: action.timer.turnUserId,
+        playableCards: [],
+        turnTimer: action.timer,
+      };
   }
 }
 
@@ -351,6 +356,7 @@ export function useGameTable(
     state.currentRound?.briscola,
     state.playedCards.length,
     state.myCards.length,
+    state.turnTimer,
   ]);
 
   // A completed trick (4 cards) refetches after 3 seconds, giving the backend
