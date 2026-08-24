@@ -14,6 +14,7 @@ import {
   setReadyCommand,
 } from "../services/roomCommands";
 import { GameError } from "../utils/gameError";
+import { sanitizeChatMessage } from "../utils/sanitizeChatMessage";
 
 // Interfacce per gli eventi
 interface JoinRoomData {
@@ -241,14 +242,7 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         return;
       }
 
-      // Validate input exists
-      if (!message || typeof message !== "string") return;
-
-      // Sanitize: trim, limit length, strip control characters
-      const sanitized = message
-        .trim()
-        .slice(0, 200)
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+      const sanitized = sanitizeChatMessage(message);
       if (!sanitized) return;
 
       // Broadcast to all in room

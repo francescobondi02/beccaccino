@@ -11,6 +11,7 @@ import { logger } from "../logger";
 import { BotTier, isBotTier } from "./botService";
 import { buildBotTurn } from "./botState";
 import { BotServiceError, requestBotMove } from "./botClient";
+import { Suit, SUITS } from "../domain/cards";
 
 const TURN_TIMEOUT_SECONDS = parseInt(
   process.env.TURN_TIMEOUT_SECONDS || "60",
@@ -281,16 +282,16 @@ async function playBotMove(
       const { turnDirective } = await setBriscolaTransition({
         gameRoomId,
         playerId,
-        suit: move.suit as any,
+        suit: move.suit,
       });
       applyTurnDirective(turnDirective);
     } else {
       const directive = await playCardTransition({
         roomCode,
         userId,
-        suit: move.suit as any,
-        value: move.value as any,
-        signal: move.signal as any,
+        suit: move.suit,
+        value: move.value,
+        signal: move.signal,
       });
       applyTurnDirective(directive);
     }
@@ -339,10 +340,7 @@ async function chooseBotMove(
   userId: number,
   tier: BotTier,
   phase: Phase,
-): Promise<
-  | { kind: "briscola"; suit: string; gameRoomId: number; playerId: number }
-  | { kind: "card"; suit: string; value: string; signal: string | null }
-> {
+) {
   const { state, seat, playerId, gameRoomId } = await buildBotTurn(roomCode, userId);
 
   // Send the cards we think are legal so the service can 409 if its rules engine
@@ -350,8 +348,8 @@ async function chooseBotMove(
   const expectedLegalCards =
     phase === "play_card"
       ? (await playableCards({ roomCode, userId })).map((c) => ({
-          suit: c.suit as string,
-          value: c.value as string,
+          suit: c.suit,
+          value: c.value,
         }))
       : undefined;
 
@@ -456,8 +454,8 @@ async function autoPlayCard(roomCode: string, userId: number): Promise<void> {
   const directive = await playCardTransition({
     roomCode,
     userId,
-    suit: card.suit as any,
-    value: card.value as any,
+    suit: card.suit,
+    value: card.value,
   });
   applyTurnDirective(directive);
 }
@@ -486,18 +484,20 @@ async function autoChooseBriscola(
   });
 
   // Pick the suit with the most cards
-  const suitCounts: Record<string, number> = {};
+  const suitCounts = new Map<Suit, number>();
   for (const c of playerCards) {
-    suitCounts[c.suit] = (suitCounts[c.suit] || 0) + 1;
+    suitCounts.set(c.suit, (suitCounts.get(c.suit) ?? 0) + 1);
   }
-  const bestSuit = Object.entries(suitCounts).sort(
-    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
-  )[0][0];
+  const bestSuit = SUITS.reduce((best, suit) => {
+    const difference =
+      (suitCounts.get(suit) ?? 0) - (suitCounts.get(best) ?? 0);
+    return difference > 0 || (difference === 0 && suit < best) ? suit : best;
+  });
 
   const { turnDirective } = await setBriscolaTransition({
     gameRoomId: room.id,
     playerId: player.id,
-    suit: bestSuit as any,
+    suit: bestSuit,
   });
   applyTurnDirective(turnDirective);
 }

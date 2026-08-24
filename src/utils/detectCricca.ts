@@ -1,4 +1,4 @@
-import { Suit, Value } from "@prisma/client";
+import { Suit, Value } from "../domain/cards";
 
 /**
  * Detect "Cricca": the briscola caller holds Tre + Due + Asso

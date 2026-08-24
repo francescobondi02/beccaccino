@@ -1,4 +1,4 @@
-import { Suit, Value } from "@prisma/client";
+import { Suit, Value } from "../domain/cards";
 import { determineHandWinner } from "./determineHandWinner";
 
 // Punti moltiplicati * 3 per evitare float:

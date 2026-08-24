@@ -3,57 +3,26 @@
 import { Request, Response } from "express";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
-import { generateRoomCode } from "../utils/generateRoomCode";
-import { startFirstRound } from "../services/turnCoordinator";
 import { getSocketInstance } from "../socketInstance";
-import { withRoomLock } from "../utils/roomLock";
 import { logger } from "../logger";
-import { BOT_TIERS, ensureBotUsers, isBotTier } from "../services/botService";
-import { clearRoomTimerData, registerBotSeats } from "../services/turnTimer";
+import { BOT_TIERS, isBotTier } from "../services/botService";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
-import { setReadyCommand } from "../services/roomCommands";
+import {
+  ActiveGameConflict,
+  createPracticeRoomCommand,
+  createRoomCommand,
+  joinRoomCommand,
+  leaveRoomCommand,
+  setReadyCommand,
+} from "../services/roomCommands";
 import { GameError } from "../utils/gameError";
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 
   try {
-    // Check if user is already in an active game
-    const existingActiveGame = await prisma.player.findFirst({
-      where: {
-        userId,
-        gameRoom: { started: true, finished: false },
-      },
-      include: { gameRoom: true },
-    });
+    const room = await createRoomCommand(userId);
 
-    if (existingActiveGame) {
-      return res.status(409).json({
-        error: "Sei già in una partita attiva",
-        activeRoomCode: existingActiveGame.gameRoom.code,
-      });
-    }
-
-    //^ Genera un codice univoco per la stanza e crea la stanza
-    const code = await generateUniqueRoomCode();
-    const room = await prisma.gameRoom.create({
-      data: {
-        code,
-        players: {
-          create: {
-            userId,
-            seat: 0,
-          },
-        },
-      },
-      include: {
-        players: {
-          select: PUBLIC_PLAYER_SELECT,
-        },
-      },
-    });
-
-    // 🔥 Notifica tutti gli utenti nella lobby globale della nuova stanza
     try {
       const io = getSocketInstance();
       io.to("lobby").emit("room_created", {
@@ -65,8 +34,6 @@ export const createRoom = async (req: Request, res: Response) => {
         },
       });
     } catch (socketError) {
-      // Socket failure is non-fatal — the room exists in the DB. Log but
-      // don't block the response.
       Sentry.captureException(socketError, {
         extra: { event: "room_created_broadcast", roomCode: room.code },
       });
@@ -78,6 +45,12 @@ export const createRoom = async (req: Request, res: Response) => {
 
     return res.status(201).json(room);
   } catch (error) {
+    if (error instanceof ActiveGameConflict) {
+      return res.status(error.status).json({
+        error: error.message,
+        activeRoomCode: error.activeRoomCode,
+      });
+    }
     Sentry.captureException(error, { extra: { userId, op: "create_room" } });
     (req.log ?? logger).error(
       { err: error, userId },
@@ -107,55 +80,19 @@ export const createPracticeRoom = async (req: Request, res: Response) => {
   }
 
   try {
-    const existingActiveGame = await prisma.player.findFirst({
-      where: { userId, gameRoom: { started: true, finished: false } },
-      include: { gameRoom: true },
-    });
-
-    if (existingActiveGame) {
-      return res.status(409).json({
-        error: "Sei già in una partita attiva",
-        activeRoomCode: existingActiveGame.gameRoom.code,
+    const room = await createPracticeRoomCommand({ userId, tier });
+    logger.info(
+      { roomCode: room.code, userId, tier },
+      "practice_game_started",
+    );
+    return res.status(201).json({ code: room.code, tier });
+  } catch (error) {
+    if (error instanceof ActiveGameConflict) {
+      return res.status(error.status).json({
+        error: error.message,
+        activeRoomCode: error.activeRoomCode,
       });
     }
-
-    const botUserIds = await ensureBotUsers();
-    const code = await generateUniqueRoomCode();
-
-    // Seats are pre-assigned so the human gets seat 0, which GameTable renders
-    // at the bottom of the table. startFirstRound → setupRound reassigns seats
-    // by interleaving the teams in seat order (team0[0], team1[0], team0[1],
-    // team1[1]); reading players back ordered by seat, that reproduces exactly
-    // the assignment below, so the human stays put.
-    const room = await prisma.gameRoom.create({
-      data: {
-        code,
-        started: false,
-        isPractice: true,
-        players: {
-          create: [
-            { userId, seat: 0, team: 0, isReady: true },
-            { userId: botUserIds[0], seat: 1, team: 1, isReady: true, botModel: tier },
-            { userId: botUserIds[1], seat: 2, team: 0, isReady: true, botModel: tier },
-            { userId: botUserIds[2], seat: 3, team: 1, isReady: true, botModel: tier },
-          ],
-        },
-      },
-    });
-
-    // Must precede startFirstRound: it arms the caller's turn timer, which is
-    // what dispatches the first bot move if the caller is a bot.
-    registerBotSeats(
-      code,
-      botUserIds.map((botUserId) => ({ userId: botUserId, tier })),
-    );
-
-    await startFirstRound(room.id, code);
-
-    logger.info({ roomCode: code, userId, tier }, "practice_game_started");
-
-    return res.status(201).json({ code, tier });
-  } catch (error) {
     Sentry.captureException(error, { extra: { userId, tier, op: "create_practice_room" } });
     (req.log ?? logger).error(
       { err: error, userId, tier },
@@ -163,25 +100,6 @@ export const createPracticeRoom = async (req: Request, res: Response) => {
     );
     return res.status(500).json({ error: "Practice game creation failed" });
   }
-};
-
-const generateUniqueRoomCode = async () => {
-  /**
-   * Genera un codice univoco per una stanza di gioco.
-   * Continua a generare codici finché non ne trova uno che non esiste già nel database.
-   *
-   * @return Un codice univoco per la stanza di gioco
-   */
-  let code: string;
-  let exists = true;
-
-  do {
-    code = generateRoomCode();
-    const room = await prisma.gameRoom.findUnique({ where: { code } });
-    exists = !!room;
-  } while (exists);
-
-  return code;
 };
 
 export const getAvailableRooms = async (req: Request, res: Response) => {
@@ -291,102 +209,39 @@ export const joinRoom = async (req: Request, res: Response) => {
   }
 
   try {
-    // Check if user is already in an active game
-    const existingActiveGame = await prisma.player.findFirst({
-      where: {
-        userId,
-        gameRoom: { started: true, finished: false },
-      },
-      include: { gameRoom: true },
-    });
+    const room = await joinRoomCommand({ roomCode, userId });
 
-    if (existingActiveGame) {
-      return res.status(409).json({
-        error: "Sei già in una partita attiva",
-        activeRoomCode: existingActiveGame.gameRoom.code,
+    try {
+      const io = getSocketInstance();
+      if (room.players.length >= 4) {
+        io.to("lobby").emit("room_full", { roomCode });
+      } else {
+        io.to("lobby").emit("room_updated", {
+          roomCode,
+          currentPlayers: room.players.length,
+        });
+      }
+    } catch (socketError) {
+      Sentry.captureException(socketError, {
+        extra: { event: "join_room_broadcast", roomCode },
       });
+      (req.log ?? logger).warn(
+        { err: socketError, roomCode },
+        "join_room_broadcast_failed",
+      );
     }
 
-    // Serialize the room-full / already-in checks with the player.create per
-    // room so two simultaneous joins can't both pass the checks and overfill
-    // the room (same pattern as setPlayerReady below).
-    const result = await withRoomLock(roomCode, async () => {
-      //^ Troviamo la stanza a cui l'utente vuole unirsi
-      const room = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: { players: true },
-      });
-
-      if (!room) return { status: 404, body: { error: "Room not found" } };
-
-      if (room.started) {
-        return { status: 400, body: { error: "Room has already started" } };
-      }
-
-      if (room.players.length >= 4) {
-        return { status: 400, body: { error: "Room is full" } };
-      }
-
-      //^ Verifichiamo che l'utente non sia già un giocatore dentro quella stanza
-      const alreadyInRoom = room.players.some(
-        (player) => player.userId === userId,
-      );
-      if (alreadyInRoom) {
-        return { status: 400, body: { error: "User already in the room" } };
-      }
-
-      //^ Creiamo un nuovo Player (ponte fra User e GameRoom)
-      await prisma.player.create({
-        data: {
-          userId,
-          gameRoomId: room.id,
-          seat: null,
-          team: null,
-        },
-      });
-
-      //^ Prendiamo la stanza aggiornata con il nuovo giocatore e la restituiamo
-      const updatedRoom = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: {
-          players: {
-            select: PUBLIC_PLAYER_SELECT,
-          },
-        },
-      });
-
-      // 🔥 Notifica la lobby se la stanza è diventata piena o è stata aggiornata
-      try {
-        const io = getSocketInstance();
-        const currentPlayers = updatedRoom?.players.length || 0;
-
-        if (currentPlayers >= 4) {
-          // Stanza piena - rimuovila dalla lista disponibili
-          io.to("lobby").emit("room_full", {
-            roomCode: roomCode,
-          });
-        } else {
-          // Aggiorna il conteggio giocatori
-          io.to("lobby").emit("room_updated", {
-            roomCode: roomCode,
-            currentPlayers: currentPlayers,
-          });
-        }
-      } catch (socketError) {
-        Sentry.captureException(socketError, {
-          extra: { event: "join_room_broadcast", roomCode },
-        });
-        (req.log ?? logger).warn(
-          { err: socketError, roomCode },
-          "join_room_broadcast_failed",
-        );
-      }
-
-      return { status: 200, body: updatedRoom };
-    });
-
-    return res.status(result.status).json(result.body);
+    return res.status(200).json(room);
   } catch (error) {
+    if (error instanceof ActiveGameConflict) {
+      return res.status(error.status).json({
+        error: error.message,
+        activeRoomCode: error.activeRoomCode,
+      });
+    }
+    if (error instanceof GameError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     Sentry.captureException(error, {
       extra: { op: "join_room", roomCode, userId },
     });
@@ -457,67 +312,31 @@ export const leaveRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 
   try {
-    const result = await withRoomLock(roomCode, async () => {
-      const room = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: { players: true },
-      });
+    const result = await leaveRoomCommand({ roomCode, userId });
+    const io = getSocketInstance();
 
-      if (!room) {
-        return { status: 404, body: { error: "Room not found" } };
-      }
-
-      const player = room.players.find(
-        (candidate) => candidate.userId === userId,
-      );
-      if (!player) {
-        return { status: 404, body: { error: "Player not found in room" } };
-      }
-
-      const io = getSocketInstance();
-
-      if (room.isPractice) {
-        clearRoomTimerData(roomCode);
-        await deleteRoomAndPlay(room.id);
+    switch (result.kind) {
+      case "practice_deleted":
         io.to(roomCode).emit("practice_abandoned", { roomCode });
         logger.info({ roomCode, userId }, "practice_game_abandoned");
-        return { status: 200, body: { success: true, deletedRoom: true } };
-      }
-
-      if (room.started && !room.finished) {
-        return {
-          status: 409,
-          body: { error: "Cannot leave an active multiplayer game" },
-        };
-      }
-
-      if (room.finished) {
-        return {
-          status: 200,
-          body: {
-            success: true,
-            deletedRoom: false,
-            preservedHistory: true,
-          },
-        };
-      }
-
-      if (room.players.length === 1) {
-        await prisma.$transaction([
-          prisma.player.deleteMany({ where: { gameRoomId: room.id } }),
-          prisma.gameRoom.delete({ where: { id: room.id } }),
-        ]);
+        return res.status(200).json({ success: true, deletedRoom: true });
+      case "finished_preserved":
+        return res.status(200).json({
+          success: true,
+          deletedRoom: false,
+          preservedHistory: true,
+        });
+      case "room_deleted":
         io.to("lobby").emit("room_deleted", { roomCode });
-        return { status: 200, body: { success: true, deletedRoom: true } };
-      }
-
-      await prisma.player.delete({ where: { id: player.id } });
-      io.to(roomCode).emit("player_left", { userId });
-      return { status: 200, body: { success: true, deletedRoom: false } };
-    });
-
-    return res.status(result.status).json(result.body);
+        return res.status(200).json({ success: true, deletedRoom: true });
+      case "player_left":
+        io.to(roomCode).emit("player_left", { userId });
+        return res.status(200).json({ success: true, deletedRoom: false });
+    }
   } catch (error) {
+    if (error instanceof GameError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     Sentry.captureException(error, {
       extra: { op: "leave_room", roomCode, userId },
     });
@@ -528,30 +347,6 @@ export const leaveRoom = async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to leave room" });
   }
 };
-
-/**
- * Delete a room and everything played inside it, children first.
- *
- * No foreign key in the schema cascades, so a room that has been dealt cards
- * cannot simply be deleted — the order below is the dependency order, and the
- * transaction keeps a failure from leaving the room half-erased.
- */
-async function deleteRoomAndPlay(gameRoomId: number): Promise<void> {
-  const rounds = await prisma.round.findMany({
-    where: { gameRoomId },
-    select: { id: true },
-  });
-  const roundIds = rounds.map((r) => r.id);
-
-  await prisma.$transaction([
-    prisma.playedCard.deleteMany({ where: { hand: { roundId: { in: roundIds } } } }),
-    prisma.playerCard.deleteMany({ where: { roundId: { in: roundIds } } }),
-    prisma.hand.deleteMany({ where: { roundId: { in: roundIds } } }),
-    prisma.round.deleteMany({ where: { gameRoomId } }),
-    prisma.player.deleteMany({ where: { gameRoomId } }),
-    prisma.gameRoom.delete({ where: { id: gameRoomId } }),
-  ]);
-}
 
 export const getExitedRooms = async (req: Request, res: Response) => {
   const userId = req.user!.userId;

@@ -14,6 +14,14 @@ import { getRng } from "../utils/random";
 import { withRoomLock } from "../utils/roomLock";
 import { logger } from "../logger";
 import { GAME_WIN_POINTS } from "../gameConfig";
+import {
+  Card,
+  CardSignal,
+  Suit,
+  SUITS,
+  Value,
+  VALUES,
+} from "../domain/cards";
 
 export type TurnDirective =
   | {
@@ -102,30 +110,6 @@ export async function resolveCurrentTurnUserId(
   return null;
 }
 
-enum Suit {
-  denara = "denara",
-  spade = "spade",
-  coppe = "coppe",
-  bastoni = "bastoni",
-}
-enum Value {
-  asso = "asso",
-  due = "due",
-  tre = "tre",
-  quattro = "quattro",
-  cinque = "cinque",
-  sei = "sei",
-  sette = "sette",
-  fante = "fante",
-  cavallo = "cavallo",
-  re = "re",
-}
-
-type Card = {
-  suit: Suit;
-  value: Value;
-};
-
 function generateDeck(): Card[] {
   /**
    * Genera un mazzo di 40 carte italiane (romagnole, sono le migliori).
@@ -134,8 +118,8 @@ function generateDeck(): Card[] {
    */
   const deck: Card[] = [];
 
-  for (const suit of Object.values(Suit)) {
-    for (const value of Object.values(Value)) {
+  for (const suit of SUITS) {
+    for (const value of VALUES) {
       deck.push({ suit, value });
     }
   }
@@ -477,7 +461,7 @@ type PlayedCardInput = {
   suit: Suit;
   value: Value;
   position: number;
-  signal: "striscio" | "busso" | "volo" | null;
+  signal: CardSignal | null;
 };
 
 async function persistPlayedCard(
@@ -524,7 +508,7 @@ export async function playCard(args: {
   userId: number;
   suit: Suit;
   value: Value;
-  signal?: "striscio" | "busso" | "volo" | null;
+  signal?: CardSignal | null;
 }) {
   return withRoomLock(args.roomCode, () => playCardUnlocked(args));
 }
@@ -540,7 +524,7 @@ async function playCardUnlocked({
   userId: number;
   suit: Suit;
   value: Value;
-  signal?: "striscio" | "busso" | "volo" | null;
+  signal?: CardSignal | null;
 }): Promise<TurnDirective | null> {
   /**
    * Funzione che gestisce la logica di gioco quando un giocatore gioca una carta.

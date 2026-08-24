@@ -48,6 +48,24 @@ describe("Room API", () => {
       expect(res.body.players[0].seat).toBe(0);
       expectPublicPlayers(res.body.players);
     });
+
+    it("returns the existing room code when the user has an active game", async () => {
+      const user = await createUser("activeCreator");
+      const activeRoom = await apiAs(user.id, user.username)
+        .post("/api/rooms")
+        .send({});
+      await prisma.gameRoom.update({
+        where: { code: activeRoom.body.code },
+        data: { started: true },
+      });
+
+      const res = await apiAs(user.id, user.username)
+        .post("/api/rooms")
+        .send({});
+
+      expect(res.statusCode).toBe(409);
+      expect(res.body.activeRoomCode).toBe(activeRoom.body.code);
+    });
   });
 
   describe("GET /api/rooms/:roomCode", () => {
@@ -135,6 +153,28 @@ describe("Room API", () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.body.error).toMatch(/full/i);
+    });
+
+    it("returns the existing room code when the user joins during an active game", async () => {
+      const activeUser = await createUser("activeJoiner");
+      const targetOwner = await createUser("targetOwner");
+      const activeRoom = await apiAs(activeUser.id, activeUser.username)
+        .post("/api/rooms")
+        .send({});
+      const targetRoom = await apiAs(targetOwner.id, targetOwner.username)
+        .post("/api/rooms")
+        .send({});
+      await prisma.gameRoom.update({
+        where: { code: activeRoom.body.code },
+        data: { started: true },
+      });
+
+      const res = await apiAs(activeUser.id, activeUser.username)
+        .post("/api/rooms/join")
+        .send({ roomCode: targetRoom.body.code });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.body.activeRoomCode).toBe(activeRoom.body.code);
     });
   });
 

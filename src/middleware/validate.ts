@@ -5,24 +5,14 @@
  */
 
 import { Request, Response, NextFunction } from "express";
-
-// Valid enum values matching Prisma schema
-const VALID_SUITS = ["denara", "coppe", "spade", "bastoni"] as const;
-const VALID_VALUES = [
-  "asso", "due", "tre", "quattro", "cinque",
-  "sei", "sette", "fante", "cavallo", "re",
-] as const;
-
-type ValidSuit = (typeof VALID_SUITS)[number];
-type ValidValue = (typeof VALID_VALUES)[number];
-
-export function isValidSuit(suit: unknown): suit is ValidSuit {
-  return typeof suit === "string" && VALID_SUITS.includes(suit as ValidSuit);
-}
-
-export function isValidValue(value: unknown): value is ValidValue {
-  return typeof value === "string" && VALID_VALUES.includes(value as ValidValue);
-}
+import {
+  CARD_SIGNALS,
+  isCardSignal,
+  isSuit,
+  isValue,
+  SUITS,
+  VALUES,
+} from "../domain/cards";
 
 /**
  * Validates the body for POST /api/games/choose-briscola
@@ -36,16 +26,14 @@ export const validateChooseBriscola = (req: Request, res: Response, next: NextFu
     return res.status(400).json({ error: "gameRoomId must be a valid integer" });
   }
 
-  if (!isValidSuit(suit)) {
+  if (!isSuit(suit)) {
     return res.status(400).json({
-      error: `Invalid suit: "${suit}". Must be one of: ${VALID_SUITS.join(", ")}`,
+      error: `Invalid suit: "${suit}". Must be one of: ${SUITS.join(", ")}`,
     });
   }
 
   next();
 };
-
-const VALID_SIGNALS = ["striscio", "busso", "volo"] as const;
 
 /**
  * Validates the body for POST /api/games/play-card
@@ -60,25 +48,25 @@ export const validatePlayCard = (req: Request, res: Response, next: NextFunction
     return res.status(400).json({ error: "roomCode must be a non-empty string" });
   }
 
-  if (!isValidSuit(suit)) {
+  if (!isSuit(suit)) {
     return res.status(400).json({
-      error: `Invalid suit: "${suit}". Must be one of: ${VALID_SUITS.join(", ")}`,
+      error: `Invalid suit: "${suit}". Must be one of: ${SUITS.join(", ")}`,
     });
   }
 
-  if (!isValidValue(value)) {
+  if (!isValue(value)) {
     return res.status(400).json({
-      error: `Invalid value: "${value}". Must be one of: ${VALID_VALUES.join(", ")}`,
+      error: `Invalid value: "${value}". Must be one of: ${VALUES.join(", ")}`,
     });
   }
 
   if (
     signal !== undefined &&
     signal !== null &&
-    !VALID_SIGNALS.includes(signal)
+    !isCardSignal(signal)
   ) {
     return res.status(400).json({
-      error: `Invalid signal: "${signal}". Must be one of: ${VALID_SIGNALS.join(", ")} (or null)`,
+      error: `Invalid signal: "${signal}". Must be one of: ${CARD_SIGNALS.join(", ")} (or null)`,
     });
   }
 

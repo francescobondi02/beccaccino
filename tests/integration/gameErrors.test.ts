@@ -285,6 +285,33 @@ describe("Game Error Cases", () => {
   });
 
   describe("Game State Endpoint", () => {
+    it("returns 404 for a room that does not exist", async () => {
+      const user = await prisma.user.create({
+        data: { username: "stateGhost", password: "x" },
+      });
+
+      const res = await apiAs(user.id, user.username)
+        .get("/api/games/XXXXXX/state");
+
+      expect(res.statusCode).toBe(404);
+      expect(res.body.error).toMatch(/room not found/i);
+    });
+
+    it("returns 400 before the game starts", async () => {
+      const registered = await api()
+        .post("/api/users/register")
+        .send({ username: "stateWaiting", password: "test123" });
+      const created = await apiAs(registered.body.id, "stateWaiting")
+        .post("/api/rooms")
+        .send({});
+
+      const res = await apiAs(registered.body.id, "stateWaiting")
+        .get(`/api/games/${created.body.code}/state`);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.error).toMatch(/not started/i);
+    });
+
     it("returns correct game state after setup", async () => {
       const { roomCode } = await setupGame();
 

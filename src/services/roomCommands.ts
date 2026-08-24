@@ -2,6 +2,236 @@ import { prisma } from "../db";
 import { GameError } from "../utils/gameError";
 import { withRoomLock } from "../utils/roomLock";
 import { startFirstRound } from "./turnCoordinator";
+import { generateRoomCode } from "../utils/generateRoomCode";
+import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
+import { BotTier, ensureBotUsers } from "./botService";
+import {
+  clearRoomTimerData,
+  registerBotSeats,
+} from "./turnTimer";
+
+export class ActiveGameConflict extends GameError {
+  constructor(readonly activeRoomCode: string) {
+    super("Sei già in una partita attiva", 409);
+  }
+}
+
+export async function findActiveGame(userId: number) {
+  return prisma.player.findFirst({
+    where: {
+      userId,
+      gameRoom: { started: true, finished: false },
+    },
+    select: {
+      gameRoom: {
+        select: { code: true },
+      },
+    },
+  });
+}
+
+async function rejectActiveGame(userId: number): Promise<void> {
+  const activeGame = await findActiveGame(userId);
+  if (activeGame) {
+    throw new ActiveGameConflict(activeGame.gameRoom.code);
+  }
+}
+
+async function generateUniqueRoomCode(): Promise<string> {
+  let code: string;
+  let exists: boolean;
+
+  do {
+    code = generateRoomCode();
+    exists = Boolean(
+      await prisma.gameRoom.findUnique({
+        where: { code },
+        select: { id: true },
+      }),
+    );
+  } while (exists);
+
+  return code;
+}
+
+export async function createRoomCommand(userId: number) {
+  await rejectActiveGame(userId);
+
+  return prisma.gameRoom.create({
+    data: {
+      code: await generateUniqueRoomCode(),
+      players: {
+        create: {
+          userId,
+          seat: 0,
+        },
+      },
+    },
+    include: {
+      players: {
+        select: PUBLIC_PLAYER_SELECT,
+      },
+    },
+  });
+}
+
+export async function createPracticeRoomCommand(args: {
+  userId: number;
+  tier: BotTier;
+}) {
+  await rejectActiveGame(args.userId);
+
+  const botUserIds = await ensureBotUsers();
+  const code = await generateUniqueRoomCode();
+  const room = await prisma.gameRoom.create({
+    data: {
+      code,
+      isPractice: true,
+      players: {
+        create: [
+          { userId: args.userId, seat: 0, team: 0, isReady: true },
+          {
+            userId: botUserIds[0],
+            seat: 1,
+            team: 1,
+            isReady: true,
+            botModel: args.tier,
+          },
+          {
+            userId: botUserIds[1],
+            seat: 2,
+            team: 0,
+            isReady: true,
+            botModel: args.tier,
+          },
+          {
+            userId: botUserIds[2],
+            seat: 3,
+            team: 1,
+            isReady: true,
+            botModel: args.tier,
+          },
+        ],
+      },
+    },
+    select: { id: true, code: true },
+  });
+
+  registerBotSeats(
+    code,
+    botUserIds.map((userId) => ({ userId, tier: args.tier })),
+  );
+  await startFirstRound(room.id, room.code);
+
+  return room;
+}
+
+export async function joinRoomCommand(args: {
+  roomCode: string;
+  userId: number;
+}) {
+  await rejectActiveGame(args.userId);
+
+  return withRoomLock(args.roomCode, async () => {
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: args.roomCode },
+      include: { players: true },
+    });
+    if (!room) throw new GameError("Room not found", 404);
+    if (room.started) {
+      throw new GameError("Room has already started", 400);
+    }
+    if (room.players.length >= 4) {
+      throw new GameError("Room is full", 400);
+    }
+    if (room.players.some((player) => player.userId === args.userId)) {
+      throw new GameError("User already in the room", 400);
+    }
+
+    await prisma.player.create({
+      data: {
+        userId: args.userId,
+        gameRoomId: room.id,
+      },
+    });
+
+    return prisma.gameRoom.findUniqueOrThrow({
+      where: { code: args.roomCode },
+      include: {
+        players: {
+          select: PUBLIC_PLAYER_SELECT,
+        },
+      },
+    });
+  });
+}
+
+export type LeaveRoomResult =
+  | { kind: "practice_deleted" }
+  | { kind: "finished_preserved" }
+  | { kind: "room_deleted" }
+  | { kind: "player_left" };
+
+export async function leaveRoomCommand(args: {
+  roomCode: string;
+  userId: number;
+}): Promise<LeaveRoomResult> {
+  return withRoomLock(args.roomCode, async () => {
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: args.roomCode },
+      include: { players: true },
+    });
+    if (!room) throw new GameError("Room not found", 404);
+
+    const player = room.players.find(
+      (candidate) => candidate.userId === args.userId,
+    );
+    if (!player) {
+      throw new GameError("Player not found in room", 404);
+    }
+
+    if (room.isPractice) {
+      clearRoomTimerData(args.roomCode);
+      await deleteRoomAndPlay(room.id);
+      return { kind: "practice_deleted" };
+    }
+    if (room.started && !room.finished) {
+      throw new GameError("Cannot leave an active multiplayer game", 409);
+    }
+    if (room.finished) {
+      return { kind: "finished_preserved" };
+    }
+    if (room.players.length === 1) {
+      await prisma.$transaction([
+        prisma.player.deleteMany({ where: { gameRoomId: room.id } }),
+        prisma.gameRoom.delete({ where: { id: room.id } }),
+      ]);
+      return { kind: "room_deleted" };
+    }
+
+    await prisma.player.delete({ where: { id: player.id } });
+    return { kind: "player_left" };
+  });
+}
+
+export async function deleteRoomAndPlay(gameRoomId: number): Promise<void> {
+  const rounds = await prisma.round.findMany({
+    where: { gameRoomId },
+    select: { id: true },
+  });
+  const roundIds = rounds.map((round) => round.id);
+
+  await prisma.$transaction([
+    prisma.playedCard.deleteMany({
+      where: { hand: { roundId: { in: roundIds } } },
+    }),
+    prisma.playerCard.deleteMany({ where: { roundId: { in: roundIds } } }),
+    prisma.hand.deleteMany({ where: { roundId: { in: roundIds } } }),
+    prisma.round.deleteMany({ where: { gameRoomId } }),
+    prisma.player.deleteMany({ where: { gameRoomId } }),
+    prisma.gameRoom.delete({ where: { id: gameRoomId } }),
+  ]);
+}
 
 export async function chooseTeamCommand(args: {
   roomCode: string;

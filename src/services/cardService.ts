@@ -2,31 +2,6 @@
 
 import { prisma } from "../db";
 import { GameError } from "../utils/gameError";
-import { determineHandWinner } from "../utils/determineHandWinner";
-
-enum Suit {
-  denara = "denara",
-  spade = "spade",
-  coppe = "coppe",
-  bastoni = "bastoni",
-}
-enum Value {
-  asso = "asso",
-  due = "due",
-  tre = "tre",
-  quattro = "quattro",
-  cinque = "cinque",
-  sei = "sei",
-  sette = "sette",
-  fante = "fante",
-  cavallo = "cavallo",
-  re = "re",
-}
-
-type Card = {
-  suit: Suit;
-  value: Value;
-};
 
 export async function playableCards({
   roomCode,

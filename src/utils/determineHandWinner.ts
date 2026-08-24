@@ -1,4 +1,4 @@
-import { Suit, Value } from "@prisma/client";
+import { Suit, Value } from "../domain/cards";
 
 const cardStrength: Record<Value, number> = {
   [Value.tre]: 10,
