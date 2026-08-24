@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from evaluation.arena import EVAL_SEED_BASE, MatchResult
+from evaluation.arena import EVAL_SEED_BASE, GameRecord, MirroredDealRecord
 from evaluation.stats import wilson_interval
 from scripts import score_checkpoints
 from scripts.score_checkpoints import CheckpointScore
@@ -17,16 +17,33 @@ def test_evaluate_mirrored_reuses_deals_with_swapped_teams(monkeypatch):
     candidate = object()
     baseline = object()
     calls = []
-    results = [
-        MatchResult(team0_wins=3, team1_wins=1, winners=[0, 0, 0, 1]),
-        MatchResult(team0_wins=2, team1_wins=2, winners=[0, 0, 1, 1]),
+
+    def leg(seed, candidate_team, winner_team):
+        return GameRecord(
+            seed=seed,
+            candidate_team=candidate_team,
+            winner_team=winner_team,
+            initial_caller=0,
+            initial_briscola="denara",
+            rounds=1,
+            actions=40,
+            candidate_signals=0,
+            opponent_signals=0,
+            final_scores=(123, 100),
+        )
+
+    records = [
+        MirroredDealRecord(123, leg(123, 0, 0), leg(123, 1, 0)),
+        MirroredDealRecord(124, leg(124, 0, 0), leg(124, 1, 0)),
+        MirroredDealRecord(125, leg(125, 0, 0), leg(125, 1, 1)),
+        MirroredDealRecord(126, leg(126, 0, 1), leg(126, 1, 1)),
     ]
 
-    def fake_play_match(team0, team1, *, num_games, win_points, seed):
-        calls.append((team0, team1, num_games, win_points, seed))
-        return results[len(calls) - 1]
+    def fake_iter(candidate_factory, baseline_factory, *, num_deals, seed, win_points):
+        calls.append((candidate_factory(seed), baseline_factory(seed), num_deals, win_points, seed))
+        return iter(records)
 
-    monkeypatch.setattr(score_checkpoints, "play_match", fake_play_match)
+    monkeypatch.setattr(score_checkpoints, "iter_mirrored_deals", fake_iter)
 
     wins, games, paired_scores = score_checkpoints.evaluate_mirrored(
         candidate, baseline, games=4, seed=123
@@ -34,10 +51,7 @@ def test_evaluate_mirrored_reuses_deals_with_swapped_teams(monkeypatch):
 
     assert (wins, games) == (5, 8)
     assert paired_scores == (0.5, 0.5, 1.0, 0.5)
-    assert calls == [
-        (candidate, baseline, 4, 41, 123),
-        (baseline, candidate, 4, 41, 123),
-    ]
+    assert calls == [(candidate, baseline, 4, 41, 123)]
 
 
 def test_evaluate_mirrored_rejects_non_positive_games():

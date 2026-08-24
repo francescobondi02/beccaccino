@@ -32,24 +32,38 @@ def test_elo_ladder_ranks_stronger_checkpoint_higher():
     strong = create_network(version=2, hidden_size=64, num_layers=2)
     weak = create_network(version=2, hidden_size=64, num_layers=2)
 
-    # Deterministic outcome without real games: stub play_match so `strong`
-    # always wins as team0 and `weak` always loses. play_match returns a
-    # MatchResult; team0 is the first agent passed.
-    def fake_play_match(team0_agent, team1_agent, num_games, win_points, seed):
-        res = arena.MatchResult()
-        strong_is_team0 = team0_agent.net is strong
-        res.team0_wins = num_games if strong_is_team0 else 0
-        res.team1_wins = 0 if strong_is_team0 else num_games
-        return res
+    def leg(seed, candidate_team, winner_team):
+        return arena.GameRecord(
+            seed=seed,
+            candidate_team=candidate_team,
+            winner_team=winner_team,
+            initial_caller=0,
+            initial_briscola="denara",
+            rounds=1,
+            actions=40,
+            candidate_signals=0,
+            opponent_signals=0,
+            final_scores=(123, 100),
+        )
 
-    orig = arena.play_match
-    arena.play_match = fake_play_match
+    def fake_iter(candidate_factory, opponent_factory, *, num_deals, seed, win_points):
+        candidate_is_strong = candidate_factory(seed).net is strong
+        for offset in range(num_deals):
+            deal_seed = seed + offset
+            yield arena.MirroredDealRecord(
+                deal_seed,
+                leg(deal_seed, 0, 0 if candidate_is_strong else 1),
+                leg(deal_seed, 1, 1 if candidate_is_strong else 0),
+            )
+
+    orig = arena.iter_mirrored_deals
+    arena.iter_mirrored_deals = fake_iter
     try:
         ratings = arena.elo_ladder(
             {"strong": strong, "weak": weak}, num_games=10, device=torch.device("cpu")
         )
     finally:
-        arena.play_match = orig
+        arena.iter_mirrored_deals = orig
 
     assert ratings["strong"] > ratings["weak"]
 

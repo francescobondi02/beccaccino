@@ -24,6 +24,7 @@ from becca_env.observation import OBS_SIZE, encode_action_mask
 from inference.determinized import determinize
 from inference.hand_sampler import SampledHands, sample_opponent_hands
 from inference.pimc import (
+    PIMCAgent,
     PIMCConfig,
     _match_utility,
     _preferred_variant,
@@ -164,6 +165,25 @@ def test_pimc_rejects_zero_determinizations():
 
     with pytest.raises(ValueError, match="must be positive"):
         pimc_choose_action(net, g, viewer_seat=0, config=PIMCConfig(num_determinizations=0))
+
+
+def test_pimc_agent_advances_call_seed_without_mutating_config(monkeypatch):
+    net = _v4_small()
+    config = PIMCConfig(num_determinizations=2, seed=17)
+    agent = PIMCAgent(net, config, torch.device("cpu"))
+    game = BeccaGame(seed=0)
+    seen_seeds = []
+
+    def choose_action(_net, _game, _seat, call_config, _device):
+        seen_seeds.append(call_config.seed)
+        return 0
+
+    monkeypatch.setattr("inference.pimc.pimc_choose_action", choose_action)
+
+    assert agent.select_action(game, game.current_seat) == Suit.DENARA
+    assert agent.select_action(game, game.current_seat) == Suit.DENARA
+    assert seen_seeds == [17, 18]
+    assert config.seed == 17
 
 
 def test_leader_signal_variants_collapse_to_one_branch_per_card():

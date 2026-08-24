@@ -74,6 +74,10 @@ def test_tiers_endpoint_lists_available_tiers(client):
     assert names == [t.name for t in available_tiers()]
 
 
+def test_removed_predict_contract_returns_404(client):
+    assert client.post("/predict", json={}).status_code == 404
+
+
 @pytest.mark.parametrize("tier", tier_params(sorted(TIERS)))
 def test_every_tier_chooses_a_legal_briscola(client, tier):
     game = BeccaGame(seed=11)

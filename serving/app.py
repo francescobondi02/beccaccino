@@ -1,27 +1,14 @@
-"""FastAPI serving endpoint for Beccaccino AI.
-
-Two stateless entry points:
-
-- `POST /predict` — low-level: takes an already-encoded observation vector.
-  Used by callers that own the encoding themselves.
-- `POST /act` — what the game backend calls: takes RAW game state as enum
-  strings, and owns encoding, inference, and action decoding. This keeps the
-  training-time observation encoder as the single implementation, so a bot can
-  never read a differently-encoded board than the one it learned on.
-"""
+"""FastAPI endpoint for raw-state Beccaccino bot inference."""
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Literal
 
-import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from becca_env.deck import Card
 from becca_env.game import GamePhase
-from becca_env.observation import OBS_SIZE
 from serving.state_adapter import StateAdapterError, state_dict_to_game
 from serving.tiers import (
     TierUnavailableError,
@@ -29,76 +16,12 @@ from serving.tiers import (
     available_tiers,
     get_agent,
 )
-from training.network import ACTION_SIZE
 
 app = FastAPI(title="Becca AI", description="Beccaccino card game AI inference")
-
-_session = None
 
 # Sampling temperature bounds. 0 is greedy; above ~2 the policy is close to
 # uniform over legal moves, which is indistinguishable from a random opponent.
 MAX_TEMPERATURE = 2.0
-
-
-class GameState(BaseModel):
-    """Observation from the backend (pre-encoded OBS_SIZE vector + action mask)."""
-
-    obs: list[float]
-    action_mask: list[float]
-
-
-class ActionResponse(BaseModel):
-    action: int
-    confidence: float
-
-
-def _get_session():
-    global _session
-    if _session is None:
-        import onnxruntime as ort
-
-        model_path = Path(__file__).parent / "model.onnx"
-        if not model_path.exists():
-            raise HTTPException(500, "Model not found. Run export_onnx.py first.")
-        _session = ort.InferenceSession(str(model_path))
-    return _session
-
-
-@app.post("/predict", response_model=ActionResponse)
-def predict(state: GameState):
-    """Given a game observation, return the best action."""
-    session = _get_session()
-
-    # Validate widths up front so malformed cross-boundary requests return a
-    # clear 422 rather than a cryptic 500 from onnxruntime. Importing OBS_SIZE
-    # keeps this in lockstep with the encoder.
-    if len(state.obs) != OBS_SIZE:
-        raise HTTPException(422, f"obs must have length {OBS_SIZE}, got {len(state.obs)}")
-    if len(state.action_mask) != ACTION_SIZE:
-        raise HTTPException(
-            422, f"action_mask must have length {ACTION_SIZE}, got {len(state.action_mask)}"
-        )
-
-    obs = np.array(state.obs, dtype=np.float32).reshape(1, -1)
-    mask = np.array(state.action_mask, dtype=np.float32).reshape(1, -1)
-
-    # No legal action → nothing to choose; reject cleanly instead of letting the
-    # empty-array reduction below raise an opaque 500.
-    if not np.any(mask[0] > 0):
-        raise HTTPException(422, "action_mask has no legal actions")
-
-    logits, _ = session.run(None, {"obs": obs, "action_mask": mask})
-    logits = logits[0]
-
-    # Greedy action selection
-    action = int(np.argmax(logits))
-    # Confidence: softmax probability of chosen action (only over legal actions)
-    legal_logits = logits[mask[0] > 0]
-    exp_logits = np.exp(legal_logits - legal_logits.max())
-    probs = exp_logits / exp_logits.sum()
-    confidence = float(probs.max())
-
-    return ActionResponse(action=action, confidence=confidence)
 
 
 class ActRequest(BaseModel):

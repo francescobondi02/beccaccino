@@ -374,21 +374,19 @@ smoke round-trip succeeded, but a new paid run must repeat the stop/pull/push/
 resume smoke with the current exact-vector-state checkpoint format. See
 `docs/TRAINING_RUNBOOK.md`.
 
-## ONNX Export & Serving
+## Serving
 
 ```bash
-# Export trained model to ONNX
-python serving/export_onnx.py checkpoints/final.pt --output serving/model.onnx
-
 # Run inference server
 pip install -e ".[serve]"
 uvicorn serving.app:app --host 0.0.0.0 --port 8090
 
-# Test endpoint
-curl -X POST http://localhost:8090/predict \
-  -H "Content-Type: application/json" \
-  -d '{"obs": [0.0, ...470 floats...], "action_mask": [1.0, ...160 floats...]}'
+# Inspect tiers available from local checkpoints
+curl http://localhost:8090/tiers
 ```
+
+The backend calls `POST /act` with raw game state. The service owns encoding,
+checkpoint inference, legality validation, and action decoding.
 
 ## Benchmarks
 
@@ -414,10 +412,10 @@ becca_env/          Headless game engine + Gymnasium wrapper (obs = 470 floats)
 training/           BC + PPO self-play, GAE, opponent pool + anchors, CTDE critic,
                     unified checkpoint/resume, V1–V4 networks
 evaluation/         Arena (agent vs agent), Wilson CIs, Elo + round-robin ladder
-serving/            FastAPI + ONNX inference (V4-capable export)
+serving/            FastAPI raw-state /act endpoint and bot tiers
 scripts/            bc_then_rl (BC→PPO), score_checkpoints, elo_ladder,
                     kaggle_run, benchmark
-inference/          PIMC (perfect-information Monte Carlo) — not yet wired to serving
+inference/          Shared PIMC agent used by evaluation and the esperto tier
 ```
 
 See [SCOPE.md](SCOPE.md) for detailed architecture and roadmap.

@@ -29,7 +29,7 @@ Notes:
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import torch
@@ -74,6 +74,28 @@ class PIMCConfig:
 
     signal_consistency_weighting: bool = True
     """Reweight sampled worlds by consistency with public signal claims."""
+
+
+class PIMCAgent:
+    """Expose PIMC search through the shared evaluation/serving agent contract."""
+
+    def __init__(
+        self,
+        net: torch.nn.Module,
+        config: PIMCConfig | None = None,
+        device: torch.device | None = None,
+    ):
+        self.net = net
+        self.config = config if config is not None else PIMCConfig()
+        self.device = device if device is not None else next(net.parameters()).device
+        self._call_seed = self.config.seed
+        self.net.eval()
+
+    def select_action(self, game: BeccaGame, seat: int) -> object:
+        config = replace(self.config, seed=self._call_seed)
+        self._call_seed += 1
+        action_idx = pimc_choose_action(self.net, game, seat, config, self.device)
+        return decode_action(action_idx, game)
 
 
 def _action_idx(card: Card, signal: Signal | None) -> int:

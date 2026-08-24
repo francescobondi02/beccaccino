@@ -111,6 +111,29 @@ def test_works_with_none_opponent():
     assert buf.ptr > 0
 
 
+@pytest.mark.parametrize("use_frozen_opponent", [False, True])
+def test_production_rollout_completes_games_for_each_opponent_mode(use_frozen_opponent):
+    learner, frozen = _make_nets()
+    opponent = frozen if use_frozen_opponent else None
+    learner_team = np.array([0], dtype=np.int64)
+    vec = create_vec_env(num_envs=1, seed=42, win_points=5, sync=True)
+    try:
+        buf = collect_self_play_rollout_vec(
+            vec,
+            learner,
+            opponent,
+            learner_team,
+            steps_per_env=400,
+            device=torch.device("cpu"),
+        )
+    finally:
+        vec.close()
+
+    assert buf.dones[: buf.ptr].sum() > 0
+    for index in range(buf.ptr):
+        assert TEAM_OF_SEAT[int(buf.seats[index])] == 0
+
+
 def test_critic_requires_full_observation_key():
     learner, opponent = _make_nets()
     vec = create_vec_env(

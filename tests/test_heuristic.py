@@ -205,12 +205,14 @@ def test_heuristic_beats_random_decisively():
         def select_action(self, game, seat):
             return self.rng.choice(game.legal_actions())
 
-    from evaluation.heuristic import play_match_heuristic
+    from evaluation.arena import play_match
 
     h = HeuristicAgent(seed=1)
     r = RandAgent(seed=2)
-    h_wins, r_wins = play_match_heuristic(h, r, num_games=40, win_points=11, seed=42)
-    assert h_wins > r_wins * 2, f"heuristic={h_wins} random={r_wins} — heuristic too weak"
+    result = play_match(h, r, num_games=40, win_points=11, seed=42)
+    assert result.team0_wins > result.team1_wins * 2, (
+        f"heuristic={result.team0_wins} random={result.team1_wins} - heuristic too weak"
+    )
 
 
 def test_evaluate_against_heuristic_runs_end_to_end():

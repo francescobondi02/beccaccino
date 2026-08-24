@@ -217,31 +217,6 @@ class HeuristicAgent:
         return _lowest_strength_card(briscole)
 
 
-# ------------------------- evaluation helpers -------------------------
-
-
-def play_match_heuristic(
-    team0_agent, team1_agent, num_games: int, win_points: int = 41, seed: int = 0
-) -> tuple[int, int]:
-    """Play num_games between two agents. Returns (team0_wins, team1_wins).
-
-    Avoids importing from arena.py to keep this module self-contained.
-    """
-    t0 = 0
-    t1 = 0
-    for i in range(num_games):
-        game = BeccaGame(seed=seed + i, win_points=win_points)
-        while game.phase != GamePhase.GAME_OVER:
-            seat = game.current_seat
-            agent = team0_agent if TEAM_OF_SEAT[seat] == 0 else team1_agent
-            game.step(agent.select_action(game, seat))
-        if game.result.winner_team == 0:
-            t0 += 1
-        else:
-            t1 += 1
-    return t0, t1
-
-
 def evaluate_against_heuristic(
     net,
     num_games: int = 200,
@@ -257,7 +232,7 @@ def evaluate_against_heuristic(
     """
     import torch
 
-    from evaluation.arena import EVAL_SEED_BASE, NeuralAgent
+    from evaluation.arena import EVAL_SEED_BASE, NeuralAgent, evaluate_side_balanced
 
     if seed is None:
         seed = EVAL_SEED_BASE
@@ -265,18 +240,11 @@ def evaluate_against_heuristic(
     if device is None:
         device = torch.device("cpu")
 
-    neural = NeuralAgent(net, device, temperature=0.0)
-    heur = HeuristicAgent(seed=seed + 10000)
-    half = num_games // 2
-
-    t0_a, t1_a = play_match_heuristic(
-        neural, heur, num_games=half, seed=seed, win_points=win_points
+    neural_wins, n = evaluate_side_balanced(
+        NeuralAgent(net, device, temperature=0.0),
+        HeuristicAgent(seed=seed + 10000),
+        num_games=num_games,
+        seed=seed,
+        win_points=win_points,
     )
-    t0_b, t1_b = play_match_heuristic(
-        heur, neural, num_games=half, seed=seed + half, win_points=win_points
-    )
-
-    # neural was team0 in match A, team1 in match B
-    neural_wins = t0_a + t1_b
-    n = 2 * half
     return (neural_wins, n) if return_counts else neural_wins / n

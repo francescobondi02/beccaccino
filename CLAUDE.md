@@ -26,7 +26,6 @@ training/
   imitation.py      Behavioral cloning on the heuristic (policy-only warm-start)
   checkpoint.py     Unified save/load, build_net, seed_everything, RNG state
   self_play.py      OpponentPool — FIFO snapshots + permanent anchors
-  self_play_env.py  SelfPlayEnv wrapper (team-vs-opponent, learner-only observations)
   curriculum.py     Auto-advancing difficulty stages
   vec_env.py        Vectorized envs, disjoint deal streams, exact worker-state snapshots
   normalization.py  Running mean/std + live return-chain checkpoint state
@@ -36,11 +35,10 @@ evaluation/
   stats.py          wilson_interval() confidence bounds
   elo.py            Elo rating tracker
 serving/
-  app.py            FastAPI: /predict (pre-encoded obs) + /act (raw state) + /tiers
+  app.py            FastAPI: /act (raw state) + /tiers
   state_adapter.py  Backend JSON <-> BeccaGame, so /act reuses the training encoder
   tiers.py          Difficulty tiers: facile/medio/forte/esperto -> agents
   fixtures/         Committed (state, expected_obs) pairs the backend is tested against
-  export_onnx.py    Export any checkpoint (incl. V4) to ONNX via build_net
 inference/          PIMC with hard public constraints, signal-weighted worlds,
                     and match-winning utility — served as the "esperto" tier
 scripts/
@@ -231,7 +229,7 @@ Points system uses raw×3 to avoid fractions (same as backend):
 ```bash
 pip install -e ".[dev]"     # Core + pytest + ruff
 pip install -e ".[train]"   # + torch + tensorboard + wandb
-pip install -e ".[serve]"   # + fastapi + uvicorn + onnxruntime
+pip install -e ".[serve]"   # + fastapi + uvicorn + torch
 ```
 
 ## W&B (Weights & Biases) Setup

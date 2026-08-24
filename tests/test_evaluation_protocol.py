@@ -44,10 +44,12 @@ def _deal(seed: int, candidate_wins: bool = True) -> MirroredDealRecord:
 
 
 def test_iter_mirrored_deals_reuses_seed_and_swaps_candidate_side():
+    candidate_calls = []
+    opponent_calls = []
     records = list(
         iter_mirrored_deals(
-            lambda _: FirstLegalAgent(),
-            lambda _: FirstLegalAgent(),
+            lambda seed: candidate_calls.append(seed) or FirstLegalAgent(),
+            lambda seed: opponent_calls.append(seed) or FirstLegalAgent(),
             num_deals=2,
             seed=700,
             win_points=5,
@@ -60,6 +62,8 @@ def test_iter_mirrored_deals_reuses_seed_and_swaps_candidate_side():
     assert records[0].candidate_team0.seed == records[0].candidate_team1.seed == 700
     assert records[0].candidate_team0.initial_briscola
     assert records[0].candidate_team0.actions > 0
+    assert candidate_calls == [700, 700, 701, 701]
+    assert opponent_calls == [700, 700, 701, 701]
 
 
 def test_champion_summary_requires_predeclared_minimum_for_promotion():

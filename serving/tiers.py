@@ -15,10 +15,9 @@ from pathlib import Path
 
 import torch
 
-from becca_env.game import BeccaGame
-from becca_env.observation import decode_action
 from evaluation.arena import NeuralAgent
 from evaluation.heuristic import HeuristicAgent
+from inference.pimc import PIMCAgent, PIMCConfig
 from training.checkpoint import build_net, load_checkpoint
 
 _AI_ROOT = Path(__file__).resolve().parent.parent
@@ -84,24 +83,6 @@ class TierUnavailableError(RuntimeError):
     """The tier is known but its checkpoint is missing from this deployment."""
 
 
-class PIMCAgent:
-    """Wraps PIMC search in the standard `select_action` agent contract."""
-
-    def __init__(self, net: torch.nn.Module, device: torch.device):
-        self.net = net
-        self.device = device
-
-    def select_action(self, game: BeccaGame, seat: int) -> object:
-        from inference.pimc import PIMCConfig, pimc_choose_action
-
-        config = PIMCConfig(
-            num_determinizations=PIMC_DETERMINIZATIONS,
-            rollout_policy=PIMC_ROLLOUT_POLICY,
-        )
-        action_idx = pimc_choose_action(self.net, game, seat, config, self.device)
-        return decode_action(action_idx, game)
-
-
 _agent_cache: dict[tuple[str, float], object] = {}
 
 
@@ -132,7 +113,14 @@ def _build_agent(tier: Tier, temperature: float):
 
     net = _load_net(tier)
     if tier.name == "esperto":
-        return PIMCAgent(net, torch.device("cpu"))
+        return PIMCAgent(
+            net,
+            PIMCConfig(
+                num_determinizations=PIMC_DETERMINIZATIONS,
+                rollout_policy=PIMC_ROLLOUT_POLICY,
+            ),
+            torch.device("cpu"),
+        )
     return NeuralAgent(net, torch.device("cpu"), temperature=temperature)
 
 

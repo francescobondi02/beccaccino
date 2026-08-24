@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 
-from evaluation.arena import EVAL_SEED_BASE, NeuralAgent, iter_mirrored_deals, play_match
+from evaluation.arena import EVAL_SEED_BASE, NeuralAgent, iter_mirrored_deals
 from evaluation.heuristic import HeuristicAgent
 from evaluation.protocol import write_score_jsonl
 from evaluation.stats import (
@@ -74,27 +74,21 @@ def evaluate_mirrored(
     if games <= 0:
         raise ValueError("games must be positive")
 
-    candidate_team0 = play_match(
-        candidate,
-        baseline,
-        num_games=games,
-        win_points=win_points,
-        seed=seed,
+    records = list(
+        iter_mirrored_deals(
+            lambda _: candidate,
+            lambda _: baseline,
+            num_deals=games,
+            seed=seed,
+            win_points=win_points,
+        )
     )
-    candidate_team1 = play_match(
-        baseline,
-        candidate,
-        num_games=games,
-        win_points=win_points,
-        seed=seed,
+    paired_scores = tuple(record.paired_score for record in records)
+    wins = sum(
+        int(leg.candidate_score)
+        for record in records
+        for leg in (record.candidate_team0, record.candidate_team1)
     )
-    if len(candidate_team0.winners) != games or len(candidate_team1.winners) != games:
-        raise RuntimeError("arena did not return one winner per mirrored deal")
-    paired_scores = tuple(
-        ((winner0 == 0) + (winner1 == 1)) / 2
-        for winner0, winner1 in zip(candidate_team0.winners, candidate_team1.winners)
-    )
-    wins = candidate_team0.team0_wins + candidate_team1.team1_wins
     return wins, 2 * games, paired_scores
 
 

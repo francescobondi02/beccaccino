@@ -206,16 +206,14 @@ def play_match(
     result = MatchResult()
 
     for i in range(num_games):
-        game = BeccaGame(seed=seed + i, win_points=win_points)
-
-        while game.phase != GamePhase.GAME_OVER:
-            seat = game.current_seat
-            team = TEAM_OF_SEAT[seat]
-            agent = team0_agent if team == 0 else team1_agent
-            action = agent.select_action(game, seat)
-            game.step(action)
-
-        winner = game.result.winner_team
+        record = play_recorded_game(
+            team0_agent,
+            team1_agent,
+            candidate_team=0,
+            seed=seed + i,
+            win_points=win_points,
+        )
+        winner = record.winner_team
         result.winners.append(winner)
         if winner == 0:
             result.team0_wins += 1
@@ -223,6 +221,37 @@ def play_match(
             result.team1_wins += 1
 
     return result
+
+
+def evaluate_side_balanced(
+    candidate,
+    opponent,
+    *,
+    num_games: int,
+    seed: int,
+    win_points: int = 41,
+) -> tuple[int, int]:
+    """Evaluate on disjoint seed blocks with each agent playing both sides.
+
+    This preserves the historical monitoring contract. Promotion uses
+    `iter_mirrored_deals`, which replays every seed on both sides.
+    """
+    half = num_games // 2
+    candidate_team0 = play_match(
+        candidate,
+        opponent,
+        num_games=half,
+        win_points=win_points,
+        seed=seed,
+    )
+    candidate_team1 = play_match(
+        opponent,
+        candidate,
+        num_games=half,
+        win_points=win_points,
+        seed=seed + half,
+    )
+    return candidate_team0.team0_wins + candidate_team1.team1_wins, 2 * half
 
 
 ELO_SCALE = 400.0  # standard Elo logistic scale
@@ -257,16 +286,14 @@ def elo_ladder(
     pair_score: dict[tuple[str, str], float] = {}
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
-            agent_a = NeuralAgent(checkpoints[a], device, temperature=0.0)
-            agent_b = NeuralAgent(checkpoints[b], device, temperature=0.0)
-            r1 = play_match(
-                agent_a, agent_b, num_games=num_games, win_points=win_points, seed=block_seed
+            records = iter_mirrored_deals(
+                lambda _: NeuralAgent(checkpoints[a], device, temperature=0.0),
+                lambda _: NeuralAgent(checkpoints[b], device, temperature=0.0),
+                num_deals=num_games,
+                seed=block_seed,
+                win_points=win_points,
             )
-            r2 = play_match(
-                agent_b, agent_a, num_games=num_games, win_points=win_points, seed=block_seed
-            )
-            a_wins = r1.team0_wins + r2.team1_wins
-            pair_score[(a, b)] = a_wins / (2 * num_games)
+            pair_score[(a, b)] = sum(record.paired_score for record in records) / num_games
 
     for _ in range(LADDER_ITERATIONS):
         for (a, b), score_a in pair_score.items():
@@ -289,15 +316,10 @@ def evaluate_against_random(
     Returns the win rate (0-1) by default, or (wins, n) when return_counts=True
     so the caller can compute a confidence interval. n is the number of games
     actually played (2 * (num_games // 2)), not num_games."""
-    neural = NeuralAgent(net, device, temperature=0.0)
-    rando = RandomAgent(seed=seed + 10000)
-
-    # Play half as team 0, half as team 1
-    half = num_games // 2
-
-    r1 = play_match(neural, rando, num_games=half, seed=seed)
-    r2 = play_match(rando, neural, num_games=half, seed=seed + half)
-
-    wins = r1.team0_wins + r2.team1_wins
-    n = 2 * half
+    wins, n = evaluate_side_balanced(
+        NeuralAgent(net, device, temperature=0.0),
+        RandomAgent(seed=seed + 10000),
+        num_games=num_games,
+        seed=seed,
+    )
     return (wins, n) if return_counts else wins / n

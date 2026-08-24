@@ -29,8 +29,15 @@ jobs:
         run: ruff format --check .
 
       - name: Test
-        # test_export_onnx.py is excluded: it needs an onnxruntime build absent here.
-        run: pytest --ignore=tests/test_export_onnx.py
+        run: pytest
+
+      - name: Wheel install smoke
+        run: |
+          rm -rf build
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/becca-wheel .
+          python -m pip install --no-deps --target /tmp/becca-wheel-site /tmp/becca-wheel/becca_ai-*.whl
+          cd /tmp
+          PYTHONPATH=/tmp/becca-wheel-site python -c "import importlib.util; from pathlib import Path; import inference.pimc, serving.tiers; root = Path('/tmp/becca-wheel-site'); assert Path(inference.pimc.__file__).is_relative_to(root); assert Path(serving.tiers.__file__).is_relative_to(root); assert importlib.util.find_spec('serving.export_onnx') is None; assert importlib.util.find_spec('training.self_play_env') is None"
 
       - name: Fixture drift gate
         # The fixture is consumed byte-for-byte by the backend serializer test, so a

@@ -5,9 +5,7 @@ dist/
 build/
 .venv/
 venv/
-*.onnx
 checkpoints/*.pt
-checkpoints/*.onnx
 # Pulled Kaggle run outputs: large .pt files plus a duplicate copy of this
 # source tree, which would otherwise be committed and linted as if it were ours.
 checkpoints/kaggle*/
