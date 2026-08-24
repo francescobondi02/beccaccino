@@ -1,7 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Trophy, Medal, Users, Loader2, ArrowLeft } from "lucide-react";
+import {
+  Trophy,
+  Medal,
+  Users,
+  Loader2,
+  ArrowLeft,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 import { toast } from "sonner";
@@ -24,7 +32,9 @@ interface LeaderboardEntry {
 const Leaderboard = () => {
   const navigate = useNavigate();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [status, setStatus] = useState<"loading" | "error" | "ready">(
+    "loading",
+  );
   const [username, setUsername] = useState<string | undefined>(undefined);
 
   // Check auth for header display (not required for this page)
@@ -41,25 +51,26 @@ const Leaderboard = () => {
     checkAuth();
   }, []);
 
+  const fetchLeaderboard = useCallback(async () => {
+    setStatus("loading");
+    try {
+      const data = await apiGet<{ leaderboard: LeaderboardEntry[] }>(
+        "/users/leaderboard",
+      );
+      setLeaderboard(data.leaderboard);
+      setStatus("ready");
+    } catch (error) {
+      console.error("Error fetching leaderboard:", error);
+      setLeaderboard([]);
+      setStatus("error");
+      toast.error("Impossibile caricare la classifica");
+    }
+  }, []);
+
   // Fetch leaderboard
   useEffect(() => {
-    const fetchLeaderboard = async () => {
-      setIsLoading(true);
-      try {
-        const data = await apiGet<{ leaderboard?: LeaderboardEntry[] }>(
-          "/users/leaderboard",
-        );
-        setLeaderboard(data.leaderboard ?? []);
-      } catch (error) {
-        console.error("Error fetching leaderboard:", error);
-        toast.error("Impossibile caricare la classifica");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchLeaderboard();
-  }, []);
+  }, [fetchLeaderboard]);
 
   const handleLogout = async () => {
     try {
@@ -125,8 +136,11 @@ const Leaderboard = () => {
           </Card>
 
           {/* Loading State */}
-          {isLoading && (
-            <Card className="bg-gradient-card border-border/50">
+          {status === "loading" && (
+            <Card
+              className="bg-gradient-card border-border/50"
+              role="status"
+            >
               <CardContent className="p-12 text-center">
                 <Loader2 className="h-10 w-10 animate-spin mx-auto mb-3 text-primary" />
                 <p className="text-muted-foreground">Caricamento classifica...</p>
@@ -134,8 +148,32 @@ const Leaderboard = () => {
             </Card>
           )}
 
+          {/* Error State */}
+          {status === "error" && (
+            <Card
+              className="bg-gradient-card border-destructive/50"
+              role="alert"
+            >
+              <CardContent className="p-12 text-center">
+                <AlertCircle className="h-12 w-12 mx-auto mb-3 text-destructive" />
+                <p className="font-medium text-lg">
+                  Impossibile caricare la classifica
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4"
+                  onClick={fetchLeaderboard}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Riprova
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Empty State */}
-          {!isLoading && leaderboard.length === 0 && (
+          {status === "ready" && leaderboard.length === 0 && (
             <Card className="bg-gradient-card border-border/50">
               <CardContent className="p-12 text-center">
                 <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
@@ -150,7 +188,7 @@ const Leaderboard = () => {
           )}
 
           {/* Leaderboard Table */}
-          {!isLoading && leaderboard.length > 0 && (
+          {status === "ready" && leaderboard.length > 0 && (
             <div className="space-y-3">
               {/* Table Header */}
               <div className="grid grid-cols-12 gap-2 px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">

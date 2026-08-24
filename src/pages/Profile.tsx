@@ -1,11 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Header from "@/components/Header";
-import { Trophy, Users, Star, Clock, Edit2, Trash2, Loader2 } from "lucide-react";
+import {
+  Trophy,
+  Users,
+  Star,
+  Clock,
+  Edit2,
+  Trash2,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react";
 import { toast } from "sonner";
 import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
@@ -49,13 +59,23 @@ const Profile = () => {
   const [newUsername, setNewUsername] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [stats, setStats] = useState<UserStats>({
-    totalGames: 0,
-    wins: 0,
-    winRate: 0,
-    totalPoints: 0,
-    recentGames: [],
-  });
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [statsStatus, setStatsStatus] = useState<
+    "loading" | "error" | "ready"
+  >("loading");
+
+  const fetchStats = useCallback(async () => {
+    setStatsStatus("loading");
+    try {
+      const data = await apiGet<UserStats>("/users/me/stats");
+      setStats(data);
+      setStatsStatus("ready");
+    } catch (error) {
+      console.error("Error fetching stats:", error);
+      setStats(null);
+      setStatsStatus("error");
+    }
+  }, []);
 
   // Check auth and load user data
   useEffect(() => {
@@ -82,16 +102,7 @@ const Profile = () => {
     };
 
     checkAuth();
-  }, [navigate]);
-
-  const fetchStats = async () => {
-    try {
-      const data = await apiGet<UserStats>("/users/me/stats");
-      setStats(data);
-    } catch (error) {
-      console.error("Error fetching stats:", error);
-    }
-  };
+  }, [fetchStats, navigate]);
 
   const handleSaveUsername = async () => {
     if (!newUsername.trim()) {
@@ -147,7 +158,11 @@ const Profile = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div
+        className="min-h-screen bg-background flex items-center justify-center"
+        role="status"
+        aria-label="Caricamento profilo"
+      >
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
       </div>
     );
@@ -224,94 +239,135 @@ const Profile = () => {
             </CardContent>
           </Card>
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card className="bg-gradient-card border-border/50">
-              <CardContent className="pt-6 text-center">
-                <Users className="h-8 w-8 mx-auto mb-2 text-primary" />
-                <p className="text-2xl font-bold">{stats.totalGames}</p>
-                <p className="text-sm text-muted-foreground">Partite</p>
+          {statsStatus === "loading" && (
+            <Card
+              className="bg-gradient-card border-border/50"
+              role="status"
+            >
+              <CardContent className="p-8 text-center">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3 text-primary" />
+                <p className="text-muted-foreground">
+                  Caricamento statistiche...
+                </p>
               </CardContent>
             </Card>
-            <Card className="bg-gradient-card border-border/50">
-              <CardContent className="pt-6 text-center">
-                <Trophy className="h-8 w-8 mx-auto mb-2 text-accent" />
-                <p className="text-2xl font-bold">{stats.wins}</p>
-                <p className="text-sm text-muted-foreground">Vittorie</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-gradient-card border-border/50">
-              <CardContent className="pt-6 text-center">
-                <Star className="h-8 w-8 mx-auto mb-2 text-primary" />
-                <p className="text-2xl font-bold">{stats.winRate}%</p>
-                <p className="text-sm text-muted-foreground">Win Rate</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-gradient-card border-border/50">
-              <CardContent className="pt-6 text-center">
-                <Clock className="h-8 w-8 mx-auto mb-2 text-accent" />
-                <p className="text-2xl font-bold">{stats.totalPoints}</p>
-                <p className="text-sm text-muted-foreground">Punti</p>
-              </CardContent>
-            </Card>
-          </div>
+          )}
 
-          {/* Recent Games */}
-          <Card className="bg-gradient-card border-border/50">
-            <CardHeader>
-              <CardTitle>Partite recenti</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {stats.recentGames.length === 0 ? (
-                <div className="text-center py-8">
-                  <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
-                  <p className="text-muted-foreground">
-                    Nessuna partita completata ancora
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Gioca la tua prima partita per vedere le statistiche!
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {stats.recentGames.map((game) => (
-                    <div
-                      key={game.id}
-                      className="flex items-center justify-between p-3 bg-secondary rounded-lg"
-                    >
-                      <div className="flex-1">
-                        <p className="font-medium">
-                          vs {game.opponents.join(", ")}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(game.date).toLocaleDateString("it-IT")}
-                          {game.teammates.length > 0 && (
-                            <span className="ml-2">
-                              (con {game.teammates.join(", ")})
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p
-                          className={`font-semibold ${
-                            game.result === "Vittoria"
-                              ? "text-accent"
-                              : "text-muted-foreground"
-                          }`}
-                        >
-                          {game.result}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {game.myTeamPoints} - {game.opponentTeamPoints}
-                        </p>
-                      </div>
+          {statsStatus === "error" && (
+            <Card
+              className="bg-gradient-card border-destructive/50"
+              role="alert"
+            >
+              <CardContent className="p-8 text-center">
+                <AlertCircle className="h-10 w-10 mx-auto mb-3 text-destructive" />
+                <p className="font-medium">
+                  Impossibile caricare le statistiche
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4"
+                  onClick={fetchStats}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Riprova
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {statsStatus === "ready" && stats && (
+            <>
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card className="bg-gradient-card border-border/50">
+                  <CardContent className="pt-6 text-center">
+                    <Users className="h-8 w-8 mx-auto mb-2 text-primary" />
+                    <p className="text-2xl font-bold">{stats.totalGames}</p>
+                    <p className="text-sm text-muted-foreground">Partite</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gradient-card border-border/50">
+                  <CardContent className="pt-6 text-center">
+                    <Trophy className="h-8 w-8 mx-auto mb-2 text-accent" />
+                    <p className="text-2xl font-bold">{stats.wins}</p>
+                    <p className="text-sm text-muted-foreground">Vittorie</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gradient-card border-border/50">
+                  <CardContent className="pt-6 text-center">
+                    <Star className="h-8 w-8 mx-auto mb-2 text-primary" />
+                    <p className="text-2xl font-bold">{stats.winRate}%</p>
+                    <p className="text-sm text-muted-foreground">Win Rate</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-gradient-card border-border/50">
+                  <CardContent className="pt-6 text-center">
+                    <Clock className="h-8 w-8 mx-auto mb-2 text-accent" />
+                    <p className="text-2xl font-bold">{stats.totalPoints}</p>
+                    <p className="text-sm text-muted-foreground">Punti</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Recent Games */}
+              <Card className="bg-gradient-card border-border/50">
+                <CardHeader>
+                  <CardTitle>Partite recenti</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {stats.recentGames.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+                      <p className="text-muted-foreground">
+                        Nessuna partita completata ancora
+                      </p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Gioca la tua prima partita per vedere le statistiche!
+                      </p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  ) : (
+                    <div className="space-y-3">
+                      {stats.recentGames.map((game) => (
+                        <div
+                          key={game.id}
+                          className="flex items-center justify-between p-3 bg-secondary rounded-lg"
+                        >
+                          <div className="flex-1">
+                            <p className="font-medium">
+                              vs {game.opponents.join(", ")}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {new Date(game.date).toLocaleDateString("it-IT")}
+                              {game.teammates.length > 0 && (
+                                <span className="ml-2">
+                                  (con {game.teammates.join(", ")})
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p
+                              className={`font-semibold ${
+                                game.result === "Vittoria"
+                                  ? "text-accent"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {game.result}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {game.myTeamPoints} - {game.opponentTeamPoints}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
 
           {/* Danger Zone */}
           <Card className="bg-gradient-card border-destructive/50">
