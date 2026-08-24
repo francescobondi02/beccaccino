@@ -11,7 +11,7 @@ import { cumulativeScore, decideGameWinner } from "../utils/score";
 import { detectCricca } from "../utils/detectCricca";
 import { getSocketInstance } from "../socketInstance";
 import { getRng } from "../utils/random";
-import { startTurnTimer, clearTurnTimer, clearRoomTimerData } from "./turnTimer";
+import { startTurnTimer, clearRoomTimerData } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 import { logger } from "../logger";
 
@@ -195,10 +195,17 @@ async function setupRoundTx(
   gameRoomId: number,
   roundNumber: number,
 ) {
+  if (roundNumber === 1) {
+    await tx.player.updateMany({
+      where: { gameRoomId },
+      data: { seat: null },
+    });
+  }
+
   //^ Prendi i player nella room (usando gameRoomId)
   const players = await tx.player.findMany({
     where: { gameRoomId },
-    orderBy: { seat: "asc" },
+    orderBy: [{ seat: "asc" }, { id: "asc" }],
   });
 
   if (players.length !== 4) {
@@ -314,15 +321,31 @@ export async function startFirstRound(
   gameRoomId: number,
   roomCode: string,
 ): Promise<void> {
-  getSocketInstance().to(roomCode).emit("game_started", {});
+  try {
+    const callerUserId = await prisma.$transaction(async (tx) => {
+      const claim = await tx.gameRoom.updateMany({
+        where: { id: gameRoomId, started: false },
+        data: { started: true },
+      });
+      if (claim.count !== 1) {
+        throw new GameError("Game has already started", 409);
+      }
 
-  const { callerPlayerId } = await setupRound(gameRoomId, 1);
-  const caller = await prisma.player.findUnique({
-    where: { id: callerPlayerId },
-    select: { userId: true },
-  });
-  if (caller) {
-    startTurnTimer(roomCode, caller.userId, "choose_briscola");
+      const { callerPlayerId } = await setupRound(gameRoomId, 1, tx);
+      const caller = await tx.player.findUnique({
+        where: { id: callerPlayerId },
+        select: { userId: true },
+      });
+      if (!caller) throw new Error("Briscola caller not found");
+
+      return caller.userId;
+    });
+
+    getSocketInstance().to(roomCode).emit("game_started", {});
+    startTurnTimer(roomCode, callerUserId, "choose_briscola");
+  } catch (error) {
+    clearRoomTimerData(roomCode);
+    throw error;
   }
 }
 
@@ -363,9 +386,6 @@ async function setBriscolaUnlocked({
     include: { players: true },
   });
   if (!gameRoom) throw new GameError("Game room not found", 404);
-
-  // Clear timer before processing (prevents race with auto-play)
-  clearTurnTimer(gameRoom.code);
 
   const player = gameRoom.players.find((p) => p.id === playerId);
   if (!player) throw new GameError("Player not in this game room", 403);
@@ -475,9 +495,6 @@ async function playCardUnlocked({
    * @note Questa funzione controlla anche la validità della mossa
    */
 
-  // Clear timer before processing (prevents race with auto-play)
-  clearTurnTimer(roomCode);
-
   //^ 1. Trova la room in cui si sta giocando
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -541,6 +558,21 @@ async function playCardUnlocked({
   });
 
   if (!playerCard) throw new GameError("Player does not have this card", 400);
+
+  const leadCard = playedCards.find((card) => card.position === 0);
+  if (leadCard && suit !== leadCard.suit) {
+    const hasLeadSuit = await prisma.playerCard.findFirst({
+      where: {
+        playerId: player.id,
+        roundId: currentRound.id,
+        suit: leadCard.suit,
+      },
+      select: { id: true },
+    });
+    if (hasLeadSuit) {
+      throw new GameError("Player must follow suit", 400);
+    }
+  }
 
   // Only the trick leader (position 0) can declare a signal
   const validSignal =

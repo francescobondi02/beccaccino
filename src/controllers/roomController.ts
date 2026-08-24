@@ -128,7 +128,7 @@ export const createPracticeRoom = async (req: Request, res: Response) => {
     const room = await prisma.gameRoom.create({
       data: {
         code,
-        started: true,
+        started: false,
         isPractice: true,
         players: {
           create: [
@@ -488,27 +488,7 @@ export const setPlayerReady = async (req: Request, res: Response) => {
         team1Count === 2 &&
         !updatedRoom.started
       ) {
-        // Conditional update: only flip to started=true if it's still false.
-        // Prevents a second concurrent caller from re-starting the game.
-        const flip = await prisma.gameRoom.updateMany({
-          where: { id: room.id, started: false },
-          data: { started: true },
-        });
-
-        if (flip.count === 1) {
-          // We were the one that started the game.
-          try {
-            await startFirstRound(room.id, roomCode);
-          } catch (error) {
-            Sentry.captureException(error, {
-              extra: { event: "first_round_setup", roomCode, userId },
-            });
-            (req.log ?? logger).error(
-              { err: error, roomCode },
-              "first_round_setup_failed",
-            );
-          }
-        }
+        await startFirstRound(room.id, roomCode);
       }
 
       return {

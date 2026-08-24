@@ -1,10 +1,33 @@
 import { prisma } from "../../src/db";
+import {
+  clearRoomTimerData,
+  getTurnTimerState,
+} from "../../src/services/turnTimer";
 
 import { clearDatabase, setupGame, chooseBriscola, api, apiAs } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
   await clearDatabase();
 });
+
+afterEach(async () => {
+  const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
+  for (const room of rooms) clearRoomTimerData(room.code);
+});
+
+type TurnTimerState = NonNullable<ReturnType<typeof getTurnTimerState>>;
+
+function expectTimerUnchanged(roomCode: string, before: TurnTimerState) {
+  const after = getTurnTimerState(roomCode);
+  expect(after).not.toBeNull();
+  expect(after).toMatchObject({
+    turnUserId: before.turnUserId,
+    phase: before.phase,
+    totalMs: before.totalMs,
+    isBot: before.isBot,
+  });
+  expect(after!.remainingMs).toBeLessThanOrEqual(before.remainingMs);
+}
 
 describe("Game Error Cases", () => {
   describe("Choose Briscola", () => {
@@ -17,6 +40,7 @@ describe("Game Error Cases", () => {
         where: { code: roomCode },
         include: { players: { include: { user: true } } },
       });
+      const timerBefore = getTurnTimerState(roomCode)!;
 
       // Try choosing briscola again as an authenticated player in the room
       const someplayer = room!.players[0];
@@ -29,6 +53,7 @@ describe("Game Error Cases", () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.body.error).toMatch(/already/i);
+      expectTimerUnchanged(roomCode, timerBefore);
     });
 
     it("rejects a player not in the game room", async () => {
@@ -74,6 +99,7 @@ describe("Game Error Cases", () => {
       const wrongPlayerCard = await prisma.playerCard.findFirst({
         where: { playerId: wrongPlayer.id, roundId: round.id },
       });
+      const timerBefore = getTurnTimerState(roomCode)!;
 
       const res = await apiAs(wrongPlayer.userId, wrongPlayer.user.username)
         .post("/api/games/play-card")
@@ -85,6 +111,7 @@ describe("Game Error Cases", () => {
 
       expect(res.statusCode).toBe(403);
       expect(res.body.error).toMatch(/turn/i);
+      expectTimerUnchanged(roomCode, timerBefore);
     });
 
     it("rejects playing a card the player doesn't have", async () => {
@@ -128,6 +155,7 @@ describe("Game Error Cases", () => {
       }
 
       expect(otherCard).not.toBeNull();
+      const timerBefore = getTurnTimerState(roomCode)!;
 
       const res = await apiAs(starter.userId, starter.user.username)
         .post("/api/games/play-card")
@@ -139,6 +167,101 @@ describe("Game Error Cases", () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.body.error).toMatch(/does not have/i);
+      expectTimerUnchanged(roomCode, timerBefore);
+    });
+
+    it("rejects breaking follow suit without cancelling the turn timer", async () => {
+      const { roomCode, round, cards } = await setupGame();
+      await chooseBriscola(roomCode, round, cards);
+
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: { include: { user: true } } },
+      });
+      const hand = await prisma.hand.findFirst({
+        where: { roundId: round.id },
+      });
+      const starter = room!.players.find((p) => p.id === hand!.starterId)!;
+      const nextPlayer = room!.players.find(
+        (p) => p.seat === (starter.seat! + 1) % 4,
+      )!;
+      const starterCard = await prisma.playerCard.findFirst({
+        where: { playerId: starter.id, roundId: round.id },
+      });
+      const nextCards = await prisma.playerCard.findMany({
+        where: { playerId: nextPlayer.id, roundId: round.id },
+        orderBy: { id: "asc" },
+      });
+      const offSuit = (["denara", "coppe", "spade", "bastoni"] as const).find(
+        (suit) => suit !== starterCard!.suit,
+      )!;
+
+      await prisma.playerCard.update({
+        where: { id: nextCards[0].id },
+        data: { suit: starterCard!.suit },
+      });
+      const illegalCard = await prisma.playerCard.update({
+        where: { id: nextCards[1].id },
+        data: { suit: offSuit },
+      });
+
+      const firstPlay = await apiAs(starter.userId, starter.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: starterCard!.suit,
+          value: starterCard!.value,
+        });
+      expect(firstPlay.statusCode).toBe(200);
+
+      const timerBefore = getTurnTimerState(roomCode)!;
+      const res = await apiAs(nextPlayer.userId, nextPlayer.user.username)
+        .post("/api/games/play-card")
+        .send({
+          roomCode,
+          suit: illegalCard.suit,
+          value: illegalCard.value,
+        });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.body.error).toMatch(/follow suit/i);
+      expectTimerUnchanged(roomCode, timerBefore);
+    });
+
+    it("preserves the next player's timer after a stale retry", async () => {
+      const { roomCode, round, cards } = await setupGame();
+      await chooseBriscola(roomCode, round, cards);
+
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: { include: { user: true } } },
+      });
+      const hand = await prisma.hand.findFirst({
+        where: { roundId: round.id },
+      });
+      const starter = room!.players.find((p) => p.id === hand!.starterId)!;
+      const card = await prisma.playerCard.findFirst({
+        where: { playerId: starter.id, roundId: round.id },
+      });
+      const request = {
+        roomCode,
+        suit: card!.suit,
+        value: card!.value,
+      };
+
+      const firstPlay = await apiAs(starter.userId, starter.user.username)
+        .post("/api/games/play-card")
+        .send(request);
+      expect(firstPlay.statusCode).toBe(200);
+
+      const timerBefore = getTurnTimerState(roomCode)!;
+      const retry = await apiAs(starter.userId, starter.user.username)
+        .post("/api/games/play-card")
+        .send(request);
+
+      expect(retry.statusCode).toBe(403);
+      expect(retry.body.error).toMatch(/turn/i);
+      expectTimerUnchanged(roomCode, timerBefore);
     });
   });
 
@@ -307,6 +430,7 @@ describe("Game Error Cases", () => {
       const wrongPlayer = room!.players.find(
         (p) => p.id !== correctCallerPlayerId,
       )!;
+      const timerBefore = getTurnTimerState(roomCode)!;
 
       const res = await apiAs(wrongPlayer.userId, wrongPlayer.user.username)
         .post("/api/games/choose-briscola")
@@ -317,6 +441,7 @@ describe("Game Error Cases", () => {
 
       expect(res.statusCode).toBe(403);
       expect(res.body.error).toMatch(/not your turn to choose briscola/i);
+      expectTimerUnchanged(roomCode, timerBefore);
     });
 
     it("allows the correct caller to choose briscola", async () => {
