@@ -6,10 +6,10 @@ recipe is a **behavioral-cloning warm-start** (imitate the heuristic) followed b
 opponent diversity pool (with permanent anchors), an optional centralized (CTDE)
 critic, curriculum learning, and wandb tracking. Four network families ship
 (V1 MLP → V2 residual → V3 factorized head → V4 transformer). The two-phase
-BC→PPO pipeline lives in `scripts/bc_then_rl.py`; `training/trainer.py` is the
-pure-PPO trainer (also BC-anchor and CTDE aware).
+BC→PPO setup lives in `scripts/bc_then_rl.py`; all PPO lifecycle behavior lives
+in `training/engine.py`, with `scripts/train.py` as the pure-PPO CLI adapter.
 
-## A0-A8 Refactor Status
+## A0-A10 Refactor Status
 
 The 2026-08-24 correctness pass changed the training contract:
 
@@ -53,6 +53,11 @@ The 2026-08-24 correctness pass changed the training contract:
   Torch, CUDA, and cuDNN runtime. Saves fsync a same-directory temporary file
   before atomic replacement, write a SHA-256 sidecar, and retain a verified
   `.prev.pt` generation for automatic corruption fallback.
+- **A9 — fresh long-run identity:** historical `runD` cannot launch; the
+  `rund2` preset starts `runD2` from regenerated BC data under A0-A8.
+- **A10 — one PPO engine:** pure PPO and BC→PPO now share rollout, schedules,
+  evaluation, curriculum, checkpoint, deadline, and exact-resume behavior in
+  `training/engine.py`. The drifted `scripts/train_and_plot.py` loop was removed.
 
 Legacy 462-feature and A2 470-feature checkpoints remain loadable for inference
 because their input width is inferred or read from checkpoint metadata. They
@@ -115,7 +120,7 @@ and a centralized CTDE critic.
 ### Quick Smoke Test (verify everything works, ~1 min)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --steps 100000 \
   --num-envs 2 \
   --steps-per-env 64 \
@@ -131,7 +136,7 @@ python -m training.trainer \
 ### Phase 1: Short Games (learn basic trick-taking, ~30 min CPU / ~10 min MPS)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --steps 5000000 \
   --num-envs 16 \
   --steps-per-env 256 \
@@ -148,7 +153,7 @@ python -m training.trainer \
 ### Phase 2: Full Network, Short Games (~2h on Apple Silicon)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --steps 20000000 \
   --win-points 5 \
   --device mps
@@ -160,7 +165,7 @@ python -m training.trainer \
 ### Phase 3: Full Games (multi-round strategy, ~4-6h)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --steps 50000000 \
   --win-points 41 \
   --device mps \
@@ -172,7 +177,7 @@ python -m training.trainer \
 ### Full Curriculum (auto-advances 5→11→21→41 points, ~8-10h)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --curriculum \
   --steps 100000000 \
   --device mps
@@ -181,7 +186,7 @@ python -m training.trainer \
 ### Resume from Checkpoint
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --resume checkpoints/ckpt_000500.pt \
   --steps 50000000 \
   --device mps
@@ -201,7 +206,7 @@ reproducibility is not claimed.
 ### Conservative (stable but slower learning)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --lr 1e-4 \
   --ent-coef 0.05 \
   --ent-coef-final 0.01 \
@@ -217,7 +222,7 @@ python -m training.trainer \
 ### Aggressive (faster convergence, risk of instability)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --lr 5e-4 \
   --ent-coef 0.02 \
   --ent-coef-final 0.003 \
@@ -233,7 +238,7 @@ python -m training.trainer \
 ### Legacy Network (V1, smaller, for comparison)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --network-version 1 \
   --hidden 256 \
   --layers 2 \
@@ -246,7 +251,7 @@ python -m training.trainer \
 ### CPU-Only (no GPU, for cloud/server training)
 
 ```bash
-python -m training.trainer \
+python -m scripts.train \
   --num-envs 32 \
   --steps-per-env 512 \
   --steps 50000000 \

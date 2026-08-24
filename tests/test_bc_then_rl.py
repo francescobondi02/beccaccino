@@ -14,7 +14,6 @@ import pytest
 import torch
 
 from becca_env.observation import FULL_STATE_SIZE
-from scripts import bc_then_rl
 from scripts.bc_then_rl import (
     _load_resume_components,
     _reconcile_metrics_csv,
@@ -22,7 +21,9 @@ from scripts.bc_then_rl import (
     _validate_resume_contract,
     parse_args,
     phase2_rl,
+    train_config_from_args,
 )
+from training import engine
 from training.checkpoint import (
     CheckpointIntegrityError,
     load_checkpoint,
@@ -101,6 +102,32 @@ def _fresh_net(a):
     ).to(torch.device("cpu"))
 
 
+def test_train_config_from_default_args_uses_adapter_contract():
+    args = parse_args([])
+
+    config = train_config_from_args(args)
+
+    assert config.total_timesteps == 4_000_000
+    assert config.win_points == 5
+    assert config.wp_mix is None
+    assert config.network_version == 3
+    assert config.ckpt_every is None
+    assert config.eval_at_start is True
+    assert config.write_final_checkpoint is False
+    assert config.final_eval is False
+    assert config.use_wandb is False
+
+
+def test_train_config_from_mixed_win_points():
+    args = parse_args(["--wp-mix", "5,41", "--eval-win-points", "41"])
+
+    config = train_config_from_args(args)
+
+    assert config.win_points == 5
+    assert config.wp_mix == [5, 41]
+    assert config.eval_win_points == 41
+
+
 def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
     a = _args(
         tmp_path,
@@ -138,13 +165,13 @@ def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
 
 def test_rl_phase_resume_continues(tmp_path, monkeypatch):
     seeds = []
-    create_vec_env = bc_then_rl.create_vec_env
+    create_vec_env = engine.create_vec_env
 
     def capture_seed(**kwargs):
         seeds.append(kwargs["seed"])
         return create_vec_env(**kwargs)
 
-    monkeypatch.setattr(bc_then_rl, "create_vec_env", capture_seed)
+    monkeypatch.setattr(engine, "create_vec_env", capture_seed)
     a = _args(
         tmp_path,
         centralized_critic=True,
@@ -345,7 +372,7 @@ def test_rl_resume_restores_checkpoint_rng(tmp_path, monkeypatch):
     checkpoint["rng"] = rng_state()
     save_checkpoint_payload(path, checkpoint)
     restored = []
-    monkeypatch.setattr(bc_then_rl, "restore_rng", restored.append)
+    monkeypatch.setattr(engine, "restore_rng", restored.append)
 
     args = _args(
         tmp_path,

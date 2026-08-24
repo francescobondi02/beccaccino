@@ -105,7 +105,13 @@ class TrainConfig:
     ckpt_dir: str = "checkpoints"
     eval_every: int = 25
     eval_games: int = 200
-    ckpt_every: int = 50
+    # Numbered snapshots and resumable last.pt have independent cadences.
+    # None disables that checkpoint class.
+    ckpt_every: int | None = 50
+    save_last_every: int | None = None
+    eval_at_start: bool = False
+    write_final_checkpoint: bool = True
+    final_eval: bool = True
     resume_from: str | None = None
     # Graceful wall-clock stop (Kaggle's 12h session cap). None = no limit.
     # On expiry the trainer writes last.pt and exits so --resume can continue.

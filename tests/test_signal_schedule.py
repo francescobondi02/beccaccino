@@ -9,7 +9,7 @@ workers actually generating experience.
 from __future__ import annotations
 
 from training.config import TrainConfig
-from training.trainer import _apply_signal_honesty_coef, signal_honesty_schedule
+from training.engine import apply_signal_honesty_coef, signal_honesty_schedule
 from training.vec_env import create_vec_env
 
 START = 0.05
@@ -78,7 +78,7 @@ def test_coefficient_reaches_async_subprocess_workers():
     vec = create_vec_env(num_envs=2, seed=0, win_points=5, sync=False, signal_honesty_coef=START)
     try:
         assert vec.get_attr("signal_honesty_coef") == (START, START)
-        _apply_signal_honesty_coef(vec, 0.01, use_vec=True)
+        apply_signal_honesty_coef(vec, 0.01, use_vec=True)
         assert vec.get_attr("signal_honesty_coef") == (0.01, 0.01)
     finally:
         vec.close()
@@ -88,7 +88,7 @@ def test_coefficient_applies_to_a_single_env():
     from becca_env.env import BeccaEnv
 
     env = BeccaEnv(seed=0, win_points=5)
-    _apply_signal_honesty_coef(env, 0.02, use_vec=False)
+    apply_signal_honesty_coef(env, 0.02, use_vec=False)
     assert env.signal_honesty_coef == 0.02
 
 

@@ -46,27 +46,20 @@ from training.checkpoint import (
     load_checkpoint,
     load_resumable_checkpoint,
     net_config_of,
-    restore_rng,
-    save_checkpoint,
     save_checkpoint_payload,
     seed_everything,
 )
 from training.config import TrainConfig
-from training.dual_rollout import collect_self_play_rollout_vec
+from training.engine import (
+    EvaluationStats,
+    TrainingCallbacks,
+    UpdateStats,
+    run_ppo,
+)
 from training.imitation import behavioral_clone, collect_heuristic_dataset
 from training.network import CentralizedCritic, create_network
-from training.normalization import ReturnNormalizer
-from training.ppo import ppo_update
-from training.self_play import OpponentPool
-from training.trainer import _apply_signal_honesty_coef, signal_honesty_schedule
-from training.vec_env import (
-    create_vec_env,
-    learner_team_per_env,
-    snapshot_vec_env_state,
-    win_points_per_env,
-)
+from training.vec_env import win_points_per_env
 
-SECONDS_PER_HOUR = 3600
 RESUME_CONTRACT_FORMAT = 1
 
 
@@ -361,7 +354,7 @@ def _resolve_anchors(args, resume_ckpt: dict | None, device: torch.device) -> li
     return None
 
 
-def _resume_contract(args, cfg: TrainConfig, net, critic) -> dict:
+def _resume_contract(args, cfg: TrainConfig, net, critic_enabled: bool) -> dict:
     immutable_config = {
         name: getattr(cfg, name)
         for name in (
@@ -391,7 +384,7 @@ def _resume_contract(args, cfg: TrainConfig, net, critic) -> dict:
         )
     }
     critic_config = None
-    if critic is not None:
+    if critic_enabled:
         critic_config = {
             "hidden_size": cfg.hidden_size,
             "num_layers": cfg.num_layers,
@@ -581,38 +574,11 @@ def phase2_rl(args, device, net, resume_ckpt=None):
                 "last.pt written by this pipeline (flat checkpoints are for "
                 "eval/serving only)"
             )
+    if args.centralized_critic and args.num_envs <= 1:
+        raise ValueError("--centralized-critic requires --num-envs > 1")
 
-    cfg = TrainConfig(
-        num_envs=args.num_envs,
-        steps_per_env=args.steps_per_env,
-        win_points=args.win_points if args.win_points is not None else args.wp_mix[0],
-        wp_mix=args.wp_mix,
-        eval_win_points=args.eval_win_points,
-        lr=args.lr,
-        ent_coef=args.ent_coef,
-        ent_coef_final=args.ent_coef_final,
-        hidden_size=args.hidden,
-        num_layers=args.layers,
-        total_timesteps=args.total_rl_steps,
-        device=args.device,
-        seed=args.seed,
-        p_latest_opponent=args.p_latest_opponent,
-        network_version=args.network_version,
-        d_model=args.d_model,
-        nhead=args.nhead,
-        dim_feedforward=args.dim_feedforward,
-        centralized_critic=args.centralized_critic,
-        signal_honesty_coef=args.signal_honesty_coef,
-        signal_honesty_coef_final=args.signal_honesty_coef_final,
-        signal_honesty_frac=args.signal_honesty_frac,
-        use_wandb=False,
-    )
-    training_win_points = cfg.wp_mix or cfg.win_points
-    # Fallback mirrors phase 1's (max of the mix), so BC and RL evals agree
-    # when --eval-win-points is not passed.
-    default_eval_wp = max(cfg.wp_mix) if cfg.wp_mix else cfg.win_points
-    eval_wp = cfg.eval_win_points if cfg.eval_win_points is not None else default_eval_wp
-    env_win_points = win_points_per_env(cfg.num_envs, training_win_points)
+    cfg = train_config_from_args(args)
+    env_win_points = win_points_per_env(cfg.num_envs, cfg.wp_mix or cfg.win_points)
     metric_win_points = sorted(set(env_win_points))
 
     out = Path(args.out_dir)
@@ -642,313 +608,154 @@ def phase2_rl(args, device, net, resume_ckpt=None):
                 ]
             )
 
-    # Centralized (CTDE) critic — value head over the full state. Its params
-    # join the actor's under one optimizer, mirroring training/trainer.py.
-    if critic is None and args.centralized_critic:
-        if cfg.num_envs <= 1:
-            raise ValueError("--centralized-critic requires --num-envs > 1")
-        critic = CentralizedCritic(
-            input_size=FULL_STATE_SIZE,
-            hidden_size=args.hidden,
-            num_layers=args.layers,
-            use_layer_norm=True,
-        ).to(device)
-    params = list(net.parameters()) + (list(critic.parameters()) if critic else [])
-    opt = torch.optim.Adam(params, lr=cfg.lr, eps=1e-5)
-    opponent_net = create_network(**net.config).to(device)
-    opponent_net.load_state_dict(net.state_dict())
-
-    shaping_signals = cfg.signal_honesty_coef != 0.0 or cfg.signal_honesty_coef_final != 0.0
-    learner_teams = learner_team_per_env(cfg.num_envs)
-
-    # Permanent opponent-pool anchor from the BC snapshot (anti-collapse).
     anchors = _resolve_anchors(args, resume_ckpt, device)
-    pool = OpponentPool(max_size=cfg.opponent_pool_size, anchors=anchors)
-    return_normalizer = ReturnNormalizer(gamma=cfg.gamma)
-
-    # Resume the RL phase from a prior last.pt (net + optimizer + critic +
-    # normalizer + pool + counters), so a run killed at Kaggle's 12h cap continues.
-    step_count = 0
-    games_total = 0
-    start_update = 1
-    resumed_best = (-1.0, 0)
-    resume_rng = None
     if args.resume:
-        opt.load_state_dict(resume_ckpt["optimizer"])
-        if resume_ckpt.get("normalizer") is not None:
-            return_normalizer.from_dict(resume_ckpt["normalizer"])
-        if resume_ckpt.get("pool"):
-            pool = OpponentPool.from_serialized(
-                resume_ckpt["pool"], max_size=cfg.opponent_pool_size, anchors=anchors
-            )
-        step_count = resume_ckpt.get("step", 0)
-        games_total = resume_ckpt.get("games", 0)
-        start_update = resume_ckpt.get("update", 0) + 1
-        resumed_best = (
-            resume_ckpt.get("best_wr_heuristic", -1.0),
-            resume_ckpt.get("best_update", 0),
+        _reconcile_metrics_csv(csv_path, resume_ckpt.get("update", 0))
+        print(
+            f"  resumed at update {resume_ckpt.get('update', 0) + 1}, "
+            f"{resume_ckpt.get('step', 0):,} steps"
         )
-        resume_rng = resume_ckpt.get("rng")
-        _reconcile_metrics_csv(csv_path, start_update - 1)
-        print(f"  resumed at update {start_update}, {step_count:,} steps")
 
     n_params = sum(p.numel() for p in net.parameters())
     print(
         f"\nPhase 2 RL: {n_params:,} params | "
-        f"batch={cfg.batch_size:,} | updates={cfg.total_updates}" + (" | +critic" if critic else "")
+        f"batch={cfg.batch_size:,} | updates={cfg.total_updates}"
+        + (" | +critic" if args.centralized_critic else "")
     )
 
-    last_wr_random, last_wr_heur = float("nan"), float("nan")
-    # -1.0 so the first eval always wins and best.pt exists from then on. A
-    # resumed run inherits the previous session's bar, or its first mediocre eval
-    # would overwrite a better best.pt.
-    best_wr_heur, best_update = resumed_best
-    contract = _resume_contract(args, cfg, net, critic)
+    contract = _resume_contract(args, cfg, net, args.centralized_critic)
     if resume_ckpt is not None:
         _validate_resume_contract(resume_ckpt, contract)
+    best_seen = resume_ckpt.get("best_wr_heuristic", -1.0) if resume_ckpt else -1.0
 
-    if cfg.total_updates < 1:
-        raise SystemExit(
-            f"--total-rl-steps {cfg.total_timesteps} is below one batch "
-            f"({cfg.batch_size}); no update would run"
-        )
-    if resume_ckpt is not None and start_update > cfg.total_updates:
-        raise SystemExit(
-            f"resume checkpoint is already at update {start_update - 1} of "
-            f"{cfg.total_updates}: this run is complete. Start a new run from "
-            "this checkpoint instead (extending --total-rl-steps would trip "
-            "the resume contract, and would reshape the LR, entropy, and "
-            "signal schedules)."
-        )
-
-    rollout_state = resume_ckpt.get("rollout_state") if resume_ckpt else None
-    if resume_ckpt is not None and rollout_state is None:
-        raise SystemExit(
-            "checkpoint predates exact vector-state resume; start a new run from its policy weights"
-        )
-    vec = create_vec_env(
-        num_envs=cfg.num_envs,
-        seed=cfg.seed,
-        win_points=training_win_points,
-        sync=False,
-        signal_honesty_coef=signal_honesty_schedule(cfg, start_update),
-        include_full_obs=critic is not None,
-        rollout_state=rollout_state,
-    )
-    if resume_rng is not None:
-        restore_rng(resume_rng)
-    t0 = time.time()
-    session_env_steps = 0
-    deadline = (
-        time.monotonic() + args.max_hours * SECONDS_PER_HOUR if args.max_hours is not None else None
-    )
-
-    def _save(path, upd):
-        extra = {
-            "games": games_total,
-            "phase": "rl",
-            "net_config": dict(net.config),
-            "best_wr_heuristic": best_wr_heur,
-            "best_update": best_update,
-            "anchors": pool.anchors,
-            "run_id": contract["run_id"],
-            "resume_contract": contract,
-            "rollout_state": snapshot_vec_env_state(vec),
-        }
-        if critic is not None:
-            extra["critic"] = critic.state_dict()
-        save_checkpoint(
-            path,
-            net=net,
-            optimizer=opt,
-            config=cfg,
-            step=step_count,
-            update=upd,
-            normalizer=return_normalizer,
-            pool=pool,
-            extra=extra,
-        )
-
-    for update in range(start_update, cfg.total_updates + 1):
-        frac = (update - 1) / max(cfg.total_updates - 1, 1)
-        ent_coef = cfg.ent_coef + (cfg.ent_coef_final - cfg.ent_coef) * frac
-        cos = 0.5 * (1 + np.cos(np.pi * frac))
-        for pg in opt.param_groups:
-            pg["lr"] = cfg.lr * max(cos, 0.1)
-        signal_coef = signal_honesty_schedule(cfg, update)
-        if shaping_signals:
-            _apply_signal_honesty_coef(vec, signal_coef, use_vec=True)
-
-        sampled = pool.sample(p_latest=cfg.p_latest_opponent)
-        if sampled is None:
-            opponent_net.load_state_dict(net.state_dict())
-            opp_source = "latest"
-        else:
-            opponent_net.load_state_dict(sampled)
-            opp_source = "pool"
-
-        buf = collect_self_play_rollout_vec(
-            vec,
-            net,
-            opponent_net,
-            learner_teams,
-            cfg.steps_per_env,
-            device,
-            critic=critic,
-        )
-        step_count += buf.collected_steps
-        session_env_steps += cfg.batch_size
-        games_total += buf.games_done
-
-        batch = buf.get_batch(
-            gamma=cfg.gamma, lam=cfg.gae_lambda, return_normalizer=return_normalizer
-        )
-        m = ppo_update(
-            net,
-            opt,
-            batch,
-            clip_eps=cfg.clip_eps,
-            vf_coef=cfg.vf_coef,
-            ent_coef=ent_coef,
-            max_grad_norm=cfg.max_grad_norm,
-            num_epochs=cfg.num_epochs,
-            minibatch_size=cfg.minibatch_size,
-            target_kl=cfg.target_kl,
-            device=device,
-            critic=critic,
-        )
-
-        with torch.no_grad():
-            vals = batch["values"].numpy()
-            rets = batch["returns"].numpy()
-            var_ret = rets.var()
-            ev = (1 - (rets - vals).var() / (var_ret + 1e-8)) if var_ret > 0 else 0.0
-        # env-steps/s over THIS session (matches the kaggle_run cost model);
-        # the `steps` column counts learner transitions (~half), so steps/sps
-        # is not elapsed time.
-        sps = session_env_steps / (time.time() - t0)
-        mean_reward = float(buf.rewards[: buf.ptr].mean())
-        mean_returns_by_wp = _mean_episode_returns_by_wp(buf, env_win_points)
-
-        if update % args.pool_save_every == 0:
-            pool.add_policy(net.state_dict())
-
-        if update % args.eval_every == 0 or update == 1:
-            # Frozen eval block (EVAL_SEED_BASE default): every checkpoint is
-            # scored on the SAME deals so the curve tracks skill, not deal luck.
-            last_wr_random = evaluate_against_random(
-                net,
-                num_games=args.eval_games,
-                device=device,
+    def on_evaluation(stats: EvaluationStats) -> None:
+        nonlocal best_seen
+        if stats.win_rate_heuristic > best_seen:
+            best_seen = stats.win_rate_heuristic
+            print(
+                f"  new monitoring peak vs heuristic "
+                f"({stats.win_rate_heuristic:.1%}) — saved best.pt candidate"
             )
-            last_wr_heur = evaluate_against_heuristic(
-                net,
-                num_games=args.eval_games,
-                device=device,
-                win_points=eval_wp,
-            )
-            # This frozen teacher-coupled block is monitoring/shortlisting only.
-            # Final champion selection uses a fresh mirrored seed block and
-            # persisted per-deal outcomes in scripts.score_checkpoints.
-            if last_wr_heur > best_wr_heur:
-                best_wr_heur = last_wr_heur
-                best_update = update
-                Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
-                _save(Path(args.final_ckpt).with_name("best.pt"), update)
-                print(
-                    f"  new monitoring peak vs heuristic ({last_wr_heur:.1%}) "
-                    "— saved best.pt candidate"
-                )
 
+    def on_update(stats: UpdateStats) -> None:
         with csv_path.open("a", newline="") as f:
             w = csv.writer(f)
             w.writerow(
                 [
                     "rl",
-                    update,
-                    step_count,
-                    games_total,
-                    f"{sps:.0f}",
-                    f"{m['policy_loss']:.5f}",
-                    f"{m['value_loss']:.5f}",
-                    f"{m['entropy']:.4f}",
-                    f"{m['approx_kl']:.5f}",
-                    f"{ev:.4f}",
-                    f"{mean_reward:.4f}",
+                    stats.update,
+                    stats.step,
+                    stats.games,
+                    f"{stats.sps:.0f}",
+                    f"{stats.policy_loss:.5f}",
+                    f"{stats.value_loss:.5f}",
+                    f"{stats.entropy:.4f}",
+                    f"{stats.approx_kl:.5f}",
+                    f"{stats.explained_variance:.4f}",
+                    f"{stats.mean_reward:.4f}",
                     *[
-                        f"{mean_returns_by_wp[wp]:.4f}"
-                        if np.isfinite(mean_returns_by_wp[wp])
+                        f"{stats.mean_returns_by_win_points[wp]:.4f}"
+                        if np.isfinite(stats.mean_returns_by_win_points[wp])
                         else "nan"
                         for wp in metric_win_points
                     ],
-                    opp_source,
-                    f"{last_wr_random:.4f}",
-                    f"{last_wr_heur:.4f}",
+                    stats.opponent_source,
+                    f"{stats.last_win_rate_random:.4f}",
+                    f"{stats.last_win_rate_heuristic:.4f}",
                 ]
             )
 
-        if update % args.eval_every == 0 or update == 1:
+        if stats.evaluated:
             print(
-                f"[{update:4d}/{cfg.total_updates}] steps={step_count:>9,} "
-                f"sps={sps:5.0f} kl={m['approx_kl']:.4f} ev={ev:+.2f} "
-                f"R̄={mean_reward:+.3f} pool={opp_source:>6} | "
-                f"vs_rand={last_wr_random:.1%} vs_heur={last_wr_heur:.1%}"
+                f"[{stats.update:4d}/{stats.total_updates}] steps={stats.step:>9,} "
+                f"sps={stats.sps:5.0f} kl={stats.approx_kl:.4f} "
+                f"ev={stats.explained_variance:+.2f} "
+                f"R̄={stats.mean_reward:+.3f} pool={stats.opponent_source:>6} | "
+                f"vs_rand={stats.last_win_rate_random:.1%} "
+                f"vs_heur={stats.last_win_rate_heuristic:.1%}"
             )
 
-        # Resumable mid-run checkpoint (last.pt beside the final ckpt).
-        last_path = Path(args.final_ckpt).with_name("last.pt")
-        if update % args.save_last_every == 0:
-            Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
-            _save(last_path, update)
+    result = run_ppo(
+        cfg,
+        net,
+        critic=critic,
+        resume_checkpoint=resume_ckpt,
+        anchors=anchors,
+        checkpoint_extra={
+            "phase": "rl",
+            "run_id": contract["run_id"],
+            "resume_contract": contract,
+        },
+        callbacks=TrainingCallbacks(
+            on_update=on_update,
+            on_evaluation=on_evaluation,
+        ),
+    )
+    if result.stopped_early:
+        print(f"\nmax-hours reached at update {result.update}; saved last.pt, stopping")
+        plot_results(csv_path, out)
+        return
 
-        # Graceful wall-clock stop (Kaggle 12h cap): save last.pt and exit so
-        # --resume last.pt continues this run in the next session.
-        if deadline is not None and time.monotonic() >= deadline:
-            Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
-            _save(last_path, update)
-            print(f"\nmax-hours reached at update {update}; saved {last_path.name}, stopping")
-            vec.close()
-            plot_results(csv_path, out)
-            return
-
-    Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
-    _save(Path(args.final_ckpt).with_name("last.pt"), cfg.total_updates)
     # Also keep the legacy flat format at --final-ckpt for existing loaders/eval.
     save_checkpoint_payload(
         args.final_ckpt,
         {
-            "model": net.state_dict(),
-            "config": dict(net.config),
-            "steps": step_count,
+            "model": result.net.state_dict(),
+            "config": dict(result.net.config),
+            "steps": result.step,
             "phase": "rl",
         },
     )
     print(f"\nSaved final checkpoint to {args.final_ckpt}")
-    if best_update:
+    if result.best_update:
         print(
-            f"Monitoring peak vs heuristic was {best_wr_heur:.1%} at update {best_update} "
+            f"Monitoring peak vs heuristic was "
+            f"{result.best_win_rate_heuristic:.1%} at update {result.best_update} "
             "(best.pt candidate); it is not champion without fresh held-out selection."
         )
-    vec.close()
 
     plot_results(csv_path, out)
 
 
-def _mean_episode_returns_by_wp(buf, env_win_points: list[int]) -> dict[int, float]:
-    completed_returns: dict[int, list[float]] = {
-        win_points: [] for win_points in sorted(set(env_win_points))
-    }
-    running = np.zeros(len(env_win_points), dtype=np.float64)
-    for index in range(buf.ptr):
-        env_index = int(buf.env_idx[index])
-        running[env_index] += float(buf.rewards[index])
-        if buf.dones[index]:
-            completed_returns[env_win_points[env_index]].append(running[env_index])
-            running[env_index] = 0.0
-    return {
-        win_points: float(np.mean(returns)) if returns else float("nan")
-        for win_points, returns in completed_returns.items()
-    }
+def train_config_from_args(args) -> TrainConfig:
+    """Build the canonical PPO configuration from the BC pipeline arguments."""
+    return TrainConfig(
+        num_envs=args.num_envs,
+        steps_per_env=args.steps_per_env,
+        win_points=args.win_points if args.win_points is not None else args.wp_mix[0],
+        wp_mix=args.wp_mix,
+        eval_win_points=args.eval_win_points,
+        lr=args.lr,
+        ent_coef=args.ent_coef,
+        ent_coef_final=args.ent_coef_final,
+        hidden_size=args.hidden,
+        num_layers=args.layers,
+        total_timesteps=args.total_rl_steps,
+        device=args.device,
+        seed=args.seed,
+        p_latest_opponent=args.p_latest_opponent,
+        network_version=args.network_version,
+        d_model=args.d_model,
+        nhead=args.nhead,
+        dim_feedforward=args.dim_feedforward,
+        centralized_critic=args.centralized_critic,
+        signal_honesty_coef=args.signal_honesty_coef,
+        signal_honesty_coef_final=args.signal_honesty_coef_final,
+        signal_honesty_frac=args.signal_honesty_frac,
+        opponent_pool_size=10,
+        pool_save_every=args.pool_save_every,
+        eval_every=args.eval_every,
+        eval_games=args.eval_games,
+        ckpt_every=None,
+        save_last_every=args.save_last_every,
+        eval_at_start=True,
+        write_final_checkpoint=False,
+        final_eval=False,
+        ckpt_dir=str(Path(args.final_ckpt).parent),
+        resume_from=args.resume,
+        max_hours=args.max_hours,
+        use_wandb=False,
+    )
 
 
 def plot_results(csv_path: Path, out_dir: Path):

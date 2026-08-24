@@ -64,11 +64,15 @@ def test_no_best_checkpoint_when_eval_never_runs(tmp_path):
 def test_resume_inherits_the_best_bar(tmp_path):
     """A resumed run must start from the previous session's best score, not -1,
     or its first eval would overwrite a better best.pt."""
-    cfg = _tiny_config(tmp_path)
+    cfg = _tiny_config(tmp_path, total_timesteps=800, max_hours=0.0)
     train(cfg)
     first_best = load_checkpoint(tmp_path / "best.pt")["best_wr_heuristic"]
 
-    resumed = _tiny_config(tmp_path, total_timesteps=800, resume_from=str(tmp_path / "last.pt"))
+    resumed = _tiny_config(
+        tmp_path,
+        total_timesteps=800,
+        resume_from=str(tmp_path / "last.pt"),
+    )
     train(resumed)
 
     last = load_checkpoint(tmp_path / "last.pt")

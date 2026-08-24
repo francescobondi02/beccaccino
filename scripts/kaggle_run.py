@@ -28,6 +28,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from training.config import TrainConfig
 from training.provenance import SOURCE_MANIFEST_FILENAME, source_manifest
 
 # --- Single source of truth for slugs/paths (edit KAGGLE_USER for your account) ---
@@ -88,62 +89,70 @@ STAGE_IGNORE = shutil.ignore_patterns(
 AI_ROOT = Path(__file__).resolve().parent.parent  # the ai/ package root
 
 
+def _kaggle_train_config() -> TrainConfig:
+    """Training defaults for an ad-hoc Kaggle BC-to-PPO run."""
+    return TrainConfig(
+        network_version=4,
+        hidden_size=256,
+        num_layers=3,
+        d_model=128,
+        nhead=4,
+        dim_feedforward=256,
+        total_timesteps=5_000_000,
+        num_envs=32,
+        steps_per_env=512,
+        win_points=5,
+        eval_win_points=41,
+        eval_every=25,
+        eval_games=100,
+        pool_save_every=30,
+        save_last_every=10,
+        p_latest_opponent=0.5,
+        device="cuda",
+        lr=2.5e-4,
+        ent_coef=0.02,
+        ent_coef_final=0.005,
+        seed=0,
+        ckpt_every=None,
+        eval_at_start=True,
+        write_final_checkpoint=False,
+        final_eval=False,
+        ckpt_dir="/kaggle/working/checkpoints",
+        use_wandb=False,
+    )
+
+
 @dataclass
 class RunSpec:
-    """A training run's hyperparameters. Mirrors scripts/bc_then_rl.py flags 1:1
-    so a spec renders directly to that CLI (a test guards the mapping)."""
+    """Kaggle orchestration around the canonical PPO training configuration."""
 
-    network_version: int = 4
-    d_model: int = 128
-    nhead: int = 4
-    layers: int = 3
-    dim_feedforward: int = 256
+    training: TrainConfig = field(default_factory=_kaggle_train_config)
     bc_games: int = 3000
     bc_epochs: int = 5
     bc_batch_size: int = 1024
     bc_lr: float = 3e-4
     bc_win_points: int = 5
-    total_rl_steps: int = 5_000_000
-    num_envs: int = 32
-    steps_per_env: int = 512
-    win_points: int | None = 5
-    wp_mix: list[int] | None = None
-    eval_win_points: int = 41
-    eval_every: int = 25
-    eval_games: int = 100
-    pool_save_every: int = 30
-    save_last_every: int = 10
-    p_latest_opponent: float = 0.5
-    device: str = "cuda"
     out_dir: str = "/kaggle/working/runs/run"
     bc_ckpt: str = "/kaggle/working/checkpoints/run_bc.pt"
     final_ckpt: str = "/kaggle/working/checkpoints/run_rl.pt"
     run_id: str | None = None
-    # Strengtheners / long-run survival (map to bc_then_rl store_true / value flags).
-    centralized_critic: bool = False
     anchor_bc: bool = False
-    # Signal-honesty shaping, annealed to `_final` over `_frac` of the RL phase.
-    # 0.0/0.0 = off (historical behaviour).
-    signal_honesty_coef: float = 0.0
-    signal_honesty_coef_final: float = 0.0
-    signal_honesty_frac: float = 0.5
-    max_hours: float | None = None
-    resume: str | None = None
     extra_flags: list[str] = field(default_factory=list)
 
     def to_cli_args(self) -> list[str]:
         """Render to the scripts.bc_then_rl flag list."""
+        cfg = self.training
         args = [
             "--network-version",
-            str(self.network_version),
+            str(cfg.network_version),
             "--d-model",
-            str(self.d_model),
+            str(cfg.d_model),
             "--nhead",
-            str(self.nhead),
+            str(cfg.nhead),
             "--layers",
-            str(self.layers),
+            str(cfg.num_layers),
             "--dim-feedforward",
-            str(self.dim_feedforward),
+            str(cfg.dim_feedforward),
             "--bc-games",
             str(self.bc_games),
             "--bc-epochs",
@@ -155,31 +164,41 @@ class RunSpec:
             "--bc-win-points",
             str(self.bc_win_points),
             "--total-rl-steps",
-            str(self.total_rl_steps),
+            str(cfg.total_timesteps),
             "--num-envs",
-            str(self.num_envs),
+            str(cfg.num_envs),
             "--steps-per-env",
-            str(self.steps_per_env),
+            str(cfg.steps_per_env),
             "--eval-win-points",
-            str(self.eval_win_points),
+            str(cfg.eval_win_points),
             "--eval-every",
-            str(self.eval_every),
+            str(cfg.eval_every),
             "--eval-games",
-            str(self.eval_games),
+            str(cfg.eval_games),
             "--pool-save-every",
-            str(self.pool_save_every),
+            str(cfg.pool_save_every),
             "--save-last-every",
-            str(self.save_last_every),
+            str(cfg.save_last_every),
             "--p-latest-opponent",
-            str(self.p_latest_opponent),
+            str(cfg.p_latest_opponent),
+            "--lr",
+            str(cfg.lr),
+            "--ent-coef",
+            str(cfg.ent_coef),
+            "--ent-coef-final",
+            str(cfg.ent_coef_final),
             "--signal-honesty-coef",
-            str(self.signal_honesty_coef),
+            str(cfg.signal_honesty_coef),
             "--signal-honesty-coef-final",
-            str(self.signal_honesty_coef_final),
+            str(cfg.signal_honesty_coef_final),
             "--signal-honesty-frac",
-            str(self.signal_honesty_frac),
+            str(cfg.signal_honesty_frac),
+            "--hidden",
+            str(cfg.hidden_size),
+            "--seed",
+            str(cfg.seed),
             "--device",
-            self.device,
+            cfg.device,
             "--out-dir",
             self.out_dir,
             "--bc-ckpt",
@@ -187,22 +206,20 @@ class RunSpec:
             "--final-ckpt",
             self.final_ckpt,
         ]
-        if self.wp_mix is not None:
-            args += ["--wp-mix", ",".join(str(value) for value in self.wp_mix)]
-        elif self.win_points is not None:
-            args += ["--win-points", str(self.win_points)]
+        if cfg.wp_mix is not None:
+            args += ["--wp-mix", ",".join(str(value) for value in cfg.wp_mix)]
         else:
-            raise ValueError("RunSpec requires win_points or wp_mix")
+            args += ["--win-points", str(cfg.win_points)]
         if self.run_id is not None:
             args += ["--run-id", self.run_id]
-        if self.centralized_critic:
+        if cfg.centralized_critic:
             args.append("--centralized-critic")
         if self.anchor_bc:
             args.append("--anchor-bc")
-        if self.max_hours is not None:
-            args += ["--max-hours", str(self.max_hours)]
-        if self.resume is not None:
-            args += ["--resume", self.resume]
+        if cfg.max_hours is not None:
+            args += ["--max-hours", str(cfg.max_hours)]
+        if cfg.resume_from is not None:
+            args += ["--resume", cfg.resume_from]
         return [*args, *self.extra_flags]
 
 
@@ -218,16 +235,19 @@ SIGNAL_HONESTY_FRAC = 0.5
 # recipe (critic + anchors + signal shaping) on a short RL phase so the smoke
 # validates exactly what the overnight run does, without burning quota.
 SMOKE_SPEC = RunSpec(
+    training=dataclasses.replace(
+        _kaggle_train_config(),
+        total_timesteps=200_000,
+        num_envs=16,
+        eval_every=50,
+        eval_games=20,
+        centralized_critic=True,
+        signal_honesty_coef=SIGNAL_HONESTY_COEF,
+        signal_honesty_frac=SIGNAL_HONESTY_FRAC,
+    ),
     bc_games=200,
     bc_epochs=1,
-    total_rl_steps=200_000,
-    num_envs=16,
-    eval_every=50,
-    eval_games=20,
-    centralized_critic=True,
     anchor_bc=True,
-    signal_honesty_coef=SIGNAL_HONESTY_COEF,
-    signal_honesty_frac=SIGNAL_HONESTY_FRAC,
     run_id="smoke",
     out_dir="/kaggle/working/runs/smoke",
     bc_ckpt="/kaggle/working/checkpoints/smoke_bc.pt",
@@ -238,21 +258,24 @@ SMOKE_SPEC = RunSpec(
 # centralized critic and BC anchor, capped under Kaggle's 12h session limit so it
 # saves last.pt and can be resumed. Above SMOKE_MAX_STEPS -> needs --confirm-cost.
 RUN_B_SPEC = RunSpec(
-    d_model=192,
-    nhead=6,
-    layers=4,
-    dim_feedforward=384,
+    training=dataclasses.replace(
+        _kaggle_train_config(),
+        d_model=192,
+        nhead=6,
+        num_layers=4,
+        dim_feedforward=384,
+        total_timesteps=30_000_000,
+        num_envs=64,
+        steps_per_env=512,
+        eval_every=50,
+        eval_games=200,
+        pool_save_every=50,
+        centralized_critic=True,
+        max_hours=11.0,
+    ),
     bc_games=6000,
     bc_epochs=6,
-    total_rl_steps=30_000_000,
-    num_envs=64,
-    steps_per_env=512,
-    eval_every=50,
-    eval_games=200,
-    pool_save_every=50,
-    centralized_critic=True,
     anchor_bc=True,
-    max_hours=11.0,
     run_id="runB",
     out_dir="/kaggle/working/runs/runB",
     bc_ckpt="/kaggle/working/checkpoints/runB_bc.pt",
@@ -270,8 +293,11 @@ RUN_B_SPEC = RunSpec(
 # is what makes the comparison against Run B's ~71% interpretable.
 RUN_C_SPEC = dataclasses.replace(
     RUN_B_SPEC,
-    signal_honesty_coef=SIGNAL_HONESTY_COEF,
-    signal_honesty_frac=SIGNAL_HONESTY_FRAC,
+    training=dataclasses.replace(
+        RUN_B_SPEC.training,
+        signal_honesty_coef=SIGNAL_HONESTY_COEF,
+        signal_honesty_frac=SIGNAL_HONESTY_FRAC,
+    ),
     run_id="runC",
     out_dir="/kaggle/working/runs/runC",
     bc_ckpt="/kaggle/working/checkpoints/runC_bc.pt",
@@ -280,11 +306,14 @@ RUN_C_SPEC = dataclasses.replace(
 
 HISTORICAL_RUN_D_SPEC = dataclasses.replace(
     RUN_C_SPEC,
-    total_rl_steps=60_000_000,
-    win_points=None,
-    wp_mix=[5, 41],
-    save_last_every=10,
-    max_hours=9.75,
+    training=dataclasses.replace(
+        RUN_C_SPEC.training,
+        total_timesteps=60_000_000,
+        win_points=5,
+        wp_mix=[5, 41],
+        save_last_every=10,
+        max_hours=9.75,
+    ),
     run_id="runD",
     out_dir="/kaggle/working/runs/runD",
     bc_ckpt="/kaggle/working/checkpoints/runD_bc.pt",
@@ -521,14 +550,15 @@ def launch(spec: RunSpec, confirm_cost: bool) -> None:
 
     Safety gate: SMOKE-sized runs launch freely; larger runs are REFUSED unless
     --confirm-cost is passed."""
-    hours = est_hours(spec.total_rl_steps)
+    total_timesteps = spec.training.total_timesteps
+    hours = est_hours(total_timesteps)
     print(
-        f"Estimated RL GPU time: {hours:.2f}h for {spec.total_rl_steps:,} steps "
+        f"Estimated RL GPU time: {hours:.2f}h for {total_timesteps:,} steps "
         f"(~{MEASURED_SPS} SPS on T4)."
     )
-    if spec.total_rl_steps > SMOKE_MAX_STEPS and not confirm_cost:
+    if total_timesteps > SMOKE_MAX_STEPS and not confirm_cost:
         raise SystemExit(
-            f"REFUSED: {spec.total_rl_steps:,} steps exceeds the smoke threshold "
+            f"REFUSED: {total_timesteps:,} steps exceeds the smoke threshold "
             f"({SMOKE_MAX_STEPS:,}). Re-run with --confirm-cost to launch a real run."
         )
     if hours > KAGGLE_SESSION_CAP_HOURS:
@@ -538,7 +568,7 @@ def launch(spec: RunSpec, confirm_cost: bool) -> None:
         )
     with tempfile.TemporaryDirectory() as tmp:
         dataset_sources = [DATASET_SLUG]
-        if spec.resume == AUTO_RESUME:
+        if spec.training.resume_from == AUTO_RESUME:
             dataset_sources.append(STATE_DATASET_SLUG)
         meta = {
             "id": KERNEL_SLUG,
@@ -581,25 +611,32 @@ def _spec_from_args(a: argparse.Namespace) -> RunSpec:
     if a.preset in _RETIRED_PRESETS:
         raise SystemExit(_RETIRED_PRESETS[a.preset])
     if a.preset:
-        spec = dataclasses.replace(_PRESETS[a.preset])
+        preset = _PRESETS[a.preset]
+        training = dataclasses.replace(
+            preset.training,
+            wp_mix=list(preset.training.wp_mix) if preset.training.wp_mix is not None else None,
+        )
+        spec = dataclasses.replace(preset, training=training)
     else:
         spec = RunSpec()
     # Only override fields the user explicitly set on the CLI (None = unset).
-    for name in (
-        "total_rl_steps",
-        "num_envs",
-        "steps_per_env",
-        "d_model",
-        "layers",
-        "max_hours",
-        "resume",
-    ):
-        val = getattr(a, name, None)
-        if val is not None:
-            setattr(spec, name, val)
+    field_names = {
+        "total_rl_steps": "total_timesteps",
+        "num_envs": "num_envs",
+        "steps_per_env": "steps_per_env",
+        "d_model": "d_model",
+        "layers": "num_layers",
+        "max_hours": "max_hours",
+        "resume": "resume_from",
+    }
+    overrides = {
+        config_name: value
+        for arg_name, config_name in field_names.items()
+        if (value := getattr(a, arg_name, None)) is not None
+    }
     if getattr(a, "resume_state", False):
-        spec.resume = AUTO_RESUME
-    return spec
+        overrides["resume_from"] = AUTO_RESUME
+    return dataclasses.replace(spec, training=dataclasses.replace(spec.training, **overrides))
 
 
 def build_parser() -> argparse.ArgumentParser:

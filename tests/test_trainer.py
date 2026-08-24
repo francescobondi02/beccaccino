@@ -43,11 +43,13 @@ def test_train_writes_resumable_checkpoints(tmp_path):
     assert ckpt["format"] == 3
     assert ckpt["update"] == cfg.total_updates
     assert ckpt["step"] > 0
+    assert ckpt["environment_step"] >= ckpt["step"]
+    assert ckpt["engine_contract"]["config"]["total_timesteps"] == cfg.total_timesteps
     assert ckpt["normalizer"] is not None  # normalize_returns=True
 
 
 def test_resume_continues_update_numbering_and_steps(tmp_path):
-    cfg = _tiny_config(tmp_path)
+    cfg = _tiny_config(tmp_path, total_timesteps=800, max_hours=0.0)
     train(cfg)
     first = load_checkpoint(tmp_path / "last.pt")
 
@@ -55,7 +57,7 @@ def test_resume_continues_update_numbering_and_steps(tmp_path):
     resume_dir.mkdir()
     cfg2 = _tiny_config(
         resume_dir,
-        total_timesteps=800,  # 2 more updates
+        total_timesteps=800,
         resume_from=str(tmp_path / "last.pt"),
     )
     train(cfg2)
@@ -72,6 +74,24 @@ def test_max_hours_zero_stops_after_first_update(tmp_path):
     train(cfg)
     ckpt = load_checkpoint(tmp_path / "last.pt")
     assert ckpt["update"] < cfg.total_updates  # stopped early
+    assert not (tmp_path / "final.pt").exists()
+
+
+def test_resume_rejects_changed_training_horizon(tmp_path):
+    import pytest
+
+    cfg = _tiny_config(tmp_path, total_timesteps=800, max_hours=0.0)
+    train(cfg)
+
+    resume_dir = tmp_path / "resumed"
+    resume_dir.mkdir()
+    changed = _tiny_config(
+        resume_dir,
+        total_timesteps=1200,
+        resume_from=str(tmp_path / "last.pt"),
+    )
+    with pytest.raises(SystemExit, match="total_timesteps"):
+        train(changed)
 
 
 def test_centralized_critic_trains_and_is_checkpointed(tmp_path):
@@ -125,14 +145,15 @@ def test_vec_curriculum_advances_without_return_normalization(tmp_path, monkeypa
     assert load_checkpoint(tmp_path / "last.pt")["curriculum_stage"] == 1
 
 
-def test_resume_already_complete_run_does_not_crash(tmp_path):
-    """Resuming a finished checkpoint with the same --steps must exit cleanly,
-    not crash with UnboundLocalError before the final save (regression)."""
+def test_resume_already_complete_run_fails_closed(tmp_path):
+    """A finished run must not masquerade as a successful continuation."""
+    import pytest
+
     cfg = _tiny_config(tmp_path)
     train(cfg)  # completes; last.pt stamped with update == total_updates
 
     resume_dir = tmp_path / "resumed"
     resume_dir.mkdir()
     cfg2 = _tiny_config(resume_dir, resume_from=str(tmp_path / "last.pt"))
-    # Same total_timesteps as the finished run -> start_update > total_updates.
-    train(cfg2)  # must return cleanly, no exception
+    with pytest.raises(SystemExit, match="this run is complete"):
+        train(cfg2)

@@ -30,8 +30,9 @@ Phase 2  RL   PPO self-play from that warm start, with a CTDE critic + opponent 
 ```
 
 Both phases live in `scripts/bc_then_rl.py` (the recipe used for every real run).
-`training/trainer.py` is the pure-PPO trainer; it shares the same schedules,
-checkpoint format, and eval harness.
+`training/engine.py` owns the PPO lifecycle for that recipe and the pure-PPO
+`scripts/train.py` adapter, including schedules, evaluation, checkpoints, and
+resume horizon.
 
 Why BC first: PPO from random init plateaus far below the heuristic. BC gets the
 policy to "competent imitation" in minutes, and RL improves from there

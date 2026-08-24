@@ -4,12 +4,13 @@ from scripts.kaggle_run import RUN_D2_SPEC
 
 
 def test_benchmark_network_matches_run_d2():
+    training = RUN_D2_SPEC.training
     assert RUN_D2_NETWORK == {
-        "version": RUN_D2_SPEC.network_version,
-        "d_model": RUN_D2_SPEC.d_model,
-        "nhead": RUN_D2_SPEC.nhead,
-        "num_layers": RUN_D2_SPEC.layers,
-        "dim_feedforward": RUN_D2_SPEC.dim_feedforward,
+        "version": training.network_version,
+        "d_model": training.d_model,
+        "nhead": training.nhead,
+        "num_layers": training.num_layers,
+        "dim_feedforward": training.dim_feedforward,
     }
 
 
