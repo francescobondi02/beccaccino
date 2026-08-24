@@ -27,8 +27,8 @@ training/
   self_play.py      OpponentPool — FIFO snapshots + permanent anchors
   self_play_env.py  SelfPlayEnv wrapper (team-vs-opponent, learner-only observations)
   curriculum.py     Auto-advancing difficulty stages
-  vec_env.py        Vectorized environment creation (AsyncVectorEnv)
-  normalization.py  Running mean/std for return normalization (to/from_dict)
+  vec_env.py        Vectorized envs, disjoint deal streams, exact worker-state snapshots
+  normalization.py  Running mean/std + live return-chain checkpoint state
 evaluation/
   arena.py          Agent-vs-agent matches, evaluate_against_random(), elo_ladder(), EVAL_SEED_BASE
   heuristic.py      HeuristicAgent baseline + evaluate_against_heuristic()

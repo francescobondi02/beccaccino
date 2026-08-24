@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+
 import gymnasium as gym
 import numpy as np
 from gymnasium.vector import AutoresetMode
@@ -32,12 +34,19 @@ def win_points_per_env(num_envs: int, win_points: int | list[int]) -> list[int]:
     return [values[(index // 2) % len(values)] for index in range(num_envs)]
 
 
+def deal_seed(base_seed: int, worker_id: int, game_index: int, num_workers: int) -> int:
+    """Map one worker reset to a globally unique seed within this vector run."""
+    return base_seed + worker_id + game_index * num_workers
+
+
 def make_env(
     seed: int,
     win_points: int = 41,
     trick_shaping_coef: float = 0.0,
     signal_honesty_coef: float = 0.0,
     include_full_obs: bool = True,
+    seed_stride: int = 1,
+    initial_game_count: int = 0,
 ):
     """Factory function for creating BeccaEnv instances (required by VectorEnv)."""
 
@@ -48,6 +57,8 @@ def make_env(
             trick_shaping_coef=trick_shaping_coef,
             signal_honesty_coef=signal_honesty_coef,
             include_full_obs=include_full_obs,
+            seed_stride=seed_stride,
+            initial_game_count=initial_game_count,
         )
 
     return _init
@@ -61,6 +72,8 @@ def create_vec_env(
     trick_shaping_coef: float = 0.0,
     signal_honesty_coef: float = 0.0,
     include_full_obs: bool = True,
+    initial_game_counts: list[int] | None = None,
+    rollout_state: dict | None = None,
 ) -> gym.vector.VectorEnv:
     """Create a vectorized environment with num_envs parallel games.
 
@@ -68,6 +81,10 @@ def create_vec_env(
     Use sync=True only for debugging.
     """
     assigned_win_points = win_points_per_env(num_envs, win_points)
+    if initial_game_counts is None:
+        initial_game_counts = [0] * num_envs
+    if len(initial_game_counts) != num_envs:
+        raise ValueError("initial_game_counts length must match num_envs")
     env_fns = [
         make_env(
             seed=seed + i,
@@ -75,11 +92,42 @@ def create_vec_env(
             trick_shaping_coef=trick_shaping_coef,
             signal_honesty_coef=signal_honesty_coef,
             include_full_obs=include_full_obs,
+            seed_stride=num_envs,
+            initial_game_count=initial_game_counts[i],
         )
         for i in range(num_envs)
     ]
 
     if sync:
-        return gym.vector.SyncVectorEnv(env_fns, autoreset_mode=AutoresetMode.SAME_STEP)
+        vec_env = gym.vector.SyncVectorEnv(env_fns, autoreset_mode=AutoresetMode.SAME_STEP)
     else:
-        return gym.vector.AsyncVectorEnv(env_fns, autoreset_mode=AutoresetMode.SAME_STEP)
+        vec_env = gym.vector.AsyncVectorEnv(env_fns, autoreset_mode=AutoresetMode.SAME_STEP)
+
+    if rollout_state is not None:
+        restore_vec_env_state(vec_env, rollout_state)
+    return vec_env
+
+
+def snapshot_vec_env_state(vec_env: gym.vector.VectorEnv) -> dict:
+    """Capture worker games plus unfinished rollout transitions."""
+    return {
+        "version": 1,
+        "env_states": list(vec_env.call("export_state")),
+        "carry": copy.deepcopy(getattr(vec_env, "_becca_rollout_carry", [])),
+    }
+
+
+def restore_vec_env_state(vec_env: gym.vector.VectorEnv, state: dict) -> None:
+    """Restore workers and prime the collector without consuming a reset."""
+    if state.get("version") != 1:
+        raise ValueError(f"unsupported vector rollout state {state.get('version')}")
+    env_states = state["env_states"]
+    if len(env_states) != vec_env.num_envs:
+        raise ValueError("checkpoint worker count does not match vector environment")
+    vec_env.set_attr("_restore_state", env_states)
+    vec_env.call("restore_state")
+    observations = vec_env.call("current_observation")
+    vec_env._becca_rollout_obs = {
+        key: np.stack([obs[key] for obs in observations]) for key in observations[0]
+    }
+    vec_env._becca_rollout_carry = copy.deepcopy(state.get("carry", []))

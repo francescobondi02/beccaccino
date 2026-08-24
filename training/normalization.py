@@ -131,11 +131,19 @@ class ReturnNormalizer:
         return scaled.astype(np.float32)
 
     def to_dict(self) -> dict:
-        """Serialize the load-bearing running-std state. Transient return chains
-        are rebuilt within each rollout and carry no cross-run information."""
-        return {"gamma": self.gamma, "epsilon": self.epsilon, "rms": self.rms.to_dict()}
+        """Serialize running statistics and live per-seat return chains."""
+        return {
+            "gamma": self.gamma,
+            "epsilon": self.epsilon,
+            "rms": self.rms.to_dict(),
+            "returns": dict(self._returns),
+        }
 
     def from_dict(self, state: dict) -> None:
         self.gamma = state["gamma"]
         self.epsilon = state["epsilon"]
         self.rms.from_dict(state["rms"])
+        self._returns = {
+            (int(env), int(seat)): float(value)
+            for (env, seat), value in state.get("returns", {}).items()
+        }

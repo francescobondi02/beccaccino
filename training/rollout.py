@@ -40,6 +40,7 @@ class RolloutBuffer:
         self.size = size
         self.ptr = 0
         self.games_done = 0
+        self.collected_steps = 0
 
     def store(
         self,
@@ -53,6 +54,7 @@ class RolloutBuffer:
         seat: int,
         env_idx: int = 0,
         full_obs=None,
+        count_step: bool = True,
     ):
         i = self.ptr
         self.obs[i] = obs
@@ -68,7 +70,32 @@ class RolloutBuffer:
             self.full_obs[i] = full_obs
         if done:
             self.games_done += 1
+        if count_step:
+            self.collected_steps += 1
         self.ptr += 1
+
+    def live_tail_transitions(self) -> list[dict]:
+        """Copy bootstrap-only live tails so the next PPO window can finish them."""
+        if self.ptr == 0:
+            return []
+        _, _, training_mask = self._compute_gae(gamma=1.0, lam=1.0)
+        tails = []
+        for i in np.flatnonzero(~training_mask):
+            tails.append(
+                {
+                    "obs": self.obs[i].copy(),
+                    "mask": self.masks[i].copy(),
+                    "action": int(self.actions[i]),
+                    "log_prob": float(self.log_probs[i]),
+                    "value": float(self.values[i]),
+                    "reward": float(self.rewards[i]),
+                    "done": bool(self.dones[i]),
+                    "seat": int(self.seats[i]),
+                    "env_idx": int(self.env_idx[i]),
+                    "full_obs": self.full_obs[i].copy(),
+                }
+            )
+        return tails
 
     def _compute_gae(self, gamma: float, lam: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Per-(env, seat) GAE: each (env_idx, seat) is its own trajectory.
@@ -144,17 +171,20 @@ class RolloutBuffer:
         running stats accumulate.
         """
         n = self.ptr
+        _, _, training_mask = self._compute_gae(gamma, lam)
         if return_normalizer is not None and n > 0:
-            # Every collector starts this buffer with env.reset(), so transient
-            # discounted-return chains from the previous buffer must not cross
-            # that artificial episode boundary. Running variance remains intact.
-            return_normalizer.reset_returns()
+            # Live tails are copied into the next window and must be normalized
+            # only once, when their next same-seat state makes them trainable.
+            indices = np.flatnonzero(training_mask)
             scaled = return_normalizer.normalize_batch(
-                self.env_idx[:n], self.seats[:n], self.rewards[:n], self.dones[:n]
+                self.env_idx[indices],
+                self.seats[indices],
+                self.rewards[indices],
+                self.dones[indices],
             )
             # Save original, swap in scaled rewards just for GAE compute, restore.
             original = self.rewards[:n].copy()
-            self.rewards[:n] = scaled
+            self.rewards[indices] = scaled
             try:
                 advs, rets, training_mask = self._compute_gae(gamma, lam)
             finally:
@@ -204,6 +234,18 @@ def _credit_terminal_residuals(
             seats_needed.discard(s)
 
 
+def _buffer_with_carry(owner, capacity: int) -> RolloutBuffer:
+    carry = getattr(owner, "_becca_rollout_carry", [])
+    buf = RolloutBuffer(capacity + len(carry))
+    for transition in carry:
+        buf.store(**transition, count_step=False)
+    return buf
+
+
+def _save_rollout_carry(owner, buf: RolloutBuffer) -> None:
+    owner._becca_rollout_carry = buf.live_tail_transitions()
+
+
 def _mark_latest_transition_done(buf: RolloutBuffer, env_idx: int) -> None:
     """Stamp done=1.0 on env_idx's most recent stored transition.
 
@@ -227,8 +269,10 @@ def _mark_latest_transition_done(buf: RolloutBuffer, env_idx: int) -> None:
 def collect_rollout(
     env: BeccaEnv, net: BeccaNet | BeccaNetV2, num_steps: int, device: torch.device
 ) -> RolloutBuffer:
-    buf = RolloutBuffer(num_steps)
-    obs, info = env.reset()
+    buf = _buffer_with_carry(env, num_steps)
+    obs = getattr(env, "_becca_rollout_obs", None)
+    if obs is None:
+        obs, _ = env.reset()
 
     net.eval()
     with torch.no_grad():
@@ -250,6 +294,8 @@ def collect_rollout(
             else:
                 obs = next_obs
 
+    env._becca_rollout_obs = obs
+    _save_rollout_carry(env, buf)
     return buf
 
 
@@ -260,8 +306,10 @@ def collect_rollout_vec(
     device: torch.device,
 ) -> RolloutBuffer:
     num_envs = vec_env.num_envs
-    buf = RolloutBuffer(steps_per_env * num_envs)
-    obs_dict, _ = vec_env.reset()
+    buf = _buffer_with_carry(vec_env, steps_per_env * num_envs)
+    obs_dict = getattr(vec_env, "_becca_rollout_obs", None)
+    if obs_dict is None:
+        obs_dict, _ = vec_env.reset()
 
     net.eval()
     with torch.no_grad():
@@ -307,6 +355,8 @@ def collect_rollout_vec(
 
             obs_dict = next_obs
 
+    vec_env._becca_rollout_obs = obs_dict
+    _save_rollout_carry(vec_env, buf)
     return buf
 
 

@@ -97,6 +97,34 @@ def test_centralized_critic_requires_vec_path(tmp_path):
         train(cfg)
 
 
+def test_vec_curriculum_advances_without_return_normalization(tmp_path, monkeypatch):
+    import evaluation.arena
+    import evaluation.heuristic
+
+    monkeypatch.setattr(evaluation.arena, "evaluate_against_random", lambda *args, **kwargs: 1.0)
+    monkeypatch.setattr(
+        evaluation.heuristic, "evaluate_against_heuristic", lambda *args, **kwargs: 1.0
+    )
+    cfg = _tiny_config(
+        tmp_path,
+        num_envs=2,
+        steps_per_env=40,
+        total_timesteps=80,
+        eval_every=1,
+        normalize_returns=False,
+        use_curriculum=True,
+        curriculum_confirm_count=1,
+        curriculum_stages=[
+            {"win_points": 5, "min_wr": 0.0},
+            {"win_points": 11, "min_wr": 0.0},
+        ],
+    )
+
+    train(cfg)
+
+    assert load_checkpoint(tmp_path / "last.pt")["curriculum_stage"] == 1
+
+
 def test_resume_already_complete_run_does_not_crash(tmp_path):
     """Resuming a finished checkpoint with the same --steps must exit cleanly,
     not crash with UnboundLocalError before the final save (regression)."""

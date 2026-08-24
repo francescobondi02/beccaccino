@@ -29,9 +29,11 @@ from becca_env.game import TEAM_OF_SEAT
 from training.network import BeccaNet, BeccaNetV2
 from training.rollout import (
     RolloutBuffer,
+    _buffer_with_carry,
     _credit_terminal_residuals,
     _extract_terminal_info,
     _mark_latest_transition_done,
+    _save_rollout_carry,
 )
 
 
@@ -63,8 +65,10 @@ def collect_self_play_rollout_vec(
     will be roughly half of that.
     """
     num_envs = vec_env.num_envs
-    buf = RolloutBuffer(steps_per_env * num_envs)
-    obs_dict, _ = vec_env.reset()
+    buf = _buffer_with_carry(vec_env, steps_per_env * num_envs)
+    obs_dict = getattr(vec_env, "_becca_rollout_obs", None)
+    if obs_dict is None:
+        obs_dict, _ = vec_env.reset()
     assert critic is None or "full_obs" in obs_dict, (
         "centralized critic requires vector environments with include_full_obs=True"
     )
@@ -177,4 +181,6 @@ def collect_self_play_rollout_vec(
 
             obs_dict = next_obs
 
+    vec_env._becca_rollout_obs = obs_dict
+    _save_rollout_carry(vec_env, buf)
     return buf

@@ -26,6 +26,7 @@ from scripts.bc_then_rl import (
 from training.checkpoint import load_checkpoint, rng_state, save_checkpoint
 from training.config import TrainConfig
 from training.network import CentralizedCritic, create_network
+from training.vec_env import create_vec_env, snapshot_vec_env_state
 
 
 def _args(tmp_path, **overrides) -> argparse.Namespace:
@@ -115,6 +116,7 @@ def test_rl_phase_with_critic_writes_resumable_last(tmp_path):
     assert ck["normalizer"] is not None
     assert len(ck["anchors"]) == 1
     assert ck["pool"] == [], "pool cadence should be independent from last.pt cadence"
+    assert ck["rollout_state"]["env_states"]
     metric_fields = csv.DictReader((tmp_path / "run" / "metrics.csv").open()).fieldnames
     assert metric_fields is not None
     assert {"mean_episode_return_wp_5", "mean_episode_return_wp_41"} <= set(metric_fields)
@@ -169,7 +171,7 @@ def test_rl_phase_resume_continues(tmp_path, monkeypatch):
     rows = list(csv.DictReader(metrics_path.open()))
     assert [int(row["update"]) for row in rows] == list(range(1, second + 1))
     assert metrics_path.read_text().count("phase,update,") == 1
-    assert seeds[:2] == [a.seed, a.seed + first_checkpoint["games"]]
+    assert seeds[:2] == [a.seed, a.seed]
 
     with pytest.raises(SystemExit, match=r"already at update .* this run is complete"):
         phase2_rl(a2, torch.device("cpu"), _fresh_net(a2))
@@ -215,6 +217,12 @@ def _write_resume_checkpoint(tmp_path):
         input_size=FULL_STATE_SIZE, hidden_size=40, num_layers=2, use_layer_norm=True
     )
     optimizer = torch.optim.Adam([*net.parameters(), *critic.parameters()])
+    vec = create_vec_env(num_envs=4, seed=0, win_points=5, sync=True)
+    try:
+        vec.reset()
+        rollout_state = snapshot_vec_env_state(vec)
+    finally:
+        vec.close()
     path = tmp_path / "resume.pt"
     save_checkpoint(
         path,
@@ -228,10 +236,13 @@ def _write_resume_checkpoint(tmp_path):
             dim_feedforward=96,
             hidden_size=40,
             centralized_critic=True,
+            num_envs=4,
+            steps_per_env=128,
+            win_points=5,
         ),
         step=10,
         update=2,
-        extra={"critic": critic.state_dict()},
+        extra={"critic": critic.state_dict(), "rollout_state": rollout_state},
     )
     return path, net, critic
 
@@ -312,7 +323,7 @@ def test_resume_rejects_flat_checkpoint(tmp_path):
 def test_rl_resume_restores_checkpoint_rng(tmp_path, monkeypatch):
     path, _, _ = _write_resume_checkpoint(tmp_path)
     checkpoint = load_checkpoint(path)
-    checkpoint["update"] = 99
+    checkpoint["update"] = 2
     checkpoint["rng"] = rng_state()
     torch.save(checkpoint, path)
     restored = []
@@ -323,10 +334,10 @@ def test_rl_resume_restores_checkpoint_rng(tmp_path, monkeypatch):
         resume=str(path),
         centralized_critic=True,
         total_rl_steps=2048,
+        max_hours=0.0,
     )
     args._explicit_options = {"--resume", "--centralized-critic"}
-    with pytest.raises(SystemExit, match="this run is complete"):
-        phase2_rl(args, torch.device("cpu"), _fresh_net(args))
+    phase2_rl(args, torch.device("cpu"), _fresh_net(args))
 
     assert len(restored) == 1
     assert restored[0]["python"] == checkpoint["rng"]["python"]

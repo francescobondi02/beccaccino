@@ -57,7 +57,12 @@ from training.normalization import ReturnNormalizer
 from training.ppo import ppo_update
 from training.self_play import OpponentPool
 from training.trainer import _apply_signal_honesty_coef, signal_honesty_schedule
-from training.vec_env import create_vec_env, learner_team_per_env, win_points_per_env
+from training.vec_env import (
+    create_vec_env,
+    learner_team_per_env,
+    snapshot_vec_env_state,
+    win_points_per_env,
+)
 
 SECONDS_PER_HOUR = 3600
 RESUME_CONTRACT_FORMAT = 1
@@ -652,6 +657,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     games_total = 0
     start_update = 1
     resumed_best = (-1.0, 0)
+    resume_rng = None
     if args.resume:
         opt.load_state_dict(resume_ckpt["optimizer"])
         if resume_ckpt.get("normalizer") is not None:
@@ -667,8 +673,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             resume_ckpt.get("best_wr_heuristic", -1.0),
             resume_ckpt.get("best_update", 0),
         )
-        if resume_ckpt.get("rng") is not None:
-            restore_rng(resume_ckpt["rng"])
+        resume_rng = resume_ckpt.get("rng")
         _reconcile_metrics_csv(csv_path, start_update - 1)
         print(f"  resumed at update {start_update}, {step_count:,} steps")
 
@@ -701,14 +706,22 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             "signal schedules)."
         )
 
+    rollout_state = resume_ckpt.get("rollout_state") if resume_ckpt else None
+    if resume_ckpt is not None and rollout_state is None:
+        raise SystemExit(
+            "checkpoint predates exact vector-state resume; start a new run from its policy weights"
+        )
     vec = create_vec_env(
         num_envs=cfg.num_envs,
-        seed=cfg.seed + games_total,
+        seed=cfg.seed,
         win_points=training_win_points,
         sync=False,
         signal_honesty_coef=signal_honesty_schedule(cfg, start_update),
         include_full_obs=critic is not None,
+        rollout_state=rollout_state,
     )
+    if resume_rng is not None:
+        restore_rng(resume_rng)
     t0 = time.time()
     session_env_steps = 0
     deadline = (
@@ -725,6 +738,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             "anchors": pool.anchors,
             "run_id": contract["run_id"],
             "resume_contract": contract,
+            "rollout_state": snapshot_vec_env_state(vec),
         }
         if critic is not None:
             extra["critic"] = critic.state_dict()
@@ -767,7 +781,7 @@ def phase2_rl(args, device, net, resume_ckpt=None):
             device,
             critic=critic,
         )
-        step_count += buf.ptr
+        step_count += buf.collected_steps
         session_env_steps += cfg.batch_size
         games_total += buf.games_done
 

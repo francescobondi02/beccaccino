@@ -29,7 +29,7 @@ from training.normalization import ReturnNormalizer
 from training.ppo import ppo_update
 from training.rollout import collect_rollout
 from training.self_play import OpponentPool
-from training.vec_env import create_vec_env
+from training.vec_env import create_vec_env, snapshot_vec_env_state
 from training.vec_env import learner_team_per_env as learner_teams
 
 SECONDS_PER_HOUR = 3600
@@ -118,6 +118,7 @@ def train(config: TrainConfig):
     best_wr_heuristic = -1.0
     best_update = 0
     resume_ckpt = None
+    resume_rng = None
     if config.resume_from:
         resume_ckpt = load_checkpoint(config.resume_from, map_location=dev)
         net.load_state_dict(resume_ckpt["model"])
@@ -132,8 +133,7 @@ def train(config: TrainConfig):
         # overwrite a better best.pt with its first mediocre eval.
         best_wr_heuristic = resume_ckpt.get("best_wr_heuristic", -1.0)
         best_update = resume_ckpt.get("best_update", 0)
-        if resume_ckpt.get("rng") is not None:
-            restore_rng(resume_ckpt["rng"])
+        resume_rng = resume_ckpt.get("rng")
         print(f"Resumed from {config.resume_from} (update {start_update}, {step_count:,} steps)")
 
     # Curriculum
@@ -144,6 +144,12 @@ def train(config: TrainConfig):
     # Environment
     use_vec = config.num_envs > 1
     if use_vec:
+        rollout_state = resume_ckpt.get("rollout_state") if resume_ckpt else None
+        if resume_ckpt is not None and rollout_state is None:
+            raise SystemExit(
+                "checkpoint predates exact vector-state resume; start a new run "
+                "from its policy weights"
+            )
         vec_env = create_vec_env(
             num_envs=config.num_envs,
             seed=config.seed,
@@ -152,6 +158,7 @@ def train(config: TrainConfig):
             trick_shaping_coef=config.trick_shaping_coef,
             signal_honesty_coef=signal_honesty_schedule(config, start_update),
             include_full_obs=config.centralized_critic,
+            rollout_state=rollout_state,
         )
     else:
         single_env = BeccaEnv(
@@ -187,6 +194,9 @@ def train(config: TrainConfig):
             pool = OpponentPool.from_serialized(
                 resume_ckpt["pool"], max_size=config.opponent_pool_size, anchors=anchors
             )
+    if resume_rng is not None:
+        # Restore after every constructor that consumes global RNG.
+        restore_rng(resume_rng)
 
     # Per-env learner team assignment (balanced)
     if config.balance_learner_teams and use_vec:
@@ -237,6 +247,8 @@ def train(config: TrainConfig):
         }
         if critic is not None:
             extra["critic"] = critic.state_dict()
+        if use_vec:
+            extra["rollout_state"] = snapshot_vec_env_state(vec_env)
         save_checkpoint(
             path,
             net=net,
@@ -296,7 +308,7 @@ def train(config: TrainConfig):
             buf = collect_rollout(single_env, net, config.batch_size, dev)
             opponent_source = "self"
 
-        step_count += buf.ptr
+        step_count += buf.collected_steps
         game_count += buf.games_done
 
         # PPO update with per-seat GAE; rewards normalized in-flight for stability.
@@ -423,6 +435,10 @@ def train(config: TrainConfig):
                         # coefficient, not the run's starting value, or advancing
                         # a stage would silently reset the schedule.
                         if use_vec:
+                            seed_counts = [
+                                state["game_count"]
+                                for state in snapshot_vec_env_state(vec_env)["env_states"]
+                            ]
                             vec_env.close()
                             vec_env = create_vec_env(
                                 num_envs=config.num_envs,
@@ -432,7 +448,13 @@ def train(config: TrainConfig):
                                 trick_shaping_coef=config.trick_shaping_coef,
                                 signal_honesty_coef=signal_coef,
                                 include_full_obs=config.centralized_critic,
+                                initial_game_counts=seed_counts,
                             )
+                            vec_obs, _ = vec_env.reset()
+                            vec_env._becca_rollout_obs = vec_obs
+                            vec_env._becca_rollout_carry = []
+                            if return_normalizer is not None:
+                                return_normalizer.reset_returns()
                         else:
                             single_env = BeccaEnv(
                                 seed=config.seed,

@@ -47,6 +47,8 @@ Reward design (v3 — round-end shaping, terminal-dominated):
 
 from __future__ import annotations
 
+import copy
+
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
@@ -76,10 +78,19 @@ class BeccaEnv(gym.Env):
         trick_shaping_coef: float = 0.0,
         signal_honesty_coef: float = 0.0,
         include_full_obs: bool = True,
+        seed_stride: int = 1,
+        initial_game_count: int = 0,
     ):
         super().__init__()
+        if seed_stride <= 0:
+            raise ValueError("seed_stride must be positive")
+        if initial_game_count < 0:
+            raise ValueError("initial_game_count must be non-negative")
         self._base_seed = seed
-        self._game_count = 0
+        self._seed_stride = seed_stride
+        self._game_count = initial_game_count
+        self._current_seed: int | None = None
+        self._deal_fingerprint: tuple | None = None
         self._win_points = win_points
         self.trick_shaping_coef = float(trick_shaping_coef)
         self.signal_honesty_coef = float(signal_honesty_coef)
@@ -111,11 +122,15 @@ class BeccaEnv(gym.Env):
         if seed is not None:
             effective_seed = seed
         elif self._base_seed is not None:
-            effective_seed = self._base_seed + self._game_count
+            effective_seed = self._base_seed + self._game_count * self._seed_stride
         else:
             effective_seed = None
         self._game_count += 1
+        self._current_seed = effective_seed
         self.game = BeccaGame(seed=effective_seed, win_points=self._win_points)
+        self._deal_fingerprint = tuple(
+            tuple(self.game.round.player_hands[seat]) for seat in range(4)
+        )
         self._pending_rewards = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
         return self._get_obs(), {"current_seat": self.game.current_seat}
 
@@ -177,6 +192,41 @@ class BeccaEnv(gym.Env):
             self._pending_rewards = {0: 0.0, 1: 0.0, 2: 0.0, 3: 0.0}
 
         return obs, reward, terminated, False, info
+
+    def export_state(self) -> dict:
+        """Snapshot the exact live game and seed stream for checkpoint resume."""
+        if self.game is None:
+            raise ValueError("environment has not been reset")
+        return {
+            "version": 1,
+            "base_seed": self._base_seed,
+            "seed_stride": self._seed_stride,
+            "game_count": self._game_count,
+            "current_seed": self._current_seed,
+            "deal_fingerprint": self._deal_fingerprint,
+            "win_points": self._win_points,
+            "game": copy.deepcopy(self.game),
+            "pending_rewards": dict(self._pending_rewards),
+        }
+
+    def restore_state(self) -> None:
+        """Restore a state assigned through VectorEnv.set_attr."""
+        state = self._restore_state
+        if state["base_seed"] != self._base_seed or state["seed_stride"] != self._seed_stride:
+            raise ValueError("checkpoint seed stream does not match environment")
+        if state["win_points"] != self._win_points:
+            raise ValueError("checkpoint win_points does not match environment")
+        self._game_count = int(state["game_count"])
+        self._current_seed = state["current_seed"]
+        self._deal_fingerprint = state["deal_fingerprint"]
+        self.game = copy.deepcopy(state["game"])
+        self._pending_rewards = dict(state["pending_rewards"])
+
+    def current_observation(self) -> dict:
+        """Observation for a restored live state without resetting its deal."""
+        if self.game is None or self.game.phase == GamePhase.GAME_OVER:
+            raise ValueError("environment has no live game")
+        return self._get_obs()
 
     # ---------------- reward distribution helpers ----------------
 

@@ -62,7 +62,7 @@ def test_return_normalizer_resets_on_done():
     assert rn._returns[(0, 0)] == 10.0
 
 
-def test_rollout_batch_resets_transient_return_chains():
+def test_rollout_batch_continues_transient_return_chains():
     from becca_env.observation import OBS_SIZE
     from training.rollout import RolloutBuffer
 
@@ -84,7 +84,19 @@ def test_rollout_batch_resets_transient_return_chains():
 
     buf.get_batch(return_normalizer=rn)
 
-    assert rn._returns[(0, 0)] == 3.0
+    # Only the first transition is trainable; the second is a carry tail and is
+    # deliberately deferred to the next PPO window.
+    assert rn._returns[(0, 0)] == 52.0
+
+
+def test_return_normalizer_round_trips_live_chains():
+    rn = ReturnNormalizer(gamma=0.5)
+    rn.normalize(2, 3, 4.0, done=False)
+
+    restored = ReturnNormalizer()
+    restored.from_dict(rn.to_dict())
+
+    assert restored._returns == {(2, 3): 4.0}
 
 
 def test_return_normalizer_isolates_envs_and_seats():
