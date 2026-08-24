@@ -775,6 +775,9 @@ async function playCardUnlocked({
   ];
   const total = cumulativeScore(allCompletedRounds);
   const callerTeam = teamPlayers[allHands[0].starterId];
+  if (callerTeam !== 0 && callerTeam !== 1) {
+    throw new Error("Round caller has no valid team");
+  }
   const finalWinnerTeam = decideGameWinner(
     total,
     GAME_WIN_POINTS,

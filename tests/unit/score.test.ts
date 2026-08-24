@@ -1,4 +1,8 @@
-import { cumulativeScore, decideGameWinner } from "../../src/utils/score";
+import {
+  cumulativeScore,
+  decideGameWinner,
+  decideScoreWinner,
+} from "../../src/utils/score";
 
 const row = (
   team0Points: number,
@@ -41,5 +45,12 @@ describe("decideGameWinner", () => {
   it("returns null until a team reaches the threshold", () => {
     const total = cumulativeScore([row(3, 2, 0, 0)]);
     expect(decideGameWinner(total, 5, 0)).toBeNull();
+  });
+});
+
+describe("decideScoreWinner", () => {
+  it("uses the caller only for an exact finished-game tie", () => {
+    expect(decideScoreWinner(cumulativeScore([row(5, 5, 0, 0)]), 1)).toBe(1);
+    expect(decideScoreWinner(cumulativeScore([row(6, 5, 0, 0)]), 1)).toBe(0);
   });
 });

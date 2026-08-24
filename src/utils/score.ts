@@ -26,6 +26,8 @@ export interface CumulativeScore {
   team1: TeamScore;
 }
 
+export type Team = 0 | 1;
+
 /**
  * Cumulative real points across the given rounds, computed on raw totals so a
  * round's figures remainder carries into whole points instead of being lost.
@@ -58,18 +60,24 @@ export function cumulativeScore(rounds: RoundScoreRow[]): CumulativeScore {
 export function decideGameWinner(
   cumulative: CumulativeScore,
   winPoints: number,
-  callerTeam: number,
-): number | null {
+  callerTeam: Team,
+): Team | null {
   const team0Points = cumulative.team0.points;
   const team1Points = cumulative.team1.points;
   const team0Won = team0Points >= winPoints;
   const team1Won = team1Points >= winPoints;
 
   if (!team0Won && !team1Won) return null;
-  if (team0Won && team1Won) {
-    if (team0Points > team1Points) return 0;
-    if (team1Points > team0Points) return 1;
-    return callerTeam;
-  }
+  if (team0Won && team1Won) return decideScoreWinner(cumulative, callerTeam);
   return team0Won ? 0 : 1;
+}
+
+/** Resolve a finished game's winner; exact point ties go to the final caller. */
+export function decideScoreWinner(
+  cumulative: CumulativeScore,
+  callerTeam: Team,
+): Team {
+  if (cumulative.team0.points > cumulative.team1.points) return 0;
+  if (cumulative.team1.points > cumulative.team0.points) return 1;
+  return callerTeam;
 }

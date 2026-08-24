@@ -515,62 +515,66 @@ export const leaveRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 
   try {
-    const room = await prisma.gameRoom.findUnique({
-      where: { code: roomCode },
-      include: { players: true },
+    const result = await withRoomLock(roomCode, async () => {
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: true },
+      });
+
+      if (!room) {
+        return { status: 404, body: { error: "Room not found" } };
+      }
+
+      const player = room.players.find(
+        (candidate) => candidate.userId === userId,
+      );
+      if (!player) {
+        return { status: 404, body: { error: "Player not found in room" } };
+      }
+
+      const io = getSocketInstance();
+
+      if (room.isPractice) {
+        clearRoomTimerData(roomCode);
+        await deleteRoomAndPlay(room.id);
+        io.to(roomCode).emit("practice_abandoned", { roomCode });
+        logger.info({ roomCode, userId }, "practice_game_abandoned");
+        return { status: 200, body: { success: true, deletedRoom: true } };
+      }
+
+      if (room.started && !room.finished) {
+        return {
+          status: 409,
+          body: { error: "Cannot leave an active multiplayer game" },
+        };
+      }
+
+      if (room.finished) {
+        return {
+          status: 200,
+          body: {
+            success: true,
+            deletedRoom: false,
+            preservedHistory: true,
+          },
+        };
+      }
+
+      if (room.players.length === 1) {
+        await prisma.$transaction([
+          prisma.player.deleteMany({ where: { gameRoomId: room.id } }),
+          prisma.gameRoom.delete({ where: { id: room.id } }),
+        ]);
+        io.to("lobby").emit("room_deleted", { roomCode });
+        return { status: 200, body: { success: true, deletedRoom: true } };
+      }
+
+      await prisma.player.delete({ where: { id: player.id } });
+      io.to(roomCode).emit("player_left", { userId });
+      return { status: 200, body: { success: true, deletedRoom: false } };
     });
 
-    if (!room) {
-      return res.status(404).json({ error: "Room not found" });
-    }
-
-    const player = room.players.find((p) => p.userId === userId);
-    if (!player) {
-      return res.status(404).json({ error: "Player not found in room" });
-    }
-
-    const io = getSocketInstance();
-
-    // A practice room has exactly one human, so their leaving always means
-    // abandoning the whole game. Falling through to the partial-leave branch
-    // below would strand the room started-but-never-finished with three orphaned
-    // bot Player rows, and could re-arm a turn for the deleted human seat.
-    if (room.isPractice) {
-      // Stop the bot chain BEFORE deleting, so no in-flight bot move re-arms a
-      // timer for a seat that no longer exists.
-      clearRoomTimerData(roomCode);
-      await deleteRoomAndPlay(room.id);
-
-      io.to(roomCode).emit("practice_abandoned", { roomCode });
-      logger.info({ roomCode, userId }, "practice_game_abandoned");
-
-      return res.status(200).json({ success: true, deletedRoom: true });
-    }
-
-    if (room.players.length === 1) {
-      // 🔥 Sei l’unico player: cancella la stanza
-      await prisma.player.deleteMany({
-        where: { gameRoomId: room.id },
-      });
-      await prisma.gameRoom.delete({
-        where: { id: room.id },
-      });
-
-
-      io.to("lobby").emit("room_deleted", { roomCode }); // opzionale, se vuoi aggiornare la lobby
-
-      return res.status(200).json({ success: true, deletedRoom: true });
-    } else {
-      // 🔥 Altri player presenti: rimuovi solo il Player
-      await prisma.player.delete({
-        where: { id: player.id },
-      });
-
-      io.to(roomCode).emit("player_left", { userId });
-
-
-      return res.status(200).json({ success: true, deletedRoom: false });
-    }
+    return res.status(result.status).json(result.body);
   } catch (error) {
     Sentry.captureException(error, {
       extra: { op: "leave_room", roomCode, userId },

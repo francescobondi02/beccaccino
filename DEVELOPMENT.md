@@ -175,7 +175,7 @@ npm run test:integration
 | POST | `/api/rooms/join` | Yes | Join a room by code |
 | POST | `/api/rooms/:code/choose-team` | Yes | Choose team 0 or 1 |
 | POST | `/api/rooms/:code/ready` | Yes | Toggle ready state |
-| POST | `/api/rooms/:code/leave` | Yes | Leave a room |
+| POST | `/api/rooms/:code/leave` | Yes | Leave an open lobby; active games return 409 and finished-game history is preserved |
 | POST | `/api/games/choose-briscola` | Yes | Choose trump suit |
 | POST | `/api/games/play-card` | Yes | Play a card |
 | GET | `/api/games/playable-cards/:code` | Yes | Get legal cards for current turn |

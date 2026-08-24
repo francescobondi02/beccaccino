@@ -8,8 +8,8 @@ import { hashPassword, comparePassword } from "../utils/password";
 import { generateToken } from "../utils/jwt";
 import { logger } from "../logger";
 import { RANKED_FINISHED_GAME } from "../utils/statsFilters";
-import { cumulativeScore } from "../utils/score";
 import { validateUsername } from "../utils/validateUsername";
+import { summarizePlayerGame } from "../utils/playerGameStats";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isCrossOrigin =
@@ -218,6 +218,11 @@ export const getUserStats = async (req: Request, res: Response) => {
                 team1Points: true,
                 team0Figures: true,
                 team1Figures: true,
+                hands: {
+                  orderBy: { number: "asc" },
+                  take: 1,
+                  select: { starterId: true },
+                },
               },
             },
             players: {
@@ -248,15 +253,11 @@ export const getUserStats = async (req: Request, res: Response) => {
       const room = player.gameRoom;
       const myTeam = player.team;
 
-      // Compute total points for each team across all rounds of this game
-      const cumulative = cumulativeScore(room.rounds);
-      const myTeamTotalPoints =
-        myTeam === 0 ? cumulative.team0.points : cumulative.team1.points;
-      const opponentTeamTotalPoints =
-        myTeam === 0 ? cumulative.team1.points : cumulative.team0.points;
-
-      // Determine if user's team won the game overall
-      const didWin = myTeamTotalPoints > opponentTeamTotalPoints;
+      const {
+        didWin,
+        myTeamPoints: myTeamTotalPoints,
+        opponentTeamPoints: opponentTeamTotalPoints,
+      } = summarizePlayerGame(myTeam, room.rounds, room.players);
       if (didWin) wins++;
       totalPoints += myTeamTotalPoints;
 
@@ -381,9 +382,9 @@ export const deleteCurrentUser = async (req: Request, res: Response) => {
     });
 
     if (activeGames.length > 0) {
-      return res.status(400).json({
+      return res.status(409).json({
         error:
-          "Cannot delete account while in an active game. Finish or leave your games first.",
+          "Cannot delete account while in an active game. Finish multiplayer games or abandon practice games first.",
       });
     }
 
@@ -463,12 +464,21 @@ export const getLeaderboard = async (req: Request, res: Response) => {
               include: {
                 rounds: {
                   where: { winnerTeam: { not: null } },
+                  orderBy: { number: "asc" },
                   select: {
                     team0Points: true,
                     team1Points: true,
                     team0Figures: true,
                     team1Figures: true,
+                    hands: {
+                      orderBy: { number: "asc" },
+                      take: 1,
+                      select: { starterId: true },
+                    },
                   },
+                },
+                players: {
+                  select: { id: true, team: true },
                 },
               },
             },
@@ -486,16 +496,13 @@ export const getLeaderboard = async (req: Request, res: Response) => {
         totalGames++;
         const myTeam = player.team;
 
-        const cumulative = cumulativeScore(player.gameRoom.rounds);
-        const myTeamTotalPoints =
-          myTeam === 0 ? cumulative.team0.points : cumulative.team1.points;
-        const opponentTeamTotalPoints =
-          myTeam === 0 ? cumulative.team1.points : cumulative.team0.points;
-
-        if (myTeamTotalPoints > opponentTeamTotalPoints) {
-          wins++;
-        }
-        totalPoints += myTeamTotalPoints;
+        const { didWin, myTeamPoints } = summarizePlayerGame(
+          myTeam,
+          player.gameRoom.rounds,
+          player.gameRoom.players,
+        );
+        if (didWin) wins++;
+        totalPoints += myTeamPoints;
       }
 
       const winRate =
@@ -529,4 +536,3 @@ export const getLeaderboard = async (req: Request, res: Response) => {
     return res.status(500).json({ error: "Failed to fetch leaderboard" });
   }
 };
-

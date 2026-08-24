@@ -117,15 +117,12 @@ describe("Profile API", () => {
 
       expect(statsRes.statusCode).toBe(200);
       expect(statsRes.body.totalGames).toBe(1);
-      expect(statsRes.body.wins + (1 - statsRes.body.wins)).toBe(1); // wins is 0 or 1
-      expect(statsRes.body.winRate).toBeGreaterThanOrEqual(0);
-      expect(statsRes.body.winRate).toBeLessThanOrEqual(100);
+      expect(statsRes.body.wins).toBe(0);
+      expect(statsRes.body.winRate).toBe(0);
       expect(statsRes.body.totalPoints).toBeGreaterThan(0);
       expect(statsRes.body.recentGames).toHaveLength(1);
       expect(statsRes.body.recentGames[0].code).toBe(roomCode);
-      expect(["Vittoria", "Sconfitta"]).toContain(
-        statsRes.body.recentGames[0].result
-      );
+      expect(statsRes.body.recentGames[0].result).toBe("Sconfitta");
     });
 
     it("returns 401 without a cookie", async () => {
@@ -249,8 +246,9 @@ describe("Profile API", () => {
         .delete("/api/users/me")
         .set("Cookie", cookie);
 
-      expect(deleteRes.statusCode).toBe(400);
+      expect(deleteRes.statusCode).toBe(409);
       expect(deleteRes.body.error).toContain("active game");
+      expect(deleteRes.body.error).not.toContain("leave");
     });
 
     it("returns 401 without a cookie", async () => {
