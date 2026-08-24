@@ -41,7 +41,7 @@ def _play_episode_collect_per_seat(env: BeccaEnv) -> tuple[dict[int, float], lis
         legal = np.where(obs["action_mask"] > 0)[0]
         action = int(legal[0])
         obs, reward, term, _, info = env.step(action)
-        per_seat[info["acting_seat"]] += reward
+        per_seat[info["acting_seat"]] += reward + info.get("prior_reward", 0.0)
         if term and "terminal_rewards_by_seat" in info:
             for s, r in info["terminal_rewards_by_seat"].items():
                 if s != info["acting_seat"]:
@@ -163,6 +163,58 @@ def test_trick_shaping_coef_nonzero_fires_per_trick():
         if term:
             break
     assert saw_trick_reward, "shaping coef=1.0 produced no trick-level reward"
+
+
+def test_round_reward_is_split_from_the_next_action():
+    """A seat's deferred round result belongs to its previous card transition."""
+    env = BeccaEnv(seed=7, win_points=99, trick_shaping_coef=0.0)
+    obs, _ = env.reset()
+    round_end = None
+    first_next_round_by_seat = {}
+
+    while round_end is None:
+        action = int(np.flatnonzero(obs["action_mask"])[0])
+        obs, reward, _, _, info = env.step(action)
+        if info["event"] == "round_end":
+            round_end = (info, reward)
+
+    end_info, completing_reward = round_end
+    completing_seat = end_info["acting_seat"]
+    diff = end_info["round_scores"]["team0"]["raw"] - end_info["round_scores"]["team1"]["raw"]
+    expected = {
+        seat: (1.0 if TEAM_OF_SEAT[seat] == 0 else -1.0) * diff / MAX_RAW_PER_ROUND
+        for seat in range(4)
+    }
+    assert completing_reward == expected[completing_seat]
+
+    while len(first_next_round_by_seat) < 4:
+        action = int(np.flatnonzero(obs["action_mask"])[0])
+        obs, reward, _, _, info = env.step(action)
+        seat = info["acting_seat"]
+        if seat not in first_next_round_by_seat:
+            first_next_round_by_seat[seat] = (reward, info["prior_reward"])
+
+    for seat, (action_reward, prior_reward) in first_next_round_by_seat.items():
+        assert action_reward == 0.0
+        assert prior_reward == (0.0 if seat == completing_seat else expected[seat])
+
+
+def test_rollout_never_attaches_round_reward_to_briscola_choice():
+    import torch
+
+    from training.network import create_network
+    from training.rollout import collect_rollout
+
+    net = create_network(version=2, hidden_size=32, num_layers=2)
+    env = BeccaEnv(seed=5, win_points=99, trick_shaping_coef=0.0)
+    buf = collect_rollout(env, net, num_steps=120, device=torch.device("cpu"))
+    rewarded = np.flatnonzero(np.abs(buf.rewards[: buf.ptr]) > 1e-9)
+
+    assert rewarded.size > 0
+    for index in rewarded:
+        mask = buf.masks[index]
+        is_briscola_choice = mask[:4].sum() == 4 and mask[4:].sum() == 0
+        assert not is_briscola_choice
 
 
 def test_set_trick_shaping_coef_runtime():

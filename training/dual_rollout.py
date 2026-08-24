@@ -30,7 +30,9 @@ from training.network import BeccaNet, BeccaNetV2
 from training.rollout import (
     RolloutBuffer,
     _buffer_with_carry,
+    _credit_previous_transition,
     _credit_terminal_residuals,
+    _extract_info_scalar,
     _extract_terminal_info,
     _mark_latest_transition_done,
     _save_rollout_carry,
@@ -135,6 +137,12 @@ def collect_self_play_rollout_vec(
             for i in range(num_envs):
                 if not is_learner[i]:
                     continue
+                _credit_previous_transition(
+                    buf,
+                    _extract_info_scalar(infos, "prior_reward", i),
+                    env_idx=i,
+                    seat=int(seats_np[i]),
+                )
                 buf.store(
                     obs_dict["obs"][i],
                     obs_dict["action_mask"][i],

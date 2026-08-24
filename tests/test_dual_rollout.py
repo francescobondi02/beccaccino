@@ -227,3 +227,28 @@ def test_buffer_env_idx_seat_matches_per_env_team():
     # All seats valid {0..3}
     assert buf.seats[:n].min() >= 0
     assert buf.seats[:n].max() < 4
+
+
+def test_round_rewards_stay_on_card_actions_for_both_learner_teams():
+    learner_team = np.array([0, 1], dtype=np.int64)
+    learner, opponent = _make_nets()
+    vec = create_vec_env(num_envs=2, seed=19, win_points=99, sync=True)
+    try:
+        buf = collect_self_play_rollout_vec(
+            vec,
+            learner,
+            opponent,
+            learner_team,
+            steps_per_env=120,
+            device=torch.device("cpu"),
+        )
+    finally:
+        vec.close()
+
+    rewarded = np.flatnonzero(np.abs(buf.rewards[: buf.ptr]) > 1e-9)
+    assert rewarded.size > 0
+    assert {int(buf.env_idx[index]) for index in rewarded} == {0, 1}
+    for index in rewarded:
+        mask = buf.masks[index]
+        is_briscola_choice = mask[:4].sum() == 4 and mask[4:].sum() == 0
+        assert not is_briscola_choice

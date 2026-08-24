@@ -234,6 +234,17 @@ def _credit_terminal_residuals(
             seats_needed.discard(s)
 
 
+def _credit_previous_transition(buf: RolloutBuffer, reward: float, env_idx: int, seat: int) -> None:
+    """Attach reward accrued since a seat last acted to that prior action."""
+    if abs(reward) <= 1e-12:
+        return
+    for t in range(buf.ptr - 1, -1, -1):
+        if int(buf.env_idx[t]) == env_idx and int(buf.seats[t]) == seat:
+            buf.rewards[t] += reward
+            return
+    raise RuntimeError(f"no previous transition for deferred reward: env={env_idx}, seat={seat}")
+
+
 def _buffer_with_carry(owner, capacity: int) -> RolloutBuffer:
     carry = getattr(owner, "_becca_rollout_carry", [])
     buf = RolloutBuffer(capacity + len(carry))
@@ -284,6 +295,9 @@ def collect_rollout(
 
             a = act.item()
             next_obs, rew, done, _, step_info = env.step(a)
+            _credit_previous_transition(
+                buf, float(step_info.get("prior_reward", 0.0)), env_idx=0, seat=seat
+            )
             buf.store(
                 obs["obs"], obs["action_mask"], a, lp.item(), val.item(), rew, done, seat, env_idx=0
             )
@@ -326,6 +340,12 @@ def collect_rollout_vec(
             next_obs, rews, dones, _, infos = vec_env.step(acts_np)
 
             for i in range(num_envs):
+                _credit_previous_transition(
+                    buf,
+                    _extract_info_scalar(infos, "prior_reward", i),
+                    env_idx=i,
+                    seat=int(seats_np[i]),
+                )
                 buf.store(
                     obs_dict["obs"][i],
                     obs_dict["action_mask"][i],
@@ -400,3 +420,17 @@ def _extract_terminal_info(infos, env_index: int) -> dict | None:
     if not per_seat:
         return None
     return {"terminal_rewards_by_seat": per_seat}
+
+
+def _extract_info_scalar(infos: dict, key: str, env_index: int) -> float:
+    """Read one scalar from normal or SAME_STEP terminal vector info."""
+    if key in infos:
+        mask = infos.get(f"_{key}")
+        if mask is None or bool(mask[env_index]):
+            return float(infos[key][env_index])
+    final = infos.get("final_info")
+    if isinstance(final, dict) and key in final:
+        mask = final.get(f"_{key}")
+        if mask is None or bool(mask[env_index]):
+            return float(final[key][env_index])
+    return 0.0

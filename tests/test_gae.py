@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 
 from becca_env.observation import OBS_SIZE
-from training.rollout import RolloutBuffer, _mark_latest_transition_done
+from training.rollout import (
+    RolloutBuffer,
+    _credit_previous_transition,
+    _mark_latest_transition_done,
+)
 
 OBS = np.zeros(OBS_SIZE, dtype=np.float32)
 MASK = np.ones(160, dtype=np.float32)
@@ -254,6 +258,45 @@ def test_mark_latest_transition_done_is_idempotent():
     _mark_latest_transition_done(buf, env_idx=0)
     assert buf.games_done == 1
     assert buf.dones[0] == 1.0
+
+
+@pytest.mark.parametrize("learner_team", [0, 1])
+def test_round_boundary_rewards_reach_each_learner_seats_previous_action(
+    learner_team,
+):
+    learner_seats = [seat for seat in range(4) if seat % 2 == learner_team]
+    buf = RolloutBuffer(size=4)
+    expected = {}
+    for seat in learner_seats:
+        buf.store(
+            OBS,
+            MASK,
+            0,
+            0.0,
+            value=0.0,
+            reward=0.0,
+            done=False,
+            seat=seat,
+            env_idx=0,
+        )
+        expected[seat] = 0.25 if learner_team == 0 else -0.25
+
+    for seat in learner_seats:
+        _credit_previous_transition(buf, expected[seat], env_idx=0, seat=seat)
+        buf.store(
+            OBS,
+            MASK,
+            0,
+            0.0,
+            value=0.0,
+            reward=0.0,
+            done=False,
+            seat=seat,
+            env_idx=0,
+        )
+
+    _, returns = buf.compute_gae(gamma=0.0, lam=0.0)
+    np.testing.assert_allclose(returns, [expected[seat] for seat in learner_seats])
 
 
 def test_returns_equal_advantages_plus_values():
