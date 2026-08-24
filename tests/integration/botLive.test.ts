@@ -7,11 +7,11 @@ import { playableCards } from "../../src/services/cardService";
  * End-to-end against the REAL Python bot service — the only test that proves the
  * trained model, not a stub, can play a game through this backend.
  *
- * Skipped unless BOT_SERVICE_URL points at a running service, so the suite stays
- * green without Python:
+ * Explicitly enabled only when the Python service is part of the test run:
  *
  *     cd ai && uvicorn serving.app:app --port 8011
- *     cd backend && BOT_SERVICE_URL=http://localhost:8011 npm run test:integration
+ *     cd backend && RUN_LIVE_BOT_TESTS=true \
+ *       BOT_SERVICE_URL=http://localhost:8011 npm run test:integration
  *
  * What it can prove is narrow but exactly what the diagnostic needs: the model
  * accepts our serialized board (no 409/422 legality disagreement), returns legal
@@ -19,7 +19,8 @@ import { playableCards } from "../../src/services/cardService";
  * *well* is a judgement for a human watching, not an assertion.
  */
 const LIVE_SERVICE_URL = process.env.BOT_SERVICE_URL;
-const describeLive = LIVE_SERVICE_URL ? describe : describe.skip;
+const describeLive =
+  process.env.RUN_LIVE_BOT_TESTS === "true" ? describe : describe.skip;
 
 describeLive("Live bot service (real model)", () => {
   const TIER = process.env.BOT_LIVE_TIER ?? "forte";
@@ -31,9 +32,19 @@ describeLive("Live bot service (real model)", () => {
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  beforeAll(() => {
-    // Real inference plus a full round of HTTP; the default 5 s is not enough.
-    jest.setTimeout(120_000);
+  // Real inference plus a full round of HTTP; the default 5 s is not enough.
+  jest.setTimeout(120_000);
+
+  beforeAll(async () => {
+    if (!LIVE_SERVICE_URL) {
+      throw new Error("BOT_SERVICE_URL is required for live bot tests");
+    }
+    const health = await fetch(`${LIVE_SERVICE_URL}/health`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!health.ok) {
+      throw new Error(`bot service health check returned ${health.status}`);
+    }
     process.env.BOT_THINK_DELAY_MS = "0";
   });
 

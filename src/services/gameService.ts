@@ -111,11 +111,6 @@ export async function resolveCurrentTurnUserId(
 }
 
 function generateDeck(): Card[] {
-  /**
-   * Genera un mazzo di 40 carte italiane (romagnole, sono le migliori).
-   *
-   * @return Array di carte ({ suit: Suit, value: Value }[])
-   */
   const deck: Card[] = [];
 
   for (const suit of SUITS) {
@@ -127,11 +122,6 @@ function generateDeck(): Card[] {
 }
 
 function shuffleDeck<T>(deck: T[]): T[] {
-  /**
-   * Mescola un array di elementi (carte) usando l'algoritmo Fisher-Yates.
-   * Usa il generatore di numeri casuali centralizzato (getRng()) così i test
-   * possono iniettare un seed deterministico.
-   */
   const rng = getRng();
   const out = [...deck];
   for (let i = out.length - 1; i > 0; i--) {
@@ -146,19 +136,6 @@ export async function setupRound(
   roundNumber: number,
   tx?: Prisma.TransactionClient,
 ) {
-  /**
-   * Funzione che fa il setup di un round di gioco.
-   *
-   * @note Se è il primo round, chi ha il 4 di Denara in mano sceglie la briscola e inizia lui la prima mano.
-   * Se non è il primo round, lo starter è il giocatore alla sinistra di chi ha iniziato prima.
-   *
-   * @param gameRoomId ID della room di gioco
-   * @param roundNumber Numero del round (1, 2, 3, ...)
-   * @param tx Client di transazione opzionale: se fornito le scritture vi
-   *   partecipano; altrimenti la funzione apre una propria transazione.
-   * @return void
-   *
-   */
   if (tx) {
     return setupRoundTx(tx, gameRoomId, roundNumber);
   }
@@ -193,7 +170,6 @@ async function setupRoundTx(
     });
   }
 
-  //^ Prendi i player nella room (usando gameRoomId)
   const players = await tx.player.findMany({
     where: { gameRoomId },
     orderBy: [{ seat: "asc" }, { id: "asc" }],
@@ -203,9 +179,7 @@ async function setupRoundTx(
     throw new Error("There must be exactly 4 players to start the game");
   }
 
-  //^ Assegna i posti a sedere solo al primo round
-  //^ (team 0: seat 0 e 2, team 1: seat 1 e 3)
-  //^ Questo garantisce che i membri del team siano seduti uno di fronte all'altro
+  // Partners occupy opposite seats.
   if (roundNumber === 1) {
     const team0 = players.filter((p) => p.team === 0);
     const team1 = players.filter((p) => p.team === 1);
@@ -228,7 +202,6 @@ async function setupRoundTx(
     }
   }
 
-  //^ Prendi il round precedente (se esiste) per determinare lo starter se non è il primo round
   const previousRound = await tx.round.findFirst({
     where: { gameRoomId, number: roundNumber - 1 },
     include: { hands: { orderBy: { number: "asc" } } },
@@ -238,7 +211,6 @@ async function setupRoundTx(
 
   let starterId: number;
 
-  //^ 1. Crea il round utilizzando il nuovo Round Number
   const round = await tx.round.create({
     data: {
       number: newRoundNumber,
@@ -247,17 +219,14 @@ async function setupRoundTx(
     },
   });
 
-  //^ 2. Genera e mescola il mazzo
   const deck = shuffleDeck(generateDeck());
 
-  //^ 3. Distribuisci le carte (10 a testa, random), crea tutte le playerCard
   const cardsPerPlayer = 10;
   let playerWithQuattroDenara: number | null = null;
   for (let i = 0; i < players.length; i++) {
     const playerId = players[i].id;
     const handCards = deck.slice(i * cardsPerPlayer, (i + 1) * cardsPerPlayer);
 
-    //^ Trova il player con il 4 di Denara
     if (
       handCards.some(
         (card) => card.suit === Suit.denara && card.value === Value.quattro,
@@ -526,19 +495,6 @@ async function playCardUnlocked({
   value: Value;
   signal?: CardSignal | null;
 }): Promise<TurnDirective | null> {
-  /**
-   * Funzione che gestisce la logica di gioco quando un giocatore gioca una carta.
-   *
-   * @param roomCode Codice della room di gioco
-   * @param userId ID dell'utente che gioca la carta
-   * @param suit Seme della carta giocata
-   * @param value Valore della carta giocata
-   * @return void
-   *
-   * @note Questa funzione controlla anche la validità della mossa
-   */
-
-  //^ 1. Trova la room in cui si sta giocando
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
     include: {
@@ -569,12 +525,10 @@ async function playCardUnlocked({
 
   const playedCards = currentHand.cards;
 
-  //^ 2. Controlla che la mano corrente non sia già completa (4 carte giocate)
   if (playedCards.length >= 4) {
     throw new GameError("Hand is already full", 400);
   }
 
-  //^ 3. Determina l'ordine di gioco a partire da starterId
   const seatOrder = Array.from({ length: 4 }, (_, i) =>
     seatAfter(
       room.players.find((p) => p.id === currentHand.starterId)!.seat!,
@@ -587,7 +541,6 @@ async function playCardUnlocked({
   if (!currentTurnPlayer || currentTurnPlayer.userId !== userId)
     throw new GameError("It's not this player's turn", 403);
 
-  //^ 4. Controlla che il giocatore abbia effettivamente la carta specificata in mano
   const player = room.players.find((p) => p.userId === userId);
   if (!player) throw new GameError("Player not found in this room", 404);
 

@@ -56,7 +56,7 @@ app.use(cookieParser());
 // Disable keep-alive in test mode to prevent flaky "Parse Error: Expected HTTP/"
 if (process.env.NODE_ENV === "test") {
   app.set("trust proxy", false);
-  app.use((req, res, next) => {
+  app.use((_req, res, next) => {
     res.set("Connection", "close");
     res.set("Keep-Alive", "timeout=0");
     next();

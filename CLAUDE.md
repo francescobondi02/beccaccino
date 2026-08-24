@@ -12,6 +12,9 @@ src/
   gameConfig.ts         Game-wide environment-backed rules such as win points
   db.ts                 Prisma client singleton
   socketInstance.ts     Global io getter/setter (used by services to emit events)
+  domain/
+    cards.ts            Prisma-backed card enums, signal types, and parsers
+    publicPlayer.ts     Public player projection for room payloads
   controllers/
     userController.ts   Register, login, logout, profile, stats, leaderboard
     roomController.ts   Create room, join room, list rooms
@@ -19,10 +22,11 @@ src/
     chooseTeam.ts       Team selection logic
   services/
     gameService.ts      Core game transitions; returns timer directives
+    gameState.ts        Loads the browser game-state DTO and restores timers
     turnCoordinator.ts  Applies directives for controller-driven game actions
-    cardService.ts      Deal cards, get playable cards (follow-suit filtering)
+    cardService.ts      Gets playable cards with follow-suit filtering
     turnTimer.ts        Timer/bot state, autoplay, kick after 3 timeouts
-    roomCommands.ts     Serialized choose-team and ready mutations
+    roomCommands.ts     Serialized room lifecycle, team, and ready commands
   sockets/
     room.ts             All socket event handlers: lobby, room join/leave, game events, chat
   middleware/
@@ -40,11 +44,12 @@ src/
     jwt.ts              Sign/verify JWT tokens
     password.ts         bcrypt hash/compare
     random.ts           Seeded RNG for deterministic card shuffle (Fisher-Yates)
+    sanitizeChatMessage.ts  Production chat input sanitizer
 prisma/
   schema.prisma         Models: User, Player, GameRoom, Round, Hand, PlayedCard, PlayerCard
-  migrations/           7 migrations (init → indexes → signal column)
+  migrations/           14 migrations
 tests/
-  unit/                 Pure logic: computePoints, determineHandWinner, roomCode, chat sanitization
+  unit/                 Pure rules, card parsing, scoring, room codes, chat sanitization
   integration/          Full API tests with real DB plus production server/socket tests
   helpers/              Shared: setupGame, oneRound, clearDatabase
   loadTestEnv.ts        Overrides DATABASE_URL to becca_test before Prisma loads
@@ -55,19 +60,19 @@ tests/
 ## Key Implementation Details
 
 ### Game Flow (gameService.ts)
-1. `startRound()` — shuffles deck (seeded RNG), deals 10 cards per player, determines caller
-2. `setBriscola()` — validates caller, sets suit, creates first Hand, starts turn timer
-3. `playCard()` — validates follow-suit, saves PlayedCard (with optional signal), checks trick complete
-4. On trick complete: determines winner, updates trick_starter, checks if round over (10 hands)
-5. On round end: computes scores, checks if game over (≥ GAME_WIN_POINTS), starts new round or finishes
+1. `startFirstRound()` atomically marks the room started, calls `setupRound()`, and returns a timer directive
+2. `setupRound()` shuffles the deck, deals 10 cards per player, and determines the caller
+3. `setBriscola()` validates the caller and atomically creates the first Hand
+4. `playCard()` validates follow-suit and atomically advances the hand or round
+5. On round end, scores are committed and the next round starts or the game finishes
 
 ### Socket Events (emitted by server)
 - `room_created`, `room_updated`, `room_full`, `room_deleted` — lobby
-- `player_joined`, `player_left`, `team_chosen`, `player_ready`, `game_started` — room
-- `round_started`, `briscola_chosen`, `card_played`, `hand_complete`, `round_ended`, `game_finished` — game
+- `player_joined`, `player_left`, `team_chosen`, `ready_changed`, `game_started` — room
+- `new_round_started`, `briscola_chosen`, `card_played`, `round_ended`, `game_finished` — game
 - `turn_timer_started`, `auto_played`, `player_kicked_timeout` — timer
+- `practice_abandoned`, `player_disconnected` — lifecycle
 - `chat_message` — in-game chat
-- `your_turn` — unicast to current player
 
 ### Auth
 - Cookie name: `authToken`, httpOnly, 7-day expiry
@@ -87,16 +92,18 @@ npm run build           # prisma generate + tsc → dist/
 npm start               # node dist/index.js
 ```
 
-Dockerfile: multi-stage not needed (single stage, npm ci + build + CMD with migrate).
+Dockerfile: multi-stage Node 24 Alpine build; the runtime applies migrations before starting.
 Render auto-deploys from `backend/` root directory on push.
 
 ## Test Commands
 
 ```bash
+npm run typecheck           # compile checks without output
+npm run build               # prisma generate + tsc → dist/
 npm run test:unit           # Jest unit project only
 npm run test:integration    # Jest integration project, --runInBand (sequential DB access)
 npm test                    # Both projects
 ```
 
-Integration tests require `docker compose up -d` (postgres on localhost:5432).
+Integration tests require `finch compose up -d db` from the project root (PostgreSQL on localhost:5432).
 DB is cleared between tests via `clearDatabase()` in beforeEach.

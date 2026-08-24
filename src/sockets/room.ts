@@ -16,7 +16,6 @@ import {
 import { GameError } from "../utils/gameError";
 import { sanitizeChatMessage } from "../utils/sanitizeChatMessage";
 
-// Interfacce per gli eventi
 interface JoinRoomData {
   roomCode: string;
   userId: number;
@@ -41,10 +40,7 @@ export function registerRoomSocket(socket: Socket, io: Server) {
    * JOIN_LOBBY - Un utente loggato entra nella pagina principale
    * Si unisce alla "lobby globale" per ricevere aggiornamenti su nuove stanze
    */
-  socket.on("join_lobby", (data: { userId: number }) => {
-    const { userId } = data;
-
-    // Unisce l'utente alla lobby globale
+  socket.on("join_lobby", () => {
     socket.join("lobby");
   });
 

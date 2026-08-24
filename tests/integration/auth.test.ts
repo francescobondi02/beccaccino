@@ -128,6 +128,7 @@ describe("Auth Lifecycle", () => {
       const registerRes = await request(getServer())
         .post("/api/users/register")
         .send(credentials);
+      expect(registerRes.statusCode).toBe(201);
 
       // In test mode, auth is bypassed so /me won't have req.user set
       // This is a known limitation of the test setup — the endpoint itself is tested

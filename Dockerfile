@@ -9,7 +9,6 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
-RUN npx prisma generate
 RUN npm run build
 
 # Upload source maps to Sentry (no-op if SENTRY_AUTH_TOKEN/ORG/PROJECT not set

@@ -2,6 +2,7 @@ import { setSocketInstance } from "../src/socketInstance";
 import { prisma } from "../src/db";
 import { setRng, createSeededRng } from "../src/utils/random";
 import { closeServer } from "./helpers/gameHelpers";
+import { clearAllTurnTimerData } from "../src/services/turnTimer";
 
 // Set environment to test
 process.env.NODE_ENV = "test";
@@ -10,14 +11,10 @@ process.env.JWT_SECRET = "test-secret";
 
 // Create a mock Socket.io instance
 const mockIo: any = {
-  to: (room: string) => ({
-    emit: (event: string, data: any) => {
-      // console.log(`[MOCK] Emitting ${event} to room ${room}`, data);
-    },
+  to: (_room: string) => ({
+    emit: (_event: string, _data: any) => {},
   }),
-  emit: (event: string, data: any) => {
-    // console.log(`[MOCK] Broadcasting ${event}`, data);
-  },
+  emit: (_event: string, _data: any) => {},
   sockets: {
     sockets: new Map(),
   },
@@ -38,8 +35,12 @@ beforeEach(() => {
   restoreRng = setRng(createSeededRng(TEST_SEED));
 });
 
+afterEach(() => {
+  clearAllTurnTimerData();
+});
+
 afterAll(async () => {
-  // Restore original RNG, close shared HTTP server, and disconnect Prisma
+  clearAllTurnTimerData();
   if (restoreRng) restoreRng();
   await closeServer();
   await prisma.$disconnect();

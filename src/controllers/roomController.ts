@@ -106,8 +106,6 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
 
   try {
-    // 1. Stanze disponibili: non iniziate, non piene, utente non dentro.
-    // Le stanze di pratica sono escluse: i posti sono già occupati dai bot.
     const availableRoomsRaw = await prisma.gameRoom.findMany({
       where: {
         started: false,
@@ -131,12 +129,10 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
       },
     });
 
-    // Filtra le stanze che non sono piene (meno di 4 giocatori)
     const availableRooms = availableRoomsRaw.filter(
       (room) => room.players.length < 4,
     );
 
-    // 2. Giochi attivi: partite iniziate in cui l'utente è un giocatore
     const activeGames = await prisma.gameRoom.findMany({
       where: {
         started: true,
@@ -180,7 +176,6 @@ export const getRoomByCode = async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Room not found" });
     }
 
-    //^ Verifica che l'utente sia un giocatore nella stanza
     const isPlayerInRoom = room.players.some((p) => p.userId === userId);
     if (!isPlayerInRoom) {
       return res
@@ -254,21 +249,6 @@ export const joinRoom = async (req: Request, res: Response) => {
 };
 
 export const setPlayerReady = async (req: Request, res: Response) => {
-  /**
-   * Permette a un giocatore di impostare il proprio stato di "ready" in una stanza di gioco.
-   * Quando tutti i giocatori sono pronti e le squadre sono complete, la partita inizia automaticamente.
-   * Se la partita inizia, viene creato il primo round.
-   *
-   * @param roomCode Codice della stanza di gioco (dal parametro URL)
-   * @param userId ID dell'utente che imposta lo stato di ready (dal body della richiesta)
-   * @param isReady Stato di ready (true o false) (dal body della richiesta)
-   * @return Lo stato aggiornato del giocatore e se tutti sono pronti
-   *
-   * @note Controlla che l'utente sia un giocatore nella stanza
-   * @note Controlla che il giocatore abbia scelto una squadra prima di potersi mettere ready
-   * @note Se tutti i giocatori sono pronti e le squadre sono complete, imposta la stanza come iniziata e crea il primo round
-   */
-
   const { roomCode } = req.params;
   const userId = req.user!.userId;
   const { isReady } = req.body;

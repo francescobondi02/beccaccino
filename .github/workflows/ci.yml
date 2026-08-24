@@ -15,6 +15,7 @@ jobs:
     # unset — before tests/setup.ts assigns it. Both must be present job-wide.
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/becca_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/becca_test
       JWT_SECRET: ci-test-secret
 
     services:
@@ -43,10 +44,10 @@ jobs:
 
       - run: npm ci
 
-      - run: npx tsc --noEmit
+      - run: npm run typecheck
+
+      - run: npm run build
 
       - run: npm run test:unit
-
-      - run: npm run pretest
 
       - run: npm run test:integration

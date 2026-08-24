@@ -231,7 +231,7 @@ describe("Profile API", () => {
 
     it("rejects deletion if user is in an active game", async () => {
       // Setup a game that is started but not finished
-      const { roomCode } = await setupGame();
+      await setupGame();
       // Game is started but not finished yet (briscola not chosen, round not played)
 
       // Login as player A who is in the active game

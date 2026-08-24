@@ -175,6 +175,18 @@ export function clearRoomTimerData(roomCode: string): void {
   botSeats.delete(roomCode);
 }
 
+export function clearAllTurnTimerData(): void {
+  const roomCodes = new Set([
+    ...activeTimers.keys(),
+    ...timeoutCounts.keys(),
+    ...kickedPlayers.keys(),
+    ...botSeats.keys(),
+  ]);
+  for (const roomCode of roomCodes) {
+    clearRoomTimerData(roomCode);
+  }
+}
+
 export function applyTurnDirective(directive: TurnDirective | null): void {
   if (!directive) return;
   if (directive.kind === "clear") {

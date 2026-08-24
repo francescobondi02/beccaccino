@@ -40,10 +40,6 @@ export type BotMove =
 
 export class BotServiceError extends Error {}
 
-export function botServiceConfigured(): boolean {
-  return Boolean(botServiceUrl());
-}
-
 /**
  * Ask the bot service for a move.
  *

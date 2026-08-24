@@ -3,8 +3,8 @@
 ## Prerequisites
 
 - **Node.js** 24+ (matches Dockerfile)
-- **Docker** (for PostgreSQL database)
-- The database runs via Docker Compose from the project root
+- **Finch** (for the local PostgreSQL database)
+- The database runs via Finch Compose from the project root
 
 ## Environment Setup
 
@@ -13,12 +13,13 @@ cp .env.example .env
 # Edit .env to set a real JWT_SECRET: openssl rand -hex 32
 ```
 
-The defaults work with Docker Compose out of the box. Only `JWT_SECRET` needs to be changed from the placeholder.
+The defaults work with Finch Compose out of the box. Only `JWT_SECRET` needs to be changed from the placeholder.
 
 For integration tests, a separate `.env.test` is already provided:
 
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
+DIRECT_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
 JWT_SECRET="test-secret"
 NODE_ENV="test"
 PORT=8000
@@ -27,12 +28,12 @@ FRONTEND_URL="http://localhost:8081"
 
 ## Starting the Backend
 
-### Option A: With Docker Compose (recommended for development)
+### Option A: With Finch Compose (recommended for development)
 
 From the **project root**:
 
 ```sh
-docker compose up
+finch compose up
 ```
 
 This starts PostgreSQL + Adminer + the backend with hot-reload. The backend runs at `http://localhost:8000`.
@@ -58,6 +59,7 @@ backend/
 │   ├── gameConfig.ts       # Environment-backed game rules
 │   ├── db.ts               # Prisma client singleton
 │   ├── socketInstance.ts    # Socket.IO singleton (get/set)
+│   ├── domain/              # Card types and public DTO projections
 │   ├── controllers/        # Request handlers
 │   │   ├── userController.ts    # register, login, logout, getCurrentUser
 │   │   ├── roomController.ts    # createRoom, joinRoom, setPlayerReady, leaveRoom
@@ -65,9 +67,10 @@ backend/
 │   │   └── gameController.ts    # chooseBriscola, playCard, getGameState
 │   ├── services/           # Business logic
 │   │   ├── gameService.ts       # Atomic transitions and timer directives
+│   │   ├── gameState.ts         # Browser state loading and timer recovery
 │   │   ├── turnCoordinator.ts   # Controller-facing transition coordinator
 │   │   ├── turnTimer.ts         # Timers, bots, autoplay, timeout state
-│   │   ├── roomCommands.ts      # Shared team and ready commands
+│   │   ├── roomCommands.ts      # Shared room lifecycle, team, and ready commands
 │   │   └── cardService.ts       # playableCards (follow-suit rules)
 │   ├── sockets/            # WebSocket event handlers
 │   │   └── room.ts             # join_lobby, join_room, choose_team, set_ready
@@ -121,11 +124,11 @@ Tests are split into two Jest projects: **unit** (no DB) and **integration** (re
 The integration tests require a dedicated `becca_test` database:
 
 ```sh
-# Make sure docker compose is running (for the PostgreSQL instance)
-docker compose up -d
+# Make sure Finch Compose is running the PostgreSQL service
+finch compose up -d db
 
 cd backend
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test" npx prisma db push
+npm run db:test:prepare
 ```
 
 ### Commands
@@ -141,6 +144,10 @@ npm run test:unit
 
 # Run only integration tests (requires running DB)
 npm run test:integration
+
+# Include the real Python model gate (requires the AI service on port 8011)
+RUN_LIVE_BOT_TESTS=true BOT_SERVICE_URL=http://localhost:8011 \
+npm run test:integration -- tests/integration/botLive.test.ts
 ```
 
 ### Test Architecture
@@ -150,9 +157,10 @@ npm run test:integration
 | `unit` | In parallel | No | `tests/unit/**/*.test.ts` |
 | `integration` | In band (serial) | Yes (`becca_test`) | `tests/integration/**/*.test.ts` |
 
-- **Unit tests** are pure — they test `computePoints`, `determineHandWinner`, `generateRoomCode`, and `cardService` logic without any database.
-- **Integration tests** use `supertest` against the Express app with a real PostgreSQL database. Auth middleware is bypassed via `NODE_ENV=test`.
+- **Unit tests** cover pure card parsing, scoring, trick rules, room-code generation, and the production chat sanitizer.
+- **Integration tests** use Supertest and real Socket.IO clients against the Express/server factory with PostgreSQL. Auth bypass is available only when explicitly enabled in test mode.
 - Each integration test calls `clearDatabase()` in `beforeEach` for isolation.
+- Shared teardown closes HTTP servers, sockets, Prisma, and all turn timers.
 
 ## Scripts Reference
 
@@ -162,7 +170,9 @@ npm run test:integration
 | `npm test` | Run all Jest tests |
 | `npm run test:unit` | Unit tests only |
 | `npm run test:integration` | Integration tests only (serial) |
+| `npm run typecheck` | Compile checks without emitting files |
 | `npm run build` | Generate Prisma + compile TypeScript |
+| `npm run db:test:prepare` | Apply the Prisma schema to the isolated `becca_test` database |
 | `npm start` | Run compiled `dist/index.js` (production) |
 | `npm run migrate` | Apply Prisma migrations |
 
@@ -174,18 +184,25 @@ npm run test:integration
 | POST | `/api/users/login` | No | Login, returns HTTP-only cookie |
 | POST | `/api/users/logout` | Yes | Clear auth cookie |
 | GET | `/api/users/me` | Yes | Get current user |
+| PATCH | `/api/users/me` | Yes | Update current user |
+| DELETE | `/api/users/me` | Yes | Anonymize current user |
+| GET | `/api/users/me/stats` | Yes | Get player statistics |
+| GET | `/api/users/leaderboard` | No | Get multiplayer leaderboard |
 | POST | `/api/rooms/` | Yes | Create a new room |
+| POST | `/api/rooms/practice` | Yes | Start a practice game against bots |
 | GET | `/api/rooms/available` | Yes | List joinable rooms + active games |
-| GET | `/api/rooms/:code` | Yes | Get room details |
+| GET | `/api/rooms/getExitedRooms` | Yes | List unfinished rooms for compatibility clients |
+| GET | `/api/rooms/:roomCode` | Yes | Get room details |
 | POST | `/api/rooms/join` | Yes | Join a room by code |
-| POST | `/api/rooms/:code/choose-team` | Yes | Choose team 0 or 1 |
-| POST | `/api/rooms/:code/ready` | Yes | Toggle ready state |
-| POST | `/api/rooms/:code/leave` | Yes | Leave an open lobby; active games return 409 and finished-game history is preserved |
+| POST | `/api/rooms/:roomCode/choose-team` | Yes | Choose team 0 or 1 |
+| POST | `/api/rooms/:roomCode/ready` | Yes | Toggle ready state |
+| POST | `/api/rooms/:roomCode/leave` | Yes | Leave an open lobby; active games return 409 and finished-game history is preserved |
 | POST | `/api/games/choose-briscola` | Yes | Choose trump suit |
 | POST | `/api/games/play-card` | Yes | Play a card |
-| GET | `/api/games/playable-cards/:code` | Yes | Get legal cards for current turn |
-| GET | `/api/games/:code/state` | Yes | Get full game state |
+| GET | `/api/games/playable-cards/:roomCode` | Yes | Get legal cards for current turn |
+| GET | `/api/games/:roomCode/state` | Yes | Get full game state |
 | GET | `/health` | No | Health check |
+| GET | `/ready` | No | Database readiness check |
 
 ## Troubleshooting
 
@@ -197,9 +214,9 @@ kill -9 <PID>
 
 **Cannot connect to database:**
 ```sh
-docker ps                      # verify DB container is running
-docker compose logs db         # check DB logs
-docker compose restart db
+finch compose ps              # verify DB container is running
+finch compose logs db         # check DB logs
+finch compose restart db
 ```
 
 **Prisma Client not generated:**
