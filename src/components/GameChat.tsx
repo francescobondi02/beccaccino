@@ -12,10 +12,9 @@ type ChatMessage = ChatMessagePayload;
 interface GameChatProps {
   roomCode: string;
   userId: number | null;
-  username: string;
 }
 
-const GameChat = ({ roomCode, userId, username }: GameChatProps) => {
+const GameChat = ({ roomCode, userId }: GameChatProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");

@@ -60,11 +60,11 @@ export function getSocket(): AppSocket {
       }
     });
 
-    socket.io.on("reconnect_attempt", (attempt) => {
+    socket.io.on("reconnect_attempt", () => {
       setStatus("reconnecting");
     });
 
-    socket.io.on("reconnect", (attempt) => {
+    socket.io.on("reconnect", () => {
       setStatus("connected");
     });
 

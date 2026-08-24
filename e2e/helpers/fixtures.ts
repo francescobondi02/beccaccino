@@ -7,7 +7,6 @@ import { BotPlayer } from "./BotPlayer";
  */
 type BotFixtures = {
   createBot: (name: string) => Promise<BotPlayer>;
-  createTeam: (names: string[]) => Promise<BotPlayer[]>;
 };
 
 export const test = base.extend<BotFixtures>({
@@ -23,26 +22,6 @@ export const test = base.extend<BotFixtures>({
     await use(factory);
 
     // Cleanup all bots after test
-    for (const bot of bots) {
-      await bot.close();
-    }
-  },
-
-  createTeam: async ({ browser }, use) => {
-    const bots: BotPlayer[] = [];
-
-    const factory = async (names: string[]): Promise<BotPlayer[]> => {
-      const team: BotPlayer[] = [];
-      for (const name of names) {
-        const bot = await BotPlayer.create(browser, name);
-        bots.push(bot);
-        team.push(bot);
-      }
-      return team;
-    };
-
-    await use(factory);
-
     for (const bot of bots) {
       await bot.close();
     }

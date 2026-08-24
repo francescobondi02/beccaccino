@@ -227,13 +227,13 @@ const GameTable = () => {
   // Calcola i punti per squadra
   const myTeamPoints =
     myPlayer?.team === 0
-      ? { points: totalPoints.team0Points, figures: totalPoints.team0Figures }
-      : { points: totalPoints.team1Points, figures: totalPoints.team1Figures };
+      ? totalPoints.team0Points
+      : totalPoints.team1Points;
 
   const opponentTeamPoints =
     myPlayer?.team === 0
-      ? { points: totalPoints.team1Points, figures: totalPoints.team1Figures }
-      : { points: totalPoints.team0Points, figures: totalPoints.team0Figures };
+      ? totalPoints.team1Points
+      : totalPoints.team0Points;
 
   const sendPlayCard = async (
     card: PlayerCard,
@@ -389,7 +389,7 @@ const GameTable = () => {
               La tua squadra (Team {(myPlayer.team ?? 0) + 1})
             </div>
             <div className="text-2xl font-bold text-primary" data-testid="my-team-points">
-              {myTeamPoints.points}
+              {myTeamPoints}
             </div>
           </div>
           <div className="h-8 w-px bg-border" />
@@ -398,7 +398,7 @@ const GameTable = () => {
               Avversari (Team {((myPlayer.team ?? 0) === 0 ? 1 : 0) + 1})
             </div>
             <div className="text-2xl font-bold text-accent" data-testid="opponent-team-points">
-              {opponentTeamPoints.points}
+              {opponentTeamPoints}
             </div>
           </div>
         </div>
@@ -555,7 +555,6 @@ const GameTable = () => {
         <GameChat
           roomCode={gameRoomCode ?? ""}
           userId={userId}
-          username={username}
         />
         <Button
           variant="secondary"
@@ -605,8 +604,6 @@ const GameTable = () => {
           roundNumber={roundEndData.roundNumber}
           team0Points={roundEndData.team0Points}
           team1Points={roundEndData.team1Points}
-          team0Figures={roundEndData.team0Figures}
-          team1Figures={roundEndData.team1Figures}
           winnerTeam={roundEndData.winnerTeam}
           myTeam={myPlayer?.team ?? null}
         />

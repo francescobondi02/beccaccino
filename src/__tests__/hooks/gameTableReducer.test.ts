@@ -188,8 +188,6 @@ describe("gameTableReducer", () => {
       roundNumber: 2,
       team0Points: 6,
       team1Points: 5,
-      team0Figures: 1,
-      team1Figures: 1,
       winnerTeam: 0,
     });
 
@@ -204,8 +202,6 @@ describe("gameTableReducer", () => {
         roundNumber: 5,
         team0Points: 9,
         team1Points: 2,
-        team0Figures: 0,
-        team1Figures: 2,
         winnerTeam: 0,
       },
     };

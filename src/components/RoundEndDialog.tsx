@@ -14,8 +14,6 @@ interface RoundEndDialogProps {
   roundNumber: number;
   team0Points: number;
   team1Points: number;
-  team0Figures: number;
-  team1Figures: number;
   winnerTeam: number;
   myTeam: number | null;
 }
@@ -26,8 +24,6 @@ const RoundEndDialog = ({
   roundNumber,
   team0Points,
   team1Points,
-  team0Figures,
-  team1Figures,
   winnerTeam,
   myTeam,
 }: RoundEndDialogProps) => {

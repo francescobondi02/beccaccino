@@ -41,20 +41,20 @@ describe("GameChat", () => {
   });
 
   it("renders the toggle button", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     // Should have a button (the chat toggle)
     const buttons = screen.getAllByRole("button");
     expect(buttons.length).toBeGreaterThanOrEqual(1);
   });
 
   it("chat panel is hidden by default", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     // The panel should not be visible initially
     expect(screen.queryByText("Chat di gioco")).not.toBeInTheDocument();
   });
 
   it("opens chat panel when toggle button is clicked", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -68,7 +68,7 @@ describe("GameChat", () => {
   });
 
   it("shows empty state message when no messages exist", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -81,7 +81,7 @@ describe("GameChat", () => {
   });
 
   it("send button is disabled when input is empty", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -95,7 +95,7 @@ describe("GameChat", () => {
   });
 
   it("send button is enabled when input has text", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -113,7 +113,7 @@ describe("GameChat", () => {
   });
 
   it("emits send_chat_message when send button is clicked", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -138,7 +138,7 @@ describe("GameChat", () => {
   });
 
   it("clears input after sending", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -162,7 +162,7 @@ describe("GameChat", () => {
   });
 
   it("sends message on Enter key press", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -182,7 +182,7 @@ describe("GameChat", () => {
   });
 
   it("does not send on Shift+Enter (allows newline)", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -199,7 +199,7 @@ describe("GameChat", () => {
   });
 
   it("does not emit when userId is null", () => {
-    render(<GameChat roomCode="ABCD" userId={null} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={null} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -221,7 +221,7 @@ describe("GameChat", () => {
   });
 
   it("does not emit when roomCode is empty", () => {
-    render(<GameChat roomCode="" userId={1} username="testuser" />);
+    render(<GameChat roomCode="" userId={1} />);
     const toggleBtn = screen.getAllByRole("button")[0];
 
     act(() => {
@@ -243,7 +243,7 @@ describe("GameChat", () => {
   });
 
   it("registers chat_message listener on mount", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
     expect(mockSocket.on).toHaveBeenCalledWith(
       "chat_message",
       expect.any(Function)
@@ -252,7 +252,7 @@ describe("GameChat", () => {
 
   it("unregisters chat_message listener on unmount", () => {
     const { unmount } = render(
-      <GameChat roomCode="ABCD" userId={1} username="testuser" />
+      <GameChat roomCode="ABCD" userId={1} />
     );
     unmount();
     expect(mockSocket.off).toHaveBeenCalledWith(
@@ -262,7 +262,7 @@ describe("GameChat", () => {
   });
 
   it("displays received messages correctly", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
 
     // Get the handler that was registered
     const chatMessageHandler = chatMessageListener();
@@ -288,7 +288,7 @@ describe("GameChat", () => {
   });
 
   it("shows unread badge when messages arrive while chat is closed", () => {
-    render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
+    render(<GameChat roomCode="ABCD" userId={1} />);
 
     // Get the handler
     const chatMessageHandler = chatMessageListener();

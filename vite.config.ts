@@ -38,7 +38,7 @@ export default defineConfig(() => ({
       output: {
         manualChunks: {
           vendor: ["react", "react-dom", "react-router-dom"],
-          ui: ["@radix-ui/react-dialog", "@radix-ui/react-tooltip"],
+          ui: ["@radix-ui/react-dialog"],
           socket: ["socket.io-client"],
         },
       },

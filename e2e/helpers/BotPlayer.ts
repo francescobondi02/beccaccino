@@ -45,18 +45,6 @@ export class BotPlayer {
     await this.page.getByTestId("auth-dialog").waitFor({ state: "hidden" });
   }
 
-  async login(): Promise<void> {
-    await this.page.goto("/");
-    await this.page.getByTestId("open-auth-button").click();
-    await this.page.getByTestId("auth-dialog").waitFor({ state: "visible" });
-
-    await this.page.getByTestId("username-input").fill(this.name);
-    await this.page.getByTestId("password-input").fill("test123");
-    await this.page.getByTestId("auth-submit-button").click();
-
-    await this.page.getByTestId("auth-dialog").waitFor({ state: "hidden" });
-  }
-
   // ------------------------------------------------------------------
   // Room Management
   // ------------------------------------------------------------------
@@ -116,13 +104,6 @@ export class BotPlayer {
     return count > 0;
   }
 
-  async waitForMyTurn(timeoutMs = 30_000): Promise<void> {
-    await this.page
-      .locator('[data-playable="true"]')
-      .first()
-      .waitFor({ state: "visible", timeout: timeoutMs });
-  }
-
   async chooseTrumpSuit(suit: string): Promise<void> {
     await this.page
       .getByTestId(`suit-button-${suit}`)
@@ -156,25 +137,6 @@ export class BotPlayer {
 
   async getHandCardCount(): Promise<number> {
     return this.page.locator('[data-testid="player-hand"] [data-testid^="hand-card-"]').count();
-  }
-
-  async getMyTeamPoints(): Promise<number> {
-    const text = await this.page.getByTestId("my-team-points").textContent();
-    return parseInt(text ?? "0", 10);
-  }
-
-  async getOpponentTeamPoints(): Promise<number> {
-    const text = await this.page
-      .getByTestId("opponent-team-points")
-      .textContent();
-    return parseInt(text ?? "0", 10);
-  }
-
-  async isGameFinished(): Promise<boolean> {
-    const attr = await this.page
-      .getByTestId("game-table-page")
-      .getAttribute("data-game-finished");
-    return attr === "true";
   }
 
   async getBriscola(): Promise<string> {

@@ -40,8 +40,6 @@ export interface RoundEndData {
   roundNumber: number;
   team0Points: number;
   team1Points: number;
-  team0Figures: number;
-  team1Figures: number;
   winnerTeam: number;
 }
 

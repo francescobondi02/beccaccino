@@ -161,8 +161,6 @@ export function gameTableReducer(
           roundNumber: data.roundNumber,
           team0Points: data.team0.points,
           team1Points: data.team1.points,
-          team0Figures: data.team0.figures,
-          team1Figures: data.team1.figures,
           winnerTeam: data.winnerTeam,
         },
       };

@@ -96,7 +96,6 @@ const Index = () => {
     error: authError,
     retry: retryAuth,
   } = useAuth();
-  const username = user?.username ?? "";
   const userId = user?.id ?? null;
   const isAuthenticated = user !== null;
   const [showAuthDialog, setShowAuthDialog] = useState(false);
