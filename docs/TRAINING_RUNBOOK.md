@@ -39,14 +39,14 @@ policy to "competent imitation" in minutes, and RL improves from there
 
 Why a centralized critic: the value head is blind to the three hidden hands, which
 pinned `explained_variance` at ~0.30 for entire runs. The CTDE critic sees the full
-state at train time only (`FULL_STATE_SIZE = 590`); the policy never does, so
+state at train time only (`FULL_STATE_SIZE = 638`); the policy never does, so
 serving is unaffected. This is what broke the EV ceiling (0.30 -> 0.60 in Run B).
 
 Why an opponent pool with anchors: pure latest-vs-latest self-play collapses toward
 near-copies of itself. The pool keeps historical snapshots, and a permanent BC
 anchor stays reachable so the policy cannot drift into a private equilibrium.
 
-### 2a. A0-A2 correctness contract (2026-08-24)
+### 2a. A0-A3 correctness contract (2026-08-24)
 
 - **A0 — collision-free deals and exact CPU continuation.** Vector worker `i`,
   game `g`, uses `base_seed + i + g * num_workers`. The one-million-reset
@@ -65,13 +65,17 @@ anchor stays reachable so the policy cannot drift into a private equilibrium.
 - **A2 — 470-feature public observation.** The original 462 entries are an
   unchanged prefix. Offsets `462:464` add current-round raw captures by team,
   `464:466` add trick counts by team, and `466:470` add a viewer-relative
-  caller one-hot. The CTDE full state is now 590.
+  caller one-hot.
+- **A3 — 518-feature bounded signal history.** Offsets `470:518` hold four
+  newest-first signal records. Each record carries relative declarer, signal
+  type, led suit, and normalized trick index. This retains suit, order,
+  multiplicity, and timing while bounding the input. The CTDE full state is 638.
 
-A2's implementation and parity tests are a correctness result, not a model
-promotion result. The fixed-budget three-seed ablation has not been run. Promote
-the 470-feature architecture only if held-out explained variance or paired
-playing strength improves and no predeclared slice regresses; this remains an
-unproven gate.
+A2/A3 implementation and parity tests are correctness results, not model
+promotion results. The fixed-budget three-seed ablations have not been run.
+Promote the 518-feature architecture only if held-out explained variance or
+paired playing strength improves and no predeclared slice regresses; this
+remains an unproven gate.
 
 ## 3. The signal channel (what Run C adds)
 
@@ -172,9 +176,9 @@ run ID, `--total-rl-steps`, `--num-envs`, `--steps-per-env`, and training
 hyperparameters; the checkpoint manifest enforces this contract.
 
 The commands below remain the multi-session procedure template. The existing
-Run D identity and its measurements are historical and predate A0-A2; do not
+Run D identity and its measurements are historical and predate A0-A3; do not
 resume that artifact under the new deal, reward, or observation contracts.
-Start a new run identity from regenerated 470-feature BC data.
+Start a new run identity from regenerated 518-feature BC data.
 
 ```bash
 # Session 1: set the final target once.

@@ -24,9 +24,9 @@ from training.network import CentralizedCritic
 
 
 def test_full_state_size_and_actor_prefix():
-    """Full state is actor obs (470) + 3 hidden hands (120) = 590, and its first
+    """Full state is actor obs (518) + 3 hidden hands (120) = 638, and its first
     OBS_SIZE entries equal the plain actor observation exactly."""
-    assert FULL_STATE_SIZE == OBS_SIZE + 3 * NUM_CARDS == 590
+    assert FULL_STATE_SIZE == OBS_SIZE + 3 * NUM_CARDS == 638
     g = BeccaGame(seed=3)
     seat = g.current_seat
     obs = encode_observation(g, seat)

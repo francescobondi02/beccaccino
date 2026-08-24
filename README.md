@@ -9,7 +9,7 @@ critic, curriculum learning, and wandb tracking. Four network families ship
 BC→PPO pipeline lives in `scripts/bc_then_rl.py`; `training/trainer.py` is the
 pure-PPO trainer (also BC-anchor and CTDE aware).
 
-## A0-A2 Correctness Baseline
+## A0-A3 Correctness Baseline
 
 The 2026-08-24 correctness pass changed the training contract:
 
@@ -27,12 +27,17 @@ The 2026-08-24 correctness pass changed the training contract:
   CTDE full state is 590. The unchanged 462-float prefix is followed by team
   captured raw points (2), team trick counts (2), and a viewer-relative caller
   one-hot (4).
+- **A3 — bounded signal history:** the current actor observation is 518 floats
+  and the CTDE full state is 638. Four newest-first declaration records retain
+  declarer, signal, led suit, and trick timing, preserving order and repeated
+  declarations without an unbounded round history.
 
-Legacy 462-feature checkpoints remain loadable for inference because their
-input width is inferred or read from checkpoint metadata. They cannot resume
-470-feature training. A2 is implemented and parity-tested, but its fixed-budget
-three-seed ablation has not been run; better held-out value fit or paired
-playing strength remains an unproven promotion gate.
+Legacy 462-feature and A2 470-feature checkpoints remain loadable for inference
+because their input width is inferred or read from checkpoint metadata. They
+cannot resume 518-feature training. The architecture changes are implemented
+and parity-tested, but their fixed-budget three-seed ablations have not been
+run; better held-out value fit or paired playing strength remains an unproven
+promotion gate.
 
 ## Setup
 
@@ -159,8 +164,8 @@ python -m training.trainer \
 Exact continuation is guaranteed by regression test on CPU checkpoints written
 with the current `rollout_state` format. Resume restores the checkpoint RNG only
 after constructing objects that consume randomness. Checkpoints without
-`rollout_state`, or with the legacy 462-feature input, are inference/warm-start
-artifacts only; start a new 470-feature run from regenerated BC data. Exact GPU
+`rollout_state`, or with a 462/470-feature input, are inference/warm-start
+artifacts only; start a new 518-feature run from regenerated BC data. Exact GPU
 bit reproducibility is not claimed.
 
 ## Configuration Variants

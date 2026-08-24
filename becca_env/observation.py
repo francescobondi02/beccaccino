@@ -3,7 +3,7 @@
 Encodes the imperfect-information observation from one player's perspective
 into a fixed-size feature vector suitable for policy/value networks.
 
-v4 layout (470 features):
+v4 layout (518 features):
   my_hand:          40   binary, which cards I currently hold
   card_status:      40 * 5 = 200   per-card one-hot of where it currently is:
                        [unseen, in_my_hand, played_by_partner,
@@ -36,10 +36,13 @@ v4 layout (470 features):
   round_captures:   2    current-round raw points captured by team 0 / team 1
   round_tricks:     2    current-round trick counts for team 0 / team 1
   caller:           4    one-hot caller seat relative to me
-  Total = 40 + 200 + 160 + 4 + 4 + 4 + 10 + 10 + 2 + 16 + 12 + 2 + 2 + 4 = 470
+  signal_history:   4 * 12 = 48   four most recent declarations, newest first:
+                       relative seat (4), signal type (3), led suit (4),
+                       normalized trick index (1)
+  Total = 470 + 48 = 518
 
-The first 462 entries are intentionally unchanged. Checkpoints trained before
-the v4 extension can still consume that exact prefix.
+The first 462 and 470 entries are intentionally unchanged. Checkpoints trained
+before the signal-history extension can still consume either exact prefix.
 """
 
 from __future__ import annotations
@@ -67,11 +70,15 @@ STATUS_LEFT_OPP = 3
 STATUS_RIGHT_OPP = 4
 
 LEGACY_OBS_SIZE = 462
-OBS_SIZE = 470
+A2_OBS_SIZE = 470
+RECENT_SIGNAL_COUNT = 4
+SIGNAL_HISTORY_RECORD_SIZE = 12
+SIGNAL_HISTORY_SIZE = RECENT_SIGNAL_COUNT * SIGNAL_HISTORY_RECORD_SIZE
+OBS_SIZE = A2_OBS_SIZE + SIGNAL_HISTORY_SIZE
 
 # Full-state size for the centralized (CTDE) critic: the actor obs plus the 3
 # hidden hands (train-time only; the policy never sees this).
-FULL_STATE_SIZE = OBS_SIZE + 3 * NUM_CARDS  # 470 + 120 = 590
+FULL_STATE_SIZE = OBS_SIZE + 3 * NUM_CARDS  # 518 + 120 = 638
 
 
 def _seat_status_class(player_seat: int, viewer_seat: int) -> int:
@@ -152,11 +159,38 @@ def _compute_signal_mask(game: BeccaGame, viewer_seat: int) -> np.ndarray:
     return mask
 
 
+def _compute_signal_history(game: BeccaGame, viewer_seat: int) -> np.ndarray:
+    """Encode the four most recent suit-qualified declarations, newest first."""
+    records: list[tuple[int, int, Signal, Suit]] = []
+    r = game.round
+    for trick_index, trick in enumerate(r.hands_played):
+        if trick.signal is not None and trick.signal_seat is not None and trick.cards:
+            records.append((trick_index, trick.signal_seat, trick.signal, trick.cards[0][1].suit))
+    if r.trick_signals and r.current_trick:
+        signal_seat, signal = r.trick_signals[0]
+        if signal is not None:
+            records.append((len(r.hands_played), signal_seat, signal, r.current_trick[0][1].suit))
+
+    history = np.zeros(
+        (RECENT_SIGNAL_COUNT, SIGNAL_HISTORY_RECORD_SIZE),
+        dtype=np.float32,
+    )
+    for slot, (trick_index, signal_seat, signal, suit) in enumerate(
+        reversed(records[-RECENT_SIGNAL_COUNT:])
+    ):
+        history[slot, (signal_seat - viewer_seat) % 4] = 1.0
+        history[slot, 4 + SIGNAL_INDEX[signal]] = 1.0
+        history[slot, 7 + SUIT_INDEX[suit]] = 1.0
+        history[slot, 11] = trick_index / 9.0
+    return history
+
+
 def encode_observation(game: BeccaGame, seat: int, obs_size: int = OBS_SIZE) -> np.ndarray:
     """Encode the game state from `seat`'s perspective into a feature vector."""
-    if obs_size not in (LEGACY_OBS_SIZE, OBS_SIZE):
+    supported_sizes = (LEGACY_OBS_SIZE, A2_OBS_SIZE, OBS_SIZE)
+    if obs_size not in supported_sizes:
         raise ValueError(
-            f"unsupported observation size {obs_size}; expected {LEGACY_OBS_SIZE} or {OBS_SIZE}"
+            f"unsupported observation size {obs_size}; expected one of {supported_sizes}"
         )
     obs = np.zeros(OBS_SIZE, dtype=np.float32)
     r = game.round
@@ -263,6 +297,12 @@ def encode_observation(game: BeccaGame, seat: int, obs_size: int = OBS_SIZE) -> 
     # opponent. This stays public throughout the round.
     obs[offset + (r.caller_seat - seat) % 4] = 1.0
     offset += 4
+
+    # Bounded, newest-first declaration records retain suit and timing while
+    # the legacy mask above remains available to older checkpoints.
+    signal_history = _compute_signal_history(game, seat)
+    obs[offset : offset + SIGNAL_HISTORY_SIZE] = signal_history.flatten()
+    offset += SIGNAL_HISTORY_SIZE
 
     assert offset == OBS_SIZE, f"obs offset {offset} != {OBS_SIZE}"
     return obs[:obs_size]

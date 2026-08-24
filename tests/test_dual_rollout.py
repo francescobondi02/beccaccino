@@ -249,6 +249,6 @@ def test_round_rewards_stay_on_card_actions_for_both_learner_teams():
     assert rewarded.size > 0
     assert {int(buf.env_idx[index]) for index in rewarded} == {0, 1}
     for index in rewarded:
-        mask = buf.masks[index]
-        is_briscola_choice = mask[:4].sum() == 4 and mask[4:].sum() == 0
-        assert not is_briscola_choice
+        # A leader holding only card index 0 also has legal slots 0..3, so the
+        # action mask alone cannot distinguish that card play from briscola.
+        assert buf.obs[index][400:404].sum() == 1.0

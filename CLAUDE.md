@@ -12,8 +12,8 @@ becca_env/
   signals.py        The signalling CONVENTION (what busso/striscio/volo claim) —
                     shared by reward shaping, the BC teacher, and the audit
   game.py           Full game state machine (BeccaGame): phases, actions, step()
-  observation.py    State → numpy tensor encoding (470 features), action mask (160 slots)
-                    + encode_full_state (590) for the centralized CTDE critic
+  observation.py    State → numpy tensor encoding (518 features), action mask (160 slots)
+                    + encode_full_state (638) for the centralized CTDE critic
   env.py            Gymnasium wrapper (BeccaEnv) — self-play, scaled rewards
 training/
   config.py         TrainConfig dataclass (all hyperparameters) + net_kwargs()
@@ -79,9 +79,9 @@ gradient and a trained policy picks among them at roughly chance.
 
 ## Observation Encoding (observation.py)
 
-Feature vector: 470 floats (`OBS_SIZE = 470`). The first 462 entries preserve
-the legacy layout so older checkpoints can still be served at their inferred
-input width.
+Feature vector: 518 floats (`OBS_SIZE = 518`). The first 462 and 470 entries
+preserve the legacy and A2 layouts so older checkpoints can still be served at
+their inferred input width.
 
 | Offset | Size | Feature |
 |--------|------|---------|
@@ -99,12 +99,13 @@ input width.
 | 462 | 2 | Current-round captured raw points (team0, team1), normalized by 35 |
 | 464 | 2 | Current-round trick counts (team0, team1), normalized by 10 |
 | 466 | 4 | Caller seat, viewer-relative one-hot |
+| 470 | 48 | Four recent signal records: relative declarer, type, led suit, timing |
 
-`encode_full_state` (590 floats) appends the 3 hidden hands (3×40) for the
+`encode_full_state` (638 floats) appends the 3 hidden hands (3×40) for the
 centralized CTDE critic — train-time only; the policy never sees it.
 
-The A2 schema and parity fixtures are implemented, but the architecture is not
-empirically promoted. Its fixed-budget three-seed ablation must improve
+The A2/A3 schemas and parity fixtures are implemented, but the architecture is
+not empirically promoted. Its fixed-budget three-seed ablation must improve
 held-out explained variance or paired playing strength without slice
 regressions; that gate remains unrun and unproven.
 
@@ -149,8 +150,8 @@ Two things worth knowing before trusting any run's numbers:
 - **Vector streams are disjoint and exact CPU resume is stateful.** Worker `i`,
   game `g`, uses `base_seed + i + g * num_workers`; checkpoints preserve live
   games, pending rewards, current observations, rollout carry, return chains,
-  and RNG. Legacy checkpoints without `rollout_state`, or with 462-feature
-  inputs, cannot resume current training and must begin a new 470-feature run.
+  and RNG. Legacy checkpoints without `rollout_state`, or with 462/470-feature
+  inputs, cannot resume current training and must begin a new 518-feature run.
   Exact GPU bit reproducibility is not claimed.
 
 ```bash

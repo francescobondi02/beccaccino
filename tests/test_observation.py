@@ -1,7 +1,7 @@
 """Tests for the observation encoding.
 
 Layout invariants verified here:
-  - shape = (470,) float32, values in [0, 1]
+  - shape = (518,) float32, values in [0, 1]
   - per-card status block is exactly one-hot per card (5 classes)
   - own hand bits agree with status MINE bits
   - cards seen in completed tricks have correct seat-classification
@@ -17,12 +17,15 @@ import numpy as np
 from becca_env.deck import Card, Suit, Value
 from becca_env.game import BeccaGame, GamePhase
 from becca_env.observation import (
+    A2_OBS_SIZE,
     CARD_INDEX,
     CARD_STATUS_CLASSES,
     LEGACY_OBS_SIZE,
     NUM_CARDS,
     NUM_SIGNALS,
     OBS_SIZE,
+    RECENT_SIGNAL_COUNT,
+    SIGNAL_HISTORY_RECORD_SIZE,
     SIGNAL_INDEX,
     STATUS_LEFT_OPP,
     STATUS_MINE,
@@ -63,6 +66,10 @@ def _signal_block(obs: np.ndarray) -> np.ndarray:
     return obs[LEGACY_OBS_SIZE - _SIGNAL_BLOCK : LEGACY_OBS_SIZE].reshape(4, NUM_SIGNALS)
 
 
+def _signal_history(obs: np.ndarray) -> np.ndarray:
+    return obs[A2_OBS_SIZE:].reshape(RECENT_SIGNAL_COUNT, SIGNAL_HISTORY_RECORD_SIZE)
+
+
 def test_obs_shape_and_dtype():
     g = BeccaGame(seed=1)
     obs = encode_observation(g, seat=0)
@@ -76,7 +83,9 @@ def test_legacy_observation_prefix_is_still_available():
     g = BeccaGame(seed=1)
     current = encode_observation(g, seat=0)
     legacy = encode_observation(g, seat=0, obs_size=LEGACY_OBS_SIZE)
+    a2 = encode_observation(g, seat=0, obs_size=A2_OBS_SIZE)
     np.testing.assert_array_equal(legacy, current[:LEGACY_OBS_SIZE])
+    np.testing.assert_array_equal(a2, current[:A2_OBS_SIZE])
 
 
 def test_status_block_is_strict_one_hot():
@@ -280,6 +289,10 @@ def test_signal_mask_zero_when_no_signals():
     g = BeccaGame(seed=5)
     obs = encode_observation(g, seat=0)
     np.testing.assert_array_equal(_signal_block(obs), np.zeros((4, NUM_SIGNALS)))
+    np.testing.assert_array_equal(
+        _signal_history(obs),
+        np.zeros((RECENT_SIGNAL_COUNT, SIGNAL_HISTORY_RECORD_SIZE)),
+    )
 
 
 def test_signal_mask_set_from_completed_trick():
@@ -318,6 +331,10 @@ def test_signal_mask_set_from_in_progress_trick():
     # seat 1 vs viewer 0: rel = 1 (left opp)
     assert sig[1, SIGNAL_INDEX[Signal.STRISCIO]] == 1.0
     assert sig.sum() == 1.0
+    history = _signal_history(encode_observation(g, seat=0))
+    np.testing.assert_array_equal(history[0, 0:4], [0, 1, 0, 0])
+    np.testing.assert_array_equal(history[0, 4:7], [1, 0, 0])
+    np.testing.assert_array_equal(history[0, 7:11], [1, 0, 0, 0])
 
 
 def test_signal_mask_is_viewer_relative():
@@ -343,6 +360,70 @@ def test_signal_mask_is_viewer_relative():
     sig2 = _signal_block(encode_observation(g, seat=2))
     assert sig0[0, SIGNAL_INDEX[Signal.VOLO]] == 1.0  # my own signal, row 0
     assert sig2[2, SIGNAL_INDEX[Signal.VOLO]] == 1.0  # (0 - 2) % 4 = 2
+
+
+def test_recent_signal_history_preserves_suit_order_multiplicity_and_timing():
+    from becca_env.game import Signal, TrickRecord
+
+    g = _make_game_in_play(briscola=Suit.DENARA)
+    declarations = [
+        (0, Signal.STRISCIO, Suit.DENARA),
+        (1, Signal.BUSSO, Suit.SPADE),
+        (2, Signal.BUSSO, Suit.COPPE),
+        (3, Signal.VOLO, Suit.BASTONI),
+        (0, Signal.BUSSO, Suit.DENARA),
+    ]
+    for trick_index, (seat, signal, suit) in enumerate(declarations):
+        g.round.hands_played.append(
+            TrickRecord(
+                winner=seat,
+                cards=[(seat, Card(suit, Value.QUATTRO))],
+                signal=signal,
+                signal_seat=seat,
+            )
+        )
+
+    history = _signal_history(encode_observation(g, seat=0))
+    # Newest first, bounded to four: the trick-0 striscio is evicted.
+    np.testing.assert_array_equal(history[0, 0:4], [1, 0, 0, 0])
+    np.testing.assert_array_equal(history[0, 4:7], [0, 1, 0])
+    np.testing.assert_array_equal(history[0, 7:11], [1, 0, 0, 0])
+    assert history[0, 11] == 4 / 9
+    np.testing.assert_array_equal(history[2, 4:7], [0, 1, 0])
+    np.testing.assert_array_equal(history[2, 7:11], [0, 0, 1, 0])
+    assert history[3, 11] == 1 / 9
+
+
+def test_partner_response_state_distinguishes_signal_suit():
+    import copy
+
+    from becca_env.game import Signal, TrickRecord
+
+    denara = _make_game_in_play(briscola=Suit.BASTONI)
+    denara.round.hands_played = [
+        TrickRecord(
+            winner=2,
+            cards=[(2, Card(Suit.DENARA, Value.QUATTRO))],
+            signal=Signal.BUSSO,
+            signal_seat=2,
+        ),
+        TrickRecord(
+            winner=2,
+            cards=[(2, Card(Suit.SPADE, Value.QUATTRO))],
+        ),
+    ]
+    spade = copy.deepcopy(denara)
+    spade.round.hands_played[0].signal = None
+    spade.round.hands_played[0].signal_seat = None
+    spade.round.hands_played[1].signal = Signal.BUSSO
+    spade.round.hands_played[1].signal_seat = 2
+
+    denara_obs = encode_observation(denara, seat=0)
+    spade_obs = encode_observation(spade, seat=0)
+    np.testing.assert_array_equal(denara_obs[:A2_OBS_SIZE], spade_obs[:A2_OBS_SIZE])
+    assert not np.array_equal(denara_obs, spade_obs)
+    np.testing.assert_array_equal(_signal_history(denara_obs)[0, 7:11], [1, 0, 0, 0])
+    np.testing.assert_array_equal(_signal_history(spade_obs)[0, 7:11], [0, 1, 0, 0])
 
 
 def test_current_round_capture_ownership_breaks_legacy_state_collision():

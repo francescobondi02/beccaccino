@@ -44,12 +44,13 @@ When an AI player's turn arrives:
 
 The AI never touches the database or sockets — it's a stateless function: `observation → action`.
 
-> **Observation contract:** new policies consume **470 floats**. The first 462
-> retain the legacy layout; current-round captures, trick counts, and the caller
-> seat occupy the final eight entries. The backend sends a state DTO and Python
+> **Observation contract:** new policies consume **518 floats**. The first 462
+> retain the legacy layout; offsets 462:470 hold current-round captures, trick
+> counts, and caller seat. The final 48 entries are four bounded, newest-first
+> suit-qualified signal records. The backend sends a state DTO and Python
 > remains the canonical encoder. Cross-language fixtures pin that DTO contract,
-> and `serving/model.onnx` must be exported at the checkpoint's input width. The
-> centralized critic is train-time only and does not affect serving.
+> and the serving model must use the checkpoint's input width. The centralized
+> critic is train-time only and does not affect serving.
 
 ## Setup
 
