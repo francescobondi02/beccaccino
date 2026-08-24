@@ -14,7 +14,7 @@ import PlayerSeat from "@/components/PlayerSeat";
 import TableCenter from "@/components/TableCenter";
 import PracticePanel from "@/components/PracticePanel";
 import AuthErrorState from "@/components/AuthErrorState";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
@@ -67,6 +67,7 @@ const GameTable = () => {
     moveLog,
     roundEndData,
     gameFinishedData,
+    gameStateStatus,
     refetchGameState,
     dismissRoundEnd,
     applyLocalBriscola,
@@ -315,7 +316,7 @@ const GameTable = () => {
     return <AuthErrorState onRetry={retryAuth} />;
   }
 
-  if (authLoading || isLoading) {
+  if (authLoading || isLoading || gameStateStatus === "loading") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 flex items-center justify-center">
         <Card className="bg-card/80 backdrop-blur-sm p-8">
@@ -323,6 +324,28 @@ const GameTable = () => {
           <p className="text-muted-foreground text-lg">
             Caricamento partita...
           </p>
+        </Card>
+      </div>
+    );
+  }
+
+  if (gameStateStatus === "error") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 flex items-center justify-center">
+        <Card className="bg-card/80 backdrop-blur-sm p-8 text-center">
+          <AlertCircle className="h-12 w-12 mx-auto mb-4 text-destructive" />
+          <p className="text-lg font-medium">
+            Impossibile caricare lo stato della partita
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-4"
+            onClick={() => void refetchGameState()}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Riprova
+          </Button>
         </Card>
       </div>
     );

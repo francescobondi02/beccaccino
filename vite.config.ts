@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
@@ -47,6 +47,16 @@ export default defineConfig(() => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  test: {
+    coverage: {
+      thresholds: {
+        statements: 70,
+        branches: 70,
+        functions: 60,
+        lines: 70,
+      },
     },
   },
 }));

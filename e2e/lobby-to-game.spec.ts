@@ -61,13 +61,13 @@ test.describe("Lobby to Game Start", () => {
       await player.waitForGameTableLoad();
     }
 
-    // Wait for game state to fully load (cards dealt)
-    await players[0].page.waitForTimeout(2000);
-
     // Verify each player has 10 cards dealt
     for (const player of players) {
-      const cardCount = await player.getHandCardCount();
-      expect(cardCount).toBe(10);
+      await expect(
+        player.page.locator(
+          '[data-testid="player-hand"] [data-testid^="hand-card-"]',
+        ),
+      ).toHaveCount(10);
     }
   });
 });

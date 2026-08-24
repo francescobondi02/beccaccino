@@ -16,7 +16,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run lint
+      - run: npm run test:coverage
       - run: npm run build # no VITE_ vars needed: they are optional at build time (verified)
-      # Not gated on `npm run lint`: 34 pre-existing lint errors; gate once they are burned down.
-      # Not running Playwright e2e (`npm run test:e2e`): needs a live backend + frontend.
+      # Playwright remains local because it needs the database and backend test environment.

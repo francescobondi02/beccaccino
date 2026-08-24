@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 import { apiGet } from "@/lib/api";
 import {
@@ -36,11 +36,17 @@ export function useGameTable(
   players: { userId: number; username: string }[],
 ) {
   const [state, dispatch] = useReducer(gameTableReducer, initialGameTableState);
+  const [gameStateStatus, setGameStateStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
 
   // Refs so the socket handlers below don't re-register when these change.
   const userIdRef = useRef(userId);
   const gameRoomCodeRef = useRef(gameRoomCode);
   const playersRef = useRef(players);
+  const stateRequestSequence = useRef(0);
+  const playableRequestSequence = useRef(0);
+  const hasLoadedGameState = useRef(false);
 
   useEffect(() => {
     userIdRef.current = userId;
@@ -59,58 +65,71 @@ export function useGameTable(
     [],
   );
 
+  const fetchPlayableCards = useCallback(async (code: string) => {
+    const requestId = ++playableRequestSequence.current;
+    try {
+      const data = await apiGet<{ playableCards?: PlayerCard[] }>(
+        `/games/playable-cards/${code}`,
+      );
+      if (requestId !== playableRequestSequence.current) return;
+      dispatch({
+        type: "playable_cards_fetched",
+        cards: data.playableCards ?? [],
+      });
+    } catch (error) {
+      if (requestId !== playableRequestSequence.current) return;
+      console.error("Error fetching playable cards:", error);
+    }
+  }, []);
+
   const refetchGameState = useCallback(async () => {
     const uid = userIdRef.current;
     const code = gameRoomCodeRef.current;
     if (!uid || !code) return;
 
+    const requestId = ++stateRequestSequence.current;
+    if (!hasLoadedGameState.current) {
+      setGameStateStatus("loading");
+    }
     try {
       const data = await apiGet<GameStateResponse>(`/games/${code}/state`);
+      if (requestId !== stateRequestSequence.current) return;
+
       dispatch({ type: "state_fetched", data, now: Date.now() });
+      hasLoadedGameState.current = true;
+      setGameStateStatus("ready");
 
       // Fetch playable cards immediately if it's our turn
       if (data.currentTurnUserId === uid && data.round?.briscola) {
-        const pcData = await apiGet<{ playableCards?: PlayerCard[] }>(
-          `/games/playable-cards/${code}`,
-        );
-        dispatch({
-          type: "playable_cards_fetched",
-          cards: pcData.playableCards ?? [],
-        });
+        await fetchPlayableCards(code);
+      } else {
+        playableRequestSequence.current += 1;
+        dispatch({ type: "playable_cards_fetched", cards: [] });
       }
     } catch (error) {
+      if (requestId !== stateRequestSequence.current) return;
       console.error("Error refetching game state:", error);
+      setGameStateStatus("error");
     }
-  }, []);
+  }, [fetchPlayableCards]);
 
   // Initial load
   useEffect(() => {
     if (!userId || !gameRoomCode) return;
-    refetchGameState();
+    hasLoadedGameState.current = false;
+    setGameStateStatus("loading");
+    void refetchGameState();
   }, [userId, gameRoomCode, refetchGameState]);
 
   // Fetch playable cards when it's my turn
   useEffect(() => {
     if (!userId || !gameRoomCode || state.currentTurnUserId !== userId) {
+      playableRequestSequence.current += 1;
       dispatch({ type: "playable_cards_fetched", cards: [] });
       return;
     }
 
-    const fetchPlayableCards = async () => {
-      try {
-        const data = await apiGet<{ playableCards?: PlayerCard[] }>(
-          `/games/playable-cards/${gameRoomCode}`,
-        );
-        dispatch({
-          type: "playable_cards_fetched",
-          cards: data.playableCards ?? [],
-        });
-      } catch (error) {
-        console.error("Error fetching playable cards:", error);
-      }
-    };
-
-    fetchPlayableCards();
+    void fetchPlayableCards(gameRoomCode);
   }, [
     state.currentTurnUserId,
     userId,
@@ -119,6 +138,7 @@ export function useGameTable(
     state.playedCards.length,
     state.myCards.length,
     state.turnTimer,
+    fetchPlayableCards,
   ]);
 
   // A completed trick (4 cards) refetches after 3 seconds, giving the backend
@@ -246,5 +266,11 @@ export function useGameTable(
     [],
   );
 
-  return { ...state, refetchGameState, dismissRoundEnd, applyLocalBriscola };
+  return {
+    ...state,
+    gameStateStatus,
+    refetchGameState,
+    dismissRoundEnd,
+    applyLocalBriscola,
+  };
 }

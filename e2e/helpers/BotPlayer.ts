@@ -1,4 +1,8 @@
-import { type Page, type BrowserContext } from "@playwright/test";
+import {
+  expect,
+  type BrowserContext,
+  type Page,
+} from "@playwright/test";
 
 /**
  * BotPlayer encapsulates a single player's browser session.
@@ -111,39 +115,29 @@ export class BotPlayer {
     await this.page.getByTestId(`suit-button-${suit}`).click();
   }
 
-  async hasTrumpDialog(): Promise<boolean> {
-    return this.page.getByTestId("suit-button-denara").isVisible();
-  }
-
   async playFirstAvailableCard(): Promise<void> {
     const playableCard = this.page.locator('[data-playable="true"]').first();
     await playableCard.waitFor({ state: "visible", timeout: 20_000 });
 
-    await playableCard.click({ force: true });
+    const cardTestId = await playableCard.getAttribute("data-testid");
+    if (!cardTestId) {
+      throw new Error("Playable card is missing its test id");
+    }
 
-    // If signal dialog appears (we're the trick leader), dismiss it with "Niente"
-    const signalNone = this.page.getByTestId("signal-button-none");
-    const hasSignalDialog = await signalNone
-      .waitFor({ state: "visible", timeout: 1000 })
-      .then(() => true)
-      .catch(() => false);
-    if (hasSignalDialog) {
+    const tableCards = this.page
+      .getByTestId("game-table-center")
+      .locator('[data-testid^="card-"]');
+    const leadsTrick = (await tableCards.count()) === 0;
+
+    await playableCard.click();
+
+    if (leadsTrick) {
+      const signalNone = this.page.getByTestId("signal-button-none");
+      await expect(signalNone).toBeVisible();
       await signalNone.click();
     }
 
-    // Wait for the play to be processed
-    await this.page.waitForTimeout(2000);
-  }
-
-  async getHandCardCount(): Promise<number> {
-    return this.page.locator('[data-testid="player-hand"] [data-testid^="hand-card-"]').count();
-  }
-
-  async getBriscola(): Promise<string> {
-    const attr = await this.page
-      .getByTestId("game-table-page")
-      .getAttribute("data-briscola");
-    return attr ?? "";
+    await expect(this.page.getByTestId(cardTestId)).toHaveCount(0);
   }
 
   // ------------------------------------------------------------------

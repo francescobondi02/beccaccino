@@ -13,10 +13,11 @@ import {
   leaveLobby,
   subscribeToLobbyEvent,
 } from "@/sockets/lobbyHandlers";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import AuthErrorState from "@/components/AuthErrorState";
+import { handleActiveRoomConflict } from "@/lib/roomRedirect";
 
 // Lista delle 40 carte italiane
 const cardFilenames = [
@@ -88,7 +89,7 @@ interface Room {
   }>;
 }
 
-const Index = () => {
+const LobbyPage = () => {
   const navigate = useNavigate();
   const {
     user,
@@ -217,15 +218,7 @@ const Index = () => {
       toast.success("Stanza creata!");
       navigate(`/room/${room.code}`);
     } catch (error) {
-      if (
-        error instanceof ApiError &&
-        error.status === 409 &&
-        error.body?.activeRoomCode
-      ) {
-        toast.error("Sei già in una partita attiva");
-        navigate(`/game/${error.body.activeRoomCode}`);
-        return;
-      }
+      if (handleActiveRoomConflict(error, navigate)) return;
       console.error("Error creating room:", error);
       toast.error(
         error instanceof Error
@@ -235,7 +228,7 @@ const Index = () => {
     }
   };
 
-  const handleJoinRoom = async (code: string) => {
+  const joinRoom = async (code: string) => {
     if (!isAuthenticated) {
       setShowAuthDialog(true);
       return;
@@ -252,15 +245,7 @@ const Index = () => {
       toast.success(`Accesso alla stanza ${code}`);
       navigate(`/room/${code}`);
     } catch (error) {
-      if (
-        error instanceof ApiError &&
-        error.status === 409 &&
-        error.body?.activeRoomCode
-      ) {
-        toast.error("Sei già in una partita attiva");
-        navigate(`/game/${error.body.activeRoomCode}`);
-        return;
-      }
+      if (handleActiveRoomConflict(error, navigate)) return;
       console.error("Error joining room:", error);
       toast.error(
         error instanceof Error
@@ -270,43 +255,18 @@ const Index = () => {
     }
   };
 
-  const handleJoinByCode = async () => {
+  const handleJoinByCode = () => {
     if (!isAuthenticated) {
       setShowAuthDialog(true);
       return;
     }
-    if (!roomCode.trim()) {
+    const code = roomCode.trim();
+    if (!code) {
       toast.error("Inserisci un codice stanza");
       return;
     }
 
-    if (!userId) {
-      toast.error("Errore: userId non disponibile");
-      return;
-    }
-
-    try {
-      await apiPost("/rooms/join", { roomCode: roomCode.trim() });
-
-      toast.success(`Accesso alla stanza ${roomCode}`);
-      navigate(`/room/${roomCode}`);
-    } catch (error) {
-      if (
-        error instanceof ApiError &&
-        error.status === 409 &&
-        error.body?.activeRoomCode
-      ) {
-        toast.error("Sei già in una partita attiva");
-        navigate(`/game/${error.body.activeRoomCode}`);
-        return;
-      }
-      console.error("Error joining room:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Impossibile entrare nella stanza",
-      );
-    }
+    void joinRoom(code);
   };
 
   if (authError) {
@@ -629,7 +589,7 @@ const Index = () => {
                                 <Button
                                   variant="secondary"
                                   size="sm"
-                                  onClick={() => handleJoinRoom(room.code)}
+                                  onClick={() => joinRoom(room.code)}
                                   disabled={
                                     room.currentPlayers >= room.maxPlayers
                                   }
@@ -716,4 +676,4 @@ const Index = () => {
   );
 };
 
-export default Index;
+export default LobbyPage;

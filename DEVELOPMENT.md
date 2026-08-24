@@ -35,12 +35,14 @@ The dev server runs at **http://localhost:8081**.
 frontend/
 ├── src/
 │   ├── main.tsx                # React entry point
-│   ├── App.tsx                 # Router + providers (QueryClient, Tooltip, Sonner)
+│   ├── App.tsx                 # Router + QueryClient and Sonner providers
 │   ├── pages/
-│   │   ├── Index.tsx           # Home/lobby page (login, room list, create/join)
+│   │   ├── LobbyPage.tsx       # Home/lobby page (login, room list, create/join)
 │   │   ├── GameRoom.tsx        # Waiting room (team pick, ready up)
 │   │   ├── GameTable.tsx       # Active game (card play, trump, rounds)
-│   │   ├── Profile.tsx         # User profile (mock data)
+│   │   ├── Profile.tsx         # User profile and statistics
+│   │   ├── Leaderboard.tsx     # Global leaderboard
+│   │   ├── Practice.tsx        # Practice game setup
 │   │   └── NotFound.tsx        # 404
 │   ├── components/
 │   │   ├── AuthDialog.tsx      # Login/register modal
@@ -56,9 +58,13 @@ frontend/
 │   │   ├── lobbyHandlers.ts    # Lobby events (room_created, room_updated, etc.)
 │   │   └── roomHandlers.ts     # Room events (player_joined, team_chosen, etc.)
 │   ├── hooks/
-│   │   ├── useAuth.ts          # Authentication state and actions
-│   │   └── useGameTable.ts     # Game table state and socket coordination
+│   │   ├── useAuth.ts          # Shared authentication state and actions
+│   │   ├── useConnectionStatus.ts # Socket status and reconnect refresh
+│   │   └── useGameTable.ts     # Game table loading and socket coordination
+│   ├── game/                   # Game DTOs and reducer state
+│   ├── rooms/                  # Room DTOs and response normalization
 │   └── lib/
+│       ├── api.ts              # Typed REST request helpers
 │       └── utils.ts            # cn() utility (clsx + tailwind-merge)
 ├── public/
 │   ├── images/cards/           # Italian card images ({value}_{suit}.png)
@@ -100,23 +106,22 @@ npm run test:coverage
 
 ```
 frontend/src/__tests__/
-├── setup.ts                # Test setup (jest-dom, env mocks, scrollIntoView polyfill)
-├── utils.test.ts           # cn() utility (5 tests)
-├── socketClient.test.ts    # Socket singleton (7 tests)
-├── lobbyHandlers.test.ts   # Lobby event handling (7 tests)
-├── roomHandlers.test.ts    # Room event handling (18 tests)
-├── components/
-│   ├── PlayingCard.test.tsx # Card rendering & interaction (8 tests)
-│   ├── GameChat.test.tsx   # Chat component (14 tests)
-│   ├── Header.test.tsx     # Navigation & avatar (7 tests)
-│   └── AuthDialog.test.tsx # Login/register form (12 tests)
-└── pages/
-    └── NotFound.test.tsx   # 404 page (3 tests)
+├── setup.ts                # jest-dom, browser API, and environment setup
+├── components/            # Component rendering and interaction
+├── hooks/                 # Auth, connection, and game-state behavior
+├── pages/                 # Page request and workflow states
+├── rooms/                 # Room response normalization
+├── *Handlers.test.ts      # Lobby and room socket subscriptions
+├── socketClient.test.ts   # Socket singleton behavior
+└── utils.test.ts          # Shared utility behavior
 ```
+
+The current suite contains 137 tests across 22 files. Use the Vitest summary
+from `npm test` as the authoritative count as the suite evolves.
 
 #### Coverage
 
-Run `npm run test:coverage` to generate a coverage report. The HTML report is written to `coverage/` and the terminal shows a summary table.
+Run `npm run test:coverage` to generate a coverage report. The HTML report is written to `coverage/` and the terminal shows a summary table. CI requires at least 70% statements, branches, and lines, plus 60% functions.
 
 ---
 
@@ -127,10 +132,11 @@ End-to-end tests use **Playwright** to simulate 4 real browser sessions playing 
 #### Prerequisites
 
 - Docker DB running (`docker compose up -d db` from project root)
-- Backend running with `GAME_WIN_POINTS=12` in `backend/.env` (or use `backend/.env.e2e`)
-- Frontend running (`cd frontend && npm run dev`)
+- Backend dependencies and environment configured
+- Frontend dependencies installed
 
-Or let Playwright auto-start them (configured in `playwright.config.ts`).
+Playwright auto-starts the backend and frontend through `playwright.config.ts`, or
+reuses servers already listening on ports 8000 and 8081.
 
 #### Commands
 
@@ -155,7 +161,7 @@ frontend/e2e/
 │   ├── BotPlayer.ts        # Player abstraction (register, join, play cards, etc.)
 │   └── fixtures.ts         # Playwright fixtures with createBot factory
 ├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
-└── full-game.spec.ts       # Complete game played to victory
+└── first-trick.spec.ts     # Briscola selection and the first 4-card trick
 ```
 
 #### How It Works
@@ -174,13 +180,14 @@ await bob.joinRoomByCode(roomCode);
 await alice.chooseTeam(0);
 await alice.setReady();
 await alice.waitForGameStart();
-await alice.waitForMyTurn();
-await alice.playFirstAvailableCard();
+if (await alice.isMyTurn()) {
+  await alice.playFirstAvailableCard();
+}
 ```
 
 Key patterns:
-- **Turn detection**: `data-current-turn-userid` attribute on the page root
-- **Card playability**: `data-playable="true"` on clickable cards
+- **Turn detection**: a player has at least one card with `data-playable="true"`
+- **Card playability**: only the active player's legal cards expose that attribute
 - **Game state**: `data-briscola`, `data-game-finished` attributes for assertions
 - **Cross-player sync**: Each bot polls its own view; WebSocket events update the DOM
 
@@ -190,7 +197,7 @@ Key patterns:
 - **webServer**: Auto-starts backend (port 8000) and frontend (port 8081)
 - **reuseExistingServer**: Skips auto-start if servers are already running
 - **trace/video**: Recorded on first retry for debugging failures
-- **timeout**: 60s per test (full game can take 30-60s)
+- **timeout**: 60s by default; the first-trick scenario raises its budget to 90s
 
 #### Debugging Failed E2E Tests
 
@@ -199,7 +206,7 @@ Key patterns:
 npx playwright show-report
 
 # Run a specific test in headed mode with slowMo
-npx playwright test lobby-to-game --headed --timeout=120000
+npx playwright test first-trick --headed --timeout=120000
 ```
 
 ## Scripts Reference
@@ -207,6 +214,7 @@ npx playwright test lobby-to-game --headed --timeout=120000
 | Script | Description |
 |--------|-------------|
 | `npm run dev` | Start Vite dev server (port 8081) |
+| `npm run typecheck` | Run TypeScript project checks |
 | `npm run build` | Production build |
 | `npm run build:dev` | Development build |
 | `npm run preview` | Preview production build locally |
@@ -229,10 +237,10 @@ npx playwright test lobby-to-game --headed --timeout=120000
 
 | Path | Page | Description |
 |------|------|-------------|
-| `/` | Index | Lobby — login, room list, create/join |
+| `/` | LobbyPage | Lobby — login, room list, create/join |
 | `/room/:roomCode` | GameRoom | Waiting room — team pick, ready |
 | `/game/:gameRoomCode` | GameTable | Active game |
-| `/profile` | Profile | User stats (mock) |
+| `/profile` | Profile | User stats and account settings |
 | `*` | NotFound | 404 |
 
 ## Card Image Naming Convention

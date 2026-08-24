@@ -7,7 +7,7 @@ describe("cn (className merger)", () => {
   });
 
   it("handles conditional classes via clsx", () => {
-    expect(cn("base", false && "hidden", "visible")).toBe("base visible");
+    expect(cn("base", { hidden: false, visible: true })).toBe("base visible");
   });
 
   it("resolves tailwind conflicts (last wins)", () => {

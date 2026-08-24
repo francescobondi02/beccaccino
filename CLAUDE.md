@@ -9,9 +9,9 @@ src/
   main.tsx              Entry: renders App
   App.tsx               BrowserRouter with routes
   pages/
-    Index.tsx           Home/lobby: auth dialog, create/join room, animated card background
+    LobbyPage.tsx       Home/lobby: auth dialog, create/join room, animated card background
     GameRoom.tsx        Room lobby: team selection, ready up, waiting for 4 players
-    GameTable.tsx       Main game: card hands, trick area, timers, all dialogs (~1000 lines)
+    GameTable.tsx       Main game: card hands, trick area, timers, and dialogs
     Profile.tsx         User profile and stats
     Leaderboard.tsx     Global leaderboard
     Practice.tsx        Tier picker: start a game vs 3 AI bots
@@ -35,8 +35,11 @@ src/
     lobbyHandlers.ts    Lobby socket events: room_created, room_updated, room_full, room_deleted
     roomHandlers.ts     Room socket events: join, leave, team, ready, game start
   hooks/
-    useAuth.ts          Authentication state and actions
+    useAuth.ts          Shared authentication state and actions
+    useConnectionStatus.ts Socket status and reconnect refresh
     useGameTable.ts     Game table state and socket coordination
+  game/                 Game DTOs and reducer state
+  rooms/                Room DTOs and response normalization
   lib/
     utils.ts            cn() utility for Tailwind class merging
   assets/               Static images used in components
@@ -46,7 +49,7 @@ e2e/
     BotPlayer.ts        Playwright helper: headless player that can register, join, play
     fixtures.ts         Multi-browser test fixtures (4 independent contexts)
   lobby-to-game.spec.ts  4 players: register → room → teams → ready → game starts
-  full-game.spec.ts      Complete game with briscola selection and card play
+  first-trick.spec.ts    Briscola selection and the first 4-card trick
 public/
   images/cards/         40 card PNGs (format: {value}_{suit}.png, e.g., asso_denari.png)
   images/semi/          4 suit icon PNGs
@@ -93,7 +96,7 @@ SPA routing handled automatically (all paths → index.html).
 
 ```bash
 npm test                    # Vitest unit tests
-npm run test:e2e            # Playwright headless (needs backend + frontend running)
+npm run test:e2e            # Playwright headless (auto-starts backend + frontend)
 npm run test:e2e:headed     # Watch bots play in real browsers
 npx playwright show-report  # HTML report with traces after failures
 ```

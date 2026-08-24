@@ -6,8 +6,9 @@ import { ArrowLeft, Bot, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import AuthErrorState from "@/components/AuthErrorState";
 import { toast } from "sonner";
-import { apiPost, ApiError } from "@/lib/api";
+import { apiPost } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { handleActiveRoomConflict } from "@/lib/roomRedirect";
 
 /**
  * Difficulty tiers, mirroring backend `botService.ts` and `ai/serving/tiers.py`.
@@ -54,16 +55,7 @@ const Practice = () => {
       const data = await apiPost<{ code: string }>("/rooms/practice", { tier });
       navigate(`/game/${data.code}`);
     } catch (error) {
-      // Already mid-game: send them back to it rather than stranding them.
-      if (
-        error instanceof ApiError &&
-        error.status === 409 &&
-        error.body?.activeRoomCode
-      ) {
-        toast.error("Sei già in una partita attiva");
-        navigate(`/game/${error.body.activeRoomCode}`);
-        return;
-      }
+      if (handleActiveRoomConflict(error, navigate)) return;
       toast.error(
         error instanceof Error ? error.message : "Impossibile iniziare la partita",
       );

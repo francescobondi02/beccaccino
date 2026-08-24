@@ -18,9 +18,11 @@ npm run dev            # http://localhost:8081
 | `npm run dev` | Vite dev server with HMR |
 | `npm run build` | Production build → `dist/` |
 | `npm run preview` | Preview the production build locally |
-| `npm test` | Vitest unit tests |
-| `npm run test:e2e` | Playwright end-to-end (requires backend + frontend running) |
+| `npm run typecheck` | TypeScript project checks |
 | `npm run lint` | ESLint |
+| `npm test` | Vitest unit tests |
+| `npm run test:coverage` | Vitest unit tests with coverage |
+| `npm run test:e2e` | Playwright end-to-end (auto-starts backend and frontend) |
 
 ## Environment variables
 

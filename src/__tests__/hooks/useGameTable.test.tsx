@@ -90,6 +90,16 @@ function stateRequestCount() {
   ).length;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("useGameTable turn synchronization", () => {
   beforeEach(() => {
     mocks.handlers.clear();
@@ -255,5 +265,70 @@ describe("useGameTable turn synchronization", () => {
       await Promise.resolve();
     });
     expect(stateRequestCount()).toBe(1);
+  });
+
+  it("ignores a stale game-state response that resolves out of order", async () => {
+    const older = deferred<GameStateResponse>();
+    const newer = deferred<GameStateResponse>();
+    let requestCount = 0;
+    mocks.apiGet.mockImplementation((path) => {
+      if (path === "/games/ROOM/state") {
+        requestCount += 1;
+        return requestCount === 1 ? older.promise : newer.promise;
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ]),
+    );
+    await waitFor(() => expect(stateRequestCount()).toBe(1));
+
+    let newerRequest!: Promise<void>;
+    act(() => {
+      newerRequest = result.current.refetchGameState();
+    });
+    await waitFor(() => expect(stateRequestCount()).toBe(2));
+
+    await act(async () => {
+      newer.resolve(gameState({ currentTurnUserId: 2 }));
+      await newerRequest;
+    });
+    expect(result.current.currentTurnUserId).toBe(2);
+
+    await act(async () => {
+      older.resolve(gameState({ currentTurnUserId: 3 }));
+      await Promise.resolve();
+    });
+    expect(result.current.currentTurnUserId).toBe(2);
+  });
+
+  it("exposes a retryable error when game-state loading fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mocks.apiGet
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }));
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ]),
+    );
+
+    await waitFor(() => expect(result.current.gameStateStatus).toBe("error"));
+
+    await act(async () => {
+      await result.current.refetchGameState();
+    });
+
+    expect(result.current.gameStateStatus).toBe("ready");
+    expect(result.current.currentTurnUserId).toBe(2);
+    consoleError.mockRestore();
   });
 });
