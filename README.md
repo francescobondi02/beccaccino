@@ -9,7 +9,7 @@ critic, curriculum learning, and wandb tracking. Four network families ship
 BC→PPO pipeline lives in `scripts/bc_then_rl.py`; `training/trainer.py` is the
 pure-PPO trainer (also BC-anchor and CTDE aware).
 
-## A0-A3 Correctness Baseline
+## A0-A4 Correctness Baseline
 
 The 2026-08-24 correctness pass changed the training contract:
 
@@ -31,13 +31,18 @@ The 2026-08-24 correctness pass changed the training contract:
   and the CTDE full state is 638. Four newest-first declaration records retain
   declarer, signal, led suit, and trick timing, preserving order and repeated
   declarations without an unbounded round history.
+- **A4 — card-conditioned signals:** current V4 policies predict three signal
+  deltas from each candidate card token while keeping the no-signal card logit
+  unchanged. Older V4 checkpoints reconstruct their original global signal
+  head for inference, but cannot resume current training.
 
 Legacy 462-feature and A2 470-feature checkpoints remain loadable for inference
 because their input width is inferred or read from checkpoint metadata. They
 cannot resume 518-feature training. The architecture changes are implemented
 and parity-tested, but their fixed-budget three-seed ablations have not been
 run; better held-out value fit or paired playing strength remains an unproven
-promotion gate.
+promotion gate. A4's signal-response and card-strength promotion experiments
+also remain unrun.
 
 ## Setup
 

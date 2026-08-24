@@ -230,6 +230,7 @@ def _net_config_dict(args) -> dict:
             "num_layers": args.layers,
             "dim_feedforward": args.dim_feedforward,
             "obs_size": OBS_SIZE,
+            "card_conditioned_signals": True,
         }
     return {
         "version": args.network_version,
@@ -263,6 +264,11 @@ def _validate_resume_architecture(args, ck: dict) -> None:
         raise SystemExit(
             f"checkpoint observation width is {net_config['obs_size']}, current "
             f"training requires {OBS_SIZE}; start a new run from regenerated BC"
+        )
+    if net_config["version"] == 4 and not net_config["card_conditioned_signals"]:
+        raise SystemExit(
+            "legacy V4 global signal heads are inference-only; "
+            "start a new run with card-conditioned signals"
         )
     explicit = getattr(args, "_explicit_options", set())
     flag_config_pairs = [

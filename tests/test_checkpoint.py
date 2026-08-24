@@ -44,6 +44,7 @@ def test_net_config_rebuilds_v4_identically():
     net = create_network(version=4, d_model=64, nhead=4, num_layers=2, dim_feedforward=128)
     assert net.config["version"] == 4
     assert net.config["d_model"] == 64
+    assert net.config["card_conditioned_signals"] is True
     rebuilt = create_network(**net.config)
     rebuilt.load_state_dict(net.state_dict())
     assert _state_dicts_equal(net.state_dict(), rebuilt.state_dict())
@@ -126,7 +127,14 @@ def test_build_net_accepts_flat_bc_then_rl_checkpoint():
 def test_build_net_normalizes_legacy_network_version_key():
     """Older stamps spelled the version "network_version"; create_network takes
     "version" and would otherwise default to V2 and fail on a shape mismatch."""
-    net = create_network(version=4, d_model=64, nhead=4, num_layers=2, dim_feedforward=128)
+    net = create_network(
+        version=4,
+        d_model=64,
+        nhead=4,
+        num_layers=2,
+        dim_feedforward=128,
+        card_conditioned_signals=False,
+    )
     legacy = {
         "network_version": 4,
         "d_model": 64,
@@ -148,12 +156,31 @@ def test_build_net_infers_legacy_observation_width():
         num_layers=1,
         dim_feedforward=64,
         obs_size=LEGACY_OBS_SIZE,
+        card_conditioned_signals=False,
     )
     config = dict(net.config)
     config.pop("obs_size")
     rebuilt = build_net({"model": net.state_dict(), "config": config}, torch.device("cpu"))
 
     assert rebuilt.obs_size == LEGACY_OBS_SIZE
+    assert _state_dicts_equal(net.state_dict(), rebuilt.state_dict())
+
+
+def test_build_net_treats_missing_v4_head_flag_as_legacy():
+    net = create_network(
+        version=4,
+        d_model=32,
+        nhead=2,
+        num_layers=1,
+        dim_feedforward=64,
+        card_conditioned_signals=False,
+    )
+    config = dict(net.config)
+    config.pop("card_conditioned_signals")
+
+    rebuilt = build_net({"model": net.state_dict(), "config": config}, torch.device("cpu"))
+
+    assert rebuilt.card_conditioned_signals is False
     assert _state_dicts_equal(net.state_dict(), rebuilt.state_dict())
 
 

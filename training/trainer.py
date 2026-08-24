@@ -122,11 +122,20 @@ def train(config: TrainConfig):
     resume_rng = None
     if config.resume_from:
         resume_ckpt = load_checkpoint(config.resume_from, map_location=dev)
-        checkpoint_obs_size = net_config_of(resume_ckpt)["obs_size"]
+        checkpoint_net_config = net_config_of(resume_ckpt)
+        checkpoint_obs_size = checkpoint_net_config["obs_size"]
         if checkpoint_obs_size != OBS_SIZE:
             raise SystemExit(
                 f"checkpoint observation width is {checkpoint_obs_size}, current "
                 f"training requires {OBS_SIZE}; start a new run from regenerated BC"
+            )
+        if (
+            checkpoint_net_config["version"] == 4
+            and not checkpoint_net_config["card_conditioned_signals"]
+        ):
+            raise SystemExit(
+                "legacy V4 global signal heads are inference-only; "
+                "start a new run with card-conditioned signals"
             )
         net.load_state_dict(resume_ckpt["model"])
         if critic is not None and resume_ckpt.get("critic") is not None:

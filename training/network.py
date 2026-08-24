@@ -215,6 +215,7 @@ def create_network(version: int = 2, **kwargs) -> BeccaNet | BeccaNetV2:
             "num_layers": kwargs.get("num_layers", 3),
             "dim_feedforward": kwargs.get("dim_feedforward", 256),
             "obs_size": obs_size,
+            "card_conditioned_signals": kwargs.get("card_conditioned_signals", True),
         }
         net = BeccaNetV4(**resolved)
     else:
@@ -264,9 +265,10 @@ class BeccaNetV4(nn.Module):
       - The global token aggregates briscola/score/seat info, naturally
         pooled by attention to influence card decisions.
 
-    Action space: same 160-flat as V3, built as outer sum of card_logits[40]
-    and signal_logits[4]. Card logits come from per-card tokens → linear; the
-    signal head reads the global token output.
+    Action space: same 160-flat as V3. Card logits come from per-card tokens,
+    and each card token also produces three deltas for striscio/busso/volo.
+    The no-signal action uses the unmodified card logit. A legacy global
+    signal-head branch remains only for loading older V4 checkpoints.
 
     Param count for default (d_model=128, nhead=4, layers=3): ~290k. Scales
     cleanly: bump d_model=256, layers=4 for GPU runs.
@@ -290,10 +292,12 @@ class BeccaNetV4(nn.Module):
         dim_feedforward: int = 256,
         dropout: float = 0.0,
         obs_size: int = OBS_SIZE,
+        card_conditioned_signals: bool = True,
     ):
         super().__init__()
         self.d_model = d_model
         self.obs_size = obs_size
+        self.card_conditioned_signals = card_conditioned_signals
         self.global_feat_dim = obs_size - self.OBS_GLOBAL_START
 
         # Static per-card features as a buffer (moves with .to(device))
@@ -324,11 +328,18 @@ class BeccaNetV4(nn.Module):
 
         # Heads
         self.card_logit_head = nn.Linear(d_model, 1)
-        self.signal_head = nn.Sequential(
-            nn.Linear(d_model, d_model // 2),
-            nn.ReLU(),
-            nn.Linear(d_model // 2, 4),
-        )
+        if card_conditioned_signals:
+            self.signal_delta_head = nn.Sequential(
+                nn.Linear(d_model, d_model // 2),
+                nn.ReLU(),
+                nn.Linear(d_model // 2, 3),
+            )
+        else:
+            self.signal_head = nn.Sequential(
+                nn.Linear(d_model, d_model // 2),
+                nn.ReLU(),
+                nn.Linear(d_model // 2, 4),
+            )
         self.value_head = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
             nn.ReLU(),
@@ -342,7 +353,8 @@ class BeccaNetV4(nn.Module):
         for m in [self.card_proj, self.global_proj]:
             nn.init.orthogonal_(m.weight, gain=np.sqrt(2))
             nn.init.zeros_(m.bias)
-        for m in self.signal_head.modules():
+        signal_head = self.signal_delta_head if self.card_conditioned_signals else self.signal_head
+        for m in signal_head.modules():
             if isinstance(m, nn.Linear):
                 nn.init.orthogonal_(m.weight, gain=0.01)
                 nn.init.zeros_(m.bias)
@@ -399,11 +411,20 @@ class BeccaNetV4(nn.Module):
         global_encoded = encoded[:, 40]  # (B, d)
 
         card_logits = self.card_logit_head(card_encoded).squeeze(-1)  # (B, 40)
-        signal_logits = self.signal_head(global_encoded)  # (B, 4)
         value = self.value_head(global_encoded).squeeze(-1)  # (B,)
 
-        # Outer sum (same flat 160 interface as V3)
-        combined = card_logits.unsqueeze(2) + signal_logits.unsqueeze(1)  # (B, 40, 4)
+        if self.card_conditioned_signals:
+            signal_deltas = self.signal_delta_head(card_encoded)  # (B, 40, 3)
+            combined = torch.cat(
+                [
+                    card_logits.unsqueeze(2),
+                    card_logits.unsqueeze(2) + signal_deltas,
+                ],
+                dim=2,
+            )
+        else:
+            signal_logits = self.signal_head(global_encoded)  # (B, 4)
+            combined = card_logits.unsqueeze(2) + signal_logits.unsqueeze(1)
         logits = combined.reshape(B, 160) + (1 - action_mask) * (-1e8)
         return logits, value
 

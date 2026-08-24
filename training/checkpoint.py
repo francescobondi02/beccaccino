@@ -72,6 +72,8 @@ def net_config_of(ckpt: dict) -> dict:
     config = dict(config)
     if "network_version" in config:
         config["version"] = config.pop("network_version")
+    if config["version"] == 4 and "card_conditioned_signals" not in config:
+        config["card_conditioned_signals"] = False
     if "obs_size" not in config:
         config["obs_size"] = _infer_checkpoint_obs_size(ckpt["model"], config["version"])
     return config

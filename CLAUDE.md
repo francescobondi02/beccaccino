@@ -17,7 +17,8 @@ becca_env/
   env.py            Gymnasium wrapper (BeccaEnv) — self-play, scaled rewards
 training/
   config.py         TrainConfig dataclass (all hyperparameters) + net_kwargs()
-  network.py        BeccaNet V1/V2/V3/V4 (V4 = transformer) + CentralizedCritic;
+  network.py        BeccaNet V1/V2/V3/V4 (V4 = transformer with card-conditioned
+                    signal deltas) + CentralizedCritic;
                     create_network stamps net.config for exact rebuild
   ppo.py            PPO update: clipped surrogate, per-epoch KL early stop, critic hook
   rollout.py        Rollout buffer with per-(env,seat) GAE + full_obs (critic)
@@ -108,6 +109,11 @@ The A2/A3 schemas and parity fixtures are implemented, but the architecture is
 not empirically promoted. Its fixed-budget three-seed ablation must improve
 held-out explained variance or paired playing strength without slice
 regressions; that gate remains unrun and unproven.
+
+New V4 policies condition striscio/busso/volo deltas on each candidate card
+token. Legacy V4 checkpoints without that stamped head flag retain the original
+global signal head for inference only. A4's signal-response and card-only
+strength promotion gates remain unrun.
 
 ## Action Space
 

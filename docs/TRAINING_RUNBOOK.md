@@ -109,6 +109,17 @@ The asymmetry is the important part:
 This fixes what a signal *means* while leaving *whether to signal* to the round
 score. Penalising silence would settle that strategy question by fiat.
 
+### 3a. Card-conditioned signal actions
+
+Current V4 policies keep each card's no-signal logit as the card baseline and
+predict three striscio/busso/volo deltas from that card token. Signal preference
+can therefore differ by candidate lead card. Legacy V4 checkpoints retain their
+original global four-way signal head for inference, but are not resumable.
+
+This is not a strength result. Promote A4 only after targeted partner-response
+tests improve and held-out card-only accuracy and paired playing strength do
+not regress; that experiment has not been run.
+
 `--signal-honesty-coef-final 0.0` anneals the term to zero over
 `--signal-honesty-frac` of the run: teach the convention early, then let results
 decide. If the policy ends up signalling less than the convention would, that is a

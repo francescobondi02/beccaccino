@@ -297,6 +297,18 @@ def test_resume_rejects_explicit_architecture_mismatch(tmp_path):
         _load_resume_components(args, torch.device("cpu"))
 
 
+def test_resume_rejects_legacy_v4_signal_head(tmp_path):
+    path, _, _ = _write_resume_checkpoint(tmp_path)
+    checkpoint = load_checkpoint(path)
+    checkpoint["net_config"]["card_conditioned_signals"] = False
+    torch.save(checkpoint, path)
+    args = _args(tmp_path, resume=str(path), centralized_critic=True)
+    args._explicit_options = {"--resume", "--centralized-critic"}
+
+    with pytest.raises(SystemExit, match="legacy V4 global signal heads are inference-only"):
+        _load_resume_components(args, torch.device("cpu"))
+
+
 def test_resume_rejects_critic_flag_mismatch(tmp_path):
     path, _, _ = _write_resume_checkpoint(tmp_path)
     args = _args(tmp_path, resume=str(path), centralized_critic=False)

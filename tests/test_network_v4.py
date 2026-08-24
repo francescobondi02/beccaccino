@@ -60,8 +60,7 @@ def test_v4_mask_blocks_illegal_actions():
     assert torch.isfinite(logits[:, 17]).all()
 
 
-def test_v4_outer_sum_decomposition():
-    """V4 still uses card+signal outer sum, identical to V3."""
+def test_v4_card_conditioned_signal_decomposition():
     net = BeccaNetV4(d_model=64, nhead=2, num_layers=2, dim_feedforward=64)
     net.eval()
     obs = torch.randn(1, OBS_SIZE)
@@ -77,16 +76,52 @@ def test_v4_outer_sum_decomposition():
         tokens = torch.cat([card_tokens, global_token], dim=1)
         enc = net.final_norm(net.transformer(tokens))
         manual_card = net.card_logit_head(enc[:, :40]).squeeze(-1)
-        manual_sig = net.signal_head(enc[:, 40])
+        manual_deltas = net.signal_delta_head(enc[:, :40])
 
         flat, _ = net.forward(obs, mask)
     for c in [0, 17, 39]:
         for s in range(4):
-            expected = manual_card[0, c] + manual_sig[0, s]
+            expected = manual_card[0, c]
+            if s > 0:
+                expected = expected + manual_deltas[0, c, s - 1]
             got = flat[0, c * 4 + s]
             assert torch.isclose(got, expected, atol=1e-4), (
                 f"action ({c},{s}): {got} vs expected {expected}"
             )
+    assert not torch.allclose(manual_deltas[0, 0], manual_deltas[0, 17])
+
+
+def test_v4_legacy_global_signal_head_is_still_rebuildable():
+    net = BeccaNetV4(
+        d_model=64,
+        nhead=2,
+        num_layers=2,
+        dim_feedforward=64,
+        card_conditioned_signals=False,
+    )
+    obs = torch.randn(1, OBS_SIZE)
+    mask = torch.ones(1, 160)
+    flat, _ = net.forward(obs, mask)
+    reshaped = flat.view(1, 40, 4)
+    signal_preferences = reshaped - reshaped[:, :, :1]
+    torch.testing.assert_close(
+        signal_preferences[:, 0],
+        signal_preferences[:, 17],
+    )
+
+
+def test_v4_briscola_choice_trains_card_conditioned_signal_deltas():
+    net = BeccaNetV4(d_model=32, nhead=2, num_layers=1, dim_feedforward=32)
+    obs = torch.randn(2, OBS_SIZE)
+    mask = torch.zeros(2, 160)
+    mask[:, :4] = 1.0
+    actions = torch.tensor([1, 3])
+
+    _, log_probs, _, _ = net.get_action_and_value(obs, mask, action=actions)
+    (-log_probs.mean()).backward()
+
+    grads = [p.grad for p in net.signal_delta_head.parameters()]
+    assert any(grad is not None and torch.count_nonzero(grad) > 0 for grad in grads)
 
 
 def test_v4_log_prob_consistency():
