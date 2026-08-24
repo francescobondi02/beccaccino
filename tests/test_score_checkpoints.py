@@ -185,3 +185,55 @@ def test_main_prints_results_and_verdict(monkeypatch, capsys):
     )
     assert "best.pt: 20/20 wins (100.00%); paired 95% CI" in output
     assert "VERDICT: ship best.pt" in output
+
+
+def test_main_runs_direct_champion_protocol(monkeypatch, capsys, tmp_path):
+    class Summary:
+        wins = 1_300
+        games = 2_000
+        win_rate = 0.65
+        paired_interval = (0.61, 0.69)
+        decision = "promote"
+
+    calls = []
+
+    def fake_select(candidate, incumbent, **kwargs):
+        calls.append((candidate, incumbent, kwargs))
+        return Summary()
+
+    monkeypatch.setattr(score_checkpoints, "select_champion", fake_select)
+    output = tmp_path / "score.jsonl"
+    score_checkpoints.main(
+        [
+            "--candidate",
+            "candidate.pt",
+            "--incumbent",
+            "champion.pt",
+            "--protocol-id",
+            "gate-1",
+            "--seed-base",
+            "88000000",
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert calls == [
+        (
+            "candidate.pt",
+            "champion.pt",
+            {
+                "protocol_id": "gate-1",
+                "seed_base": 88_000_000,
+                "output": str(output),
+                "games": 1_000,
+                "device": "cpu",
+            },
+        )
+    ]
+    assert "DECISION: promote" in capsys.readouterr().out
+
+
+def test_main_rejects_partial_champion_protocol():
+    with pytest.raises(SystemExit, match="required together"):
+        score_checkpoints.main(["--candidate", "candidate.pt"])

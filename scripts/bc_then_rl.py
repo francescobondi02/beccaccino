@@ -845,15 +845,18 @@ def phase2_rl(args, device, net, resume_ckpt=None):
                 device=device,
                 win_points=eval_wp,
             )
-            # Keep the strongest weights, not just the last ones: self-play is
-            # non-monotone, and Run B's curve peaked well before its final update.
-            # Scored on the frozen eval block, so the comparison is apples-to-apples.
+            # This frozen teacher-coupled block is monitoring/shortlisting only.
+            # Final champion selection uses a fresh mirrored seed block and
+            # persisted per-deal outcomes in scripts.score_checkpoints.
             if last_wr_heur > best_wr_heur:
                 best_wr_heur = last_wr_heur
                 best_update = update
                 Path(args.final_ckpt).parent.mkdir(parents=True, exist_ok=True)
                 _save(Path(args.final_ckpt).with_name("best.pt"), update)
-                print(f"  new best vs heuristic ({last_wr_heur:.1%}) — saved best.pt")
+                print(
+                    f"  new monitoring peak vs heuristic ({last_wr_heur:.1%}) "
+                    "— saved best.pt candidate"
+                )
 
         with csv_path.open("a", newline="") as f:
             w = csv.writer(f)
@@ -921,8 +924,8 @@ def phase2_rl(args, device, net, resume_ckpt=None):
     print(f"\nSaved final checkpoint to {args.final_ckpt}")
     if best_update:
         print(
-            f"Best vs heuristic was {best_wr_heur:.1%} at update {best_update} "
-            f"(best.pt) — prefer it over the final weights if it scores higher."
+            f"Monitoring peak vs heuristic was {best_wr_heur:.1%} at update {best_update} "
+            "(best.pt candidate); it is not champion without fresh held-out selection."
         )
     vec.close()
 

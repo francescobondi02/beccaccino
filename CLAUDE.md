@@ -44,7 +44,7 @@ serving/
 inference/          PIMC (perfect-information Monte Carlo) — served as the "esperto" tier
 scripts/
   bc_then_rl.py     BC warm-start → PPO self-play pipeline (the strong recipe)
-  score_checkpoints.py  Mirrored held-out best.pt vs last.pt scoring
+  score_checkpoints.py  Persisted mirrored candidate-vs-incumbent champion gate
   elo_ladder.py     Cross-checkpoint Elo ranking CLI
   kaggle_run.py     Drive Kaggle GPU runs from the CLI (smoke-gated)
   watch_bots.py     Audit signal honesty (volo => void, busso => holds strength)
@@ -54,7 +54,8 @@ docs/
   TRAINING_RUNBOOK.md  How to run + verify a training run (READ BEFORE A GPU RUN)
   LONG_RUN_PLAN.md     Long-run readiness status, residual risks, and Run D protocol
   BOT_PLAY_DESIGN.md   Playing against the bots in the real UI
-checkpoints/        Saved model checkpoints (.pt files); best.pt = peak, final.pt = last
+checkpoints/        Saved model checkpoints (.pt files); best.pt = monitoring candidate,
+                    final.pt = last
 tests/              Pytest suite mirroring the modules above
 ```
 
@@ -144,13 +145,14 @@ The strong recipe is **BC warm-start → PPO self-play** on the V4 transformer
 also supports resume, `--max-hours` graceful stop, global `--seed`,
 `--network-version {1,2,3,4}`, a BC-anchor opponent, and a centralized (CTDE)
 critic. Both use per-seat GAE, the opponent pool (with anchors), curriculum,
-wandb, entropy annealing, signal-honesty shaping, and `best.pt` tracking.
+wandb, entropy annealing, signal-honesty shaping, and monitoring-candidate
+tracking.
 
 Two things worth knowing before trusting any run's numbers:
-- **`best.pt` is the peak, `final.pt` is merely the last.** Self-play is non-monotone;
-  compare checkpoint files with `scripts.score_checkpoints` rather than reading the final
-  CSV row (rows after the last eval carry the previous value forward). Ship only a
-  pairing-aware definitive result.
+- **`best.pt` is a teacher-coupled monitoring peak, not the champion.** Self-play
+  is non-monotone, so shortlist checkpoints during training, then directly
+  compare the candidate with the incumbent on a fresh mirrored seed block.
+  Promotion requires a persisted pairing-aware definitive result.
 - **The `steps` column counts learner-team transitions, not env steps** — a team owns 2
   of 4 seats, so it reads ~half the simulated env steps. Units, not a bug.
 - **Vector streams are disjoint and exact CPU resume is stateful.** Worker `i`,
@@ -186,8 +188,11 @@ python -m scripts.kaggle_run push-state \
   --from checkpoints/kaggle-rund --create -m "runD session 1"
 python -m scripts.kaggle_run launch --preset rund --resume-state --confirm-cost
 
-# Final checkpoint decision: ships only when the paired lead clears zero
-python -m scripts.score_checkpoints checkpoints/best.pt checkpoints/last.pt --games 1000
+# Final champion decision on a fresh one-use seed block
+python -m scripts.score_checkpoints \
+  --candidate checkpoints/best.pt --incumbent checkpoints/deployed.pt \
+  --protocol-id "${PROTOCOL_ID}" --seed-base "${FRESH_SEED_BASE}" \
+  --games 1000 --output "runs/${PROTOCOL_ID}/score.jsonl"
 
 # Without wandb (offline)
 python -m training.trainer --no-wandb --win-points 5 --steps 5000000

@@ -6,6 +6,7 @@ Supports: trained model vs random baseline, model vs model, Elo tracking.
 from __future__ import annotations
 
 import random
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
 import torch
@@ -78,6 +79,116 @@ class MatchResult:
         if self.total_games == 0:
             return 0.0
         return self.team0_wins / self.total_games
+
+
+@dataclass(frozen=True)
+class GameRecord:
+    seed: int
+    candidate_team: int
+    winner_team: int
+    initial_caller: int
+    initial_briscola: str
+    rounds: int
+    actions: int
+    candidate_signals: int
+    opponent_signals: int
+    final_scores: tuple[int, int]
+
+    @property
+    def candidate_score(self) -> float:
+        return float(self.winner_team == self.candidate_team)
+
+
+@dataclass(frozen=True)
+class MirroredDealRecord:
+    seed: int
+    candidate_team0: GameRecord
+    candidate_team1: GameRecord
+
+    @property
+    def paired_score(self) -> float:
+        return (self.candidate_team0.candidate_score + self.candidate_team1.candidate_score) / 2
+
+
+AgentFactory = Callable[[int], object]
+
+
+def play_recorded_game(
+    candidate,
+    opponent,
+    *,
+    candidate_team: int,
+    seed: int,
+    win_points: int = 41,
+) -> GameRecord:
+    """Play one game and retain the public slices needed by promotion reports."""
+    if candidate_team not in (0, 1):
+        raise ValueError("candidate_team must be 0 or 1")
+    game = BeccaGame(seed=seed, win_points=win_points)
+    initial_caller = game.current_seat
+    initial_briscola = ""
+    actions = 0
+    candidate_signals = 0
+    opponent_signals = 0
+
+    while game.phase != GamePhase.GAME_OVER:
+        seat = game.current_seat
+        team = TEAM_OF_SEAT[seat]
+        agent = candidate if team == candidate_team else opponent
+        info = game.step(agent.select_action(game, seat))
+        actions += 1
+        if not initial_briscola and game.round.briscola is not None:
+            initial_briscola = game.round.briscola.value
+        if info.get("signal") is not None:
+            if team == candidate_team:
+                candidate_signals += 1
+            else:
+                opponent_signals += 1
+
+    return GameRecord(
+        seed=seed,
+        candidate_team=candidate_team,
+        winner_team=game.result.winner_team,
+        initial_caller=initial_caller,
+        initial_briscola=initial_briscola,
+        rounds=game.round.number,
+        actions=actions,
+        candidate_signals=candidate_signals,
+        opponent_signals=opponent_signals,
+        final_scores=(game.total_scores[0], game.total_scores[1]),
+    )
+
+
+def iter_mirrored_deals(
+    candidate_factory: AgentFactory,
+    opponent_factory: AgentFactory,
+    *,
+    num_deals: int,
+    seed: int,
+    win_points: int = 41,
+) -> Iterator[MirroredDealRecord]:
+    """Play each deal on both sides, resetting agent state for every leg."""
+    if num_deals <= 0:
+        raise ValueError("num_deals must be positive")
+    for offset in range(num_deals):
+        deal_seed = seed + offset
+        yield MirroredDealRecord(
+            seed=deal_seed,
+            candidate_team0=play_recorded_game(
+                candidate_factory(deal_seed),
+                opponent_factory(deal_seed),
+                candidate_team=0,
+                seed=deal_seed,
+                win_points=win_points,
+            ),
+            candidate_team1=play_recorded_game(
+                candidate_factory(deal_seed),
+                opponent_factory(deal_seed),
+                candidate_team=1,
+                seed=deal_seed,
+                win_points=win_points,
+            ),
+        )
 
 
 def play_match(

@@ -428,10 +428,12 @@ def train(config: TrainConfig):
             # only final.pt/last.pt were kept, so that peak was unrecoverable.
             # Scored on the frozen eval block, so these numbers are comparable.
             if wr_h > best_wr_heuristic:
+                # Monitoring/shortlisting only. Champion selection is a
+                # separate fresh mirrored protocol in scripts.score_checkpoints.
                 best_wr_heuristic = wr_h
                 best_update = update
                 _save(Path(config.ckpt_dir) / "best.pt", update)
-                print(f"  new best vs heuristic ({wr_h:.1%}) — saved best.pt")
+                print(f"  new monitoring peak vs heuristic ({wr_h:.1%}) — saved best.pt candidate")
 
             # Curriculum advancement
             if config.use_curriculum and curriculum_stage < len(config.curriculum_stages) - 1:

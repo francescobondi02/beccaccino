@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import argparse
-import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 
-from evaluation.arena import EVAL_SEED_BASE, NeuralAgent, play_match
+from evaluation.arena import EVAL_SEED_BASE, NeuralAgent, iter_mirrored_deals, play_match
 from evaluation.heuristic import HeuristicAgent
-from evaluation.stats import DEFAULT_Z, wilson_interval
+from evaluation.protocol import write_score_jsonl
+from evaluation.stats import (
+    DEFAULT_Z,
+    paired_mean_interval,
+    wilson_interval,
+)
+from evaluation.stats import (
+    paired_difference_interval as _paired_difference_interval,
+)
 from training.checkpoint import build_net, load_checkpoint
 
 DEFAULT_GAMES = 1_000
@@ -42,36 +50,16 @@ class CheckpointScore:
         return wilson_interval(self.wins, self.games)
 
 
-def paired_mean_interval(scores: Sequence[float], z: float = DEFAULT_Z) -> tuple[float, float]:
-    if not scores:
-        raise ValueError("at least one paired score is required")
-    mean = sum(scores) / len(scores)
-    if len(scores) < 2:
-        return (0.0, 1.0)
-    variance = sum((score - mean) ** 2 for score in scores) / (len(scores) - 1)
-    half_width = z * math.sqrt(variance / len(scores))
-    return max(0.0, mean - half_width), min(1.0, mean + half_width)
-
-
 def paired_difference_interval(
     leader: CheckpointScore,
     competitor: CheckpointScore,
     z: float = DEFAULT_Z,
 ) -> tuple[float, float]:
-    if len(leader.paired_scores) != len(competitor.paired_scores):
-        raise ValueError("checkpoint scores must cover the same held-out deals")
-    differences = [
-        leader_score - competitor_score
-        for leader_score, competitor_score in zip(leader.paired_scores, competitor.paired_scores)
-    ]
-    if not differences:
-        raise ValueError("paired deal scores are required for a shipping verdict")
-    mean = sum(differences) / len(differences)
-    if len(differences) < 2:
-        return (-1.0, 1.0)
-    variance = sum((difference - mean) ** 2 for difference in differences) / (len(differences) - 1)
-    half_width = z * math.sqrt(variance / len(differences))
-    return mean - half_width, mean + half_width
+    return _paired_difference_interval(
+        leader.paired_scores,
+        competitor.paired_scores,
+        z=z,
+    )
 
 
 def evaluate_mirrored(
@@ -132,6 +120,47 @@ def score_checkpoints(
     return results
 
 
+def select_champion(
+    candidate_path: str,
+    incumbent_path: str,
+    *,
+    protocol_id: str,
+    seed_base: int,
+    output: str | Path,
+    games: int = DEFAULT_GAMES,
+    win_points: int = WIN_POINTS,
+    device: str | torch.device = "cpu",
+):
+    """Direct held-out candidate/incumbent match with durable per-deal output."""
+    torch_device = torch.device(device)
+    candidate_net = build_net(
+        load_checkpoint(candidate_path, map_location=torch_device),
+        torch_device,
+    )
+    incumbent_net = build_net(
+        load_checkpoint(incumbent_path, map_location=torch_device),
+        torch_device,
+    )
+    records = list(
+        iter_mirrored_deals(
+            lambda _: NeuralAgent(candidate_net, torch_device, temperature=0.0),
+            lambda _: NeuralAgent(incumbent_net, torch_device, temperature=0.0),
+            num_deals=games,
+            seed=seed_base,
+            win_points=win_points,
+        )
+    )
+    return write_score_jsonl(
+        output,
+        protocol_id=protocol_id,
+        candidate_path=candidate_path,
+        incumbent_path=incumbent_path,
+        seed_base=seed_base,
+        win_points=win_points,
+        records=records,
+    )
+
+
 def format_score(result: CheckpointScore) -> str:
     low, high = result.interval
     interval_name = "paired 95% CI" if result.paired_scores else "Wilson 95% CI"
@@ -182,7 +211,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Score checkpoints against HeuristicAgent on mirrored held-out deals."
     )
-    parser.add_argument("checkpoints", nargs="+", help="Paths to .pt checkpoints")
+    parser.add_argument(
+        "checkpoints",
+        nargs="*",
+        help="Benchmark-only paths scored against the frozen heuristic block",
+    )
     parser.add_argument(
         "--games",
         type=_positive_int,
@@ -190,11 +223,42 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Held-out deals per checkpoint; each deal is played twice (default: 1000)",
     )
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--candidate", help="Candidate checkpoint for direct champion selection")
+    parser.add_argument("--incumbent", help="Current champion checkpoint")
+    parser.add_argument("--protocol-id", help="Unique immutable protocol/run identifier")
+    parser.add_argument("--seed-base", type=int, help="Fresh, predeclared held-out seed base")
+    parser.add_argument("--output", default="score.jsonl", help="New JSONL result path")
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
+    champion_values = (args.candidate, args.incumbent, args.protocol_id, args.seed_base)
+    if any(value is not None for value in champion_values):
+        if not all(value is not None for value in champion_values):
+            raise SystemExit(
+                "--candidate, --incumbent, --protocol-id, and --seed-base are required together"
+            )
+        if args.checkpoints:
+            raise SystemExit("positional checkpoint benchmarking cannot be mixed with selection")
+        summary = select_champion(
+            args.candidate,
+            args.incumbent,
+            protocol_id=args.protocol_id,
+            seed_base=args.seed_base,
+            output=args.output,
+            games=args.games,
+            device=args.device,
+        )
+        low, high = summary.paired_interval
+        print(
+            f"{args.protocol_id}: {summary.wins}/{summary.games} wins "
+            f"({summary.win_rate:.2%}); paired 95% CI [{low:.2%}, {high:.2%}]"
+        )
+        print(f"DECISION: {summary.decision}; wrote {args.output}")
+        return
+    if not args.checkpoints:
+        raise SystemExit("provide checkpoint paths or --candidate/--incumbent selection inputs")
     results = score_checkpoints(args.checkpoints, games=args.games, device=args.device)
 
     seed_end = HELDOUT_SEED_BASE + args.games - 1

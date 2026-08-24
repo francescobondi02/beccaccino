@@ -9,7 +9,7 @@ critic, curriculum learning, and wandb tracking. Four network families ship
 BC→PPO pipeline lives in `scripts/bc_then_rl.py`; `training/trainer.py` is the
 pure-PPO trainer (also BC-anchor and CTDE aware).
 
-## A0-A4 Correctness Baseline
+## A0-A5 Refactor Status
 
 The 2026-08-24 correctness pass changed the training contract:
 
@@ -35,6 +35,10 @@ The 2026-08-24 correctness pass changed the training contract:
   deltas from each candidate card token while keeping the no-signal card logit
   unchanged. Older V4 checkpoints reconstruct their original global signal
   head for inference, but cannot resume current training.
+- **A5 — held-out champion selection:** `best.pt` remains a monitoring candidate,
+  not a champion. Promotion directly matches a candidate against the incumbent
+  on at least 1,000 fresh mirrored deals and writes checkpoint hashes, every
+  paired outcome, confidence intervals, and public-state slices to `score.jsonl`.
 
 Legacy 462-feature and A2 470-feature checkpoints remain loadable for inference
 because their input width is inferred or read from checkpoint metadata. They
@@ -282,17 +286,24 @@ block to rank strong checkpoints against each other:
 python -m scripts.elo_ladder checkpoints/a.pt checkpoints/b.pt --num-games 100
 ```
 
-For the final shipping decision, compare candidates against the heuristic on a
-held-out mirrored deal block:
+For the final shipping decision, directly compare a candidate with the current
+champion on a fresh, predeclared seed block:
 
 ```bash
 python -m scripts.score_checkpoints \
-  checkpoints/best.pt checkpoints/last.pt --games 1000
+  --candidate checkpoints/best.pt \
+  --incumbent checkpoints/deployed.pt \
+  --protocol-id "${PROTOCOL_ID}" \
+  --seed-base "${FRESH_SEED_BASE}" \
+  --games 1000 \
+  --output "runs/${PROTOCOL_ID}/score.jsonl"
 ```
 
 `--games 1000` means 1,000 deals played with both team assignments, or 2,000
-games per checkpoint. Ship only when the pairing-aware verdict is definitive;
-an inconclusive result means retain the current model or collect more deals.
+games. The output path must be new, and the seed block must not have been used
+to tune or select the candidate. Promotion requires the paired 95% lower bound
+to exceed 50%; otherwise retain the incumbent. Positional checkpoint arguments
+remain available for historical heuristic benchmarking only.
 
 ## Kaggle GPU runs
 

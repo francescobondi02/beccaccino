@@ -249,7 +249,8 @@ A smoke is only useful if you check it. Confirm all five:
    (Kaggle's default GPU is a P100 whose arch current stock torch dropped; the
    tool pins a T4 for this reason.)
 2. **BC accuracy is sane** — roughly 60–95% on heuristic actions.
-3. **`best.pt` exists** and its `best_update` is > 0.
+3. **`best.pt` exists** and its `best_update` is > 0. This is a monitoring
+   candidate, not a promotion decision.
 4. **Signal shaping was active** — the rendered flags include
    `--signal-honesty-coef 0.05`.
 5. **No crash in the last 20 log lines.**
@@ -264,20 +265,25 @@ forward. Run B's last row read 74.5% while the real number was ~71%. **Always sc
 the checkpoint file directly:**
 
 ```bash
-# Final best.pt vs last.pt decision on 1,000 mirrored deals
-# (2,000 games per checkpoint, wp=41).
+# Direct candidate-vs-incumbent decision on 1,000 fresh mirrored deals.
 python -m scripts.score_checkpoints \
-  checkpoints/best.pt checkpoints/last.pt --games 1000
+  --candidate checkpoints/best.pt \
+  --incumbent checkpoints/deployed.pt \
+  --protocol-id "${PROTOCOL_ID}" \
+  --seed-base "${FRESH_SEED_BASE}" \
+  --games 1000 \
+  --output "runs/${PROTOCOL_ID}/score.jsonl"
 
 # Optional cross-checkpoint head-to-head ranking.
 python -m scripts.elo_ladder <ckpt>... --num-games 100
 ```
 
-The scoring command preserves each mirrored deal pair, prints pairing-aware 95%
-intervals, and emits `ship` only when the leader's paired difference interval
-clears zero. An `inconclusive` result means retain the current shipped model or
-collect more held-out deals. `best.pt` is only a candidate selected on the noisy
-frozen training-eval block.
+The scoring command refuses to overwrite an existing result, hashes both
+checkpoints, persists every mirrored pair, and reports candidate side, initial
+caller seat/role, briscola, signal use, and game length. Promotion requires at
+least 1,000 untouched deals and a paired 95% lower bound above 50%. Otherwise
+retain the incumbent. Never extend a seed block after seeing an inconclusive
+result; predeclare a new protocol block for the next candidate.
 
 **The `steps` column counts learner-team transitions, not env steps.** A team owns
 2 of 4 seats, so only ~half of each batch is stored: the log shows ~15M while ~30M
@@ -291,9 +297,8 @@ python -m scripts.watch_bots --tier forte --games 20          # briscola + signa
 python -m scripts.watch_bots --tier forte --games 1 --trace   # move by move
 ```
 
-Prefer `best.pt` over `final.pt` when it scores higher. Self-play is non-monotone
-and, before Run C, only the final weights were kept — Run B's peak was around
-update 300 of 915 and was unrecoverable.
+Treat `best.pt` and `final.pt` as candidate sources. Neither replaces the
+incumbent until it clears the direct held-out champion gate.
 
 ## 7. Run C — results (completed 2026-07-26)
 
