@@ -4,13 +4,15 @@ import { Request, Response } from "express";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { generateRoomCode } from "../utils/generateRoomCode";
-import { startFirstRound } from "../services/gameService";
+import { startFirstRound } from "../services/turnCoordinator";
 import { getSocketInstance } from "../socketInstance";
 import { withRoomLock } from "../utils/roomLock";
 import { logger } from "../logger";
 import { BOT_TIERS, ensureBotUsers, isBotTier } from "../services/botService";
 import { clearRoomTimerData, registerBotSeats } from "../services/turnTimer";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
+import { setReadyCommand } from "../services/roomCommands";
+import { GameError } from "../utils/gameError";
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -421,84 +423,24 @@ export const setPlayerReady = async (req: Request, res: Response) => {
   }
 
   try {
-    // Serialize the read-update-start-game flow per room so two simultaneous
-    // ready-up requests can't both observe allReady=true and both start the game.
-    const result = await withRoomLock(roomCode, async () => {
-      //^ Cerca la stanza attuale
-      const room = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: { players: true },
-      });
-
-      if (!room) return { status: 404, body: { error: "Room not found" } };
-
-      //^ Trova il player nella stanza
-      const player = room.players.find((p) => p.userId === userId);
-      if (!player) {
-        return {
-          status: 403,
-          body: { error: "User is not a player in this room" },
-        };
-      }
-
-      //^ Controlla che abbia scelto un team (non può mettersi Ready se non ha un team)
-      if (player.team === null) {
-        return {
-          status: 403,
-          body: { error: "Player must choose a team before readying up" },
-        };
-      }
-
-      //^ Aggiorna lo stato di Ready del player
-      const updatedPlayer = await prisma.player.update({
-        where: { id: player.id },
-        data: { isReady },
-      });
-
-      //^ Prendiamo la stanza aggiornata con il nuovo stato di Ready del player
-      const updatedRoom = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: { players: true },
-      });
-
-      if (!updatedRoom) {
-        return {
-          status: 404,
-          body: { error: "Room not found after update" },
-        };
-      }
-
-      const allReady = updatedRoom.players.every((p) => p.isReady === true);
-
-      const team0Count = updatedRoom.players.filter((p) => p.team === 0).length;
-      const team1Count = updatedRoom.players.filter((p) => p.team === 1).length;
-
-      //^ Notifica tutti nella room del cambiamento di stato Ready
-      const io = getSocketInstance();
-      io.to(roomCode).emit("ready_changed", {
-        userId,
-        isReady,
-      });
-
-      //^ Se tutti i Player sono pronti, i team pieni, e la partita non è già iniziata,
-      //^ atomicamente imposta started=true e fai partire il primo round.
-      if (
-        allReady &&
-        team0Count === 2 &&
-        team1Count === 2 &&
-        !updatedRoom.started
-      ) {
-        await startFirstRound(room.id, roomCode);
-      }
-
-      return {
-        status: 200,
-        body: { success: true, player: updatedPlayer, allReady },
-      };
+    const result = await setReadyCommand({
+      roomCode,
+      userId,
+      isReady,
+      onReadyChanged: (event) => {
+        getSocketInstance().to(roomCode).emit("ready_changed", event);
+      },
     });
 
-    return res.status(result.status).json(result.body);
+    return res.status(200).json({
+      success: true,
+      player: result.player,
+      allReady: result.allReady,
+    });
   } catch (error) {
+    if (error instanceof GameError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     Sentry.captureException(error, {
       extra: { op: "set_player_ready", roomCode, userId },
     });

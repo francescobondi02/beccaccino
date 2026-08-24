@@ -281,6 +281,60 @@ describe("Room API", () => {
       expect(res.statusCode).toBe(200);
       expect(res.body.player.isReady).toBe(true);
     });
+
+    it("treats a same-ready retry as a successful no-op", async () => {
+      const user = await createUser("readyRetry");
+      const created = await apiAs(user.id, user.username)
+        .post("/api/rooms")
+        .send({});
+      await apiAs(user.id, user.username)
+        .post(`/api/rooms/${created.body.code}/choose-team`)
+        .send({ team: 0 });
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await apiAs(user.id, user.username)
+          .post(`/api/rooms/${created.body.code}/ready`)
+          .send({ isReady: true });
+        expect(response.statusCode).toBe(200);
+        expect(response.body.player.isReady).toBe(true);
+      }
+    });
+
+    it("rejects invalid ready values", async () => {
+      const user = await createUser("invalidReady");
+      const created = await apiAs(user.id, user.username)
+        .post("/api/rooms")
+        .send({});
+
+      const response = await apiAs(user.id, user.username)
+        .post(`/api/rooms/${created.body.code}/ready`)
+        .send({ isReady: "yes" });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.body.error).toMatch(/ready status/i);
+    });
+
+    it("rejects changing ready state after startup", async () => {
+      const user = await createUser("startedReady");
+      const created = await apiAs(user.id, user.username)
+        .post("/api/rooms")
+        .send({});
+      await prisma.player.updateMany({
+        where: { gameRoom: { code: created.body.code } },
+        data: { team: 0, isReady: true },
+      });
+      await prisma.gameRoom.update({
+        where: { code: created.body.code },
+        data: { started: true },
+      });
+
+      const response = await apiAs(user.id, user.username)
+        .post(`/api/rooms/${created.body.code}/ready`)
+        .send({ isReady: false });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.body.error).toMatch(/started/i);
+    });
   });
 
   describe("Game Start Trigger (all ready with 2+2 teams)", () => {

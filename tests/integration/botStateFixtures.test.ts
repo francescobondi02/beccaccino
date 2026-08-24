@@ -5,7 +5,7 @@ import { Suit, Value } from "@prisma/client";
 import { clearDatabase } from "../helpers/gameHelpers";
 import { buildBotTurn, BotState } from "../../src/services/botState";
 import { ensureBotUsers } from "../../src/services/botService";
-import { GAME_WIN_POINTS } from "../../src/services/gameService";
+import { GAME_WIN_POINTS } from "../../src/gameConfig";
 
 // Read at runtime rather than importing: the fixture is generated in the `ai`
 // sibling submodule (`python -m scripts.gen_bot_fixtures`), and importing across
@@ -103,8 +103,13 @@ async function seedFromFixture(state: BotState, actingSeat: number) {
 
   // The acting seat is the one we serialize from, so it must be the bot whose
   // turn it is; the remaining seats' identities are irrelevant to the DTO.
+  const botUserBySeat = new Map(
+    [0, 1, 2, 3]
+      .filter((seat) => seat !== actingSeat)
+      .map((seat, index) => [seat, botUserIds[index]]),
+  );
   const userIdForSeat = (seat: number) =>
-    seat === actingSeat ? human.id : botUserIds[seat % botUserIds.length];
+    seat === actingSeat ? human.id : botUserBySeat.get(seat)!;
 
   const room = await prisma.gameRoom.create({
     data: {

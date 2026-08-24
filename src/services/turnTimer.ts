@@ -1,6 +1,10 @@
 import * as Sentry from "@sentry/node";
 import { getSocketInstance } from "../socketInstance";
-import { playCard, setBriscola } from "./gameService";
+import {
+  playCard as playCardTransition,
+  setBriscola as setBriscolaTransition,
+  TurnDirective,
+} from "./gameService";
 import { playableCards } from "./cardService";
 import { prisma } from "../db";
 import { logger } from "../logger";
@@ -170,6 +174,19 @@ export function clearRoomTimerData(roomCode: string): void {
   botSeats.delete(roomCode);
 }
 
+export function applyTurnDirective(directive: TurnDirective | null): void {
+  if (!directive) return;
+  if (directive.kind === "clear") {
+    clearRoomTimerData(directive.roomCode);
+    return;
+  }
+  startTurnTimer(
+    directive.roomCode,
+    directive.userId,
+    directive.phase,
+  );
+}
+
 /**
  * How many turn timeouts a seat has accrued, and whether it has been kicked.
  * Exposed so tests can assert a bot seat NEVER accrues either — the kick path is
@@ -261,15 +278,21 @@ async function playBotMove(
 
     if (move.kind === "briscola") {
       const { gameRoomId, playerId } = move;
-      await setBriscola({ gameRoomId, playerId, suit: move.suit as any });
+      const { turnDirective } = await setBriscolaTransition({
+        gameRoomId,
+        playerId,
+        suit: move.suit as any,
+      });
+      applyTurnDirective(turnDirective);
     } else {
-      await playCard({
+      const directive = await playCardTransition({
         roomCode,
         userId,
         suit: move.suit as any,
         value: move.value as any,
         signal: move.signal as any,
       });
+      applyTurnDirective(directive);
     }
   } catch (error) {
     // Re-check: the human can abandon the game while /act is in flight, which
@@ -430,12 +453,13 @@ async function autoPlayCard(roomCode: string, userId: number): Promise<void> {
   if (cards.length === 0) return;
 
   const card = cards[0];
-  await playCard({
+  const directive = await playCardTransition({
     roomCode,
     userId,
     suit: card.suit as any,
     value: card.value as any,
   });
+  applyTurnDirective(directive);
 }
 
 async function autoChooseBriscola(
@@ -470,9 +494,10 @@ async function autoChooseBriscola(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
   )[0][0];
 
-  await setBriscola({
+  const { turnDirective } = await setBriscolaTransition({
     gameRoomId: room.id,
     playerId: player.id,
     suit: bestSuit as any,
   });
+  applyTurnDirective(turnDirective);
 }

@@ -9,7 +9,11 @@ import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { logger } from "../logger";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
-import { withRoomLock } from "../utils/roomLock";
+import {
+  chooseTeamCommand,
+  setReadyCommand,
+} from "../services/roomCommands";
+import { GameError } from "../utils/gameError";
 
 // Interfacce per gli eventi
 interface JoinRoomData {
@@ -122,9 +126,8 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   /**
    * CHOOSE_TEAM — Deprecated socket handler.
    * The authoritative path is POST /api/rooms/:roomCode/choose-team; the real
-   * frontend only uses REST. This handler still validates, persists, and
-   * broadcasts team_chosen (integration tests exercise it), but unlike the
-   * REST path it runs outside withRoomLock — do not add new callers.
+   * frontend only uses REST. Both adapters call the same serialized command;
+   * this handler remains only for compatibility with older clients.
    */
   socket.on("choose_team", async (data: ChooseTeamData) => {
     const { roomCode, team } = data;
@@ -137,66 +140,19 @@ export function registerRoomSocket(socket: Socket, io: Server) {
     }
 
     try {
-      await withRoomLock(roomCode, async () => {
-        if (![0, 1].includes(team)) {
-          socket.emit("error", { message: "Invalid team" });
-          return;
-        }
-
-        const room = await prisma.gameRoom.findUnique({
-          where: { code: roomCode },
-          include: { players: true },
-        });
-
-        if (!room) {
-          socket.emit("error", { message: "Room not found" });
-          return;
-        }
-
-        const player = room.players.find(
-          (candidate) => candidate.userId === userId,
-        );
-        if (!player) {
-          socket.emit("error", { message: "Player not found" });
-          return;
-        }
-
-        if (player.team === team) return;
-
-        if (room.started) {
-          socket.emit("error", {
-            message: "Cannot change team after the game has started",
-          });
-          return;
-        }
-
-        if (player.isReady) {
-          socket.emit("error", {
-            message: "Non puoi cambiare team dopo esserti messo pronto",
-          });
-          return;
-        }
-
-        const teamCount = room.players.filter(
-          (candidate) => candidate.team === team,
-        ).length;
-        if (teamCount >= 2) {
-          socket.emit("error", { message: "Team is full" });
-          return;
-        }
-
-        await prisma.player.update({
-          where: { id: player.id },
-          data: { team },
-        });
-
+      const result = await chooseTeamCommand({ roomCode, userId, team });
+      if (result.changed) {
         io.to(roomCode).emit("team_chosen", {
           userId,
-          playerId: player.id,
+          playerId: result.player.id,
           team,
         });
-      });
+      }
     } catch (error) {
+      if (error instanceof GameError) {
+        socket.emit("error", { message: error.message });
+        return;
+      }
       Sentry.captureException(error, {
         extra: { event: "choose_team", roomCode, userId, team },
       });
@@ -211,9 +167,8 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   /**
    * SET_READY — Deprecated socket handler.
    * The authoritative path is POST /api/rooms/:roomCode/ready which
-   * validates, persists, broadcasts ready_changed, and triggers game start.
-   * This handler updates ready state but does NOT trigger game start to
-   * avoid race conditions with the REST path.
+   * calls the same serialized command. This handler remains only for
+   * compatibility with older clients.
    */
   socket.on("set_ready", async (data: ReadyData) => {
     const { roomCode, isReady } = data;
@@ -226,38 +181,19 @@ export function registerRoomSocket(socket: Socket, io: Server) {
     }
 
     try {
-      const room = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: { players: true },
-      });
-
-      if (!room) {
-        socket.emit("error", { message: "Room not found" });
-        return;
-      }
-
-      const player = room.players.find((p) => p.userId === userId);
-      if (!player) {
-        socket.emit("error", { message: "Player not found" });
-        return;
-      }
-
-      if (player.team === null) {
-        socket.emit("error", { message: "Choose a team first" });
-        return;
-      }
-
-      await prisma.player.update({
-        where: { id: player.id },
-        data: { isReady },
-      });
-
-      io.to(roomCode).emit("ready_changed", {
+      await setReadyCommand({
+        roomCode,
         userId,
-        playerId: player.id,
         isReady,
+        onReadyChanged: (event) => {
+          io.to(roomCode).emit("ready_changed", event);
+        },
       });
     } catch (error) {
+      if (error instanceof GameError) {
+        socket.emit("error", { message: error.message });
+        return;
+      }
       Sentry.captureException(error, {
         extra: { event: "set_ready", roomCode, userId, isReady },
       });

@@ -55,6 +55,7 @@ backend/
 │   ├── index.ts            # Process entry: env, listen, metrics, shutdown
 │   ├── server.ts           # HTTP + Socket.IO factory, auth and IP admission
 │   ├── app.ts              # Express app, routes, health/readiness probes
+│   ├── gameConfig.ts       # Environment-backed game rules
 │   ├── db.ts               # Prisma client singleton
 │   ├── socketInstance.ts    # Socket.IO singleton (get/set)
 │   ├── controllers/        # Request handlers
@@ -63,7 +64,10 @@ backend/
 │   │   ├── chooseTeam.ts        # Team selection
 │   │   └── gameController.ts    # chooseBriscola, playCard, getGameState
 │   ├── services/           # Business logic
-│   │   ├── gameService.ts       # setupRound, playCard (turn enforcement, scoring)
+│   │   ├── gameService.ts       # Atomic transitions and timer directives
+│   │   ├── turnCoordinator.ts   # Controller-facing transition coordinator
+│   │   ├── turnTimer.ts         # Timers, bots, autoplay, timeout state
+│   │   ├── roomCommands.ts      # Shared team and ready commands
 │   │   └── cardService.ts       # playableCards (follow-suit rules)
 │   ├── sockets/            # WebSocket event handlers
 │   │   └── room.ts             # join_lobby, join_room, choose_team, set_ready

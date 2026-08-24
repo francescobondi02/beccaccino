@@ -20,7 +20,7 @@
  */
 
 import { prisma } from "../db";
-import { GAME_WIN_POINTS } from "./gameService";
+import { GAME_WIN_POINTS } from "../gameConfig";
 
 /** Real points per raw point — the divisor behind the points/figures split. */
 const RAW_PER_POINT = 3;

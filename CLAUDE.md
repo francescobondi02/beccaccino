@@ -9,6 +9,7 @@ src/
   index.ts              Process entry: env validation, listen, metrics, shutdown
   server.ts             HTTP + Socket.IO factory: JWT auth, IP admission, handlers
   app.ts                Express app: middleware, routes, health/readiness probes
+  gameConfig.ts         Game-wide environment-backed rules such as win points
   db.ts                 Prisma client singleton
   socketInstance.ts     Global io getter/setter (used by services to emit events)
   controllers/
@@ -17,9 +18,11 @@ src/
     gameController.ts   Choose briscola, play card, get playable cards, get game state
     chooseTeam.ts       Team selection logic
   services/
-    gameService.ts      Core game logic: startRound, setBriscola, playCard, scoring
+    gameService.ts      Core game transitions; returns timer directives
+    turnCoordinator.ts  Applies directives for controller-driven game actions
     cardService.ts      Deal cards, get playable cards (follow-suit filtering)
-    turnTimer.ts        Per-room timeout map, auto-play, kick after 3 timeouts
+    turnTimer.ts        Timer/bot state, autoplay, kick after 3 timeouts
+    roomCommands.ts     Serialized choose-team and ready mutations
   sockets/
     room.ts             All socket event handlers: lobby, room join/leave, game events, chat
   middleware/

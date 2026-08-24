@@ -335,15 +335,25 @@ describe("Socket.IO real WebSocket integration", () => {
       client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
       await delay(100);
 
-      const teamPromise1 = waitForEvent<{ userId: number; team: number }>(client1, "team_chosen");
-      const teamPromise2 = waitForEvent<{ userId: number; team: number }>(client2, "team_chosen");
+      const teamPromise1 = waitForEvent<{
+        userId: number;
+        playerId: number;
+        team: number;
+      }>(client1, "team_chosen");
+      const teamPromise2 = waitForEvent<{
+        userId: number;
+        playerId: number;
+        team: number;
+      }>(client2, "team_chosen");
 
       client1.emit("choose_team", { roomCode, userId: u1.id, team: 0 });
 
       const [ev1, ev2] = await Promise.all([teamPromise1, teamPromise2]);
       expect(ev1.userId).toBe(u1.id);
+      expect(ev1.playerId).toEqual(expect.any(Number));
       expect(ev1.team).toBe(0);
       expect(ev2.userId).toBe(u1.id);
+      expect(ev2.playerId).toBe(ev1.playerId);
       expect(ev2.team).toBe(0);
     });
 
@@ -360,7 +370,7 @@ describe("Socket.IO real WebSocket integration", () => {
       client.emit("choose_team", { roomCode, userId: u1.id, team: 5 });
 
       const err = await errorPromise;
-      expect(err.message).toBe("Invalid team");
+      expect(err.message).toBe("Invalid team selection");
     });
 
     it("should emit error when team is full", async () => {
@@ -396,7 +406,7 @@ describe("Socket.IO real WebSocket integration", () => {
       client3.emit("choose_team", { roomCode, userId: u3.id, team: 0 });
 
       const err = await errorPromise;
-      expect(err.message).toBe("Team is full");
+      expect(err.message).toBe("Team is already full");
     });
 
     it("serializes REST and socket choices for the last team slot", async () => {
@@ -460,11 +470,19 @@ describe("Socket.IO real WebSocket integration", () => {
       client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
       await delay(100);
 
-      const readyPromise1 = waitForEvent<{ userId: number; isReady: boolean }>(
+      const readyPromise1 = waitForEvent<{
+        userId: number;
+        playerId: number;
+        isReady: boolean;
+      }>(
         client1,
         "ready_changed"
       );
-      const readyPromise2 = waitForEvent<{ userId: number; isReady: boolean }>(
+      const readyPromise2 = waitForEvent<{
+        userId: number;
+        playerId: number;
+        isReady: boolean;
+      }>(
         client2,
         "ready_changed"
       );
@@ -473,8 +491,10 @@ describe("Socket.IO real WebSocket integration", () => {
 
       const [ev1, ev2] = await Promise.all([readyPromise1, readyPromise2]);
       expect(ev1.userId).toBe(u1.id);
+      expect(ev1.playerId).toEqual(expect.any(Number));
       expect(ev1.isReady).toBe(true);
       expect(ev2.userId).toBe(u1.id);
+      expect(ev2.playerId).toBe(ev1.playerId);
       expect(ev2.isReady).toBe(true);
     });
 
@@ -491,7 +511,53 @@ describe("Socket.IO real WebSocket integration", () => {
       client.emit("set_ready", { roomCode, userId: u1.id, isReady: true });
 
       const err = await errorPromise;
-      expect(err.message).toBe("Choose a team first");
+      expect(err.message).toBe(
+        "Player must choose a team before readying up",
+      );
+    });
+
+    it("starts one game when the fourth player readies through the socket", async () => {
+      const users = await Promise.all(
+        ["readyA", "readyB", "readyC", "readyD"].map(createUser),
+      );
+      const roomCode = await createRoom(users[0]);
+      for (let index = 1; index < users.length; index++) {
+        await joinRoom(roomCode, users[index]);
+      }
+      for (let index = 0; index < users.length; index++) {
+        await chooseTeamRest(roomCode, users[index], index % 2);
+      }
+      for (let index = 0; index < users.length - 1; index++) {
+        const response = await request(httpServer)
+          .post(`/api/rooms/${roomCode}/ready`)
+          .set(authHeaders(users[index]))
+          .send({ isReady: true });
+        expect(response.statusCode).toBe(200);
+      }
+
+      const client = createClient();
+      await waitForConnect(client);
+      client.emit("join_room", {
+        roomCode,
+        userId: users[3].id,
+        username: users[3].username,
+      });
+      await delay(100);
+      const started = waitForEvent(client, "game_started");
+
+      client.emit("set_ready", {
+        roomCode,
+        userId: users[3].id,
+        isReady: true,
+      });
+      await started;
+
+      const room = await prisma.gameRoom.findUniqueOrThrow({
+        where: { code: roomCode },
+        include: { rounds: true },
+      });
+      expect(room.started).toBe(true);
+      expect(room.rounds).toHaveLength(1);
     });
   });
 

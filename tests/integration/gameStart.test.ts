@@ -1,5 +1,5 @@
 import { prisma } from "../../src/db";
-import { startFirstRound } from "../../src/services/gameService";
+import { startFirstRound } from "../../src/services/turnCoordinator";
 import {
   clearRoomTimerData,
   getTurnTimerState,

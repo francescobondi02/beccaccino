@@ -11,26 +11,18 @@ import { cumulativeScore, decideGameWinner } from "../utils/score";
 import { detectCricca } from "../utils/detectCricca";
 import { getSocketInstance } from "../socketInstance";
 import { getRng } from "../utils/random";
-import { startTurnTimer, clearRoomTimerData } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 import { logger } from "../logger";
+import { GAME_WIN_POINTS } from "../gameConfig";
 
-/**
- * Points required to win the game.
- * Defaults to 41 (standard Beccaccino rules).
- * Can be overridden via GAME_WIN_POINTS env var (e.g., 5 for fast testing).
- */
-export const GAME_WIN_POINTS = (() => {
-  const parsed = parseInt(process.env.GAME_WIN_POINTS || "41", 10);
-  if (isNaN(parsed) || parsed < 1) {
-    logger.warn(
-      { value: process.env.GAME_WIN_POINTS },
-      "invalid_game_win_points_defaulting_to_41",
-    );
-    return 41;
-  }
-  return parsed;
-})();
+export type TurnDirective =
+  | {
+      kind: "schedule";
+      roomCode: string;
+      userId: number;
+      phase: "play_card" | "choose_briscola";
+    }
+  | { kind: "clear"; roomCode: string };
 
 /** Seat `offset` positions clockwise from `seat`, wrapping around the 4-seat table. */
 export function seatAfter(seat: number, offset = 1): number {
@@ -320,7 +312,7 @@ async function setupRoundTx(
 }
 
 /**
- * Announce the game and set up round 1, arming the caller's briscola timer.
+ * Announce the game and set up round 1, returning the caller's timer directive.
  *
  * Shared by the lobby ready-up gate and practice-game creation so a game
  * against bots starts on exactly the same path as a game between humans.
@@ -330,34 +322,34 @@ async function setupRoundTx(
 export async function startFirstRound(
   gameRoomId: number,
   roomCode: string,
-): Promise<void> {
-  try {
-    const { callerUserId, roundSetup } = await prisma.$transaction(async (tx) => {
-      const claim = await tx.gameRoom.updateMany({
-        where: { id: gameRoomId, started: false },
-        data: { started: true },
-      });
-      if (claim.count !== 1) {
-        throw new GameError("Game has already started", 409);
-      }
-
-      const roundSetup = await setupRound(gameRoomId, 1, tx);
-      const caller = await tx.player.findUnique({
-        where: { id: roundSetup.callerPlayerId },
-        select: { userId: true },
-      });
-      if (!caller) throw new Error("Briscola caller not found");
-
-      return { callerUserId: caller.userId, roundSetup };
+): Promise<TurnDirective> {
+  const { callerUserId, roundSetup } = await prisma.$transaction(async (tx) => {
+    const claim = await tx.gameRoom.updateMany({
+      where: { id: gameRoomId, started: false },
+      data: { started: true },
     });
+    if (claim.count !== 1) {
+      throw new GameError("Game has already started", 409);
+    }
 
-    logRoundSetup(roundSetup);
-    getSocketInstance().to(roomCode).emit("game_started", {});
-    startTurnTimer(roomCode, callerUserId, "choose_briscola");
-  } catch (error) {
-    clearRoomTimerData(roomCode);
-    throw error;
-  }
+    const roundSetup = await setupRound(gameRoomId, 1, tx);
+    const caller = await tx.player.findUnique({
+      where: { id: roundSetup.callerPlayerId },
+      select: { userId: true },
+    });
+    if (!caller) throw new Error("Briscola caller not found");
+
+    return { callerUserId: caller.userId, roundSetup };
+  });
+
+  logRoundSetup(roundSetup);
+  getSocketInstance().to(roomCode).emit("game_started", {});
+  return {
+    kind: "schedule",
+    roomCode,
+    userId: callerUserId,
+    phase: "choose_briscola",
+  };
 }
 
 /**
@@ -451,11 +443,8 @@ async function setBriscolaUnlocked({
     cricca: hasCricca,
   });
 
-  // Start timer for the first card play (caller plays first)
   const callerPlayer = gameRoom.players.find((p) => p.id === playerId);
-  if (callerPlayer) {
-    startTurnTimer(gameRoom.code, callerPlayer.userId, "play_card");
-  }
+  if (!callerPlayer) throw new Error("Briscola caller not found");
 
   logger.info(
     {
@@ -469,7 +458,17 @@ async function setBriscolaUnlocked({
     "briscola_set",
   );
 
-  return { round: updatedRound, hand: firstHand, roomCode: gameRoom.code };
+  return {
+    round: updatedRound,
+    hand: firstHand,
+    roomCode: gameRoom.code,
+    turnDirective: {
+      kind: "schedule",
+      roomCode: gameRoom.code,
+      userId: callerPlayer.userId,
+      phase: "play_card",
+    } satisfies TurnDirective,
+  };
 }
 
 type PlayedCardInput = {
@@ -542,7 +541,7 @@ async function playCardUnlocked({
   suit: Suit;
   value: Value;
   signal?: "striscio" | "busso" | "volo" | null;
-}) {
+}): Promise<TurnDirective | null> {
   /**
    * Funzione che gestisce la logica di gioco quando un giocatore gioca una carta.
    *
@@ -668,10 +667,14 @@ async function playCardUnlocked({
     const nextPlayer = room.players.find(
       (candidate) => candidate.seat === seatOrder[position + 1],
     );
-    if (nextPlayer) {
-      startTurnTimer(roomCode, nextPlayer.userId, "play_card");
-    }
-    return;
+    return nextPlayer
+      ? {
+          kind: "schedule",
+          roomCode,
+          userId: nextPlayer.userId,
+          phase: "play_card",
+        }
+      : null;
   }
 
   const winnerPlayerId = determineHandWinner(
@@ -697,10 +700,14 @@ async function playCardUnlocked({
     publish();
 
     const winnerPlayer = room.players.find((p) => p.id === winnerPlayerId);
-    if (winnerPlayer) {
-      startTurnTimer(roomCode, winnerPlayer.userId, "play_card");
-    }
-    return;
+    return winnerPlayer
+      ? {
+          kind: "schedule",
+          roomCode,
+          userId: winnerPlayer.userId,
+          phase: "play_card",
+        }
+      : null;
   }
 
   const allHands = await prisma.hand.findMany({
@@ -861,8 +868,7 @@ async function playCardUnlocked({
       },
       "game_finished",
     );
-    clearRoomTimerData(roomCode);
-    return;
+    return { kind: "clear", roomCode };
   }
 
   io.to(roomCode).emit("new_round_started", {
@@ -871,7 +877,12 @@ async function playCardUnlocked({
   const newCaller = room.players.find(
     (p) => p.id === nextRound!.callerPlayerId,
   );
-  if (newCaller) {
-    startTurnTimer(roomCode, newCaller.userId, "choose_briscola");
-  }
+  return newCaller
+    ? {
+        kind: "schedule",
+        roomCode,
+        userId: newCaller.userId,
+        phase: "choose_briscola",
+      }
+    : null;
 }
