@@ -5,11 +5,11 @@ Algorithm:
     1. Sample N determinizations (random plausible opponent hand assignments).
     2. For each determinization and each legal action:
          - clone the game, play that action,
-         - then run a greedy policy rollout (V4 acts for everyone) for the
-           rest of the round (or up to a depth limit),
-         - read V4's value head at the leaf as the action's value under
-           that determinization.
-    3. Average each action's value across determinizations → pick argmax.
+         - then run a configured rollout for the rest of the round,
+         - score exact game-over outcomes or cumulative match progress.
+    3. Weight worlds by public signal consistency and average each card's
+       utility across determinizations.
+    4. Let the network choose the signal variant for the selected card.
 
 This is the textbook PIMC ("determinization + Monte Carlo") technique
 that bridges the gap between perfect- and imperfect-info games. The
@@ -17,15 +17,13 @@ network handles the policy/value approximation; PIMC handles the
 information uncertainty by averaging over plausible worlds.
 
 Notes:
-  - We use a *fixed-depth* rollout (full round end). Cricca/round-end
-    scoring is computed by the engine itself via `_end_round` when the
-    last trick lands, so the value at round end is exact in the
-    determinized world.
+  - Proven public voids are hard sampling constraints and are never relaxed.
+  - We use a fixed-depth rollout to round end. The engine applies Cricca,
+    match thresholds, and the caller tie-break; terminal utility is exact.
   - For early-game decisions (before any tricks completed) the value
     head's uncertainty is large; PIMC averaging tames it.
-  - For decisions inside the current trick, the engine's normal step()
-    handles signal/follow-suit constraints; we just feed it the chosen
-    card from the legal mask.
+  - Signal branches are equivalent until rollout policies react to them, so
+    search collapses them by card instead of biasing ties toward no-signal.
 """
 
 from __future__ import annotations
@@ -37,15 +35,19 @@ import numpy as np
 import torch
 
 from becca_env.deck import Card
-from becca_env.game import BeccaGame, GamePhase, Signal
+from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase, Signal
 from becca_env.observation import (
     CARD_INDEX,
     decode_action,
     encode_action_mask,
     encode_observation,
 )
+from becca_env.signals import signal_is_honest
 from inference.determinized import determinize
-from inference.hand_sampler import sample_opponent_hands
+from inference.hand_sampler import SampledHands, sample_opponent_hands
+
+CONSISTENT_SIGNAL_WEIGHT = 0.9
+CONTRADICTING_SIGNAL_WEIGHT = 0.1
 
 
 @dataclass
@@ -70,11 +72,81 @@ class PIMCConfig:
     seed: int = 0
     """Master RNG seed; per-determinization seeds are derived from this."""
 
+    signal_consistency_weighting: bool = True
+    """Reweight sampled worlds by consistency with public signal claims."""
+
 
 def _action_idx(card: Card, signal: Signal | None) -> int:
     """Convert a (card, signal) decision into a flat 160 action index."""
     sig_idx = 0 if signal is None else (list(Signal).index(signal) + 1)
     return CARD_INDEX[card] * 4 + sig_idx
+
+
+def _search_action_groups(game: BeccaGame, legal_actions: list[int]) -> list[list[int]]:
+    """Collapse a leader's equivalent signal variants into one search branch."""
+    if game.phase != GamePhase.PLAY_CARD or game.round.current_trick:
+        return [[action] for action in legal_actions]
+    by_card: dict[int, list[int]] = {}
+    for action in legal_actions:
+        by_card.setdefault(action // 4, []).append(action)
+    return list(by_card.values())
+
+
+def _representative_action(group: list[int]) -> int:
+    """Use the no-signal variant while search does not model signal responses."""
+    return next((action for action in group if action % 4 == 0), group[0])
+
+
+def _preferred_variant(
+    net: torch.nn.Module,
+    game: BeccaGame,
+    viewer_seat: int,
+    candidates: list[int],
+    device: torch.device,
+) -> int:
+    """Let the policy select the signal variant after PIMC selects the card."""
+    if len(candidates) == 1:
+        return candidates[0]
+    obs = encode_observation(game, viewer_seat, obs_size=net.obs_size)
+    mask = encode_action_mask(game, viewer_seat)
+    obs_t = torch.from_numpy(obs).unsqueeze(0).to(device)
+    mask_t = torch.from_numpy(mask).unsqueeze(0).to(device)
+    with torch.no_grad():
+        logits, _ = net.forward(obs_t, mask_t)
+    return max(candidates, key=lambda action: float(logits[0, action]))
+
+
+def _signal_consistency_weight(game: BeccaGame, sampled: SampledHands) -> float:
+    """Heuristic weight from public declarations under the shared convention.
+
+    Public card history already constrains sampling through revealed cards and
+    proven voids. Strategic card-choice likelihood stays neutral because PIMC
+    has no calibrated model of the other players' policies.
+    """
+    weight = 1.0
+    completed = game.round.hands_played
+    for index, trick in enumerate(completed):
+        if trick.signal is None or trick.signal_seat is None or not trick.cards:
+            continue
+        hand_after = list(sampled.hands[trick.signal_seat])
+        for later in completed[index + 1 :]:
+            hand_after.extend(card for seat, card in later.cards if seat == trick.signal_seat)
+        hand_after.extend(
+            card for seat, card in game.round.current_trick if seat == trick.signal_seat
+        )
+        honest = signal_is_honest(trick.signal, hand_after, trick.cards[0][1].suit)
+        weight *= CONSISTENT_SIGNAL_WEIGHT if honest else CONTRADICTING_SIGNAL_WEIGHT
+
+    if game.round.trick_signals and game.round.current_trick:
+        signal_seat, signal = game.round.trick_signals[0]
+        if signal is not None:
+            honest = signal_is_honest(
+                signal,
+                sampled.hands[signal_seat],
+                game.round.current_trick[0][1].suit,
+            )
+            weight *= CONSISTENT_SIGNAL_WEIGHT if honest else CONTRADICTING_SIGNAL_WEIGHT
+    return weight
 
 
 def _greedy_action(
@@ -112,26 +184,15 @@ def _value_at(
     return float(value.item())
 
 
-def _round_end_value(
-    pre_total_scores_team_diff: int,
-    game: BeccaGame,
-    viewer_seat: int,
-) -> float:
-    """Value of a state where the rollout-round just ended.
-
-    Computes the *delta* in total score (this team - other team) caused by
-    the rollout, normalized into roughly [-1, 1] range. This is what
-    matters for action choice — independent of pre-round scores.
-    """
-    from becca_env.game import TEAM_OF_SEAT
-
+def _match_utility(game: BeccaGame, viewer_seat: int) -> float:
+    """Match-winning utility, including threshold and caller tie-break rules."""
     my_team = TEAM_OF_SEAT[viewer_seat]
     other = 1 - my_team
-    diff_now = game.total_scores[my_team] - game.total_scores[other]
-    delta = diff_now - pre_total_scores_team_diff
-    # Round delivers up to 35 raw + 9 cricca = 44 raw on the extreme end;
-    # normalize by 35 (typical) for a comfortable [-1.something, +1.something]
-    return float(delta) / 35.0
+    if game.phase == GamePhase.GAME_OVER and game.result is not None:
+        return 1.0 if game.result.winner_team == my_team else -1.0
+    target_raw = max(game.win_points * 3, 1)
+    score_diff = game.total_scores[my_team] - game.total_scores[other]
+    return float(np.clip(score_diff / target_raw, -1.0, 1.0))
 
 
 def _rollout_to_round_end(
@@ -149,16 +210,10 @@ def _rollout_to_round_end(
       - 'net':       net.argmax(legal) for every seat
       - 'heuristic': HeuristicAgent.select_action for every seat
 
-    Terminal value is the *delta* in total team-score caused by the
-    rollout — i.e. the value the action actually delivered in this
-    determinized world.
+    Terminal value is match utility from the viewer's team perspective. If the
+    round ends the game, the engine's threshold and caller tie-break decide
+    exact ±1 utility; otherwise cumulative match score is normalized by target.
     """
-    from becca_env.game import TEAM_OF_SEAT
-
-    my_team = TEAM_OF_SEAT[viewer_seat]
-    other = 1 - my_team
-    pre_diff = game.total_scores[my_team] - game.total_scores[other]
-
     target_round = game.round.number if game.round else None
     steps = 0
     while game.phase != GamePhase.GAME_OVER and steps < max_steps:
@@ -186,7 +241,7 @@ def _rollout_to_round_end(
             game.step(legal[0])
         steps += 1
 
-    return _round_end_value(pre_diff, game, viewer_seat)
+    return _match_utility(game, viewer_seat)
 
 
 def pimc_choose_action(
@@ -210,6 +265,8 @@ def pimc_choose_action(
     """
     if config is None:
         config = PIMCConfig()
+    if config.num_determinizations <= 0:
+        raise ValueError("num_determinizations must be positive")
     if device is None:
         device = next(net.parameters()).device
     net.eval()
@@ -229,15 +286,23 @@ def pimc_choose_action(
 
         heur = HeuristicAgent(seed=config.seed)
 
-    # Accumulate values per action across determinizations
-    action_values = np.zeros(len(legal_actions), dtype=np.float64)
+    search_groups = _search_action_groups(game, legal_actions)
+    action_values = np.zeros(len(search_groups), dtype=np.float64)
+    total_weight = 0.0
     rng = random.Random(config.seed)
 
     for d_idx in range(config.num_determinizations):
         det_rng = random.Random(rng.randrange(2**31))
         sampled = sample_opponent_hands(game, viewer_seat, det_rng)
+        sample_weight = (
+            _signal_consistency_weight(game, sampled)
+            if config.signal_consistency_weighting
+            else 1.0
+        )
+        total_weight += sample_weight
 
-        for ai, flat in enumerate(legal_actions):
+        for ai, group in enumerate(search_groups):
+            flat = _representative_action(group)
             clone = determinize(game, sampled, clone_seed=det_rng.randrange(2**31))
             action = decode_action(flat, clone)
             try:
@@ -255,9 +320,16 @@ def pimc_choose_action(
                 device,
                 rollout_policy=config.rollout_policy,
                 heuristic_agent=heur,
+                max_steps=config.rollout_depth_tricks * 4 + 4,
             )
-            action_values[ai] += v
+            action_values[ai] += sample_weight * v
 
-    action_values /= max(config.num_determinizations, 1)
+    action_values /= total_weight
     best_idx = int(np.argmax(action_values))
-    return legal_actions[best_idx]
+    return _preferred_variant(
+        net,
+        game,
+        viewer_seat,
+        search_groups[best_idx],
+        device,
+    )

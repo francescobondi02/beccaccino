@@ -18,6 +18,7 @@ import pytest
 from becca_env.deck import DECK, Card, Suit
 from becca_env.game import BeccaGame, GamePhase
 from inference.hand_sampler import (
+    InfeasibleHandConstraintsError,
     _public_cards,
     _seat_hand_sizes,
     _void_suits_per_seat,
@@ -367,8 +368,7 @@ def _play_random_partial_game(seed: int, num_actions: int) -> BeccaGame:
     ],
 )
 def test_sampler_robustness_on_many_states(seed, actions):
-    """Sampler should succeed (relaxed=False) on randomly-generated game
-    states — voids that occur naturally are always feasible."""
+    """Natural public constraints are feasible and always remain hard."""
     g = _play_random_partial_game(seed, actions)
     if g.phase != GamePhase.PLAY_CARD:
         pytest.skip(f"game ended too early (phase={g.phase})")
@@ -394,14 +394,24 @@ def test_sampler_robustness_on_many_states(seed, actions):
         for c in sampled.hands[s]:
             assert c not in public, f"public card {c} appeared in sampled hand of seat {s}"
 
-    # Voids honored (or relax flag set, which we want to be rare)
+    assert sampled.relaxed is False
     voids = _void_suits_per_seat(g)
-    if not sampled.relaxed:
-        for s in range(4):
-            for c in sampled.hands[s]:
-                assert c.suit not in voids[s], (
-                    f"void violation: seat {s} void in {voids[s]}, got {c}"
-                )
+    for s in range(4):
+        for c in sampled.hands[s]:
+            assert c.suit not in voids[s], f"void violation: seat {s} void in {voids[s]}, got {c}"
+
+
+def test_sampler_rejects_infeasible_hard_constraints(monkeypatch):
+    import inference.hand_sampler as sampler
+
+    g = BeccaGame(seed=42)
+    _play_through_briscola(g)
+    impossible = {seat: set(Suit) for seat in range(4)}
+    impossible[0] = set()
+    monkeypatch.setattr(sampler, "_void_suits_per_seat", lambda _: impossible)
+
+    with pytest.raises(InfeasibleHandConstraintsError, match="no hand assignment"):
+        sampler.sample_opponent_hands(g, viewer_seat=0, rng=random.Random(0))
 
 
 def test_sampler_does_not_mutate_game():

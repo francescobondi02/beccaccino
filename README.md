@@ -9,7 +9,7 @@ critic, curriculum learning, and wandb tracking. Four network families ship
 BC→PPO pipeline lives in `scripts/bc_then_rl.py`; `training/trainer.py` is the
 pure-PPO trainer (also BC-anchor and CTDE aware).
 
-## A0-A5 Refactor Status
+## A0-A6 Refactor Status
 
 The 2026-08-24 correctness pass changed the training contract:
 
@@ -39,6 +39,11 @@ The 2026-08-24 correctness pass changed the training contract:
   not a champion. Promotion directly matches a candidate against the incumbent
   on at least 1,000 fresh mirrored deals and writes checkpoint hashes, every
   paired outcome, confidence intervals, and public-state slices to `score.jsonl`.
+- **A6 — PIMC correctness:** determinized hands never relax proven voids;
+  sampled worlds are weighted by public signal consistency; rollout leaves use
+  cumulative match utility and exact threshold/caller tie-break outcomes; and
+  equivalent signal branches collapse to one card search before the policy
+  chooses the signal variant.
 
 Legacy 462-feature and A2 470-feature checkpoints remain loadable for inference
 because their input width is inferred or read from checkpoint metadata. They
@@ -46,7 +51,9 @@ cannot resume 518-feature training. The architecture changes are implemented
 and parity-tested, but their fixed-budget three-seed ablations have not been
 run; better held-out value fit or paired playing strength remains an unproven
 promotion gate. A4's signal-response and card-strength promotion experiments
-also remain unrun.
+also remain unrun. Repaired PIMC has not yet run its promotion experiment: it
+must beat the bare champion by at least two points with a positive paired lower
+bound, with deployment CPU p95 below one second and every move below five.
 
 ## Setup
 

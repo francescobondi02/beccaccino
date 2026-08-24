@@ -17,10 +17,9 @@ other three seats, we know:
      have followed if they could). So the cards we deal to s must
      exclude suit S.
 
-  4. **Forced-play deduction** — currently NOT used (could deduce e.g.
-     "if s played the only X they had, they have no more X"). This is a
-     proper subset of the void mask anyway and the void mask captures
-     the strongest deduction, so we keep the sampler simple.
+  4. Card-choice strategy is not treated as hand evidence. The sampler has no
+     calibrated model of the other players' policies, so observed legal choices
+     constrain worlds only through revealed cards and follow-suit failures.
 
 The sampling problem is therefore: distribute the unseen cards among the
 three other seats such that each seat gets exactly its hand_size and no
@@ -30,10 +29,8 @@ seat gets a forbidden suit. We solve this by:
   - For each suit, the "eligible seats" are those NOT void in that suit.
   - For each suit, randomly distribute its cards among eligible seats,
     while respecting per-seat remaining capacity.
-  - When the distribution would over-fill a seat or under-fill another
-    (which can happen if eligibility constraints are tight), we retry.
-  - Capped at MAX_RETRIES; falls back to ignoring void on the final
-    retries to guarantee progress (rare; logged as `relaxed=True`).
+  - Solve the four-suit capacity allocation exactly with backtracking, then
+    randomly assign concrete cards inside that feasible allocation.
 
 Output: dict `{seat -> list[Card]}` where each list has the right size and
 satisfies all hard constraints (cards are unique across seats, total set
@@ -55,7 +52,11 @@ class SampledHands:
     """Result of one determinization attempt."""
 
     hands: dict[int, list[Card]]
-    relaxed: bool = False  # True if void constraints were relaxed to succeed
+    relaxed: bool = False  # Kept for checkpoint/API compatibility; always False.
+
+
+class InfeasibleHandConstraintsError(ValueError):
+    """The public cards, hand sizes, and proven voids have no joint assignment."""
 
 
 def _public_cards(game: BeccaGame) -> set[Card]:
@@ -107,7 +108,6 @@ def sample_opponent_hands(
     game: BeccaGame,
     viewer_seat: int,
     rng: random.Random,
-    max_retries: int = 20,
 ) -> SampledHands:
     """Sample one plausible assignment of unseen cards to the three other seats.
 
@@ -118,10 +118,6 @@ def sample_opponent_hands(
         viewer_seat: the seat from whose perspective we sample. Their hand
                      is taken as-is (perfectly known to themselves).
         rng: a Python `random.Random` (seedable for reproducibility).
-        max_retries: how many times to retry if void constraints make the
-                     sampling infeasible. After half the retries we relax
-                     the void constraint as a last resort.
-
     Returns:
         SampledHands with `hands` mapping each of the four seats to a list
         of Cards. The viewer's own hand is included (copied verbatim).
@@ -145,25 +141,12 @@ def sample_opponent_hands(
             f"{other_seats} need {total_target} cards total"
         )
 
-    for attempt in range(max_retries):
-        relax = attempt >= max_retries // 2
-        result = _try_assign(unseen, other_seats, target_sizes, voids, rng, relax)
-        if result is not None:
-            hands = {viewer_seat: list(my_hand), **result}
-            return SampledHands(hands=hands, relaxed=relax)
-
-    # Last-ditch fallback: ignore void entirely. With hand sizes correct
-    # this always succeeds as a plain partition.
-    rng.shuffle(unseen)
-    fallback: dict[int, list[Card]] = {}
-    cursor = 0
-    for s in other_seats:
-        fallback[s] = unseen[cursor : cursor + target_sizes[s]]
-        cursor += target_sizes[s]
-    return SampledHands(
-        hands={viewer_seat: list(my_hand), **fallback},
-        relaxed=True,
-    )
+    result = _try_assign(unseen, other_seats, target_sizes, voids, rng)
+    if result is None:
+        raise InfeasibleHandConstraintsError(
+            "no hand assignment satisfies public cards, hand sizes, and proven voids"
+        )
+    return SampledHands(hands={viewer_seat: list(my_hand), **result})
 
 
 def _try_assign(
@@ -172,46 +155,68 @@ def _try_assign(
     target_sizes: dict[int, int],
     voids: dict[int, set[Suit]],
     rng: random.Random,
-    relax: bool,
 ) -> dict[int, list[Card]] | None:
-    """One attempt: distribute `unseen` to `other_seats` honoring sizes and voids.
-
-    Approach: per-suit greedy randomized fill with capacity tracking.
-    Returns None on infeasibility (caller will retry or relax).
-    """
+    """Find a randomized exact allocation honoring sizes and proven voids."""
     by_suit: dict[Suit, list[Card]] = defaultdict(list)
     for c in unseen:
         by_suit[c.suit].append(c)
 
-    capacity = {s: target_sizes[s] for s in other_seats}
-    out: dict[int, list[Card]] = {s: [] for s in other_seats}
-
-    suits_in_random_order = list(by_suit.keys())
-    rng.shuffle(suits_in_random_order)
-
-    for suit in suits_in_random_order:
-        cards = list(by_suit[suit])
-        rng.shuffle(cards)
-
-        if relax:
-            eligible = list(other_seats)
-        else:
-            eligible = [s for s in other_seats if suit not in voids[s]]
-        if not eligible:
-            return None  # nobody can take this suit → infeasible
-
-        # Distribute cards to eligible seats while respecting capacity
-        for card in cards:
-            choices = [s for s in eligible if capacity[s] > 0]
-            if not choices:
-                return None  # all eligible seats full but suit cards remain
-            chosen = rng.choice(choices)
-            out[chosen].append(card)
-            capacity[chosen] -= 1
-
-    # Final size check (defensive — should pass by construction)
-    for s in other_seats:
-        if len(out[s]) != target_sizes[s]:
+    suit_specs = []
+    for suit, cards in by_suit.items():
+        eligible = tuple(seat for seat in other_seats if suit not in voids[seat])
+        if cards and not eligible:
             return None
+        suit_specs.append((suit, len(cards), eligible))
+    rng.shuffle(suit_specs)
+    suit_specs.sort(key=lambda spec: (len(spec[2]), -spec[1]))
 
+    allocation: dict[Suit, dict[int, int]] = {}
+
+    def solve(index: int, capacity: dict[int, int]) -> bool:
+        if index == len(suit_specs):
+            return all(remaining == 0 for remaining in capacity.values())
+        suit, count, eligible = suit_specs[index]
+        candidates = list(_bounded_compositions(count, eligible, capacity))
+        rng.shuffle(candidates)
+        for counts in candidates:
+            next_capacity = dict(capacity)
+            for seat, assigned in counts.items():
+                next_capacity[seat] -= assigned
+            if solve(index + 1, next_capacity):
+                allocation[suit] = counts
+                return True
+        return False
+
+    if not solve(0, {seat: target_sizes[seat] for seat in other_seats}):
+        return None
+
+    out: dict[int, list[Card]] = {seat: [] for seat in other_seats}
+    for suit, cards in by_suit.items():
+        shuffled = list(cards)
+        rng.shuffle(shuffled)
+        cursor = 0
+        for seat in other_seats:
+            count = allocation[suit].get(seat, 0)
+            out[seat].extend(shuffled[cursor : cursor + count])
+            cursor += count
     return out
+
+
+def _bounded_compositions(
+    total: int,
+    seats: tuple[int, ...],
+    capacity: dict[int, int],
+):
+    """Yield all ways to place one suit across eligible seats within capacity."""
+    if not seats:
+        if total == 0:
+            yield {}
+        return
+    seat = seats[0]
+    if len(seats) == 1:
+        if total <= capacity[seat]:
+            yield {seat: total}
+        return
+    for count in range(min(total, capacity[seat]) + 1):
+        for rest in _bounded_compositions(total - count, seats[1:], capacity):
+            yield {seat: count, **rest}

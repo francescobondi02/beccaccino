@@ -41,7 +41,8 @@ serving/
   tiers.py          Difficulty tiers: facile/medio/forte/esperto -> agents
   fixtures/         Committed (state, expected_obs) pairs the backend is tested against
   export_onnx.py    Export any checkpoint (incl. V4) to ONNX via build_net
-inference/          PIMC (perfect-information Monte Carlo) — served as the "esperto" tier
+inference/          PIMC with hard public constraints, signal-weighted worlds,
+                    and match-winning utility — served as the "esperto" tier
 scripts/
   bc_then_rl.py     BC warm-start → PPO self-play pipeline (the strong recipe)
   score_checkpoints.py  Persisted mirrored candidate-vs-incumbent champion gate
@@ -115,6 +116,12 @@ New V4 policies condition striscio/busso/volo deltas on each candidate card
 token. Legacy V4 checkpoints without that stamped head flag retain the original
 global signal head for inference only. A4's signal-response and card-only
 strength promotion gates remain unrun.
+
+PIMC never assigns a proven-void suit. It weights determinizations by whether
+public declarations fit the sampled hand, uses exact match outcomes at the
+threshold (including caller tie-break), and searches each card once before the
+network picks that card's signal variant. The +2 point paired-strength and
+deployment-latency promotion gates remain unrun.
 
 ## Action Space
 

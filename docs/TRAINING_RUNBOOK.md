@@ -120,6 +120,21 @@ This is not a strength result. Promote A4 only after targeted partner-response
 tests improve and held-out card-only accuracy and paired playing strength do
 not regress; that experiment has not been run.
 
+### 3b. PIMC search contract
+
+The served `esperto` tier samples only worlds that satisfy proven public voids;
+an infeasible public state fails instead of silently admitting impossible
+hands. Public signal claims weight the sampled posterior without making bluffing
+illegal. Search scores cumulative match utility, using exact game-over outcomes
+from the engine so threshold crossings and the caller tie-break are preserved.
+Leader actions are evaluated once per card; the network then chooses among that
+card's legal signal variants.
+
+These are correctness properties, not evidence that search is stronger.
+Promotion requires at least a two-point gain over the bare champion with a
+positive paired 95% lower bound, plus representative deployment-CPU p95 below
+one second and maximum below five seconds. Those measurements have not been run.
+
 `--signal-honesty-coef-final 0.0` anneals the term to zero over
 `--signal-honesty-frac` of the run: teach the convention early, then let results
 decide. If the policy ends up signalling less than the convention would, that is a
