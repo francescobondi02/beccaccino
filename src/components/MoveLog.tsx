@@ -1,14 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-
-export interface MoveLogEntry {
-  handNumber: number | null;
-  username: string;
-  suit: string;
-  value: string;
-  signal?: string | null;
-}
+import type { MoveLogEntry } from "@/game/model";
 
 /**
  * A running list of every card played this game, with the signal its leader

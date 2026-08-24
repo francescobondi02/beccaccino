@@ -28,7 +28,6 @@ import {
   getSocket,
   isSocketConnected,
   disconnectSocket,
-  registerErrorToast,
 } from "@/sockets/socketClient";
 
 describe("socketClient", () => {
@@ -84,10 +83,9 @@ describe("socketClient", () => {
     });
   });
 
-  describe("registerErrorToast", () => {
-    it("surfaces server error messages via toast", () => {
-      registerErrorToast();
-
+  describe("server errors", () => {
+    it("registers one singleton listener that surfaces error messages", () => {
+      getSocket();
       const onCall = mockSocket.on.mock.calls.find(
         (call) => call[0] === "error"
       );
@@ -95,12 +93,10 @@ describe("socketClient", () => {
       handler({ message: "Room not found" });
 
       expect(toastError).toHaveBeenCalledWith("Room not found");
-    });
-
-    it("unsubscribe removes the error listener", () => {
-      const unsubscribe = registerErrorToast();
-      unsubscribe();
-      expect(mockSocket.off).toHaveBeenCalledWith("error");
+      getSocket();
+      expect(
+        mockSocket.on.mock.calls.filter(([event]) => event === "error"),
+      ).toHaveLength(1);
     });
   });
 });

@@ -16,36 +16,23 @@ import PracticePanel from "@/components/PracticePanel";
 import AuthErrorState from "@/components/AuthErrorState";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { onPlayerLeft, offPlayerLeft } from "@/sockets/roomHandlers";
-import {
-  onConnectionStatusChange,
-  getConnectionStatus,
-} from "@/sockets/socketClient";
+import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import { useGameTable, PlayerCard } from "@/hooks/useGameTable";
-import { normalizePlayer } from "@/lib/player";
+import { useGameTable } from "@/hooks/useGameTable";
+import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+import type { PlayerCard, PlayerPosition, Signal } from "@/game/model";
+import {
+  normalizeRoom,
+  type Room,
+  type RoomPlayer,
+  type RoomResponse,
+} from "@/rooms/model";
 
-type PlayerPosition = "bottom" | "top" | "left" | "right";
-
-interface Player {
-  id: number;
-  userId: number;
-  username: string;
-  seat: number | null;
-  team: number | null;
-  isReady: boolean;
+interface PositionedPlayer extends RoomPlayer {
   position?: PlayerPosition;
   isLocalPlayer?: boolean;
   isTeammate?: boolean;
-}
-
-interface Room {
-  id: number;
-  code: string;
-  started: boolean;
-  finished: boolean;
-  players: Player[];
 }
 
 const GameTable = () => {
@@ -61,7 +48,7 @@ const GameTable = () => {
   const username = user?.username ?? "";
   const [room, setRoom] = useState<Room | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [myPlayer, setMyPlayer] = useState<Player | null>(null);
+  const [myPlayer, setMyPlayer] = useState<RoomPlayer | null>(null);
 
   const {
     currentRound,
@@ -80,9 +67,11 @@ const GameTable = () => {
     moveLog,
     roundEndData,
     gameFinishedData,
+    refetchGameState,
     dismissRoundEnd,
     applyLocalBriscola,
   } = useGameTable(gameRoomCode, userId, username, room?.players ?? []);
+  const connectionStatus = useConnectionStatus(refetchGameState);
 
   // Dialog state
   const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);
@@ -95,9 +84,6 @@ const GameTable = () => {
   const [signalDialogOpen, setSignalDialogOpen] = useState(false);
 
   const [countdown, setCountdown] = useState<number | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<
-    "connected" | "disconnected" | "reconnecting"
-  >(getConnectionStatus());
   const [isPlayingCard, setIsPlayingCard] = useState(false);
   const [handsRevealed, setHandsRevealed] = useState(false);
 
@@ -108,7 +94,7 @@ const GameTable = () => {
     const fetchRoom = async () => {
       setIsLoading(true);
       try {
-        const roomData = await apiGet<Room>(`/rooms/${gameRoomCode}`);
+        const roomData = await apiGet<RoomResponse>(`/rooms/${gameRoomCode}`);
 
         // Verifica che la partita sia iniziata
         if (!roomData.started) {
@@ -117,13 +103,10 @@ const GameTable = () => {
           return;
         }
 
-        // Normalizza i giocatori per compatibilità con l'interfaccia
-        const players: Player[] = roomData.players.map(normalizePlayer);
+        const normalizedRoom = normalizeRoom(roomData);
+        setRoom(normalizedRoom);
 
-        setRoom({ ...roomData, players });
-
-        // Trova il player corrente
-        const me = players.find((p) => p.userId === userId);
+        const me = normalizedRoom.players.find((p) => p.userId === userId);
         setMyPlayer(me || null);
       } catch (error) {
         if (error instanceof ApiError) {
@@ -149,7 +132,7 @@ const GameTable = () => {
 
   // Un giocatore che abbandona sparisce dalla stanza
   useEffect(() => {
-    const handlePlayerLeft = (leftUserId: number) => {
+    return subscribeToRoomEvent("player_left", ({ userId: leftUserId }) => {
       toast.warning("Un giocatore ha abbandonato la partita");
       setRoom((prev) => {
         if (!prev) return prev;
@@ -158,10 +141,7 @@ const GameTable = () => {
           players: prev.players.filter((p) => p.userId !== leftUserId),
         };
       });
-    };
-
-    onPlayerLeft(handlePlayerLeft);
-    return () => offPlayerLeft(handlePlayerLeft);
+    });
   }, []);
 
   // Il caller vede il dialog briscola finché non sceglie (il dialog non è
@@ -207,13 +187,8 @@ const GameTable = () => {
     return () => clearInterval(interval);
   }, [turnTimer]);
 
-  // Connection status banner
-  useEffect(() => {
-    return onConnectionStatusChange(setConnectionStatus);
-  }, []);
-
   // Calcola le posizioni relative dei giocatori
-  const getPlayersWithPositions = (): Player[] => {
+  const getPlayersWithPositions = (): PositionedPlayer[] => {
     if (!room || !myPlayer) return [];
 
     // Ordina i giocatori per seat
@@ -262,7 +237,7 @@ const GameTable = () => {
 
   const sendPlayCard = async (
     card: PlayerCard,
-    signal?: "striscio" | "busso" | "volo" | null,
+    signal?: Signal | null,
   ) => {
     setIsPlayingCard(true);
     try {
@@ -308,9 +283,7 @@ const GameTable = () => {
     await sendPlayCard(card);
   };
 
-  const handleSignalSelect = async (
-    signal: "striscio" | "busso" | "volo" | null,
-  ) => {
+  const handleSignalSelect = async (signal: Signal | null) => {
     setSignalDialogOpen(false);
     if (pendingCard) {
       await sendPlayCard(pendingCard, signal);

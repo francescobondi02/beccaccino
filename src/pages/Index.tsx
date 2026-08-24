@@ -10,19 +10,12 @@ import AuthDialog from "@/components/AuthDialog";
 
 import {
   registerLobbyHandlers,
-  onRoomCreated,
-  offRoomCreated,
-  onRoomUpdated,
-  offRoomUpdated,
-  onRoomFull,
-  offRoomFull,
   leaveLobby,
-  onRoomDeleted,
-  offRoomDeleted,
+  subscribeToLobbyEvent,
 } from "@/sockets/lobbyHandlers";
-import { getSocket, isSocketConnected } from "@/sockets/socketClient";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import AuthErrorState from "@/components/AuthErrorState";
 
 // Lista delle 40 carte italiane
@@ -111,7 +104,7 @@ const Index = () => {
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
   const [activeGames, setActiveGames] = useState<Room[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  const isConnected = useConnectionStatus() === "connected";
 
   // Carte casuali per le animazioni (generate una sola volta)
   const [leftCards] = useState(() => getRandomCards(20));
@@ -157,64 +150,47 @@ const Index = () => {
     setActiveGames([]);
   }, [fetchAvailableRooms, userId]);
 
-  // useEffect per registrare handler + gestionne stato isConnected
   useEffect(() => {
     if (!userId || !isAuthenticated) return;
 
-    // Registra solo una volta
-    registerLobbyHandlers(userId);
-
-    // Collega isConnected al socket centrale
-    const socket = getSocket();
-    const handleConnect = () => setIsConnected(true);
-    const handleDisconnect = () => setIsConnected(false);
-
-    setIsConnected(isSocketConnected());
-    socket.on("connect", handleConnect);
-    socket.on("disconnect", handleDisconnect);
-
-    // Callback: nuova stanza
-    const handleRoomCreated = (room: Room) => {
-      setAvailableRooms((prev) => [...prev, room]);
-    };
-
-    // Callback: stanza aggiornata
-    const handleRoomUpdated = ({
-      roomCode,
-      currentPlayers,
-    }: {
-      roomCode: string;
-      currentPlayers: number;
-    }) => {
+    const unregisterLobby = registerLobbyHandlers(userId);
+    const unsubscribeRoomCreated = subscribeToLobbyEvent(
+      "room_created",
+      ({ room }) => {
+        setAvailableRooms((prev) => [...prev, room]);
+      },
+    );
+    const unsubscribeRoomUpdated = subscribeToLobbyEvent(
+      "room_updated",
+      ({ roomCode, currentPlayers }) => {
+        setAvailableRooms((prev) =>
+          prev.map((room) =>
+            room.code === roomCode ? { ...room, currentPlayers } : room,
+          ),
+        );
+      },
+    );
+    const removeRoom = ({ roomCode }: { roomCode: string }) => {
       setAvailableRooms((prev) =>
-        prev.map((r) => (r.code === roomCode ? { ...r, currentPlayers } : r)),
+        prev.filter((room) => room.code !== roomCode),
       );
     };
+    const unsubscribeRoomFull = subscribeToLobbyEvent(
+      "room_full",
+      removeRoom,
+    );
+    const unsubscribeRoomDeleted = subscribeToLobbyEvent(
+      "room_deleted",
+      removeRoom,
+    );
 
-    // Callback: stanza piena
-    const handleRoomFull = ({ roomCode }: { roomCode: string }) => {
-      setAvailableRooms((prev) => prev.filter((r) => r.code !== roomCode));
-    };
-
-    // Callback: stanza eliminata
-    const handleRoomDeleted = ({ roomCode }: { roomCode: string }) => {
-      setAvailableRooms((prev) => prev.filter((r) => r.code !== roomCode));
-    };
-
-    onRoomCreated(handleRoomCreated);
-    onRoomUpdated(handleRoomUpdated);
-    onRoomFull(handleRoomFull);
-    onRoomDeleted(handleRoomDeleted);
-
-    // Cleanup
     return () => {
+      unsubscribeRoomCreated();
+      unsubscribeRoomUpdated();
+      unsubscribeRoomFull();
+      unsubscribeRoomDeleted();
+      unregisterLobby();
       leaveLobby();
-      offRoomCreated(handleRoomCreated);
-      offRoomUpdated(handleRoomUpdated);
-      offRoomFull(handleRoomFull);
-      offRoomDeleted(handleRoomDeleted);
-      socket.off("connect", handleConnect);
-      socket.off("disconnect", handleDisconnect);
     };
   }, [userId, isAuthenticated]);
 

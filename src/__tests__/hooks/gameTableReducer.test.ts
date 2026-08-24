@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   gameTableReducer,
   initialGameTableState,
-  GameTableState,
+  type GameTableState,
+} from "@/game/state";
+import type {
   GameStateResponse,
   PlayedCardData,
-} from "@/hooks/useGameTable";
+} from "@/game/model";
 
 /**
  * The reducer is the game table's single source of client-side truth: these

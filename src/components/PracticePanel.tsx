@@ -2,13 +2,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Eye, EyeOff } from "lucide-react";
-import MoveLog, { MoveLogEntry } from "@/components/MoveLog";
-
-export interface RevealedHand {
-  userId: number;
-  botModel: string | null;
-  cards: { suit: string; value: string }[];
-}
+import MoveLog from "@/components/MoveLog";
+import type { MoveLogEntry, RevealedHand } from "@/game/model";
 
 interface PracticePanelProps {
   moveLog: MoveLogEntry[];

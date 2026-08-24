@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import PracticePanel from "@/components/PracticePanel";
-import { MoveLogEntry } from "@/components/MoveLog";
+import type { MoveLogEntry } from "@/game/model";
 
 /**
  * The practice panel is the diagnostic: it has to make a bot's signals

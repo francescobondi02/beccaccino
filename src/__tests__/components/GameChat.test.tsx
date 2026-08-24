@@ -12,6 +12,28 @@ const mockSocket = {
 vi.mock("@/sockets/socketClient", () => ({
   getSocket: () => mockSocket,
 }));
+vi.mock("@/sockets/roomHandlers", () => ({
+  subscribeToRoomEvent: (
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => {
+    mockSocket.on(event, listener);
+    return () => mockSocket.off(event, listener);
+  },
+}));
+
+function chatMessageListener() {
+  const call = mockSocket.on.mock.calls.find(
+    ([event]) => event === "chat_message",
+  );
+  if (!call) throw new Error("No chat_message listener registered");
+  return call[1] as (message: {
+    userId: number;
+    username: string;
+    message: string;
+    timestamp: string;
+  }) => void;
+}
 
 describe("GameChat", () => {
   beforeEach(() => {
@@ -243,10 +265,7 @@ describe("GameChat", () => {
     render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
 
     // Get the handler that was registered
-    const chatMessageHandler = mockSocket.on.mock.calls.find(
-      (call: any[]) => call[0] === "chat_message"
-    )?.[1];
-    expect(chatMessageHandler).toBeDefined();
+    const chatMessageHandler = chatMessageListener();
 
     // Open chat
     const toggleBtn = screen.getAllByRole("button")[0];
@@ -272,9 +291,7 @@ describe("GameChat", () => {
     render(<GameChat roomCode="ABCD" userId={1} username="testuser" />);
 
     // Get the handler
-    const chatMessageHandler = mockSocket.on.mock.calls.find(
-      (call: any[]) => call[0] === "chat_message"
-    )?.[1];
+    const chatMessageHandler = chatMessageListener();
 
     // Send a message while chat is closed
     act(() => {

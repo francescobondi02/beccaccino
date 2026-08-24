@@ -1,6 +1,5 @@
 import PlayingCard from "@/components/PlayingCard";
-
-type PlayerPosition = "bottom" | "top" | "left" | "right";
+import type { PlayerPosition } from "@/game/model";
 
 interface PlacedCard {
   userId: number;

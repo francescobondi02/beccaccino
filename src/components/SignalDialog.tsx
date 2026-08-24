@@ -6,29 +6,28 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-
-type Signal = "striscio" | "busso" | "volo" | null;
+import type { Signal } from "@/game/model";
 
 interface SignalDialogProps {
   open: boolean;
-  onSelect: (signal: Signal) => void;
+  onSelect: (signal: Signal | null) => void;
 }
 
 const signals = [
   {
-    value: "striscio" as Signal,
+    value: "striscio" as const,
     label: "Striscio",
     description: "Sono forte in questo seme",
     color: "bg-green-500/10 border-green-500/30 hover:bg-green-500/20",
   },
   {
-    value: "busso" as Signal,
+    value: "busso" as const,
     label: "Busso",
     description: "Gioca la carta più alta di questo seme",
     color: "bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20",
   },
   {
-    value: "volo" as Signal,
+    value: "volo" as const,
     label: "Volo",
     description: "Non ho più carte di questo seme",
     color: "bg-red-500/10 border-red-500/30 hover:bg-red-500/20",

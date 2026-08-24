@@ -1,12 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock socket.io-client
+type Listener = (...args: unknown[]) => void;
+const serverListeners = new Map<string, Set<Listener>>();
+
 const mockSocket = {
   connected: true,
   connect: vi.fn(),
   disconnect: vi.fn(),
-  on: vi.fn(),
-  off: vi.fn(),
+  on: vi.fn((event: string, listener: Listener) => {
+    const listeners = serverListeners.get(event) ?? new Set();
+    listeners.add(listener);
+    serverListeners.set(event, listeners);
+  }),
+  off: vi.fn((event: string, listener: Listener) => {
+    serverListeners.get(event)?.delete(listener);
+  }),
   emit: vi.fn(),
   io: {
     on: vi.fn(),
@@ -19,112 +27,86 @@ vi.mock("socket.io-client", () => ({
 }));
 
 import {
-  registerLobbyHandlers,
   leaveLobby,
-  onRoomCreated,
-  offRoomCreated,
-  onRoomUpdated,
-  onRoomFull,
-  onRoomDeleted,
+  registerLobbyHandlers,
+  subscribeToLobbyEvent,
 } from "@/sockets/lobbyHandlers";
+
+function socketListener(event: string) {
+  const call = mockSocket.on.mock.calls
+    .filter(([name]) => name === event)
+    .at(-1);
+  if (!call) throw new Error(`No listener registered for ${event}`);
+  return call[1] as (...args: unknown[]) => void;
+}
 
 describe("lobbyHandlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    serverListeners.clear();
     mockSocket.connected = true;
   });
 
-  describe("registerLobbyHandlers", () => {
-    it("emits join_lobby with the userId", () => {
-      registerLobbyHandlers(42);
-      expect(mockSocket.emit).toHaveBeenCalledWith("join_lobby", { userId: 42 });
-    });
+  it("joins immediately and rejoins after reconnect", () => {
+    registerLobbyHandlers(42);
+    expect(mockSocket.emit).toHaveBeenCalledWith("join_lobby", { userId: 42 });
 
-    it("registers socket event listeners", () => {
-      registerLobbyHandlers(1);
+    mockSocket.emit.mockClear();
+    socketListener("connect")();
 
-      // Should have called socket.off then socket.on for each event
-      expect(mockSocket.off).toHaveBeenCalledWith("room_created");
-      expect(mockSocket.off).toHaveBeenCalledWith("room_updated");
-      expect(mockSocket.off).toHaveBeenCalledWith("room_full");
-      expect(mockSocket.off).toHaveBeenCalledWith("room_deleted");
-
-      expect(mockSocket.on).toHaveBeenCalledWith("connect", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("room_created", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("room_updated", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("room_full", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("room_deleted", expect.any(Function));
-    });
-
-    it("offRoomCreated removes a registered callback", () => {
-      registerLobbyHandlers(1);
-
-      const cb = vi.fn();
-      onRoomCreated(cb);
-      offRoomCreated(cb);
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "room_created"
-      );
-      const handler = onCall![1];
-      handler({ room: { id: 1, code: "ABC123", currentPlayers: 1, maxPlayers: 4 } });
-
-      expect(cb).not.toHaveBeenCalled();
-    });
+    expect(mockSocket.emit).toHaveBeenCalledWith("join_lobby", { userId: 42 });
   });
 
-  describe("leaveLobby", () => {
-    it("emits leave_lobby", () => {
-      leaveLobby();
-      expect(mockSocket.emit).toHaveBeenCalledWith("leave_lobby");
-    });
+  it("connects before joining when needed", () => {
+    mockSocket.connected = false;
+    registerLobbyHandlers(42);
+    expect(mockSocket.connect).toHaveBeenCalledOnce();
   });
 
-  describe("callback registration", () => {
-    it("onRoomUpdated fires registered callback", () => {
-      registerLobbyHandlers(1);
+  it("unregisters only its own reconnect listener", () => {
+    const unregister = registerLobbyHandlers(42);
+    const listener = socketListener("connect");
 
-      const cb = vi.fn();
-      onRoomUpdated(cb);
+    unregister();
 
-      // Find the room_updated handler
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "room_updated"
-      );
-      const handler = onCall![1];
-      handler({ roomCode: "XYZ", currentPlayers: 3 });
+    expect(mockSocket.off).toHaveBeenCalledWith("connect", listener);
+  });
 
-      expect(cb).toHaveBeenCalledWith({ roomCode: "XYZ", currentPlayers: 3 });
+  it("subscribes and unsubscribes the same event callback", () => {
+    const callback = vi.fn();
+    const unsubscribe = subscribeToLobbyEvent("room_updated", callback);
+    const listener = socketListener("room_updated");
+
+    listener({ roomCode: "ROOM", currentPlayers: 3 });
+    expect(callback).toHaveBeenCalledWith({
+      roomCode: "ROOM",
+      currentPlayers: 3,
     });
 
-    it("onRoomFull fires registered callback", () => {
-      registerLobbyHandlers(1);
+    unsubscribe();
+    expect(mockSocket.off).toHaveBeenCalledWith("room_updated", callback);
+  });
 
-      const cb = vi.fn();
-      onRoomFull(cb);
+  it("does not remove another subscriber for the same event", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const unsubscribeFirst = subscribeToLobbyEvent("room_full", first);
+    subscribeToLobbyEvent("room_full", second);
 
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "room_full"
-      );
-      const handler = onCall![1];
-      handler({ roomCode: "FULL01" });
+    serverListeners
+      .get("room_full")
+      ?.forEach((listener) => listener({ roomCode: "ROOM" }));
+    unsubscribeFirst();
+    serverListeners
+      .get("room_full")
+      ?.forEach((listener) => listener({ roomCode: "ROOM" }));
 
-      expect(cb).toHaveBeenCalledWith({ roomCode: "FULL01" });
-    });
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).toHaveBeenCalledTimes(2);
+  });
 
-    it("onRoomDeleted fires registered callback", () => {
-      registerLobbyHandlers(1);
-
-      const cb = vi.fn();
-      onRoomDeleted(cb);
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "room_deleted"
-      );
-      const handler = onCall![1];
-      handler({ roomCode: "DEL01" });
-
-      expect(cb).toHaveBeenCalledWith({ roomCode: "DEL01" });
-    });
+  it("emits leave_lobby", () => {
+    leaveLobby();
+    expect(mockSocket.emit).toHaveBeenCalledWith("leave_lobby");
   });
 });

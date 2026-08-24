@@ -1,6 +1,5 @@
 import { RefreshCw, WifiOff } from "lucide-react";
-
-type ConnectionStatus = "connected" | "disconnected" | "reconnecting";
+import type { ConnectionStatus } from "@/sockets/socketClient";
 
 const ConnectionBanner = ({ status }: { status: ConnectionStatus }) => {
   if (status === "connected") return null;

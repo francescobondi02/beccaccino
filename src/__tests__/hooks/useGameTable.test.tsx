@@ -1,37 +1,18 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  useGameTable,
-  type GameStateResponse,
-  type PlayerCard,
-} from "@/hooks/useGameTable";
+import { useGameTable } from "@/hooks/useGameTable";
+import type { GameStateResponse, PlayerCard } from "@/game/model";
 
 const mocks = vi.hoisted(() => {
   type Handler = (...args: unknown[]) => void;
-  type ConnectionStatus = "connected" | "disconnected" | "reconnecting";
 
   const handlers = new Map<string, Handler>();
-  const statusListeners = new Set<
-    (status: ConnectionStatus) => void
-  >();
-  const socket = {
-    on: vi.fn((event: string, handler: Handler) => {
-      handlers.set(event, handler);
-    }),
-    off: vi.fn((event: string, handler?: Handler) => {
-      if (!handler || handlers.get(event) === handler) {
-        handlers.delete(event);
-      }
-    }),
-  };
 
   return {
     apiGet: vi.fn<(path: string) => Promise<unknown>>(),
     handlers,
-    statusListeners,
-    socket,
     registerRoomHandlers: vi.fn(),
-    unsubscribeErrorToast: vi.fn(),
+    unregisterRoom: vi.fn(),
   };
 });
 
@@ -40,20 +21,18 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/sockets/roomHandlers", () => ({
-  registerRoomHandlers: mocks.registerRoomHandlers,
-}));
-
-vi.mock("@/sockets/socketClient", () => ({
-  getSocket: () => mocks.socket,
-  onConnectionStatusChange: (
-    listener: (
-      status: "connected" | "disconnected" | "reconnecting"
-    ) => void,
-  ) => {
-    mocks.statusListeners.add(listener);
-    return () => mocks.statusListeners.delete(listener);
+  registerRoomHandlers: (...args: unknown[]) => {
+    mocks.registerRoomHandlers(...args);
+    return mocks.unregisterRoom;
   },
-  registerErrorToast: () => mocks.unsubscribeErrorToast,
+  subscribeToRoomEvent: (event: string, handler: (...args: unknown[]) => void) => {
+    mocks.handlers.set(event, handler);
+    return () => {
+      if (mocks.handlers.get(event) === handler) {
+        mocks.handlers.delete(event);
+      }
+    };
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -114,7 +93,6 @@ function stateRequestCount() {
 describe("useGameTable turn synchronization", () => {
   beforeEach(() => {
     mocks.handlers.clear();
-    mocks.statusListeners.clear();
     vi.clearAllMocks();
     mocks.apiGet.mockReset();
   });
@@ -234,14 +212,10 @@ describe("useGameTable turn synchronization", () => {
     expect(stateCalls).toBe(2);
   });
 
-  it("refetches authoritative state after reconnecting", async () => {
-    let stateCalls = 0;
+  it("unsubscribes events and cancels delayed reconciliation on unmount", async () => {
     mocks.apiGet.mockImplementation((path) => {
       if (path === "/games/ROOM/state") {
-        stateCalls += 1;
-        return Promise.resolve(
-          gameState({ currentTurnUserId: stateCalls === 1 ? 2 : 1 }),
-        );
+        return Promise.resolve(gameState({ currentTurnUserId: 2 }));
       }
       if (path === "/games/playable-cards/ROOM") {
         return Promise.resolve({ playableCards: [myCard] });
@@ -249,7 +223,7 @@ describe("useGameTable turn synchronization", () => {
       return Promise.reject(new Error(`Unexpected request: ${path}`));
     });
 
-    const { result } = renderHook(() =>
+    const { result, unmount } = renderHook(() =>
       useGameTable("ROOM", 1, "alice", [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
@@ -257,18 +231,29 @@ describe("useGameTable turn synchronization", () => {
     );
 
     await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
+    expect(stateRequestCount()).toBe(1);
+    vi.useFakeTimers();
 
     act(() => {
-      mocks.statusListeners.forEach((listener) => listener("disconnected"));
-      mocks.statusListeners.forEach((listener) => listener("reconnecting"));
+      emitSocket("card_played", {
+        playerId: 12,
+        userId: 2,
+        suit: "coppe",
+        value: "tre",
+        position: 0,
+        handNumber: 1,
+        signal: null,
+      });
+    });
+
+    unmount();
+    expect(mocks.handlers.size).toBe(0);
+    expect(mocks.unregisterRoom).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
     });
     expect(stateRequestCount()).toBe(1);
-
-    act(() => {
-      mocks.statusListeners.forEach((listener) => listener("connected"));
-    });
-
-    await waitFor(() => expect(result.current.currentTurnUserId).toBe(1));
-    expect(stateRequestCount()).toBe(2);
   });
 });

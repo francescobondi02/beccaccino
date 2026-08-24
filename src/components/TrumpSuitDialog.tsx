@@ -7,15 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import PlayingCard from "./PlayingCard";
-
-interface PlayerCard {
-  id: number;
-  suit: string;
-  value: string;
-  playerId: number;
-  roundId: number;
-  inHand: boolean;
-}
+import type { PlayerCard } from "@/game/model";
 
 type TrumpSuitDialogProps = {
   open: boolean;

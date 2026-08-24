@@ -9,17 +9,13 @@
  * by the library and must NOT be declared here.
  */
 
-export type Signal = "striscio" | "busso" | "volo";
+import type { Signal } from "@/game/model";
+import type { RoomPlayer } from "@/rooms/model";
+
+export type { Signal };
 export type Phase = "play_card" | "choose_briscola";
 
-export interface Player {
-  id: number;
-  userId: number;
-  username: string;
-  seat: number | null;
-  team: number | null;
-  isReady: boolean;
-}
+export type Player = RoomPlayer;
 
 export interface LobbyRoom {
   id: number;

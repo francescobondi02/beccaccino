@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { MessageCircle, X, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSocket } from "@/sockets/socketClient";
+import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
 import type { ChatMessagePayload } from "@/sockets/events";
 
 type ChatMessage = ChatMessagePayload;
@@ -37,8 +38,6 @@ const GameChat = ({ roomCode, userId, username }: GameChatProps) => {
 
   // Listen for chat messages
   useEffect(() => {
-    const socket = getSocket();
-
     const handleChatMessage = (data: ChatMessage) => {
       setMessages((prev) => [...prev.slice(-99), data]); // Keep last 100 messages
       if (!isOpenRef.current) {
@@ -46,11 +45,7 @@ const GameChat = ({ roomCode, userId, username }: GameChatProps) => {
       }
     };
 
-    socket.on("chat_message", handleChatMessage);
-
-    return () => {
-      socket.off("chat_message", handleChatMessage);
-    };
+    return subscribeToRoomEvent("chat_message", handleChatMessage);
   }, []);
 
   const handleSend = () => {

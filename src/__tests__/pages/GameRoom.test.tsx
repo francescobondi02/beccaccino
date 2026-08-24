@@ -3,7 +3,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameRoom from "@/pages/GameRoom";
 import type {
-  Player,
+  PlayerJoinedPayload,
+  PlayerLeftPayload,
   ReadyChangedPayload,
   TeamChosenPayload,
 } from "@/sockets/events";
@@ -15,13 +16,15 @@ const mocks = vi.hoisted(() => {
     apiGet: vi.fn<(path: string) => Promise<unknown>>(),
     apiPost: vi.fn(),
     callbacks: {
-      playerJoined: null as ((player: Player) => void) | null,
-      playerLeft: null as ((userId: number) => void) | null,
+      playerJoined: null as ((payload: PlayerJoinedPayload) => void) | null,
+      playerLeft: null as ((payload: PlayerLeftPayload) => void) | null,
       teamChosen: null as ((payload: TeamChosenPayload) => void) | null,
       readyChanged: null as ((payload: ReadyChangedPayload) => void) | null,
       gameStarted: null as (() => void) | null,
     },
     statusListeners: new Set<(status: ConnectionStatus) => void>(),
+    leaveRoom: vi.fn(),
+    unregisterRoom: vi.fn(),
   };
 });
 
@@ -45,32 +48,27 @@ vi.mock("@/components/Header", () => ({
   default: () => <div data-testid="header" />,
 }));
 vi.mock("@/sockets/roomHandlers", () => ({
-  registerRoomHandlers: vi.fn(),
-  leaveRoom: vi.fn(),
-  onPlayerJoined: (callback: typeof mocks.callbacks.playerJoined) => {
-    mocks.callbacks.playerJoined = callback;
+  registerRoomHandlers: () => mocks.unregisterRoom,
+  leaveRoom: mocks.leaveRoom,
+  subscribeToRoomEvent: (
+    event: string,
+    callback: (...args: never[]) => void,
+  ) => {
+    const key = {
+      player_joined: "playerJoined",
+      player_left: "playerLeft",
+      team_chosen: "teamChosen",
+      ready_changed: "readyChanged",
+      game_started: "gameStarted",
+    }[event] as keyof typeof mocks.callbacks;
+    mocks.callbacks[key] = callback;
+    return () => {
+      mocks.callbacks[key] = null;
+    };
   },
-  offPlayerJoined: vi.fn(),
-  onPlayerLeft: (callback: typeof mocks.callbacks.playerLeft) => {
-    mocks.callbacks.playerLeft = callback;
-  },
-  offPlayerLeft: vi.fn(),
-  onTeamChosen: (callback: typeof mocks.callbacks.teamChosen) => {
-    mocks.callbacks.teamChosen = callback;
-  },
-  offTeamChosen: vi.fn(),
-  onReadyChanged: (callback: typeof mocks.callbacks.readyChanged) => {
-    mocks.callbacks.readyChanged = callback;
-  },
-  offReadyChanged: vi.fn(),
-  onGameStarted: (callback: typeof mocks.callbacks.gameStarted) => {
-    mocks.callbacks.gameStarted = callback;
-  },
-  offGameStarted: vi.fn(),
 }));
 vi.mock("@/sockets/socketClient", () => ({
   getConnectionStatus: () => "connected",
-  registerErrorToast: () => vi.fn(),
   onConnectionStatusChange: (
     listener: (
       status: "connected" | "disconnected" | "reconnecting"
@@ -156,24 +154,26 @@ describe("GameRoom state synchronization", () => {
 
     act(() => {
       mocks.callbacks.playerJoined?.({
-        id: 12,
-        userId: 3,
-        username: "carla",
-        seat: 2,
-        team: null,
-        isReady: false,
+        player: {
+          id: 12,
+          userId: 3,
+          username: "carla",
+          seat: 2,
+          team: null,
+          isReady: false,
+        },
       });
     });
     expect(screen.getByText("carla")).toBeInTheDocument();
 
     act(() => {
-      mocks.callbacks.playerLeft?.(2);
+      mocks.callbacks.playerLeft?.({ userId: 2 });
     });
     expect(screen.queryByText("bob")).not.toBeInTheDocument();
     expect(screen.getByText("Giocatori: 2 / 4")).toBeInTheDocument();
 
     act(() => {
-      mocks.callbacks.playerLeft?.(1);
+      mocks.callbacks.playerLeft?.({ userId: 1 });
     });
     expect(screen.queryByText("Tu")).not.toBeInTheDocument();
     expect(screen.getByText("Giocatori: 1 / 4")).toBeInTheDocument();
@@ -237,5 +237,31 @@ describe("GameRoom state synchronization", () => {
       expect(screen.getByText("Giocatori: 2 / 4")).toBeInTheDocument(),
     );
     expect(mocks.apiGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the socket room on an ordinary unmount", async () => {
+    mocks.apiGet.mockResolvedValue(room([alice]));
+
+    const { unmount } = renderGameRoom();
+    await screen.findByText("Giocatori: 1 / 4");
+    unmount();
+
+    expect(mocks.unregisterRoom).toHaveBeenCalledOnce();
+    expect(mocks.leaveRoom).toHaveBeenCalledWith("ROOM");
+  });
+
+  it("keeps socket room membership during the game transition", async () => {
+    mocks.apiGet.mockResolvedValue(room([alice]));
+
+    const { unmount } = renderGameRoom();
+    await screen.findByText("Giocatori: 1 / 4");
+
+    act(() => {
+      mocks.callbacks.gameStarted?.();
+    });
+    unmount();
+
+    expect(mocks.unregisterRoom).toHaveBeenCalledOnce();
+    expect(mocks.leaveRoom).not.toHaveBeenCalled();
   });
 });

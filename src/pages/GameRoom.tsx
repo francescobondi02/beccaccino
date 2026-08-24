@@ -2,60 +2,27 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Check, X, LogOut, Share2, Loader2, WifiOff, RefreshCw } from "lucide-react";
+import { Users, Check, X, LogOut, Share2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import Header from "@/components/Header";
 import AuthErrorState from "@/components/AuthErrorState";
+import ConnectionBanner from "@/components/ConnectionBanner";
 import { Badge } from "@/components/ui/badge";
 
 import {
   registerRoomHandlers,
   leaveRoom,
-  onPlayerJoined,
-  offPlayerJoined,
-  onPlayerLeft,
-  offPlayerLeft,
-  onTeamChosen,
-  offTeamChosen,
-  onReadyChanged,
-  offReadyChanged,
-  onGameStarted,
-  offGameStarted,
+  subscribeToRoomEvent,
 } from "@/sockets/roomHandlers";
-import {
-  onConnectionStatusChange,
-  getConnectionStatus,
-  registerErrorToast,
-} from "@/sockets/socketClient";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import { normalizePlayer, type RawRoomPlayer } from "@/lib/player";
-
-interface Player {
-  id: number;
-  userId: number;
-  username: string;
-  seat: number | null;
-  team: number | null;
-  isReady: boolean;
-}
-
-interface Room {
-  id: number;
-  code: string;
-  started: boolean;
-  finished: boolean;
-  players: Player[];
-}
-
-type RoomResponse = Omit<Room, "players"> & { players: RawRoomPlayer[] };
-
-function normalizeRoom(room: RoomResponse): Room {
-  return {
-    ...room,
-    players: room.players.map(normalizePlayer),
-  };
-}
+import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+import {
+  normalizeRoom,
+  type Room,
+  type RoomPlayer,
+  type RoomResponse,
+} from "@/rooms/model";
 
 // Long enough to read the "starting" toast before landing on the table.
 const GAME_START_REDIRECT_MS = 5000;
@@ -75,9 +42,6 @@ const GameRoom = () => {
   const [isLoading, setIsLoading] = useState(true);
   const myPlayer =
     room?.players.find((player) => player.userId === userId) ?? null;
-  const [connectionStatus, setConnectionStatus] = useState<
-    "connected" | "disconnected" | "reconnecting"
-  >(getConnectionStatus());
 
   // Refs for stable references in callbacks
   const userIdRef = useRef<number | null>(null);
@@ -105,28 +69,7 @@ const GameRoom = () => {
     }
   }, []);
 
-  // Connection status tracking + refetch on reconnect (skip initial connect)
-  useEffect(() => {
-    let isInitialConnect = true;
-
-    const unsubscribe = onConnectionStatusChange((status) => {
-      setConnectionStatus(status);
-
-      // When socket reconnects (not initial connect), refetch room state
-      if (status === "connected") {
-        if (isInitialConnect) {
-          isInitialConnect = false;
-          return; // Skip — initial fetch is handled by the fetchRoom useEffect
-        }
-        refetchRoom();
-      } else {
-        // Any disconnect/reconnecting resets the flag so next connect triggers refetch
-        isInitialConnect = false;
-      }
-    });
-
-    return unsubscribe;
-  }, [refetchRoom]);
+  const connectionStatus = useConnectionStatus(refetchRoom);
 
   // Carica i dati della stanza
   useEffect(() => {
@@ -169,13 +112,9 @@ const GameRoom = () => {
     // Ref locale per sapere se la partita è iniziata (navigazione a GameTable)
     let gameStarted = false;
 
-    // Connessione a registrazione handler
-    registerRoomHandlers(roomCode, user);
-    const unsubscribeErrorToast = registerErrorToast();
+    const unregisterRoom = registerRoomHandlers(roomCode, user);
 
-    // Callback per quando un nuovo player si unisce
-    const handlePlayerJoined = (joinedPlayer: Player) => {
-
+    const handlePlayerJoined = (joinedPlayer: RoomPlayer) => {
       setRoom((prevRoom) => {
         if (!prevRoom) return prevRoom;
 
@@ -210,7 +149,6 @@ const GameRoom = () => {
         );
         return { ...prevRoom, players: updatedPlayers };
       });
-
     };
 
     const handleReadyChanged = (data: { userId: number; isReady: boolean }) => {
@@ -221,37 +159,46 @@ const GameRoom = () => {
         );
         return { ...prevRoom, players: updatedPlayers };
       });
-
     };
-
-    // Callback per quando la partita inizia
 
     let gameStartTimeout: ReturnType<typeof setTimeout> | undefined;
     const handleGameStarted = () => {
-      gameStarted = true; // 🔥 Non disconnettere quando si naviga a GameTable
+      gameStarted = true;
       toast.success("La partita sta per iniziare! Redirecting...");
       gameStartTimeout = setTimeout(() => {
         navigate(`/game/${roomCode}`);
       }, GAME_START_REDIRECT_MS);
     };
 
-    // Registra la callback
-    onPlayerJoined(handlePlayerJoined);
-    onPlayerLeft(handlePlayerLeft);
-    onTeamChosen(handleTeamChosen);
-    onReadyChanged(handleReadyChanged);
-    onGameStarted(handleGameStarted);
+    const unsubscribePlayerJoined = subscribeToRoomEvent(
+      "player_joined",
+      ({ player }) => handlePlayerJoined(player),
+    );
+    const unsubscribePlayerLeft = subscribeToRoomEvent(
+      "player_left",
+      ({ userId: leftUserId }) => handlePlayerLeft(leftUserId),
+    );
+    const unsubscribeTeamChosen = subscribeToRoomEvent(
+      "team_chosen",
+      handleTeamChosen,
+    );
+    const unsubscribeReadyChanged = subscribeToRoomEvent(
+      "ready_changed",
+      handleReadyChanged,
+    );
+    const unsubscribeGameStarted = subscribeToRoomEvent(
+      "game_started",
+      handleGameStarted,
+    );
 
     return () => {
-      // Cleanup: rimuovi solo i listener locali
-      offPlayerJoined(handlePlayerJoined);
-      offPlayerLeft(handlePlayerLeft);
-      offTeamChosen(handleTeamChosen);
-      offReadyChanged(handleReadyChanged);
-      offGameStarted(handleGameStarted);
+      unsubscribePlayerJoined();
+      unsubscribePlayerLeft();
+      unsubscribeTeamChosen();
+      unsubscribeReadyChanged();
+      unsubscribeGameStarted();
+      unregisterRoom();
       clearTimeout(gameStartTimeout);
-      unsubscribeErrorToast();
-      // 🔥 Lascia la room socket SOLO se la partita NON è iniziata
       if (!gameStarted) {
         leaveRoom(roomCode);
       }
@@ -343,7 +290,7 @@ const GameRoom = () => {
   };
 
   // Crea array di 4 player (riempiendo gli slot vuoti)
-  const allPlayers: (Player | null)[] = [];
+  const allPlayers: (RoomPlayer | null)[] = [];
 
   const currentPlayers = [...(room?.players ?? [])].sort((a, b) => {
     if (a.userId === userId) return -1;
@@ -389,22 +336,7 @@ const GameRoom = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Connection Status Banner */}
-      {connectionStatus !== "connected" && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-destructive/90 text-destructive-foreground px-4 py-2 flex items-center justify-center gap-2 text-sm font-medium backdrop-blur-sm">
-          {connectionStatus === "reconnecting" ? (
-            <>
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              Riconnessione in corso...
-            </>
-          ) : (
-            <>
-              <WifiOff className="h-4 w-4" />
-              Connessione persa. Riconnessione automatica...
-            </>
-          )}
-        </div>
-      )}
+      <ConnectionBanner status={connectionStatus} />
 
       <Header />
 

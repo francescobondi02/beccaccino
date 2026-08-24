@@ -1,12 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock socket.io-client
+type Listener = (...args: unknown[]) => void;
+const serverListeners = new Map<string, Set<Listener>>();
+
 const mockSocket = {
   connected: true,
   connect: vi.fn(),
   disconnect: vi.fn(),
-  on: vi.fn(),
-  off: vi.fn(),
+  on: vi.fn((event: string, listener: Listener) => {
+    const listeners = serverListeners.get(event) ?? new Set();
+    listeners.add(listener);
+    serverListeners.set(event, listeners);
+  }),
+  off: vi.fn((event: string, listener: Listener) => {
+    serverListeners.get(event)?.delete(listener);
+  }),
   emit: vi.fn(),
   io: {
     on: vi.fn(),
@@ -19,276 +27,105 @@ vi.mock("socket.io-client", () => ({
 }));
 
 import {
-  registerRoomHandlers,
-  leaveRoom,
   disconnectRoomSocket,
-  onPlayerJoined,
-  offPlayerJoined,
-  onPlayerLeft,
-  offPlayerLeft,
-  onTeamChosen,
-  offTeamChosen,
-  onReadyChanged,
-  offReadyChanged,
-  onGameStarted,
-  offGameStarted,
   isConnected,
+  leaveRoom,
+  registerRoomHandlers,
+  subscribeToRoomEvent,
 } from "@/sockets/roomHandlers";
+
+function socketListener(event: string) {
+  const call = mockSocket.on.mock.calls
+    .filter(([name]) => name === event)
+    .at(-1);
+  if (!call) throw new Error(`No listener registered for ${event}`);
+  return call[1] as (...args: unknown[]) => void;
+}
 
 describe("roomHandlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    serverListeners.clear();
     mockSocket.connected = true;
   });
 
-  describe("registerRoomHandlers", () => {
-    it("emits join_room with roomCode, userId and username", () => {
-      registerRoomHandlers("ABC123", { userId: 1, username: "Francesco" });
-      expect(mockSocket.emit).toHaveBeenCalledWith("join_room", {
-        roomCode: "ABC123",
-        userId: 1,
-        username: "Francesco",
-      });
+  it("joins immediately and rejoins after reconnect", () => {
+    registerRoomHandlers("ROOM", { userId: 1, username: "alice" });
+    expect(mockSocket.emit).toHaveBeenCalledWith("join_room", {
+      roomCode: "ROOM",
+      userId: 1,
+      username: "alice",
     });
 
-    it("connects if not already connected", () => {
-      mockSocket.connected = false;
-      registerRoomHandlers("XYZ", { userId: 2, username: "Mario" });
-      expect(mockSocket.connect).toHaveBeenCalled();
-    });
+    mockSocket.emit.mockClear();
+    socketListener("connect")();
 
-    it("does not call connect if already connected", () => {
-      mockSocket.connected = true;
-      registerRoomHandlers("XYZ", { userId: 2, username: "Mario" });
-      expect(mockSocket.connect).not.toHaveBeenCalled();
-    });
-
-    it("registers socket event listeners", () => {
-      registerRoomHandlers("ROOM1", { userId: 1, username: "Test" });
-
-      expect(mockSocket.off).toHaveBeenCalledWith("player_joined");
-      expect(mockSocket.off).toHaveBeenCalledWith("player_left");
-      expect(mockSocket.off).toHaveBeenCalledWith("team_chosen");
-      expect(mockSocket.off).toHaveBeenCalledWith("ready_changed");
-      expect(mockSocket.off).toHaveBeenCalledWith("game_started");
-
-      expect(mockSocket.on).toHaveBeenCalledWith("connect", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("player_joined", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("player_left", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("team_chosen", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("ready_changed", expect.any(Function));
-      expect(mockSocket.on).toHaveBeenCalledWith("game_started", expect.any(Function));
-    });
-
-    it("re-joins the room on reconnect", () => {
-      registerRoomHandlers("RECONNECT", { userId: 5, username: "Reconnector" });
-
-      // Find the 'connect' handler
-      const connectCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "connect"
-      );
-      const reconnectHandler = connectCall![1];
-
-      // Clear previous emit calls
-      mockSocket.emit.mockClear();
-
-      // Simulate reconnect
-      reconnectHandler();
-
-      expect(mockSocket.emit).toHaveBeenCalledWith("join_room", {
-        roomCode: "RECONNECT",
-        userId: 5,
-        username: "Reconnector",
-      });
+    expect(mockSocket.emit).toHaveBeenCalledWith("join_room", {
+      roomCode: "ROOM",
+      userId: 1,
+      username: "alice",
     });
   });
 
-  describe("leaveRoom", () => {
-    it("emits leave_room with roomCode", () => {
-      leaveRoom("LEAVE1");
-      expect(mockSocket.emit).toHaveBeenCalledWith("leave_room", {
-        roomCode: "LEAVE1",
-      });
-    });
+  it("connects before joining when needed", () => {
+    mockSocket.connected = false;
+    registerRoomHandlers("ROOM", { userId: 1, username: "alice" });
+    expect(mockSocket.connect).toHaveBeenCalledOnce();
   });
 
-  describe("callback registration — onPlayerJoined", () => {
-    it("fires callback when player_joined event comes", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
-
-      const cb = vi.fn();
-      onPlayerJoined(cb);
-
-      // Find the player_joined handler
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "player_joined"
-      );
-      const handler = onCall![1];
-
-      const player = { id: 1, userId: 2, username: "NewPlayer", seat: null, team: null, isReady: false };
-      handler({ player });
-
-      expect(cb).toHaveBeenCalledWith(player);
+  it("unregisters only its own reconnect listener", () => {
+    const unregister = registerRoomHandlers("ROOM", {
+      userId: 1,
+      username: "alice",
     });
+    const listener = socketListener("connect");
 
-    it("offPlayerJoined removes callback", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
+    unregister();
 
-      const cb = vi.fn();
-      onPlayerJoined(cb);
-      offPlayerJoined(cb);
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "player_joined"
-      );
-      const handler = onCall![1];
-      handler({ player: { id: 1, userId: 2, username: "X", seat: null, team: null, isReady: false } });
-
-      expect(cb).not.toHaveBeenCalled();
-    });
+    expect(mockSocket.off).toHaveBeenCalledWith("connect", listener);
   });
 
-  describe("callback registration — onPlayerLeft", () => {
-    it("fires callback when player_left event comes", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
+  it("subscribes and unsubscribes the same event callback", () => {
+    const callback = vi.fn();
+    const unsubscribe = subscribeToRoomEvent("player_left", callback);
+    const listener = socketListener("player_left");
 
-      const cb = vi.fn();
-      onPlayerLeft(cb);
+    listener({ userId: 42 });
+    expect(callback).toHaveBeenCalledWith({ userId: 42 });
 
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "player_left"
-      );
-      const handler = onCall![1];
-      handler({ userId: 42 });
-
-      expect(cb).toHaveBeenCalledWith(42);
-    });
-
-    it("offPlayerLeft removes callback", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
-
-      const cb = vi.fn();
-      onPlayerLeft(cb);
-      offPlayerLeft(cb);
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "player_left"
-      );
-      const handler = onCall![1];
-      handler({ userId: 42 });
-
-      expect(cb).not.toHaveBeenCalled();
-    });
+    unsubscribe();
+    expect(mockSocket.off).toHaveBeenCalledWith("player_left", callback);
   });
 
-  describe("callback registration — onTeamChosen", () => {
-    it("fires callback with team data", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
+  it("does not remove another subscriber for the same event", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const unsubscribeFirst = subscribeToRoomEvent("ready_changed", first);
+    subscribeToRoomEvent("ready_changed", second);
 
-      const cb = vi.fn();
-      onTeamChosen(cb);
+    serverListeners
+      .get("ready_changed")
+      ?.forEach((listener) => listener({ userId: 1, isReady: true }));
+    unsubscribeFirst();
+    serverListeners
+      .get("ready_changed")
+      ?.forEach((listener) => listener({ userId: 1, isReady: false }));
 
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "team_chosen"
-      );
-      const handler = onCall![1];
-      handler({ userId: 3, team: 2 });
-
-      expect(cb).toHaveBeenCalledWith({ userId: 3, team: 2 });
-    });
-
-    it("offTeamChosen removes callback", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
-
-      const cb = vi.fn();
-      onTeamChosen(cb);
-      offTeamChosen(cb);
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "team_chosen"
-      );
-      const handler = onCall![1];
-      handler({ userId: 3, team: 2 });
-
-      expect(cb).not.toHaveBeenCalled();
-    });
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).toHaveBeenCalledTimes(2);
   });
 
-  describe("callback registration — onReadyChanged", () => {
-    it("fires callback with ready data", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
-
-      const cb = vi.fn();
-      onReadyChanged(cb);
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "ready_changed"
-      );
-      const handler = onCall![1];
-      handler({ userId: 7, isReady: true });
-
-      expect(cb).toHaveBeenCalledWith({ userId: 7, isReady: true });
+  it("emits leave_room without disconnecting the shared socket", () => {
+    leaveRoom("ROOM");
+    expect(mockSocket.emit).toHaveBeenCalledWith("leave_room", {
+      roomCode: "ROOM",
     });
-
-    it("offReadyChanged removes callback", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
-
-      const cb = vi.fn();
-      onReadyChanged(cb);
-      offReadyChanged(cb);
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "ready_changed"
-      );
-      const handler = onCall![1];
-      handler({ userId: 7, isReady: true });
-
-      expect(cb).not.toHaveBeenCalled();
-    });
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
   });
 
-  describe("callback registration — onGameStarted", () => {
-    it("fires callback when game_started event comes", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
-
-      const cb = vi.fn();
-      onGameStarted(cb);
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "game_started"
-      );
-      const handler = onCall![1];
-      handler();
-
-      expect(cb).toHaveBeenCalledOnce();
-    });
-
-    it("offGameStarted clears the callback", () => {
-      registerRoomHandlers("ROOM", { userId: 1, username: "A" });
-
-      const cb = vi.fn();
-      onGameStarted(cb);
-      offGameStarted();
-
-      const onCall = mockSocket.on.mock.calls.find(
-        (call: any[]) => call[0] === "game_started"
-      );
-      const handler = onCall![1];
-      handler();
-
-      expect(cb).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("isConnected", () => {
-    it("returns true when socket is connected", () => {
-      mockSocket.connected = true;
-      expect(isConnected()).toBe(true);
-    });
-
-    it("returns false when socket is not connected", () => {
-      mockSocket.connected = false;
-      expect(isConnected()).toBe(false);
-    });
+  it("exposes connection state and explicit disconnection", () => {
+    expect(isConnected()).toBe(true);
+    disconnectRoomSocket();
+    expect(mockSocket.disconnect).toHaveBeenCalled();
   });
 });
