@@ -226,22 +226,21 @@ Set the final step target in session 1. Every resumed session must keep the same
 run ID, `--total-rl-steps`, `--num-envs`, `--steps-per-env`, and training
 hyperparameters; the checkpoint manifest enforces this contract.
 
-The commands below remain the multi-session procedure template. The existing
-Run D identity and its measurements are historical and predate A0-A3; do not
-resume that artifact under the new deal, reward, or observation contracts.
-Start a new run identity from regenerated 518-feature BC data.
+The existing Run D identity and its measurements are historical and predate
+A0-A8. `--preset rund` fails closed so it cannot be resumed accidentally. Run D2
+starts from regenerated 518-feature BC data under a fresh identity:
 
 ```bash
 # Session 1: set the final target once.
-python -m scripts.kaggle_run launch --preset rund \
+python -m scripts.kaggle_run launch --preset rund2 \
   --total-rl-steps 60000000 --confirm-cost
 
 # After each capped session:
 python -m scripts.kaggle_run status
-python -m scripts.kaggle_run pull -p checkpoints/kaggle-rund
+python -m scripts.kaggle_run pull -p checkpoints/kaggle-rund2
 python -m scripts.kaggle_run push-state \
-  --from checkpoints/kaggle-rund -m "runD session N"
-python -m scripts.kaggle_run launch --preset rund \
+  --from checkpoints/kaggle-rund2 -m "runD2 session N"
+python -m scripts.kaggle_run launch --preset rund2 \
   --total-rl-steps 60000000 --resume-state --confirm-cost
 ```
 
@@ -275,10 +274,10 @@ The earlier real Kaggle smoke dataset round-trip succeeded. Because A8 changed
 the checkpoint format and state bundle, a new paid run still requires a fresh
 smoke round-trip with the current code before launch.
 
-The first smoke session prints an end-to-end Run D rollout sweep for 8, 16, 32,
+The first smoke session prints an end-to-end Run D2 rollout sweep for 8, 16, 32,
 and 64 workers, including actor/opponent inference, the centralized critic,
 encoding, IPC, and buffer storage. Select the highest env-SPS count before
-Run D session 1 and adjust `steps_per_env` so the batch remains 32,768. Freeze
+Run D2 session 1 and adjust `steps_per_env` so the batch remains 32,768. Freeze
 both values for every resume session; changing either one invalidates the
 checkpoint's resume contract.
 

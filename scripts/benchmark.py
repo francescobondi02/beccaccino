@@ -13,7 +13,7 @@ from training.dual_rollout import collect_self_play_rollout_vec
 from training.network import CentralizedCritic, create_network
 from training.vec_env import create_vec_env
 
-RUN_D_NETWORK = {
+RUN_D2_NETWORK = {
     "version": 4,
     "d_model": 192,
     "nhead": 6,
@@ -22,8 +22,8 @@ RUN_D_NETWORK = {
 }
 # Critic config the long-run recipe uses (bc_then_rl: hidden_size=args.hidden,
 # num_layers=args.layers). Duplicated here so the benchmark stays importable
-# without kaggle_run; a drift test asserts both dicts against RUN_D_SPEC.
-RUN_D_CRITIC = {
+# without kaggle_run; a drift test asserts both dicts against RUN_D2_SPEC.
+RUN_D2_CRITIC = {
     "hidden_size": 256,
     "num_layers": 4,
     "use_layer_norm": True,
@@ -74,11 +74,11 @@ def benchmark_training_rollout(
     torch_device = torch.device(
         device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
     )
-    learner = create_network(**(network_kwargs or RUN_D_NETWORK)).to(torch_device)
+    learner = create_network(**(network_kwargs or RUN_D2_NETWORK)).to(torch_device)
     opponent = create_network(**learner.config).to(torch_device)
     opponent.load_state_dict(learner.state_dict())
     critic = (
-        CentralizedCritic(FULL_STATE_SIZE, **RUN_D_CRITIC).to(torch_device)
+        CentralizedCritic(FULL_STATE_SIZE, **RUN_D2_CRITIC).to(torch_device)
         if include_full_obs
         else None
     )
@@ -128,7 +128,7 @@ def parse_args(argv=None):
     )
     parser.add_argument("--seconds", type=float, default=10.0)
     parser.add_argument("--win-points", type=int, default=5)
-    # Default ON: the long-run recipe (Run D) trains with a centralized critic, so
+    # Default ON: the Run D2 recipe trains with a centralized critic, so
     # honest throughput must include full-state encode + IPC. Pass --no-include-full-obs
     # to measure the critic-free path.
     parser.add_argument(

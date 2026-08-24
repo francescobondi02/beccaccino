@@ -14,7 +14,7 @@ from scripts.kaggle_run import (
     DATASET_SLUG,
     MEASURED_SPS,
     RUN_B_SPEC,
-    RUN_D_SPEC,
+    RUN_D2_SPEC,
     SECONDS_PER_HOUR,
     SMOKE_MAX_STEPS,
     SMOKE_SPEC,
@@ -64,16 +64,46 @@ def test_runb_preset_exceeds_smoke_threshold():
     assert RUN_B_SPEC.total_rl_steps > SMOKE_MAX_STEPS
 
 
-def test_rund_uses_mixed_win_points_and_fixed_batch_geometry(monkeypatch):
+def test_rund2_uses_fresh_identity_and_fixed_batch_geometry(monkeypatch):
     from scripts import bc_then_rl
 
-    assert RUN_D_SPEC.wp_mix == [5, 41]
-    assert RUN_D_SPEC.win_points is None
-    assert RUN_D_SPEC.num_envs * RUN_D_SPEC.steps_per_env == 32768
-    monkeypatch.setattr(sys, "argv", ["prog", *RUN_D_SPEC.to_cli_args()])
+    assert RUN_D2_SPEC.run_id == "runD2"
+    assert RUN_D2_SPEC.out_dir.endswith("/runD2")
+    assert RUN_D2_SPEC.wp_mix == [5, 41]
+    assert RUN_D2_SPEC.win_points is None
+    assert RUN_D2_SPEC.num_envs * RUN_D2_SPEC.steps_per_env == 32768
+    monkeypatch.setattr(sys, "argv", ["prog", *RUN_D2_SPEC.to_cli_args()])
     args = bc_then_rl.parse_args()
     assert args.wp_mix == [5, 41]
     assert args.win_points is None
+
+
+def test_historical_rund_preset_is_refused_before_kaggle_action(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["prog", "launch", "--preset", "rund", "--confirm-cost"])
+    monkeypatch.setattr(kaggle_run, "_run", lambda command: pytest.fail("must not push"))
+
+    with pytest.raises(SystemExit, match="Run D is historical.*rund2"):
+        kaggle_run.main()
+
+
+def test_rund2_preset_selects_fresh_run(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["prog", "launch", "--preset", "rund2", "--confirm-cost"],
+    )
+    monkeypatch.setattr(
+        kaggle_run,
+        "launch",
+        lambda spec, confirm_cost: captured.update(spec=spec, confirm_cost=confirm_cost),
+    )
+
+    kaggle_run.main()
+
+    assert captured["spec"].run_id == "runD2"
+    assert captured["spec"].resume is None
+    assert captured["confirm_cost"] is True
 
 
 def test_est_hours_matches_throughput_model():

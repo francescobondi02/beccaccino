@@ -346,22 +346,22 @@ python -m scripts.kaggle_run status
 python -m scripts.kaggle_run pull -p checkpoints/kaggle
 ```
 
-Run D was the resumable 60M-step mixed `wp=5,41` experiment. Its existing
-artifacts and measurements are historical: do not resume that pre-A0-A2 run
-under the new deal, reward, and observation contracts. For a new run identity,
-keep the final target and batch geometry unchanged across sessions:
+Run D was the resumable 60M-step mixed `wp=5,41` experiment. Its artifacts and
+measurements are historical, and `--preset rund` now fails closed. Run D2 uses
+the corrected A0-A8 contract and a fresh identity. Keep its final target and
+batch geometry unchanged across sessions:
 
 ```bash
 # Session 1
-python -m scripts.kaggle_run launch --preset rund --confirm-cost
+python -m scripts.kaggle_run launch --preset rund2 --confirm-cost
 
 # After each capped session
 python -m scripts.kaggle_run status
-python -m scripts.kaggle_run pull -p checkpoints/kaggle-rund
+python -m scripts.kaggle_run pull -p checkpoints/kaggle-rund2
 python -m scripts.kaggle_run push-state \
-  --from checkpoints/kaggle-rund --create -m "runD session 1"
+  --from checkpoints/kaggle-rund2 --create -m "runD2 session 1"
 python -m scripts.kaggle_run launch \
-  --preset rund --resume-state --confirm-cost
+  --preset rund2 --resume-state --confirm-cost
 ```
 
 Use `--create` only for the first state-dataset upload. The earlier real Kaggle
@@ -392,7 +392,7 @@ curl -X POST http://localhost:8090/predict \
 python scripts/benchmark.py
 # Expected: ~2400 games/sec single-threaded
 
-# End-to-end Run D rollout sweep used by the Kaggle smoke
+# End-to-end Run D2 rollout sweep used by the Kaggle smoke
 python -m scripts.benchmark \
   --sweep-envs 8,16,32,64 --seconds 10 --win-points 5 \
   --include-full-obs --device cpu

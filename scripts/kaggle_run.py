@@ -278,7 +278,7 @@ RUN_C_SPEC = dataclasses.replace(
     final_ckpt="/kaggle/working/checkpoints/runC_rl.pt",
 )
 
-RUN_D_SPEC = dataclasses.replace(
+HISTORICAL_RUN_D_SPEC = dataclasses.replace(
     RUN_C_SPEC,
     total_rl_steps=60_000_000,
     win_points=None,
@@ -289,6 +289,17 @@ RUN_D_SPEC = dataclasses.replace(
     out_dir="/kaggle/working/runs/runD",
     bc_ckpt="/kaggle/working/checkpoints/runD_bc.pt",
     final_ckpt="/kaggle/working/checkpoints/runD_rl.pt",
+)
+
+# Run D is a historical pre-A0-A8 artifact and must never be resumed under the
+# corrected training contract. Run D2 intentionally keeps its budget and batch
+# geometry while using a fresh identity and regenerated BC data.
+RUN_D2_SPEC = dataclasses.replace(
+    HISTORICAL_RUN_D_SPEC,
+    run_id="runD2",
+    out_dir="/kaggle/working/runs/runD2",
+    bc_ckpt="/kaggle/working/checkpoints/runD2_bc.pt",
+    final_ckpt="/kaggle/working/checkpoints/runD2_rl.pt",
 )
 
 
@@ -559,11 +570,16 @@ _PRESETS = {
     "smoke": SMOKE_SPEC,
     "runb": RUN_B_SPEC,
     "runc": RUN_C_SPEC,
-    "rund": RUN_D_SPEC,
+    "rund2": RUN_D2_SPEC,
+}
+_RETIRED_PRESETS = {
+    "rund": "Run D is historical and predates A0-A8; launch --preset rund2 as a fresh run",
 }
 
 
 def _spec_from_args(a: argparse.Namespace) -> RunSpec:
+    if a.preset in _RETIRED_PRESETS:
+        raise SystemExit(_RETIRED_PRESETS[a.preset])
     if a.preset:
         spec = dataclasses.replace(_PRESETS[a.preset])
     else:
@@ -604,12 +620,12 @@ def build_parser() -> argparse.ArgumentParser:
     ln = sub.add_parser("launch", help="render + push a run kernel")
     ln.add_argument(
         "--preset",
-        choices=["smoke", "runb", "runc", "rund"],
+        choices=["smoke", "runb", "runc", "rund", "rund2"],
         default=None,
         help="smoke: cheap full-recipe validation; runb: the original "
         "overnight run (critic + anchors + 11h cap); runc: runb "
-        "plus signal-honesty shaping and best.pt tracking; rund: resumable "
-        "60M-step mixed wp=5/41 long run.",
+        "plus signal-honesty shaping and best.pt tracking; rund: retired "
+        "historical identity; rund2: fresh 60M-step mixed wp=5/41 long run.",
     )
     ln.add_argument(
         "--confirm-cost",
