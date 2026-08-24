@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Header from "@/components/Header";
+import AuthErrorState from "@/components/AuthErrorState";
 import {
   Trophy,
   Users,
@@ -17,8 +18,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
-import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
+import { apiGet, apiPatch, apiDelete } from "@/lib/api";
+import { useAuth, type AuthUser } from "@/hooks/useAuth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,12 +53,17 @@ interface UserStats {
 
 const Profile = () => {
   const navigate = useNavigate();
-  const [username, setUsername] = useState("");
-  const [userId, setUserId] = useState<number | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    retry: retryAuth,
+    setUser,
+    clearUser,
+  } = useAuth({ redirectOnFail: true });
+  const username = user?.username ?? "";
   const [isEditing, setIsEditing] = useState(false);
   const [newUsername, setNewUsername] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [statsStatus, setStatsStatus] = useState<
@@ -77,32 +83,15 @@ const Profile = () => {
     }
   }, []);
 
-  // Check auth and load user data
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const user = await apiGet<{ id: number; username: string }>(
-          "/users/me",
-        );
-        setUsername(user.username);
-        setNewUsername(user.username);
-        setUserId(user.id);
-        setIsAuthenticated(true);
-        setSentryUser({ id: user.id, username: user.username });
+    if (!user) return;
+    setNewUsername(user.username);
+  }, [user]);
 
-        // Fetch stats
-        await fetchStats();
-      } catch (error) {
-        console.error("Auth check error:", error);
-        toast.error("Devi effettuare l'accesso");
-        navigate("/");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkAuth();
-  }, [fetchStats, navigate]);
+  useEffect(() => {
+    if (!user?.id) return;
+    void fetchStats();
+  }, [fetchStats, user?.id]);
 
   const handleSaveUsername = async () => {
     if (!newUsername.trim()) {
@@ -117,10 +106,10 @@ const Profile = () => {
 
     setIsSaving(true);
     try {
-      const updatedUser = await apiPatch<{ username: string }>("/users/me", {
+      const updatedUser = await apiPatch<AuthUser>("/users/me", {
         username: newUsername.trim(),
       });
-      setUsername(updatedUser.username);
+      setUser(updatedUser);
       setNewUsername(updatedUser.username);
       setIsEditing(false);
       toast.success("Nome aggiornato con successo!");
@@ -136,8 +125,9 @@ const Profile = () => {
   const handleDeleteAccount = async () => {
     try {
       await apiDelete("/users/me");
+      await clearUser();
       toast.success("Account eliminato");
-      navigate("/");
+      navigate("/", { replace: true });
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Errore nell'eliminazione"
@@ -145,18 +135,11 @@ const Profile = () => {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await apiPost("/users/logout");
-      clearSentryUser();
-      toast.success("Logout effettuato");
-      navigate("/");
-    } catch (error) {
-      toast.error("Errore durante il logout");
-    }
-  };
+  if (authError) {
+    return <AuthErrorState onRetry={retryAuth} />;
+  }
 
-  if (isLoading) {
+  if (authLoading || !user) {
     return (
       <div
         className="min-h-screen bg-background flex items-center justify-center"
@@ -170,7 +153,7 @@ const Profile = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header username={username} onLogout={handleLogout} />
+      <Header />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto space-y-6">

@@ -1,17 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Bot, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
+import AuthErrorState from "@/components/AuthErrorState";
 import { toast } from "sonner";
-import { setSentryUser } from "@/lib/sentryUser";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
-
-interface AuthUser {
-  id: number;
-  username: string;
-}
+import { apiPost, ApiError } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 /**
  * Difficulty tiers, mirroring backend `botService.ts` and `ai/serving/tiers.py`.
@@ -44,21 +40,13 @@ const TIERS = [
 
 const Practice = () => {
   const navigate = useNavigate();
-  const [username, setUsername] = useState<string | undefined>(undefined);
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    retry: retryAuth,
+  } = useAuth({ redirectOnFail: true });
   const [startingTier, setStartingTier] = useState<string | null>(null);
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      const user = await apiGet<AuthUser>("/users/me");
-      setUsername(user.username);
-      setSentryUser({ id: user.id, username: user.username });
-    };
-
-    checkAuth().catch(() => {
-      toast.error("Accedi per giocare contro i bot");
-      navigate("/");
-    });
-  }, [navigate]);
 
   const startPractice = async (tier: string) => {
     setStartingTier(tier);
@@ -83,9 +71,25 @@ const Practice = () => {
     }
   };
 
+  if (authError) {
+    return <AuthErrorState onRetry={retryAuth} />;
+  }
+
+  if (authLoading || !user) {
+    return (
+      <div
+        className="min-h-screen bg-background flex items-center justify-center"
+        role="status"
+        aria-label="Verifica sessione"
+      >
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      <Header username={username} />
+      <Header />
 
       <div className="container max-w-3xl mx-auto p-4 pt-24">
         <Button variant="ghost" className="mb-6" onClick={() => navigate("/")}>

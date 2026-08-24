@@ -13,13 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import Header from "@/components/Header";
 import { toast } from "sonner";
-import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
-import { apiGet, apiPost } from "@/lib/api";
-
-interface AuthUser {
-  id: number;
-  username: string;
-}
+import { apiGet } from "@/lib/api";
 
 interface LeaderboardEntry {
   username: string;
@@ -35,21 +29,6 @@ const Leaderboard = () => {
   const [status, setStatus] = useState<"loading" | "error" | "ready">(
     "loading",
   );
-  const [username, setUsername] = useState<string | undefined>(undefined);
-
-  // Check auth for header display (not required for this page)
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const user = await apiGet<AuthUser>("/users/me");
-        setUsername(user.username);
-        setSentryUser({ id: user.id, username: user.username });
-      } catch {
-        // Not logged in — that's fine, leaderboard is public
-      }
-    };
-    checkAuth();
-  }, []);
 
   const fetchLeaderboard = useCallback(async () => {
     setStatus("loading");
@@ -72,18 +51,6 @@ const Leaderboard = () => {
     fetchLeaderboard();
   }, [fetchLeaderboard]);
 
-  const handleLogout = async () => {
-    try {
-      await apiPost("/users/logout");
-      setUsername(undefined);
-      clearSentryUser();
-      toast.success("Logout effettuato");
-      navigate("/");
-    } catch {
-      toast.error("Errore durante il logout");
-    }
-  };
-
   // Podium icon for top 3
   const getRankIcon = (index: number) => {
     if (index === 0) return <Trophy className="h-5 w-5 text-yellow-500" />;
@@ -105,7 +72,7 @@ const Leaderboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Header username={username} onLogout={handleLogout} />
+      <Header />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-3xl mx-auto">

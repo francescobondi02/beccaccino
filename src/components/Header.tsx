@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { User, LogOut, Trophy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -11,22 +10,25 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
-interface HeaderProps {
-  username?: string;
-  onLogout?: () => void;
-}
-
-const Header = ({ username, onLogout }: HeaderProps) => {
+const Header = () => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+  const username = user?.username;
 
   const handleProfile = () => {
     navigate("/profile");
   };
 
-  const handleLogout = () => {
-    onLogout?.();
-    navigate("/");
+  const handleLogout = async () => {
+    try {
+      await logout();
+      toast.success("Logout effettuato");
+    } catch {
+      toast.error("Errore durante il logout");
+    }
   };
 
   const getInitials = (name: string) => {
@@ -77,7 +79,7 @@ const Header = ({ username, onLogout }: HeaderProps) => {
                 <span>Classifica</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout}>
+              <DropdownMenuItem onClick={() => void handleLogout()}>
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Esci</span>
               </DropdownMenuItem>

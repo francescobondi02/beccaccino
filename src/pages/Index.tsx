@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +21,9 @@ import {
   offRoomDeleted,
 } from "@/sockets/lobbyHandlers";
 import { getSocket, isSocketConnected } from "@/sockets/socketClient";
-import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
+import AuthErrorState from "@/components/AuthErrorState";
 
 // Lista delle 40 carte italiane
 const cardFilenames = [
@@ -96,9 +97,15 @@ interface Room {
 
 const Index = () => {
   const navigate = useNavigate();
-  const [username, setUsername] = useState<string>("");
-  const [userId, setUserId] = useState<number | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    retry: retryAuth,
+  } = useAuth();
+  const username = user?.username ?? "";
+  const userId = user?.id ?? null;
+  const isAuthenticated = user !== null;
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [roomCode, setRoomCode] = useState("");
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
@@ -110,17 +117,7 @@ const Index = () => {
   const [leftCards] = useState(() => getRandomCards(20));
   const [rightCards] = useState(() => getRandomCards(20));
 
-  const handleAuthSuccess = async (newUsername: string, newUserId: number) => {
-    setUsername(newUsername);
-    setUserId(newUserId);
-    setIsAuthenticated(true);
-    setShowAuthDialog(false);
-
-    // Carica le stanze disponibili
-    await fetchAvailableRooms(newUserId);
-  };
-
-  const fetchAvailableRooms = async (_userIdParam?: number) => {
+  const fetchAvailableRooms = useCallback(async () => {
     setIsLoadingRooms(true);
     try {
       type ApiRoom = Pick<Room, "id" | "code" | "players">;
@@ -149,47 +146,16 @@ const Index = () => {
     } finally {
       setIsLoadingRooms(false);
     }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await apiPost("/users/logout");
-
-      setUsername("");
-      setIsAuthenticated(false);
-      clearSentryUser();
-      toast.success("Logout effettuato");
-    } catch (error) {
-      console.error("Logout error:", error);
-      toast.error("Errore durante il logout");
-    }
-  };
-
-  // Controlla se l'utente è già autenticato al caricamento
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const user = await apiGet<{ id: number; username: string }>(
-          "/users/me",
-        );
-        setUsername(user.username);
-        setUserId(user.id);
-        setIsAuthenticated(true);
-        setSentryUser({ id: user.id, username: user.username });
-
-        // Carica le stanze disponibili
-        await fetchAvailableRooms(user.id);
-      } catch {
-        // Utente non autenticato, ignora l'errore
-        setIsAuthenticated(false);
-        setUsername("");
-        setUserId(null);
-        clearSentryUser();
-      }
-    };
-
-    checkAuth();
   }, []);
+
+  useEffect(() => {
+    if (userId) {
+      void fetchAvailableRooms();
+      return;
+    }
+    setAvailableRooms([]);
+    setActiveGames([]);
+  }, [fetchAvailableRooms, userId]);
 
   // useEffect per registrare handler + gestionne stato isConnected
   useEffect(() => {
@@ -368,17 +334,29 @@ const Index = () => {
     }
   };
 
+  if (authError) {
+    return <AuthErrorState onRetry={retryAuth} />;
+  }
+
+  if (authLoading) {
+    return (
+      <div
+        className="min-h-screen bg-background flex items-center justify-center"
+        role="status"
+        aria-label="Verifica sessione"
+      >
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      <Header
-        username={isAuthenticated ? username : undefined}
-        onLogout={handleLogout}
-      />
+      <Header />
 
       <AuthDialog
         open={showAuthDialog}
         onOpenChange={setShowAuthDialog}
-        onAuthSuccess={handleAuthSuccess}
       />
 
       <div className="min-h-screen flex items-center justify-center p-4 pt-20">

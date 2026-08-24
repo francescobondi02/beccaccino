@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
-import { useNavigate, type NavigateFunction } from "react-router-dom";
-import { apiGet, apiPost } from "@/lib/api";
+import { useCallback, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 
 export interface AuthUser {
@@ -10,50 +11,94 @@ export interface AuthUser {
 }
 
 interface UseAuthOptions {
-  // Redirect to "/" when the /users/me check fails for any reason (protected pages).
   redirectOnFail?: boolean;
 }
 
-// Fetches the current user once on mount. Sets the Sentry user on success and,
-// when `redirectOnFail` is set, sends unauthenticated visitors home.
-export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
-  const navigate = useNavigate();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+export const AUTH_QUERY_KEY = ["auth", "current-user"] as const;
+const AUTH_STALE_TIME_MS = 5 * 60 * 1000;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    apiGet<AuthUser>("/users/me")
-      .then((me) => {
-        if (cancelled) return;
-        setUser(me);
-        setSentryUser({ id: me.id, username: me.username });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setUser(null);
-        // Any failure (401, 404, 5xx, or a network error while the backend is
-        // down/cold-starting) leaves a protected page unusable — send the
-        // visitor home rather than stranding them on the loading spinner.
-        if (redirectOnFail) {
-          navigate("/");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [redirectOnFail, navigate]);
-
-  return { user, loading };
+async function fetchCurrentUser(): Promise<AuthUser | null> {
+  try {
+    return await apiGet<AuthUser>("/users/me");
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      (error.status === 401 || error.status === 403)
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
-export async function logout(navigate: NavigateFunction) {
-  await apiPost("/users/logout");
-  clearSentryUser();
-  navigate("/");
+export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: AUTH_QUERY_KEY,
+    queryFn: fetchCurrentUser,
+    retry: false,
+    staleTime: AUTH_STALE_TIME_MS,
+  });
+
+  useEffect(() => {
+    if (!query.isSuccess) return;
+
+    if (query.data) {
+      setSentryUser({
+        id: query.data.id,
+        username: query.data.username,
+      });
+      return;
+    }
+
+    clearSentryUser();
+    if (redirectOnFail) {
+      navigate("/", { replace: true });
+    }
+  }, [navigate, query.data, query.isSuccess, redirectOnFail]);
+
+  const setUser = useCallback(
+    (user: AuthUser) => {
+      queryClient.setQueryData<AuthUser | null>(AUTH_QUERY_KEY, user);
+      setSentryUser({ id: user.id, username: user.username });
+    },
+    [queryClient],
+  );
+
+  const clearUser = useCallback(async () => {
+    await queryClient.cancelQueries({ queryKey: AUTH_QUERY_KEY });
+    queryClient.setQueryData<AuthUser | null>(AUTH_QUERY_KEY, null);
+    clearSentryUser();
+  }, [queryClient]);
+
+  const logout = useCallback(async () => {
+    try {
+      await apiPost("/users/logout");
+    } catch (error) {
+      if (
+        !(error instanceof ApiError) ||
+        (error.status !== 401 && error.status !== 403)
+      ) {
+        throw error;
+      }
+    }
+
+    await clearUser();
+    navigate("/", { replace: true });
+  }, [clearUser, navigate]);
+
+  const retry = useCallback(async () => {
+    await query.refetch();
+  }, [query]);
+
+  return {
+    user: query.data ?? null,
+    loading: query.isPending,
+    error: query.error,
+    retry,
+    setUser,
+    clearUser,
+    logout,
+  };
 }

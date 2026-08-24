@@ -5,20 +5,24 @@ import Profile from "@/pages/Profile";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn<(path: string) => Promise<unknown>>(),
-  apiPost: vi.fn(),
   apiPatch: vi.fn(),
   apiDelete: vi.fn(),
+  auth: {
+    user: { id: 1, username: "alice" },
+    loading: false,
+    error: null,
+    retry: vi.fn(),
+    setUser: vi.fn(),
+    clearUser: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/api", () => mocks);
-vi.mock("@/lib/sentryUser", () => ({
-  setSentryUser: vi.fn(),
-  clearSentryUser: vi.fn(),
+vi.mock("@/hooks/useAuth", () => ({
+  useAuth: () => mocks.auth,
 }));
 vi.mock("@/components/Header", () => ({
-  default: ({ username }: { username?: string }) => (
-    <div data-testid="header-user">{username}</div>
-  ),
+  default: () => <div data-testid="header" />,
 }));
 vi.mock("sonner", () => ({
   toast: {
@@ -39,14 +43,14 @@ describe("Profile request states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.apiGet.mockReset();
+    mocks.apiPatch.mockReset();
+    mocks.apiDelete.mockReset();
+    mocks.auth.clearUser.mockResolvedValue(undefined);
   });
 
   it("shows a retryable error instead of zero statistics", async () => {
     let statsAttempts = 0;
     mocks.apiGet.mockImplementation((path) => {
-      if (path === "/users/me") {
-        return Promise.resolve({ id: 1, username: "alice" });
-      }
       if (path === "/users/me/stats") {
         statsAttempts += 1;
         return statsAttempts === 1
@@ -85,9 +89,6 @@ describe("Profile request states", () => {
 
   it("renders returned statistics and recent games", async () => {
     mocks.apiGet.mockImplementation((path) => {
-      if (path === "/users/me") {
-        return Promise.resolve({ id: 1, username: "alice" });
-      }
       if (path === "/users/me/stats") {
         return Promise.resolve({
           totalGames: 7,
@@ -116,5 +117,31 @@ describe("Profile request states", () => {
     expect(await screen.findByText("vs bob, diego")).toBeInTheDocument();
     expect(screen.getByText("83")).toBeInTheDocument();
     expect(screen.getByText("Vittoria")).toBeInTheDocument();
+  });
+
+  it("publishes a renamed user to the shared auth cache", async () => {
+    mocks.apiGet.mockResolvedValue({
+      totalGames: 0,
+      wins: 0,
+      winRate: 0,
+      totalPoints: 0,
+      recentGames: [],
+    });
+    mocks.apiPatch.mockResolvedValue({ id: 1, username: "alice-renamed" });
+
+    renderProfile();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Modifica" }));
+    fireEvent.change(screen.getByLabelText("Nome utente"), {
+      target: { value: "alice-renamed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salva" }));
+
+    await waitFor(() =>
+      expect(mocks.auth.setUser).toHaveBeenCalledWith({
+        id: 1,
+        username: "alice-renamed",
+      }),
+    );
   });
 });

@@ -34,13 +34,15 @@ vi.mock("@/lib/api", async () => {
   };
 });
 vi.mock("@/hooks/useAuth", () => ({
-  useAuth: () => ({ user: { id: 1, username: "alice" } }),
-  logout: vi.fn(),
+  useAuth: () => ({
+    user: { id: 1, username: "alice" },
+    loading: false,
+    error: null,
+    retry: vi.fn(),
+  }),
 }));
 vi.mock("@/components/Header", () => ({
-  default: ({ username }: { username?: string }) => (
-    <div data-testid="header-user">{username}</div>
-  ),
+  default: () => <div data-testid="header" />,
 }));
 vi.mock("@/sockets/roomHandlers", () => ({
   registerRoomHandlers: vi.fn(),
@@ -140,8 +142,9 @@ describe("GameRoom state synchronization", () => {
     renderGameRoom();
 
     expect(await screen.findByText("Giocatori: 2 / 4")).toBeInTheDocument();
-    expect(screen.getAllByText("alice")).toHaveLength(2);
+    expect(screen.getByText("alice")).toBeInTheDocument();
     expect(screen.getByText("bob")).toBeInTheDocument();
+    expect(screen.getByTestId("ready-button")).toBeEnabled();
 
     act(() => {
       mocks.callbacks.teamChosen?.({ userId: 2, team: 1 });
@@ -174,6 +177,31 @@ describe("GameRoom state synchronization", () => {
     });
     expect(screen.queryByText("Tu")).not.toBeInTheDocument();
     expect(screen.getByText("Giocatori: 1 / 4")).toBeInTheDocument();
+    expect(screen.getByTestId("ready-button")).toBeDisabled();
+  });
+
+  it("derives current-player controls from room events", async () => {
+    mocks.apiGet.mockResolvedValue(
+      room([{ ...alice, team: null, isReady: false }, bob]),
+    );
+
+    renderGameRoom();
+
+    expect(await screen.findByTestId("team-0-button")).toBeInTheDocument();
+    expect(screen.getByTestId("ready-button")).toBeDisabled();
+
+    act(() => {
+      mocks.callbacks.teamChosen?.({ userId: 1, team: 1 });
+    });
+
+    expect(screen.queryByTestId("team-0-button")).not.toBeInTheDocument();
+    expect(screen.getByTestId("ready-button")).toBeEnabled();
+
+    act(() => {
+      mocks.callbacks.readyChanged?.({ userId: 1, isReady: true });
+    });
+
+    expect(screen.getByTestId("ready-button")).toHaveTextContent("Non pronto");
   });
 
   it("hydrates authoritative room state after reconnecting", async () => {

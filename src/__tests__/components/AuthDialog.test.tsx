@@ -2,6 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import AuthDialog from "@/components/AuthDialog";
 
+const auth = vi.hoisted(() => ({
+  setUser: vi.fn(),
+}));
+
+vi.mock("@/hooks/useAuth", () => ({
+  useAuth: () => auth,
+}));
+
 // Mock sonner toast
 vi.mock("sonner", () => ({
   toast: {
@@ -13,17 +21,18 @@ vi.mock("sonner", () => ({
 
 import { toast } from "sonner";
 
+const fetchMock = vi.fn<typeof fetch>();
+
 describe("AuthDialog", () => {
   const defaultProps = {
     open: true,
     onOpenChange: vi.fn(),
-    onAuthSuccess: vi.fn(),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset fetch mock
-    global.fetch = vi.fn();
+    fetchMock.mockReset();
+    global.fetch = fetchMock;
   });
 
   it("renders login form by default", () => {
@@ -97,7 +106,7 @@ describe("AuthDialog", () => {
       ok: true,
       text: () => Promise.resolve(JSON.stringify({ username: "TestUser", id: 1 })),
     };
-    (global.fetch as any).mockResolvedValue(mockResponse);
+    fetchMock.mockResolvedValue(mockResponse as Response);
 
     render(<AuthDialog {...defaultProps} />);
 
@@ -128,7 +137,7 @@ describe("AuthDialog", () => {
       ok: true,
       text: () => Promise.resolve(JSON.stringify({ username: "NewUser", id: 2 })),
     };
-    (global.fetch as any).mockResolvedValue(mockResponse);
+    fetchMock.mockResolvedValue(mockResponse as Response);
 
     render(<AuthDialog {...defaultProps} />);
 
@@ -155,12 +164,12 @@ describe("AuthDialog", () => {
     });
   });
 
-  it("calls onAuthSuccess and onOpenChange on successful login", async () => {
+  it("updates shared auth and closes on successful login", async () => {
     const mockResponse = {
       ok: true,
       text: () => Promise.resolve(JSON.stringify({ username: "TestUser", id: 42 })),
     };
-    (global.fetch as any).mockResolvedValue(mockResponse);
+    fetchMock.mockResolvedValue(mockResponse as Response);
 
     render(<AuthDialog {...defaultProps} />);
 
@@ -175,7 +184,10 @@ describe("AuthDialog", () => {
     fireEvent.submit(form);
 
     await waitFor(() => {
-      expect(defaultProps.onAuthSuccess).toHaveBeenCalledWith("TestUser", 42);
+      expect(auth.setUser).toHaveBeenCalledWith({
+        username: "TestUser",
+        id: 42,
+      });
       expect(defaultProps.onOpenChange).toHaveBeenCalledWith(false);
       expect(toast.success).toHaveBeenCalledWith("Accesso effettuato!");
     });
@@ -187,7 +199,7 @@ describe("AuthDialog", () => {
       status: 401,
       text: () => Promise.resolve(JSON.stringify({ error: "Credenziali non valide" })),
     };
-    (global.fetch as any).mockResolvedValue(mockResponse);
+    fetchMock.mockResolvedValue(mockResponse as Response);
 
     render(<AuthDialog {...defaultProps} />);
 
@@ -207,7 +219,7 @@ describe("AuthDialog", () => {
   });
 
   it("shows error toast on network error", async () => {
-    (global.fetch as any).mockRejectedValue(new Error("Network error"));
+    fetchMock.mockRejectedValue(new Error("Network error"));
 
     render(<AuthDialog {...defaultProps} />);
 

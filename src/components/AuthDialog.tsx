@@ -11,13 +11,12 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Mail, Loader2 } from "lucide-react";
-import { setSentryUser } from "@/lib/sentryUser";
 import { apiPost } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
 interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAuthSuccess: (username: string, userId: number) => void;
 }
 
 interface AuthResponse {
@@ -25,7 +24,8 @@ interface AuthResponse {
   username: string;
 }
 
-const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
+const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
+  const { setUser } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -58,8 +58,7 @@ const AuthDialog = ({ open, onOpenChange, onAuthSuccess }: AuthDialogProps) => {
       toast.success(
         isLogin ? "Accesso effettuato!" : "Registrazione completata!"
       );
-      setSentryUser({ id: data.id, username: data.username });
-      onAuthSuccess(data.username, data.id);
+      setUser(data);
       onOpenChange(false);
 
       // Reset form

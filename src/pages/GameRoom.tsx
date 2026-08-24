@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Check, X, LogOut, Share2, Loader2, WifiOff, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import Header from "@/components/Header";
+import AuthErrorState from "@/components/AuthErrorState";
 import { Badge } from "@/components/ui/badge";
 
 import {
@@ -27,7 +28,7 @@ import {
   registerErrorToast,
 } from "@/sockets/socketClient";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
-import { useAuth, logout } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/useAuth";
 import { normalizePlayer, type RawRoomPlayer } from "@/lib/player";
 
 interface Player {
@@ -47,18 +48,33 @@ interface Room {
   players: Player[];
 }
 
+type RoomResponse = Omit<Room, "players"> & { players: RawRoomPlayer[] };
+
+function normalizeRoom(room: RoomResponse): Room {
+  return {
+    ...room,
+    players: room.players.map(normalizePlayer),
+  };
+}
+
 // Long enough to read the "starting" toast before landing on the table.
 const GAME_START_REDIRECT_MS = 5000;
 
 const GameRoom = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth({ redirectOnFail: true });
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    retry: retryAuth,
+  } = useAuth({ redirectOnFail: true });
   const userId = user?.id ?? null;
   const username = user?.username ?? "";
   const [room, setRoom] = useState<Room | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [myPlayer, setMyPlayer] = useState<Player | null>(null);
+  const myPlayer =
+    room?.players.find((player) => player.userId === userId) ?? null;
   const [connectionStatus, setConnectionStatus] = useState<
     "connected" | "disconnected" | "reconnecting"
   >(getConnectionStatus());
@@ -82,15 +98,8 @@ const GameRoom = () => {
     if (!uid || !code) return;
 
     try {
-      const roomData = await apiGet<Omit<Room, "players"> & { players: RawRoomPlayer[] }>(
-        `/rooms/${code}`,
-      );
-      const players: Player[] = roomData.players.map(normalizePlayer);
-
-      setRoom({ ...roomData, players });
-
-      const me = players.find((p) => p.userId === uid);
-      setMyPlayer(me || null);
+      const roomData = await apiGet<RoomResponse>(`/rooms/${code}`);
+      setRoom(normalizeRoom(roomData));
     } catch (error) {
       console.error("Error refetching room on reconnect:", error);
     }
@@ -126,18 +135,10 @@ const GameRoom = () => {
     const fetchRoom = async () => {
       setIsLoading(true);
       try {
-        const roomData = await apiGet<Room>(
+        const roomData = await apiGet<RoomResponse>(
           `/rooms/${roomCode}?userId=${userId}`,
         );
-
-        // Normalizza i giocatori per compatibilità con l'interfaccia
-        const players: Player[] = roomData.players.map(normalizePlayer);
-
-        setRoom({ ...roomData, players });
-
-        // Trova il player corrente
-        const me = roomData.players.find((p) => p.userId === userId);
-        setMyPlayer(me || null);
+        setRoom(normalizeRoom(roomData));
       } catch (error) {
         if (error instanceof ApiError) {
           if (error.status === 404) {
@@ -210,9 +211,6 @@ const GameRoom = () => {
         return { ...prevRoom, players: updatedPlayers };
       });
 
-      if (data.userId === userId && myPlayer) {
-        setMyPlayer({ ...myPlayer, team: data.team });
-      }
     };
 
     const handleReadyChanged = (data: { userId: number; isReady: boolean }) => {
@@ -224,9 +222,6 @@ const GameRoom = () => {
         return { ...prevRoom, players: updatedPlayers };
       });
 
-      if (data.userId === userId && myPlayer) {
-        setMyPlayer({ ...myPlayer, isReady: data.isReady });
-      }
     };
 
     // Callback per quando la partita inizia
@@ -261,7 +256,7 @@ const GameRoom = () => {
         leaveRoom(roomCode);
       }
     };
-  }, [userId, username, roomCode]);
+  }, [navigate, roomCode, userId, username]);
 
   const handleReady = async () => {
     if (!myPlayer || !userId) return;
@@ -274,20 +269,23 @@ const GameRoom = () => {
         { isReady: newReadyState },
       );
 
-      // Aggiorna lo stato locale
-      setMyPlayer({ ...myPlayer, isReady: newReadyState });
-
-      if (room) {
-        const updatedPlayers = room.players.map((p) =>
-          p.userId === userId ? { ...p, isReady: newReadyState } : p,
-        );
-        setRoom({ ...room, players: updatedPlayers });
-      }
+      setRoom((currentRoom) =>
+        currentRoom
+          ? {
+              ...currentRoom,
+              players: currentRoom.players.map((player) =>
+                player.userId === userId
+                  ? { ...player, isReady: newReadyState }
+                  : player,
+              ),
+            }
+          : currentRoom,
+      );
 
       toast.success(newReadyState ? "Sei pronto!" : "Non più pronto");
 
       // Se tutti sono pronti (e il numero di giocatori è 4), la partita inizia
-      if (data.allReady && room && room.players.length === 4) {
+      if (data.allReady && room?.players.length === 4) {
         toast.success("Tutti pronti! La partita sta per iniziare...");
       }
     } catch (error) {
@@ -299,8 +297,6 @@ const GameRoom = () => {
       );
     }
   };
-
-  const handleLogout = () => logout(navigate);
 
   const handleShareLink = () => {
     const inviteUrl = `${window.location.origin}/room/${roomCode}`;
@@ -326,17 +322,16 @@ const GameRoom = () => {
     try {
       await apiPost(`/rooms/${roomCode}/choose-team`, { team });
 
-      // Aggiorna lo stato locale
-      if (myPlayer) {
-        setMyPlayer({ ...myPlayer, team });
-      }
-
-      if (room) {
-        const updatedPlayers = room.players.map((p) =>
-          p.userId === userId ? { ...p, team } : p,
-        );
-        setRoom({ ...room, players: updatedPlayers });
-      }
+      setRoom((currentRoom) =>
+        currentRoom
+          ? {
+              ...currentRoom,
+              players: currentRoom.players.map((player) =>
+                player.userId === userId ? { ...player, team } : player,
+              ),
+            }
+          : currentRoom,
+      );
 
       toast.success(`Sei nel Team ${team + 1}!`);
     } catch (error) {
@@ -361,7 +356,11 @@ const GameRoom = () => {
     allPlayers[i] = currentPlayers[i] || null;
   }
 
-  if (isLoading) {
+  if (authError) {
+    return <AuthErrorState onRetry={retryAuth} />;
+  }
+
+  if (authLoading || isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="bg-gradient-card border-border/50">
@@ -407,7 +406,7 @@ const GameRoom = () => {
         </div>
       )}
 
-      <Header username={username} onLogout={handleLogout} />
+      <Header />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto animate-fade-in">

@@ -1,22 +1,20 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Leaderboard from "@/pages/Leaderboard";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn<(path: string) => Promise<unknown>>(),
-  apiPost: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => mocks);
+vi.mock("@/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return { ...actual, apiGet: mocks.apiGet };
+});
 vi.mock("@/lib/sentryUser", () => ({
   setSentryUser: vi.fn(),
   clearSentryUser: vi.fn(),
-}));
-vi.mock("@/components/Header", () => ({
-  default: ({ username }: { username?: string }) => (
-    <div data-testid="header-user">{username}</div>
-  ),
 }));
 vi.mock("sonner", () => ({
   toast: {
@@ -26,10 +24,18 @@ vi.mock("sonner", () => ({
 }));
 
 function renderLeaderboard() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+
   return render(
-    <MemoryRouter>
-      <Leaderboard />
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <Leaderboard />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -43,7 +49,7 @@ describe("Leaderboard request states", () => {
     let leaderboardAttempts = 0;
     mocks.apiGet.mockImplementation((path) => {
       if (path === "/users/me") {
-        return Promise.reject(new Error("not authenticated"));
+        return Promise.reject(new Error("auth service unavailable"));
       }
       if (path === "/users/leaderboard") {
         leaderboardAttempts += 1;

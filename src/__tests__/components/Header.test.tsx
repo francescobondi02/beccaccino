@@ -1,66 +1,81 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import Header from "@/components/Header";
 
-// Mock useNavigate
-const mockNavigate = vi.fn();
+const mocks = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  auth: {
+    user: null as { id: number; username: string } | null,
+    logout: vi.fn(),
+  },
+}));
+
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
   return {
     ...actual,
-    useNavigate: () => mockNavigate,
+    useNavigate: () => mocks.navigate,
   };
 });
+vi.mock("@/hooks/useAuth", () => ({
+  useAuth: () => mocks.auth,
+}));
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+    success: vi.fn(),
+  },
+}));
 
-function renderHeader(props: { username?: string; onLogout?: () => void }) {
+function renderHeader(username?: string) {
+  mocks.auth.user = username ? { id: 1, username } : null;
   return render(
     <MemoryRouter>
-      <Header {...props} />
-    </MemoryRouter>
+      <Header />
+    </MemoryRouter>,
   );
 }
 
 describe("Header", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.auth.user = null;
   });
 
   it("renders the brand title", () => {
-    renderHeader({});
+    renderHeader();
     expect(screen.getByText(/beccaccino/i)).toBeInTheDocument();
   });
 
   it("navigates to home when clicking the brand title", () => {
-    renderHeader({});
+    renderHeader();
     fireEvent.click(screen.getByText(/beccaccino/i));
-    expect(mockNavigate).toHaveBeenCalledWith("/");
+    expect(mocks.navigate).toHaveBeenCalledWith("/");
   });
 
-  it("shows user avatar when username is provided", () => {
-    renderHeader({ username: "Francesco" });
-    // Single word username → first letter only (getInitials slices to 2 max)
+  it("shows user avatar when authenticated", () => {
+    renderHeader("Francesco");
     expect(screen.getByText("F")).toBeInTheDocument();
   });
 
-  it("shows single initial for single-name username", () => {
-    renderHeader({ username: "Mario" });
+  it("shows single initial for a single-name username", () => {
+    renderHeader("Mario");
     expect(screen.getByText("M")).toBeInTheDocument();
   });
 
-  it("shows two initials for two-word username", () => {
-    renderHeader({ username: "Mario Rossi" });
+  it("shows two initials for a two-word username", () => {
+    renderHeader("Mario Rossi");
     expect(screen.getByText("MR")).toBeInTheDocument();
   });
 
-  it("does not show avatar when no username", () => {
-    renderHeader({});
-    // No trigger button with avatar should be present
+  it("does not show an avatar when anonymous", () => {
+    renderHeader();
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("shows username text on larger screens", () => {
-    renderHeader({ username: "TestPlayer" });
+  it("shows the shared username", () => {
+    renderHeader("TestPlayer");
     expect(screen.getByText("TestPlayer")).toBeInTheDocument();
   });
 });

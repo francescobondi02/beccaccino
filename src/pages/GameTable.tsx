@@ -13,6 +13,7 @@ import ConnectionBanner from "@/components/ConnectionBanner";
 import PlayerSeat from "@/components/PlayerSeat";
 import TableCenter from "@/components/TableCenter";
 import PracticePanel from "@/components/PracticePanel";
+import AuthErrorState from "@/components/AuthErrorState";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { onPlayerLeft, offPlayerLeft } from "@/sockets/roomHandlers";
@@ -50,7 +51,12 @@ interface Room {
 const GameTable = () => {
   const { gameRoomCode } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth({ redirectOnFail: true });
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    retry: retryAuth,
+  } = useAuth({ redirectOnFail: true });
   const userId = user?.id ?? null;
   const username = user?.username ?? "";
   const [room, setRoom] = useState<Room | null>(null);
@@ -332,7 +338,11 @@ const GameTable = () => {
     }
   };
 
-  if (isLoading) {
+  if (authError) {
+    return <AuthErrorState onRetry={retryAuth} />;
+  }
+
+  if (authLoading || isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 flex items-center justify-center">
         <Card className="bg-card/80 backdrop-blur-sm p-8">
