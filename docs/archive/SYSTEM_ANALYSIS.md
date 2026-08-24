@@ -1,4 +1,7 @@
-# BECCA `ai/` Module — System Analysis
+# Archived: BECCA `ai/` System Analysis
+
+> Historical audit snapshot. Finding status is preserved as written and is not
+> current operator guidance.
 
 *Consolidated findings from a full six-dimension senior review — architecture, engine/observation, evaluation, serving/inference, testing/ops, and RL training soundness (PPO/self-play/BC plus reward and credit assignment) — every finding adversarially verified against the code. This document is the standalone deliverable for the upcoming restructure.*
 

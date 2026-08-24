@@ -53,3 +53,5 @@ Exit code 0 supports the scoped claim. Any missing artifact, insufficient sample
 threshold miss, or malformed interval returns exit code 1. No current repository
 artifact passes this protocol; the gate is implemented, but the experiments are
 unrun.
+
+Completed and open evidence is tracked in [EXPERIMENTS.md](EXPERIMENTS.md).

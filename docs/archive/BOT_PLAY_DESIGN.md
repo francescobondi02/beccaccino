@@ -1,4 +1,7 @@
-# BECCA — Play Against the Bots: Design
+# Archived: BECCA Play Against the Bots Design
+
+> Historical design snapshot. Use the root README and current runbooks for
+> present behavior and commands.
 
 **Status:** **BUILT — all five phases.** A human can start a practice game from the UI
 ("Pratica contro i bot" → tier picker), play a full round against the trained model, and

@@ -1,1 +1,1 @@
-"""Serving module — FastAPI endpoint and ONNX export for inference."""
+"""Raw-state FastAPI inference for Beccaccino bots."""

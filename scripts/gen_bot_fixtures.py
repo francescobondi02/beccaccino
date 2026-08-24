@@ -1,17 +1,16 @@
 """Generate the cross-language fixtures the backend serializer is checked against.
 
-Layer 2b of the bot-play fidelity strategy (docs/BOT_PLAY_DESIGN.md §5.3b). The
-Python parity tests only prove Python agrees with itself; nothing there exercises
-the TypeScript serializer. These fixtures close that gap: each case pairs the
-state DTO the backend must produce with the observation it must yield, so a
-backend test can assert its own serializer output against a known-good DTO.
+The Python parity tests only prove Python agrees with itself; nothing there
+exercises the TypeScript serializer. These fixtures close that gap: each case
+pairs the state DTO the backend must produce with the observation it must yield,
+so a backend test can assert its serializer output against a known-good DTO.
 
     python -m scripts.gen_bot_fixtures
 
-Cases deliberately target the blocks a naive serializer drops — cumulative scores
-in raw units, the whole round's tricks, signals, voids, and left/right seats —
-because those do not change which cards are legal, so the runtime 409 gate
-(§5.3) cannot catch them.
+Cases deliberately target the blocks a naive serializer drops - cumulative
+scores in raw units, the whole round's tricks, signals, voids, and left/right
+seats - because those do not change which cards are legal, so the runtime 409
+gate cannot catch them.
 """
 
 from __future__ import annotations

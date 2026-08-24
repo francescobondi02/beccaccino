@@ -71,8 +71,8 @@ def ppo_update(
 
             _, new_lp, ent, actor_val = net.get_action_and_value(obs[mb], masks[mb], actions[mb])
             # CTDE: the value being fit is the centralized critic over full state;
-            # the actor's own value head is left idle (kept so V4.forward and the
-            # ONNX export still return (logits, value)).
+            # the actor's own value head is left idle but remains part of the
+            # policy checkpoint and inference contract.
             new_val = critic(full_obs[mb]) if critic is not None else actor_val
 
             # Policy loss (clipped surrogate)

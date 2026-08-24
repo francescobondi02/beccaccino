@@ -1,4 +1,7 @@
-# BECCA AI — Long-Run Readiness: Implementation Plan
+# Archived: BECCA AI Long-Run Readiness Plan
+
+> Historical implementation snapshot. Current Kaggle and resume instructions
+> live in `docs/TRAINING_RUNBOOK.md`.
 
 **Status:** Core implementation landed locally on 2026-07-27. The full local suite passes,
 but no paid run should launch until the Kaggle resume drill in P4.1 succeeds.

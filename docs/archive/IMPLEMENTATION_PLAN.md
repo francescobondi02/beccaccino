@@ -1,4 +1,7 @@
-# BECCA AI — Review Fixes & Strengthening: Implementation Plan
+# Archived: BECCA AI Review Fixes and Strengthening Plan
+
+> Historical implementation snapshot. It includes paths and contracts that
+> were later replaced.
 
 **Status:** Locked plan, implementation in progress.
 **Branch:** `feature/ai-review-fixes` (in the `ai/` submodule).

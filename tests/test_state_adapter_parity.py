@@ -1,13 +1,13 @@
 """Parity: a game round-tripped through the wire format must encode identically.
 
-This is Layer 1 of the bot-play fidelity strategy (see docs/BOT_PLAY_DESIGN.md §5.2).
-It locks `serving.state_adapter` to the training-time encoder: if the DTO drops or
-reorders anything `encode_observation` reads, the encoded vectors diverge and
-these tests fail.
+This locks `serving.state_adapter` to the training-time encoder: if the DTO
+drops or reorders anything `encode_observation` reads, the encoded vectors
+diverge and these tests fail.
 
 Scope, stated honestly: this covers the PYTHON adapter only. The TypeScript
 serializer never enters this loop, so a backend that sends wrong scores or a
-truncated round would still pass here — that gap is Layer 2b's job (§5.3b).
+truncated round would still pass here. The committed fixture consumer in the
+backend closes that cross-language gap.
 """
 
 from __future__ import annotations

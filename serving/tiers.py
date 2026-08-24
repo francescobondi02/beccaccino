@@ -1,8 +1,8 @@
 """Difficulty tiers for practice games against bots.
 
-Four tiers built from what we already have (strength evidence in
-docs/BOT_PLAY_DESIGN.md §6). Every agent exposes the same
-`select_action(game, seat)` contract, so `/act` treats them uniformly.
+Four tiers built from the retained historical checkpoints documented in
+docs/EXPERIMENTS.md. Every agent exposes the same `select_action(game, seat)`
+contract, so `/act` treats them uniformly.
 
 Checkpoints are loaded lazily and cached: a tier nobody plays costs nothing, and
 the process does not need every artifact present to serve the tiers it can.

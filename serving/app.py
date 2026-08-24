@@ -85,7 +85,7 @@ def _reject_on_legal_move_disagreement(game, request: ActRequest) -> None:
 
     This catches legality drift only. Wrong scores or a truncated signal history
     do not change which cards are playable, and are covered by the parity tests
-    instead (see docs/BOT_PLAY_DESIGN.md §5.3).
+    instead.
     """
     if request.expected_legal_cards is None or game.phase != GamePhase.PLAY_CARD:
         return
