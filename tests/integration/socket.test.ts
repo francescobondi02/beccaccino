@@ -234,7 +234,16 @@ describe("Socket.IO real WebSocket integration", () => {
       const client2 = createClient();
       await waitForConnect(client2);
 
-      const playerJoinedPromise = waitForEvent<{ player: { username: string; userId: number } }>(
+      const playerJoinedPromise = waitForEvent<{
+        player: {
+          id: number;
+          username: string;
+          userId: number;
+          seat: number | null;
+          team: number | null;
+          isReady: boolean;
+        };
+      }>(
         client1,
         "player_joined"
       );
@@ -242,8 +251,14 @@ describe("Socket.IO real WebSocket integration", () => {
       client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
 
       const event = await playerJoinedPromise;
-      expect(event.player.username).toBe("Bob");
-      expect(event.player.userId).toBe(u2.id);
+      expect(event.player).toEqual({
+        id: expect.any(Number),
+        username: "Bob",
+        userId: u2.id,
+        seat: null,
+        team: null,
+        isReady: false,
+      });
     });
 
     it("should emit error if room does not exist", async () => {

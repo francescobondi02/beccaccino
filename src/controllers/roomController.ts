@@ -10,6 +10,7 @@ import { withRoomLock } from "../utils/roomLock";
 import { logger } from "../logger";
 import { BOT_TIERS, ensureBotUsers, isBotTier } from "../services/botService";
 import { clearRoomTimerData, registerBotSeats } from "../services/turnTimer";
+import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -45,9 +46,7 @@ export const createRoom = async (req: Request, res: Response) => {
       },
       include: {
         players: {
-          include: {
-            user: true,
-          },
+          select: PUBLIC_PLAYER_SELECT,
         },
       },
     });
@@ -207,14 +206,7 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
       },
       include: {
         players: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-              },
-            },
-          },
+          select: PUBLIC_PLAYER_SELECT,
         },
       },
     });
@@ -237,14 +229,7 @@ export const getAvailableRooms = async (req: Request, res: Response) => {
       },
       include: {
         players: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                username: true,
-              },
-            },
-          },
+          select: PUBLIC_PLAYER_SELECT,
         },
       },
     });
@@ -266,9 +251,7 @@ export const getRoomByCode = async (req: Request, res: Response) => {
       where: { code: roomCode },
       include: {
         players: {
-          include: {
-            user: true,
-          },
+          select: PUBLIC_PLAYER_SELECT,
         },
       },
     });
@@ -365,7 +348,7 @@ export const joinRoom = async (req: Request, res: Response) => {
         where: { code: roomCode },
         include: {
           players: {
-            include: { user: true },
+            select: PUBLIC_PLAYER_SELECT,
           },
         },
       });

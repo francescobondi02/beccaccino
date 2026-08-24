@@ -16,6 +16,23 @@ async function createUser(username: string): Promise<{
   return { id: res.body.id, username };
 }
 
+function expectPublicPlayers(players: Array<Record<string, unknown>>) {
+  for (const player of players) {
+    expect(Object.keys(player).sort()).toEqual([
+      "id",
+      "isReady",
+      "seat",
+      "team",
+      "user",
+      "userId",
+    ]);
+    expect(Object.keys(player.user as Record<string, unknown>).sort()).toEqual([
+      "id",
+      "username",
+    ]);
+  }
+}
+
 describe("Room API", () => {
   describe("POST /api/rooms/ (create)", () => {
     it("creates a room and assigns the creator as seat 0", async () => {
@@ -29,6 +46,23 @@ describe("Room API", () => {
       expect(res.body.players).toHaveLength(1);
       expect(res.body.players[0].userId).toBe(user.id);
       expect(res.body.players[0].seat).toBe(0);
+      expectPublicPlayers(res.body.players);
+    });
+  });
+
+  describe("GET /api/rooms/:roomCode", () => {
+    it("returns only public player fields", async () => {
+      const user = await createUser("creator");
+      const createRes = await apiAs(user.id, user.username)
+        .post("/api/rooms/")
+        .send({});
+
+      const res = await apiAs(user.id, user.username).get(
+        `/api/rooms/${createRes.body.code}`,
+      );
+
+      expect(res.statusCode).toBe(200);
+      expectPublicPlayers(res.body.players);
     });
   });
 
@@ -48,6 +82,7 @@ describe("Room API", () => {
 
       expect(joinRes.statusCode).toBe(200);
       expect(joinRes.body.players).toHaveLength(2);
+      expectPublicPlayers(joinRes.body.players);
     });
 
     it("rejects joining a non-existent room", async () => {

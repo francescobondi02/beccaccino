@@ -8,6 +8,7 @@ import { Server, Socket } from "socket.io";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { logger } from "../logger";
+import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 
 // Interfacce per gli eventi
 interface JoinRoomData {
@@ -73,9 +74,7 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         where: { code: roomCode },
         include: {
           players: {
-            include: {
-              user: true,
-            },
+            select: PUBLIC_PLAYER_SELECT,
           },
         },
       });
