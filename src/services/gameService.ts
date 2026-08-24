@@ -183,18 +183,33 @@ export async function setupRound(
    * @return void
    *
    */
-  return tx
-    ? setupRoundTx(tx, gameRoomId, roundNumber)
-    : prisma.$transaction((client) =>
-        setupRoundTx(client, gameRoomId, roundNumber),
-      );
+  if (tx) {
+    return setupRoundTx(tx, gameRoomId, roundNumber);
+  }
+
+  const result = await prisma.$transaction((client) =>
+    setupRoundTx(client, gameRoomId, roundNumber),
+  );
+  logRoundSetup(result);
+  return result;
+}
+
+type RoundSetupResult = {
+  gameRoomId: number;
+  roundNumber: number;
+  roundId: number;
+  callerPlayerId: number;
+};
+
+function logRoundSetup(result: RoundSetupResult): void {
+  logger.info(result, "round_setup");
 }
 
 async function setupRoundTx(
   tx: Prisma.TransactionClient,
   gameRoomId: number,
   roundNumber: number,
-) {
+): Promise<RoundSetupResult> {
   if (roundNumber === 1) {
     await tx.player.updateMany({
       where: { gameRoomId },
@@ -296,17 +311,12 @@ async function setupRoundTx(
     starterId = nextCaller;
   }
 
-  logger.info(
-    {
-      gameRoomId,
-      roundNumber: newRoundNumber,
-      roundId: round.id,
-      callerPlayerId: starterId,
-    },
-    "round_setup",
-  );
-
-  return { callerPlayerId: starterId, roundId: round.id };
+  return {
+    gameRoomId,
+    roundNumber: newRoundNumber,
+    roundId: round.id,
+    callerPlayerId: starterId,
+  };
 }
 
 /**
@@ -322,7 +332,7 @@ export async function startFirstRound(
   roomCode: string,
 ): Promise<void> {
   try {
-    const callerUserId = await prisma.$transaction(async (tx) => {
+    const { callerUserId, roundSetup } = await prisma.$transaction(async (tx) => {
       const claim = await tx.gameRoom.updateMany({
         where: { id: gameRoomId, started: false },
         data: { started: true },
@@ -331,16 +341,17 @@ export async function startFirstRound(
         throw new GameError("Game has already started", 409);
       }
 
-      const { callerPlayerId } = await setupRound(gameRoomId, 1, tx);
+      const roundSetup = await setupRound(gameRoomId, 1, tx);
       const caller = await tx.player.findUnique({
-        where: { id: callerPlayerId },
+        where: { id: roundSetup.callerPlayerId },
         select: { userId: true },
       });
       if (!caller) throw new Error("Briscola caller not found");
 
-      return caller.userId;
+      return { callerUserId: caller.userId, roundSetup };
     });
 
+    logRoundSetup(roundSetup);
     getSocketInstance().to(roomCode).emit("game_started", {});
     startTurnTimer(roomCode, callerUserId, "choose_briscola");
   } catch (error) {
@@ -411,17 +422,25 @@ async function setBriscolaUnlocked({
   });
   const hasCricca = detectCricca(callerCards, suit);
 
-  const updatedRound = await prisma.round.update({
-    where: { id: currentRound.id },
-    data: { briscola: suit, cricca: hasCricca },
-  });
-
-  const firstHand = await prisma.hand.create({
-    data: {
-      roundId: currentRound.id,
-      number: 1,
-      starterId: playerId,
-    },
+  const { updatedRound, firstHand } = await prisma.$transaction(async (tx) => {
+    const claim = await tx.round.updateMany({
+      where: { id: currentRound.id, briscola: null },
+      data: { briscola: suit, cricca: hasCricca },
+    });
+    if (claim.count !== 1) {
+      throw new GameError("Briscola already set for this round", 409);
+    }
+    const firstHand = await tx.hand.create({
+      data: {
+        roundId: currentRound.id,
+        number: 1,
+        starterId: playerId,
+      },
+    });
+    const updatedRound = await tx.round.findUniqueOrThrow({
+      where: { id: currentRound.id },
+    });
+    return { updatedRound, firstHand };
   });
 
   const io = getSocketInstance();
@@ -451,6 +470,47 @@ async function setBriscolaUnlocked({
   );
 
   return { round: updatedRound, hand: firstHand, roomCode: gameRoom.code };
+}
+
+type PlayedCardInput = {
+  handId: number;
+  playerId: number;
+  suit: Suit;
+  value: Value;
+  position: number;
+  signal: "striscio" | "busso" | "volo" | null;
+};
+
+async function persistPlayedCard(
+  tx: Prisma.TransactionClient,
+  playerCardId: number,
+  data: PlayedCardInput,
+) {
+  await tx.playerCard.delete({ where: { id: playerCardId } });
+  return tx.playedCard.create({ data });
+}
+
+function publishPlayedCard(args: {
+  roomCode: string;
+  userId: number;
+  playerId: number;
+  suit: Suit;
+  value: Value;
+  position: number;
+  handNumber: number;
+  roundNumber: number;
+  signal: PlayedCardInput["signal"];
+}) {
+  getSocketInstance().to(args.roomCode).emit("card_played", {
+    playerId: args.playerId,
+    userId: args.userId,
+    suit: args.suit,
+    value: args.value,
+    position: args.position,
+    handNumber: args.handNumber,
+    signal: args.signal,
+  });
+  logger.info(args, "card_played");
 }
 
 /**
@@ -507,7 +567,7 @@ async function playCardUnlocked({
           hands: {
             orderBy: { number: "desc" },
             take: 1,
-            include: { cards: true },
+            include: { cards: { orderBy: { position: "asc" } } },
           },
         },
       },
@@ -577,308 +637,238 @@ async function playCardUnlocked({
   // Only the trick leader (position 0) can declare a signal
   const validSignal =
     playedCards.length === 0 && signal ? signal : null;
-
-  //^ 5. Rimuovi la carta dalla mano del giocatore e aggiungila alle carte giocate
-  const played = await prisma.$transaction(async (tx) => {
-    await tx.playerCard.delete({
-      where: {
-        id: playerCard.id,
-      },
-    });
-
-    return tx.playedCard.create({
-      data: {
-        handId: currentHand.id,
-        playerId: player.id,
-        suit,
-        value,
-        position: playedCards.length,
-        signal: validSignal,
-      },
-    });
-  });
-
-  // Notifica tramite websocket la carta giocata
-  const io = getSocketInstance();
-  io.to(roomCode).emit("card_played", {
+  const position = playedCards.length;
+  const playedCardData: PlayedCardInput = {
+    handId: currentHand.id,
     playerId: player.id,
-    userId: player.userId,
     suit,
     value,
-    position: playedCards.length,
-    handNumber: currentHand.number,
+    position,
     signal: validSignal,
-  });
-
-  logger.info(
-    {
+  };
+  const publish = () =>
+    publishPlayedCard({
       roomCode,
       userId,
       playerId: player.id,
       suit,
       value,
-      position: playedCards.length,
+      position,
       handNumber: currentHand.number,
       roundNumber: currentRound.number,
       signal: validSignal,
-    },
-    "card_played",
-  );
+    });
 
-  //^ Ora dobbiamo controllare se la mano è completa e gestire il turno successivo
-  if (playedCards.length + 1 < 4) {
-    // Hand not complete — start timer for next player
-    const seatOrder = Array.from({ length: 4 }, (_, i) =>
-      seatAfter(
-        room.players.find((p) => p.id === currentHand.starterId)!.seat!,
-        i,
-      ),
+  if (position < 3) {
+    await prisma.$transaction((tx) =>
+      persistPlayedCard(tx, playerCard.id, playedCardData),
     );
-    const nextSeat = seatOrder[playedCards.length + 1];
-    const nextPlayer = room.players.find((p) => p.seat === nextSeat);
+    publish();
+
+    const nextPlayer = room.players.find(
+      (candidate) => candidate.seat === seatOrder[position + 1],
+    );
     if (nextPlayer) {
       startTurnTimer(roomCode, nextPlayer.userId, "play_card");
     }
+    return;
   }
 
-  if (playedCards.length + 1 === 4) {
-    //^ Il player in questione era l'ultimo della mano corrente
-    const winnerPlayerId = determineHandWinner(
-      [...playedCards, played],
-      currentRound.briscola,
-    );
+  const winnerPlayerId = determineHandWinner(
+    [...playedCards, playedCardData],
+    currentRound.briscola,
+  );
 
-    //^ Se la mano non era l'ultima del round, crea una nuova mano
-    if (currentHand.number < 10) {
-      await prisma.$transaction(async (tx) => {
-        await tx.hand.update({
-          where: { id: currentHand.id },
-          data: { winnerId: winnerPlayerId },
-        });
-        await tx.hand.create({
-          data: {
-            roundId: currentRound.id,
-            number: currentHand.number + 1,
-            starterId: winnerPlayerId, // La nuova mano parte da chi ha preso quella prima
-          },
-        });
+  if (currentHand.number < 10) {
+    await prisma.$transaction(async (tx) => {
+      await persistPlayedCard(tx, playerCard.id, playedCardData);
+      await tx.hand.update({
+        where: { id: currentHand.id },
+        data: { winnerId: winnerPlayerId },
       });
-
-      // Start timer for the trick winner (who starts the new hand)
-      const winnerPlayer = room.players.find((p) => p.id === winnerPlayerId);
-      if (winnerPlayer) {
-        startTurnTimer(roomCode, winnerPlayer.userId, "play_card");
-      }
-    } else {
-      //^ Era l'ultima mano del round, calcola i punti e crea un nuovo round
-
-      // Recupera tutte le mani del round con le carte giocate
-      const allHands = await prisma.hand.findMany({
-        where: { roundId: currentRound.id },
-        orderBy: { number: "asc" },
-        include: {
-          cards: {
-            orderBy: { position: "asc" },
-            include: { player: true },
-          },
+      await tx.hand.create({
+        data: {
+          roundId: currentRound.id,
+          number: currentHand.number + 1,
+          starterId: winnerPlayerId,
         },
       });
+    });
+    publish();
 
-      // Crea la mappa teamPlayers: playerId -> team
-      const teamPlayers: Record<number, number> = {};
-      for (const player of room.players) {
-        if (player.team !== null) {
-          teamPlayers[player.id] = player.team;
-        }
-      }
-
-      // Calcola i punti
-      const scores = computePoints(
-        allHands.map((h) => ({
-          winnerId: h.winnerId,
-          cards: h.cards.map((c) => ({
-            value: c.value,
-            suit: c.suit,
-            playerId: c.playerId,
-          })),
-        })),
-        teamPlayers,
-        currentRound.briscola!,
-      );
-
-      // Apply Cricca bonus: +3 points to the caller's team
-      if (currentRound.cricca) {
-        const callerId = allHands[0].starterId;
-        const callerTeam = teamPlayers[callerId];
-        if (callerTeam === 0) {
-          scores.team0.points += 3;
-        } else if (callerTeam === 1) {
-          scores.team1.points += 3;
-        }
-      }
-
-      // Determina il team vincitore (chi ha più punti)
-      let winnerTeam: number;
-      if (scores.team0.points > scores.team1.points) {
-        winnerTeam = 0;
-      } else if (scores.team1.points > scores.team0.points) {
-        winnerTeam = 1;
-      } else {
-        // Parità di punti, vince chi ha più figure
-        if (scores.team0.figures > scores.team1.figures) {
-          winnerTeam = 0;
-        } else if (scores.team1.figures > scores.team0.figures) {
-          winnerTeam = 1;
-        } else {
-          // Parità anche nelle figure, di default vince team 0
-          winnerTeam = 0;
-        }
-      }
-
-      // Calcola i punteggi totali di tutti i round completati. Il round corrente
-      // non è ancora scritto (l'update avviene nella transazione sotto), quindi
-      // lo aggiungiamo in memoria con i punteggi appena calcolati.
-      const previousCompletedRounds = await prisma.round.findMany({
-        where: {
-          gameRoomId: room.id,
-          winnerTeam: { not: null },
-        },
-        select: {
-          team0Points: true,
-          team1Points: true,
-          team0Figures: true,
-          team1Figures: true,
-          winnerTeam: true,
-        },
-      });
-      const allCompletedRounds = [
-        ...previousCompletedRounds,
-        {
-          team0Points: scores.team0.points,
-          team1Points: scores.team1.points,
-          team0Figures: scores.team0.figures,
-          team1Figures: scores.team1.figures,
-          winnerTeam,
-        },
-      ];
-
-      const total = cumulativeScore(allCompletedRounds);
-      const totalTeam0Points = total.team0.points;
-      const totalTeam1Points = total.team1.points;
-
-      // Il caller (chi ha scelto briscola) ha guidato la prima mano del round.
-      const callerTeam = teamPlayers[allHands[0].starterId];
-
-      // Controlla se una squadra ha raggiunto la soglia di punti per vincere
-      const finalWinnerTeam = decideGameWinner(
-        total,
-        GAME_WIN_POINTS,
-        callerTeam,
-      );
-
-      let newCallerPlayerId: number | null = null;
-      await prisma.$transaction(async (tx) => {
-        await tx.hand.update({
-          where: { id: currentHand.id },
-          data: { winnerId: winnerPlayerId },
-        });
-        await tx.round.update({
-          where: { id: currentRound.id },
-          data: {
-            team0Points: scores.team0.points,
-            team1Points: scores.team1.points,
-            team0Figures: scores.team0.figures,
-            team1Figures: scores.team1.figures,
-            winnerTeam,
-          },
-        });
-        if (finalWinnerTeam !== null) {
-          await tx.gameRoom.update({
-            where: { id: room.id },
-            data: { finished: true },
-          });
-        } else {
-          newCallerPlayerId = (
-            await setupRound(room.id, currentRound.number + 1, tx)
-          ).callerPlayerId;
-        }
-      });
-
-      // Notifica via socket il termine del round con i punteggi
-      io.to(roomCode).emit("round_ended", {
-        roundNumber: currentRound.number,
-        team0: {
-          points: scores.team0.points,
-          figures: scores.team0.figures,
-        },
-        team1: {
-          points: scores.team1.points,
-          figures: scores.team1.figures,
-        },
-        winnerTeam,
-        cricca: currentRound.cricca,
-      });
-
-      logger.info(
-        {
-          roomCode,
-          roundNumber: currentRound.number,
-          team0Points: scores.team0.points,
-          team1Points: scores.team1.points,
-          team0Figures: scores.team0.figures,
-          team1Figures: scores.team1.figures,
-          winnerTeam,
-          cricca: currentRound.cricca,
-        },
-        "round_ended",
-      );
-
-      if (finalWinnerTeam !== null) {
-        // Calcola statistiche aggiuntive
-        const totalRounds = allCompletedRounds.length;
-        const team0Wins = allCompletedRounds.filter(
-          (r) => r.winnerTeam === 0,
-        ).length;
-        const team1Wins = totalRounds - team0Wins;
-
-        // Notifica la fine della partita con tutte le statistiche
-        io.to(roomCode).emit("game_finished", {
-          winnerTeam: finalWinnerTeam,
-          totalRounds,
-          finalScores: {
-            team0: totalTeam0Points,
-            team1: totalTeam1Points,
-          },
-          roundsWon: {
-            team0: team0Wins,
-            team1: team1Wins,
-          },
-        });
-
-        logger.info(
-          {
-            roomCode,
-            winnerTeam: finalWinnerTeam,
-            totalRounds,
-            totalTeam0Points,
-            totalTeam1Points,
-          },
-          "game_finished",
-        );
-
-        clearRoomTimerData(roomCode);
-      } else {
-        // Notifica il nuovo round
-        io.to(roomCode).emit("new_round_started", {
-          roundNumber: currentRound.number + 1,
-        });
-
-        // Start briscola timer for the new caller
-        const newCaller = room.players.find((p) => p.id === newCallerPlayerId);
-        if (newCaller) {
-          startTurnTimer(roomCode, newCaller.userId, "choose_briscola");
-        }
-      }
+    const winnerPlayer = room.players.find((p) => p.id === winnerPlayerId);
+    if (winnerPlayer) {
+      startTurnTimer(roomCode, winnerPlayer.userId, "play_card");
     }
+    return;
+  }
+
+  const allHands = await prisma.hand.findMany({
+    where: { roundId: currentRound.id },
+    orderBy: { number: "asc" },
+    include: { cards: { orderBy: { position: "asc" } } },
+  });
+  const teamPlayers: Record<number, number> = {};
+  for (const roomPlayer of room.players) {
+    if (roomPlayer.team !== null) {
+      teamPlayers[roomPlayer.id] = roomPlayer.team;
+    }
+  }
+
+  const scores = computePoints(
+    allHands.map((hand) => ({
+      winnerId:
+        hand.id === currentHand.id ? winnerPlayerId : hand.winnerId,
+      cards: [
+        ...hand.cards.map((card) => ({
+          value: card.value,
+          suit: card.suit,
+          playerId: card.playerId,
+        })),
+        ...(hand.id === currentHand.id
+          ? [{ value, suit, playerId: player.id }]
+          : []),
+      ],
+    })),
+    teamPlayers,
+    currentRound.briscola!,
+  );
+
+  if (currentRound.cricca) {
+    const callerTeam = teamPlayers[allHands[0].starterId];
+    if (callerTeam === 0) scores.team0.points += 3;
+    if (callerTeam === 1) scores.team1.points += 3;
+  }
+
+  let winnerTeam: number;
+  if (scores.team0.points !== scores.team1.points) {
+    winnerTeam = scores.team0.points > scores.team1.points ? 0 : 1;
+  } else if (scores.team0.figures !== scores.team1.figures) {
+    winnerTeam = scores.team0.figures > scores.team1.figures ? 0 : 1;
+  } else {
+    winnerTeam = 0;
+  }
+
+  const previousCompletedRounds = await prisma.round.findMany({
+    where: {
+      gameRoomId: room.id,
+      id: { not: currentRound.id },
+      winnerTeam: { not: null },
+    },
+    select: {
+      team0Points: true,
+      team1Points: true,
+      team0Figures: true,
+      team1Figures: true,
+      winnerTeam: true,
+    },
+  });
+  const allCompletedRounds = [
+    ...previousCompletedRounds,
+    {
+      team0Points: scores.team0.points,
+      team1Points: scores.team1.points,
+      team0Figures: scores.team0.figures,
+      team1Figures: scores.team1.figures,
+      winnerTeam,
+    },
+  ];
+  const total = cumulativeScore(allCompletedRounds);
+  const callerTeam = teamPlayers[allHands[0].starterId];
+  const finalWinnerTeam = decideGameWinner(
+    total,
+    GAME_WIN_POINTS,
+    callerTeam,
+  );
+
+  const nextRound = await prisma.$transaction(async (tx) => {
+    await persistPlayedCard(tx, playerCard.id, playedCardData);
+    await tx.hand.update({
+      where: { id: currentHand.id },
+      data: { winnerId: winnerPlayerId },
+    });
+    await tx.round.update({
+      where: { id: currentRound.id },
+      data: {
+        team0Points: scores.team0.points,
+        team1Points: scores.team1.points,
+        team0Figures: scores.team0.figures,
+        team1Figures: scores.team1.figures,
+        winnerTeam,
+      },
+    });
+    if (finalWinnerTeam !== null) {
+      await tx.gameRoom.update({
+        where: { id: room.id },
+        data: { finished: true },
+      });
+      return null;
+    }
+    return setupRound(room.id, currentRound.number + 1, tx);
+  });
+
+  if (nextRound) logRoundSetup(nextRound);
+  publish();
+  const io = getSocketInstance();
+  io.to(roomCode).emit("round_ended", {
+    roundNumber: currentRound.number,
+    team0: scores.team0,
+    team1: scores.team1,
+    winnerTeam,
+    cricca: currentRound.cricca,
+  });
+  logger.info(
+    {
+      roomCode,
+      roundNumber: currentRound.number,
+      team0Points: scores.team0.points,
+      team1Points: scores.team1.points,
+      team0Figures: scores.team0.figures,
+      team1Figures: scores.team1.figures,
+      winnerTeam,
+      cricca: currentRound.cricca,
+    },
+    "round_ended",
+  );
+
+  if (finalWinnerTeam !== null) {
+    const totalRounds = allCompletedRounds.length;
+    const team0Wins = allCompletedRounds.filter(
+      (round) => round.winnerTeam === 0,
+    ).length;
+    io.to(roomCode).emit("game_finished", {
+      winnerTeam: finalWinnerTeam,
+      totalRounds,
+      finalScores: {
+        team0: total.team0.points,
+        team1: total.team1.points,
+      },
+      roundsWon: {
+        team0: team0Wins,
+        team1: totalRounds - team0Wins,
+      },
+    });
+    logger.info(
+      {
+        roomCode,
+        winnerTeam: finalWinnerTeam,
+        totalRounds,
+        totalTeam0Points: total.team0.points,
+        totalTeam1Points: total.team1.points,
+      },
+      "game_finished",
+    );
+    clearRoomTimerData(roomCode);
+    return;
+  }
+
+  io.to(roomCode).emit("new_round_started", {
+    roundNumber: currentRound.number + 1,
+  });
+  const newCaller = room.players.find(
+    (p) => p.id === nextRound!.callerPlayerId,
+  );
+  if (newCaller) {
+    startTurnTimer(roomCode, newCaller.userId, "choose_briscola");
   }
 }
