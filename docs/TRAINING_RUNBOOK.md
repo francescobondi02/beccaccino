@@ -135,6 +135,17 @@ Promotion requires at least a two-point gain over the bare champion with a
 positive paired 95% lower bound, plus representative deployment-CPU p95 below
 one second and maximum below five seconds. Those measurements have not been run.
 
+The full opponent, approximate-best-response, latency, and expert-state gates
+are defined in `docs/EVALUATION_PROTOCOL.md`. Validate only a completed,
+predeclared evidence manifest:
+
+```bash
+python -m scripts.check_near_perfect runs/near-perfect-v1/evidence.json
+```
+
+The accepted wording is "No material exploit found under NearPerfect-v1."
+Nothing currently checked into this repository supports that claim.
+
 `--signal-honesty-coef-final 0.0` anneals the term to zero over
 `--signal-honesty-frac` of the run: teach the convention early, then let results
 decide. If the policy ends up signalling less than the convention would, that is a

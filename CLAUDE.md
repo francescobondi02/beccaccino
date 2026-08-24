@@ -53,6 +53,7 @@ scripts/
   benchmark.py      Bare-engine and end-to-end rollout throughput benchmark
 docs/
   TRAINING_RUNBOOK.md  How to run + verify a training run (READ BEFORE A GPU RUN)
+  EVALUATION_PROTOCOL.md  Champion and NearPerfect-v1 evidence gates
   LONG_RUN_PLAN.md     Long-run readiness status, residual risks, and Run D protocol
   BOT_PLAY_DESIGN.md   Playing against the bots in the real UI
 checkpoints/        Saved model checkpoints (.pt files); best.pt = monitoring candidate,
@@ -122,6 +123,11 @@ public declarations fit the sampled hand, uses exact match outcomes at the
 threshold (including caller tie-break), and searches each card once before the
 network picks that card's signal variant. The +2 point paired-strength and
 deployment-latency promotion gates remain unrun.
+
+`NearPerfect-v1` is the only defined near-perfect claim, and it means "no
+material exploit found under this protocol," not solved play. Run
+`scripts.check_near_perfect` against a persisted manifest; missing evidence or
+any inconclusive gate fails. No current artifact passes it.
 
 ## Action Space
 

@@ -9,7 +9,7 @@ critic, curriculum learning, and wandb tracking. Four network families ship
 BC→PPO pipeline lives in `scripts/bc_then_rl.py`; `training/trainer.py` is the
 pure-PPO trainer (also BC-anchor and CTDE aware).
 
-## A0-A6 Refactor Status
+## A0-A7 Refactor Status
 
 The 2026-08-24 correctness pass changed the training contract:
 
@@ -44,6 +44,10 @@ The 2026-08-24 correctness pass changed the training contract:
   cumulative match utility and exact threshold/caller tie-break outcomes; and
   equivalent signal branches collapse to one card search before the policy
   chooses the signal variant.
+- **A7 — measurable near-perfect protocol:** `NearPerfect-v1` is a fail-closed
+  evidence manifest spanning three training seeds, a multi-class opponent
+  panel, repaired-PIMC gain, deployment latency, three approximate best
+  responses, and a frozen expert-state corpus.
 
 Legacy 462-feature and A2 470-feature checkpoints remain loadable for inference
 because their input width is inferred or read from checkpoint metadata. They
@@ -54,6 +58,7 @@ promotion gate. A4's signal-response and card-strength promotion experiments
 also remain unrun. Repaired PIMC has not yet run its promotion experiment: it
 must beat the bare champion by at least two points with a positive paired lower
 bound, with deployment CPU p95 below one second and every move below five.
+No current artifact supports the scoped `NearPerfect-v1` claim.
 
 ## Setup
 
@@ -311,6 +316,14 @@ games. The output path must be new, and the seed block must not have been used
 to tune or select the candidate. Promotion requires the paired 95% lower bound
 to exceed 50%; otherwise retain the incumbent. Positional checkpoint arguments
 remain available for historical heuristic benchmarking only.
+
+The stronger research claim is defined in
+[`docs/EVALUATION_PROTOCOL.md`](docs/EVALUATION_PROTOCOL.md). Validate a
+completed evidence manifest with:
+
+```bash
+python -m scripts.check_near_perfect runs/near-perfect-v1/evidence.json
+```
 
 ## Kaggle GPU runs
 
