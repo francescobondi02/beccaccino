@@ -6,7 +6,6 @@ from pathlib import Path
 
 import torch
 
-from becca_env.observation import OBS_SIZE
 from training.checkpoint import build_net, load_checkpoint
 from training.network import ACTION_SIZE
 
@@ -25,7 +24,7 @@ def export_to_onnx(
     net = build_net(ckpt, torch.device("cpu"))
     net.eval()
 
-    dummy_obs = torch.zeros(1, OBS_SIZE)
+    dummy_obs = torch.zeros(1, net.obs_size)
     dummy_mask = torch.ones(1, ACTION_SIZE)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

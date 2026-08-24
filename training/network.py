@@ -31,13 +31,14 @@ def _ortho_init(module: nn.Module, gain: float = np.sqrt(2)):
 
 
 class BeccaNet(nn.Module):
-    def __init__(self, hidden_size: int = 256, num_layers: int = 2):
+    def __init__(self, hidden_size: int = 256, num_layers: int = 2, obs_size: int = OBS_SIZE):
         super().__init__()
+        self.obs_size = obs_size
 
-        self.policy_net = _make_mlp(OBS_SIZE, hidden_size, num_layers)
+        self.policy_net = _make_mlp(obs_size, hidden_size, num_layers)
         self.policy_head = nn.Linear(hidden_size, ACTION_SIZE)
 
-        self.value_net = _make_mlp(OBS_SIZE, hidden_size, num_layers)
+        self.value_net = _make_mlp(obs_size, hidden_size, num_layers)
         self.value_head = nn.Linear(hidden_size, 1)
 
         _ortho_init(self.policy_net)
@@ -80,12 +81,19 @@ class ResidualBlock(nn.Module):
 class BeccaNetV2(nn.Module):
     """Shared trunk + separate policy/value heads with ReLU, LayerNorm, residuals."""
 
-    def __init__(self, hidden_size: int = 512, num_layers: int = 3, use_layer_norm: bool = True):
+    def __init__(
+        self,
+        hidden_size: int = 512,
+        num_layers: int = 3,
+        use_layer_norm: bool = True,
+        obs_size: int = OBS_SIZE,
+    ):
         super().__init__()
+        self.obs_size = obs_size
 
         # Shared trunk: input projection + residual blocks
         trunk_layers: list[nn.Module] = [
-            nn.Linear(OBS_SIZE, hidden_size),
+            nn.Linear(obs_size, hidden_size),
             nn.LayerNorm(hidden_size) if use_layer_norm else nn.Identity(),
             nn.ReLU(),
         ]
@@ -184,10 +192,12 @@ class CentralizedCritic(nn.Module):
 
 
 def create_network(version: int = 2, **kwargs) -> BeccaNet | BeccaNetV2:
+    obs_size = kwargs.get("obs_size", OBS_SIZE)
     if version == 1:
         resolved = {
             "hidden_size": kwargs.get("hidden_size", 256),
             "num_layers": kwargs.get("num_layers", 2),
+            "obs_size": obs_size,
         }
         net = BeccaNet(**resolved)
     elif version == 3:
@@ -195,6 +205,7 @@ def create_network(version: int = 2, **kwargs) -> BeccaNet | BeccaNetV2:
             "hidden_size": kwargs.get("hidden_size", 512),
             "num_layers": kwargs.get("num_layers", 3),
             "use_layer_norm": kwargs.get("use_layer_norm", True),
+            "obs_size": obs_size,
         }
         net = BeccaNetV3(**resolved)
     elif version == 4:
@@ -203,6 +214,7 @@ def create_network(version: int = 2, **kwargs) -> BeccaNet | BeccaNetV2:
             "nhead": kwargs.get("nhead", 4),
             "num_layers": kwargs.get("num_layers", 3),
             "dim_feedforward": kwargs.get("dim_feedforward", 256),
+            "obs_size": obs_size,
         }
         net = BeccaNetV4(**resolved)
     else:
@@ -210,6 +222,7 @@ def create_network(version: int = 2, **kwargs) -> BeccaNet | BeccaNetV2:
             "hidden_size": kwargs.get("hidden_size", 512),
             "num_layers": kwargs.get("num_layers", 3),
             "use_layer_norm": kwargs.get("use_layer_norm", True),
+            "obs_size": obs_size,
         }
         net = BeccaNetV2(**resolved)
     # Stamp the exact rebuild kwargs so create_network(**net.config) reproduces
@@ -259,15 +272,13 @@ class BeccaNetV4(nn.Module):
     cleanly: bump d_model=256, layers=4 for GPU runs.
     """
 
-    # Sizes derived from the v3 obs layout; if obs layout changes, these
+    # Sizes derived from the observation layout; if the legacy prefix changes, these
     # offsets must be updated together with becca_env/observation.py.
     OBS_HAND_END = 40
     OBS_STATUS_END = 240  # per-card 40 × 5
     OBS_TRICK_END = 400  # 4 trick positions × 40
     OBS_BRISCOLA_END = 404  # 4
     OBS_GLOBAL_START = 400  # briscola starts here
-    OBS_GLOBAL_END = 462  # signal mask ends here (briscola..void..signals)
-    GLOBAL_FEAT_DIM = 62  # 400..462 — global context routes to the global token
     PER_CARD_DYNAMIC = 11  # status(5) + on_trick(4) + my_hand(1) + is_briscola(1)
     PER_CARD_STATIC = 16  # suit(4) + value(10) + strength(1) + points(1)
 
@@ -278,9 +289,12 @@ class BeccaNetV4(nn.Module):
         num_layers: int = 3,
         dim_feedforward: int = 256,
         dropout: float = 0.0,
+        obs_size: int = OBS_SIZE,
     ):
         super().__init__()
         self.d_model = d_model
+        self.obs_size = obs_size
+        self.global_feat_dim = obs_size - self.OBS_GLOBAL_START
 
         # Static per-card features as a buffer (moves with .to(device))
         self.register_buffer("static_card_features", _build_static_card_features())
@@ -293,7 +307,7 @@ class BeccaNetV4(nn.Module):
         self.card_proj = nn.Linear(self.PER_CARD_STATIC + self.PER_CARD_DYNAMIC, d_model)
 
         # Global feature → d_model
-        self.global_proj = nn.Linear(self.GLOBAL_FEAT_DIM, d_model)
+        self.global_proj = nn.Linear(self.global_feat_dim, d_model)
 
         # Transformer encoder (pre-LN, batch_first)
         encoder_layer = nn.TransformerEncoderLayer(
@@ -341,7 +355,7 @@ class BeccaNetV4(nn.Module):
         nn.init.normal_(self.card_id_embedding.weight, std=0.02)
 
     def _decompose_obs(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """obs (B, 462) -> (per_card_dynamic (B, 40, 11), global_feats (B, 62))."""
+        """Split card-local features from the observation's global suffix."""
         B = obs.shape[0]  # noqa: N806  conventional batch dim name
         my_hand = obs[:, : self.OBS_HAND_END]
         card_status = obs[:, self.OBS_HAND_END : self.OBS_STATUS_END].view(B, 40, 5)
@@ -363,7 +377,7 @@ class BeccaNetV4(nn.Module):
             dim=-1,
         )  # (B, 40, 11)
 
-        global_feats = obs[:, self.OBS_GLOBAL_START : self.OBS_GLOBAL_END]  # (B, 62)
+        global_feats = obs[:, self.OBS_GLOBAL_START : self.obs_size]
         return per_card_dynamic, global_feats
 
     def forward(self, obs: torch.Tensor, action_mask: torch.Tensor):
@@ -430,10 +444,17 @@ class BeccaNetV3(nn.Module):
       automatically.
     """
 
-    def __init__(self, hidden_size: int = 512, num_layers: int = 3, use_layer_norm: bool = True):
+    def __init__(
+        self,
+        hidden_size: int = 512,
+        num_layers: int = 3,
+        use_layer_norm: bool = True,
+        obs_size: int = OBS_SIZE,
+    ):
         super().__init__()
+        self.obs_size = obs_size
         trunk_layers: list[nn.Module] = [
-            nn.Linear(OBS_SIZE, hidden_size),
+            nn.Linear(obs_size, hidden_size),
             nn.LayerNorm(hidden_size) if use_layer_norm else nn.Identity(),
             nn.ReLU(),
         ]

@@ -1,7 +1,7 @@
-"""Tests for the v3 observation encoding (462 features).
+"""Tests for the observation encoding.
 
 Layout invariants verified here:
-  - shape = (462,) float32, values in [0, 1]
+  - shape = (470,) float32, values in [0, 1]
   - per-card status block is exactly one-hot per card (5 classes)
   - own hand bits agree with status MINE bits
   - cards seen in completed tricks have correct seat-classification
@@ -19,6 +19,7 @@ from becca_env.game import BeccaGame, GamePhase
 from becca_env.observation import (
     CARD_INDEX,
     CARD_STATUS_CLASSES,
+    LEGACY_OBS_SIZE,
     NUM_CARDS,
     NUM_SIGNALS,
     OBS_SIZE,
@@ -53,13 +54,13 @@ _VOID_BLOCK = 16  # void mask sits just before the signal mask
 
 def _void_block(obs: np.ndarray) -> np.ndarray:
     """Return the (4, 4) void mask block (precedes the trailing signal mask)."""
-    start = OBS_SIZE - _SIGNAL_BLOCK - _VOID_BLOCK
+    start = LEGACY_OBS_SIZE - _SIGNAL_BLOCK - _VOID_BLOCK
     return obs[start : start + _VOID_BLOCK].reshape(4, 4)
 
 
 def _signal_block(obs: np.ndarray) -> np.ndarray:
-    """Return the (4, 3) signal mask block at the end of the obs vector."""
-    return obs[OBS_SIZE - _SIGNAL_BLOCK : OBS_SIZE].reshape(4, NUM_SIGNALS)
+    """Return the legacy (4, 3) signal mask block."""
+    return obs[LEGACY_OBS_SIZE - _SIGNAL_BLOCK : LEGACY_OBS_SIZE].reshape(4, NUM_SIGNALS)
 
 
 def test_obs_shape_and_dtype():
@@ -69,6 +70,13 @@ def test_obs_shape_and_dtype():
     assert obs.dtype == np.float32
     assert obs.min() >= 0.0
     assert obs.max() <= 1.0
+
+
+def test_legacy_observation_prefix_is_still_available():
+    g = BeccaGame(seed=1)
+    current = encode_observation(g, seat=0)
+    legacy = encode_observation(g, seat=0, obs_size=LEGACY_OBS_SIZE)
+    np.testing.assert_array_equal(legacy, current[:LEGACY_OBS_SIZE])
 
 
 def test_status_block_is_strict_one_hot():
@@ -335,3 +343,42 @@ def test_signal_mask_is_viewer_relative():
     sig2 = _signal_block(encode_observation(g, seat=2))
     assert sig0[0, SIGNAL_INDEX[Signal.VOLO]] == 1.0  # my own signal, row 0
     assert sig2[2, SIGNAL_INDEX[Signal.VOLO]] == 1.0  # (0 - 2) % 4 = 2
+
+
+def test_current_round_capture_ownership_breaks_legacy_state_collision():
+    """Identical played cards with a different winner must encode differently."""
+    import copy
+
+    from becca_env.game import TrickRecord
+
+    cards = [
+        (0, Card(Suit.DENARA, Value.ASSO)),
+        (1, Card(Suit.DENARA, Value.QUATTRO)),
+        (2, Card(Suit.DENARA, Value.CINQUE)),
+        (3, Card(Suit.DENARA, Value.SEI)),
+    ]
+    team0_game = _make_game_in_play(briscola=Suit.DENARA)
+    team0_game.round.hands_played = [TrickRecord(winner=0, cards=cards)]
+    team1_game = copy.deepcopy(team0_game)
+    team1_game.round.hands_played[0].winner = 1
+
+    team0_obs = encode_observation(team0_game, seat=0)
+    team1_obs = encode_observation(team1_game, seat=0)
+
+    np.testing.assert_array_equal(team0_obs[:LEGACY_OBS_SIZE], team1_obs[:LEGACY_OBS_SIZE])
+    assert not np.array_equal(team0_obs, team1_obs)
+    np.testing.assert_allclose(team0_obs[462:464], [3 / 35, 0])
+    np.testing.assert_allclose(team1_obs[462:464], [0, 3 / 35])
+    np.testing.assert_allclose(team0_obs[464:466], [0.1, 0])
+    np.testing.assert_allclose(team1_obs[464:466], [0, 0.1])
+
+
+def test_caller_seat_is_public_and_viewer_relative():
+    g = _make_game_in_play(briscola=Suit.DENARA)
+    g.round.caller_seat = 3
+
+    obs0 = encode_observation(g, seat=0)
+    obs2 = encode_observation(g, seat=2)
+
+    np.testing.assert_array_equal(obs0[466:470], [0, 0, 0, 1])
+    np.testing.assert_array_equal(obs2[466:470], [0, 1, 0, 0])

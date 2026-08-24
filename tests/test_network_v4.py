@@ -2,7 +2,7 @@
 
 V4 is the most complex network in the codebase. We pin:
   - shape correctness (drop-in compatibility with PPO pipeline)
-  - that the obs decomposition reads the right slices of the 462-dim vector
+  - that the obs decomposition reads the right slices of the observation vector
     (via reconstructing static card features from a fresh build)
   - mask correctness (illegal actions blocked)
   - log_prob math agrees with Categorical over masked logits
@@ -41,6 +41,11 @@ def test_v4_forward_shape():
     logits, value = net.forward(obs, mask)
     assert logits.shape == (3, 160)
     assert value.shape == (3,)
+
+
+def test_v4_global_projection_includes_current_round_features():
+    net = BeccaNetV4(d_model=32, nhead=2, num_layers=1, dim_feedforward=32)
+    assert net.global_proj.in_features == OBS_SIZE - 400
 
 
 def test_v4_mask_blocks_illegal_actions():

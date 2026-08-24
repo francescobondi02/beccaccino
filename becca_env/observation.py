@@ -3,7 +3,7 @@
 Encodes the imperfect-information observation from one player's perspective
 into a fixed-size feature vector suitable for policy/value networks.
 
-v3 layout (462 features):
+v4 layout (470 features):
   my_hand:          40   binary, which cards I currently hold
   card_status:      40 * 5 = 200   per-card one-hot of where it currently is:
                        [unseen, in_my_hand, played_by_partner,
@@ -33,15 +33,21 @@ v3 layout (462 features):
                                  row 0 (me) IS populated (unlike void_mask —
                                  my own past signals aren't otherwise in the
                                  obs). Makes the cooperative channel learnable.
-  Total = 40 + 200 + 160 + 4 + 4 + 4 + 10 + 10 + 2 + 16 + 12 = 462
+  round_captures:   2    current-round raw points captured by team 0 / team 1
+  round_tricks:     2    current-round trick counts for team 0 / team 1
+  caller:           4    one-hot caller seat relative to me
+  Total = 40 + 200 + 160 + 4 + 4 + 4 + 10 + 10 + 2 + 16 + 12 + 2 + 2 + 4 = 470
+
+The first 462 entries are intentionally unchanged. Checkpoints trained before
+the v4 extension can still consume that exact prefix.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from becca_env.deck import DECK, Card, Suit
-from becca_env.game import BeccaGame, GamePhase, Signal  # noqa: F401  re-exported
+from becca_env.deck import DECK, Card, Suit, card_points
+from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase, Signal  # noqa: F401
 
 # Card indexing: 40 cards total, ordered by suit then value
 CARD_INDEX: dict[Card, int] = {card: i for i, card in enumerate(DECK)}
@@ -60,11 +66,12 @@ STATUS_PARTNER = 2
 STATUS_LEFT_OPP = 3
 STATUS_RIGHT_OPP = 4
 
-OBS_SIZE = 462
+LEGACY_OBS_SIZE = 462
+OBS_SIZE = 470
 
 # Full-state size for the centralized (CTDE) critic: the actor obs plus the 3
 # hidden hands (train-time only; the policy never sees this).
-FULL_STATE_SIZE = OBS_SIZE + 3 * NUM_CARDS  # 462 + 120 = 582
+FULL_STATE_SIZE = OBS_SIZE + 3 * NUM_CARDS  # 470 + 120 = 590
 
 
 def _seat_status_class(player_seat: int, viewer_seat: int) -> int:
@@ -145,8 +152,12 @@ def _compute_signal_mask(game: BeccaGame, viewer_seat: int) -> np.ndarray:
     return mask
 
 
-def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
+def encode_observation(game: BeccaGame, seat: int, obs_size: int = OBS_SIZE) -> np.ndarray:
     """Encode the game state from `seat`'s perspective into a feature vector."""
+    if obs_size not in (LEGACY_OBS_SIZE, OBS_SIZE):
+        raise ValueError(
+            f"unsupported observation size {obs_size}; expected {LEGACY_OBS_SIZE} or {OBS_SIZE}"
+        )
     obs = np.zeros(OBS_SIZE, dtype=np.float32)
     r = game.round
     offset = 0
@@ -234,8 +245,27 @@ def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
     obs[offset : offset + 4 * NUM_SIGNALS] = signals.flatten()
     offset += 4 * NUM_SIGNALS
 
+    # Current-round captures and trick ownership. Card status records who
+    # played each card, not which team won it, so these facts are not derivable
+    # from the legacy prefix.
+    captured_raw = np.zeros(2, dtype=np.float32)
+    tricks_won = np.zeros(2, dtype=np.float32)
+    for trick in r.hands_played:
+        team = TEAM_OF_SEAT[trick.winner]
+        captured_raw[team] += sum(card_points[card.value] for _, card in trick.cards)
+        tricks_won[team] += 1.0
+    obs[offset : offset + 2] = captured_raw / 35.0
+    offset += 2
+    obs[offset : offset + 2] = tricks_won / 10.0
+    offset += 2
+
+    # Caller seat relative to the viewer: self, left opponent, partner, right
+    # opponent. This stays public throughout the round.
+    obs[offset + (r.caller_seat - seat) % 4] = 1.0
+    offset += 4
+
     assert offset == OBS_SIZE, f"obs offset {offset} != {OBS_SIZE}"
-    return obs
+    return obs[:obs_size]
 
 
 def encode_full_state(game: BeccaGame, seat: int, obs: np.ndarray | None = None) -> np.ndarray:

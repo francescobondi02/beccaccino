@@ -15,9 +15,10 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from becca_env.env import BeccaEnv
-from becca_env.observation import FULL_STATE_SIZE
+from becca_env.observation import FULL_STATE_SIZE, OBS_SIZE
 from training.checkpoint import (
     load_checkpoint,
+    net_config_of,
     restore_rng,
     save_checkpoint,
     seed_everything,
@@ -121,6 +122,12 @@ def train(config: TrainConfig):
     resume_rng = None
     if config.resume_from:
         resume_ckpt = load_checkpoint(config.resume_from, map_location=dev)
+        checkpoint_obs_size = net_config_of(resume_ckpt)["obs_size"]
+        if checkpoint_obs_size != OBS_SIZE:
+            raise SystemExit(
+                f"checkpoint observation width is {checkpoint_obs_size}, current "
+                f"training requires {OBS_SIZE}; start a new run from regenerated BC"
+            )
         net.load_state_dict(resume_ckpt["model"])
         if critic is not None and resume_ckpt.get("critic") is not None:
             critic.load_state_dict(resume_ckpt["critic"])

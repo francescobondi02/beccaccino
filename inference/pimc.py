@@ -87,7 +87,7 @@ def _greedy_action(
 
     Returns the flat action index (0..159).
     """
-    obs = encode_observation(game, seat)
+    obs = encode_observation(game, seat, obs_size=net.obs_size)
     mask = encode_action_mask(game, seat)
     obs_t = torch.from_numpy(obs).unsqueeze(0).to(device)
     mask_t = torch.from_numpy(mask).unsqueeze(0).to(device)
@@ -103,7 +103,7 @@ def _value_at(
     device: torch.device,
 ) -> float:
     """Read V4's value head at the current state from `seat`'s viewpoint."""
-    obs = encode_observation(game, seat)
+    obs = encode_observation(game, seat, obs_size=net.obs_size)
     mask = encode_action_mask(game, seat)
     obs_t = torch.from_numpy(obs).unsqueeze(0).to(device)
     mask_t = torch.from_numpy(mask).unsqueeze(0).to(device)

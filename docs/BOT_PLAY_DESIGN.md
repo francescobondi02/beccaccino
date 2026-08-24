@@ -5,6 +5,14 @@
 review every signal in the move log with hands revealed. Verified in a browser against the
 live Python service, and end-to-end for all four tiers. Per-phase notes in §8.
 
+**2026-08-24 observation-contract update:** A2 extends new actor observations
+from 462 to 470 floats by appending current-round captures (2), trick counts
+(2), and a viewer-relative caller one-hot (4). The 462-float prefix is
+unchanged, and `/act` encodes to each loaded checkpoint's own input width, so
+the historical Run B/Run C tiers remain serveable. New 470-feature models are
+not promoted by this schema change alone: the fixed-budget three-seed A2
+ablation remains unrun and is still the promotion gate.
+
 To run it: `cd ai && uvicorn serving.app:app --port 8011`, then set `BOT_SERVICE_URL` in
 `backend/.env`. Unset, practice rooms still start but every bot seat falls back to autoplay
 and logs `bot_fallback_to_autoplay`.
@@ -97,11 +105,12 @@ diagnostic** and defers everything the teaching product needs but the diagnostic
   `player_hands`, and `number`. `total_scores` is **cumulative RAW points per team** (`game.py:82`,
   accumulated at `:317-318`).
 - **`ai/becca_env/observation.py`** — the encoder. `encode_observation(game, seat)` produces a
-  fixed **462-float** vector (`OBS_SIZE = 462`, `observation.py:63`); `encode_action_mask(game, seat)`
+  fixed **470-float** vector (`OBS_SIZE = 470`), with an unchanged 462-float legacy prefix;
+  `encode_action_mask(game, seat)`
   produces a **160-slot** legal-action mask; `decode_action(idx, game)` inverts an action index back
   to a move. Layout and index tables verified — see §5.2.
 - **`ai/serving/app.py`** — a FastAPI service. Its only real endpoint, `POST /predict`
-  (`app.py:44`), takes a **pre-encoded** `{obs: float[462], action_mask: float[160]}`, validates the
+  (`app.py:44`), takes a **pre-encoded** `{obs: float[470], action_mask: float[160]}`, validates the
   widths (422 on mismatch, `app.py:50-56`), runs the ONNX model, and returns a **greedy argmax**
   `{action: int, confidence: float}` (`app.py:71-76`). **It does not encode anything** — it cannot
   turn game state into an observation. This matters: it does *not* save us from the encoder problem
@@ -196,7 +205,7 @@ architecture and split on details; where they split, it is called out.
 
 ### 3.1 Where does the bot's "brain" live?
 
-**Problem.** To pick a move, a bot must (1) turn the current game state into the 462-float
+**Problem.** To pick a move, a bot must (1) turn the current game state into the 470-float
 observation, (2) run a model or policy, (3) turn the chosen action index back into a move. Step (1),
 the encoder, is ~310 lines of Python with data-dependent control flow (deducing which seats are void
 in which suit; relative-seat signal rows). Where does this run?
@@ -254,7 +263,8 @@ matches between the two, so only suits are at risk.)
 **Decision.** **Ship strings; the backend computes no index at all.** Because Python resolves
 `Suit("spade")` to its own ordinal regardless of how Prisma orders its enum, **the spade/coppe
 transposition has no code path in which to occur.** The problem collapses from "reimplement 462
-floats correctly" to "translate ~8 game-state fields into dataclass fields faithfully."
+legacy floats plus the 8 appended public features correctly" to "translate ~8 game-state fields
+into dataclass fields faithfully."
 
 **But** two residual value-level risks remain, and both must be reconstructed by hand — call them out
 loud:
@@ -468,7 +478,7 @@ afterward (no `card_played` emitted post-leave).
 ┌───────────────▼─────────────────────────────────────────▼─────────────┐
 │ PYTHON /act  (ai/serving/app.py + state_adapter.py)  — LOCAL for now   │
 │  state_adapter: DTO(strings) → BeccaGame/RoundState                    │
-│  encode_observation (VERBATIM training encoder) → 462 floats           │
+│  encode_observation (VERBATIM training encoder) → 470 floats           │
 │  tier registry: weak=NeuralAgent(runB_bc), strong=NeuralAgent(runB_rl),│
 │                 heuristic=HeuristicAgent, hard=PIMC(rollout=heuristic)  │
 │  decode_action → {suit} | {suit,value,signal, confidence}             │
@@ -489,7 +499,7 @@ startTurnTimer(roomCode, botUserId, "play_card")
                                                          // cumulative raw scores
        POST BOT_SERVICE_URL/act { state, seat, tier: T, temperature }
          │  Python: state_adapter → BeccaGame
-         │          encode_observation(game, seat) → obs[462]
+         │          encode_observation(game, seat) → obs[net.obs_size]
          │          encode_action_mask(game, seat) → mask[160]
          │          legal_actions() vs state.expected_legal_cards → 409 if disagree
          │          policy(obs, mask) → action_idx ; decode_action → (Card, Signal)
@@ -530,8 +540,8 @@ The panels disagreed about how many layers are worth it — that disagreement is
 
 ### 5.1 The verified layout and card-ordering mapping
 
-`encode_observation` (`observation.py:148`) emits 462 floats in this exact order (verified against
-source):
+`encode_observation` emits 470 floats in this exact order. Offsets 0:462 are
+the unchanged legacy prefix; offsets 462:470 are the A2 public features:
 
 | Offset | Size | Block | Reconstruction note |
 |-------:|-----:|-------|---------------------|
@@ -546,6 +556,9 @@ source):
 | 432 | 2 | scores (team0, team1) | cumulative **raw** / `(win_points*3)`, clipped to 1 |
 | 434 | 16 | void_mask 4×4 | rows **relative**: row0=me(zero), row1=left, row2=partner, row3=right |
 | 450 | 12 | signal_mask 4×3 | rows relative; **row0=me IS populated** (unlike void) |
+| 462 | 2 | round_captures | current-round raw points captured by team0/team1, divided by 35 |
+| 464 | 2 | round_tricks | current-round trick counts for team0/team1, divided by 10 |
+| 466 | 4 | caller | one-hot caller seat relative to the viewer |
 
 **Index tables (the trap):**
 - `CARD_INDEX = {card: i for i, card in enumerate(DECK)}` where `DECK = [Card(s,v) for s in Suit
@@ -630,7 +643,7 @@ The one test this design would otherwise be missing. It is the only layer that e
 **TypeScript serializer** itself.
 
 1. **Python generates**, from real self-play games, a fixture file of `(game_state_dto, expected_obs)`
-   pairs — the DTO as the backend must produce it, plus the 462-float vector the encoder yields.
+   pairs — the DTO as the backend must produce it, plus the 470-float vector the encoder yields.
    Committed as JSON (small: strings + one float array per case).
 2. **A backend integration test** (`backend/tests/integration/`, which already has a `becca_test` DB
    and `NODE_ENV=test` bypass — `package.json:38,41`) seeds Postgres to the state each fixture
@@ -899,7 +912,8 @@ logs this) plus a browser session:
   respected, and no round failed the legality gate (no 409 in any tier).
 
 **Root cause of the signal problem (unchanged from the earlier analysis):** signals were made
-*observable* (the 450→462 obs extension) but never *rewarded*. There is no gradient toward
+*observable* (the historical 450→462 signal extension, before A2's later 462→470 public-state
+extension) but never *rewarded*. There is no gradient toward
 using them honestly, so the policy learned to emit them as noise. Fixing it means reward
 shaping and another training run — a separate decision, not part of this feature.
 

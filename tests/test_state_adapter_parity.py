@@ -2,7 +2,7 @@
 
 This is Layer 1 of the bot-play fidelity strategy (see docs/BOT_PLAY_DESIGN.md §5.2).
 It locks `serving.state_adapter` to the training-time encoder: if the DTO drops or
-reorders anything `encode_observation` reads, the 462-float vectors diverge and
+reorders anything `encode_observation` reads, the encoded vectors diverge and
 these tests fail.
 
 Scope, stated honestly: this covers the PYTHON adapter only. The TypeScript

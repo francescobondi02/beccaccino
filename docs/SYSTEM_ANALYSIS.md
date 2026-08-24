@@ -2,16 +2,36 @@
 
 *Consolidated findings from a full six-dimension senior review — architecture, engine/observation, evaluation, serving/inference, testing/ops, and RL training soundness (PPO/self-play/BC plus reward and credit assignment) — every finding adversarially verified against the code. This document is the standalone deliverable for the upcoming restructure.*
 
-**2026-07-27 update:** This document preserves the pre-implementation audit snapshot.
-`LONG_RUN_PLAN.md` tracks current status. In particular, M21 is resolved: incomplete live
-chain tails are now bootstrap-only states, excluded from PPO while their stored values
-bootstrap the preceding same-seat transitions.
+**Status note:** This document preserves the pre-implementation audit and its
+historical measurements. Current implementation status supersedes the affected
+findings:
+
+- **A0 (2026-08-24):** vector deal seeds now use
+  `base_seed + worker_id + game_index * num_workers`; the one-million-reset
+  regression is collision-free. Checkpoints preserve each worker's live game,
+  pending rewards, stream position, current observation, unfinished rollout
+  carry, live normalizer chains, and global RNG. CPU snapshot/restore is tested
+  to reproduce uninterrupted transitions and deal fingerprints exactly.
+- **A1 (2026-08-24):** deferred reward is exposed as `prior_reward` and
+  retro-credited to the previous transition for the same `(env, seat)`, rather
+  than attached to the seat's next action.
+- **A2 (2026-08-24):** the actor observation is 470 floats and the CTDE full
+  state is 590. The unchanged 462-float prefix is followed by team captures
+  (2), team trick counts (2), and a viewer-relative caller one-hot (4).
+- **M21 (2026-07-27):** incomplete live chain tails are bootstrap-only states,
+  excluded from PPO while their stored values bootstrap the preceding
+  same-seat transitions.
+
+A2 is implemented and parity-tested, but not empirically promoted. Its
+fixed-budget three-seed ablation remains unrun; improvement in held-out
+explained variance or paired playing strength, without slice regression, is
+still an unproven promotion gate.
 
 ---
 
 ## 1. Executive Summary
 
-**Overall verdict.** The `ai/` module has an unusually strong *core* wrapped in a *training-orchestration layer that has fragmented*. The pure game engine, the observation/serving contract, the checkpoint provenance abstraction, and — newly verified this pass — the reward-delivery machinery and the per-`(env,seat)` GAE reconstruction are principal-grade and correct, backed by exemplary tests. The training *loop* around that core, however, is not uniformly sound: the centralized critic's gradients are never clipped, the return normalizer's coupling to the loop leaks state across episodes and cannot track curriculum shifts, and the GAE tail is bootstrapped from zero on window truncation. The remaining weaknesses cluster in three places: (1) three near-duplicate PPO driver loops that have already silently diverged in behavior; (2) an evaluation-and-selection pipeline that produces the headline numbers from its weakest component; and (3) an observation encoding that omits a first-order strategic feature (running captured points) and overloads two decisions onto shared parameters. None of these corrupt already-shipped training *data*, but several are silent-inequivalence, silent-instability, or silent-wrong-load hazards that a restructure will trip over, and two are outright correctness defects in the serving path and the reproducibility claim.
+**Historical overall verdict.** At audit time, the `ai/` module had an unusually strong *core* wrapped in a *training-orchestration layer that had fragmented*. The pure game engine, the observation/serving contract, the checkpoint provenance abstraction, and the per-`(env,seat)` GAE reconstruction were backed by strong tests. The training *loop* around that core, however, was not uniformly sound: the centralized critic's gradients were never clipped, the return normalizer's coupling to the loop leaked state across episodes and could not track curriculum shifts, and the GAE tail was bootstrapped from zero on window truncation. The audit also missed A1's temporal reward-attribution defect, later isolated by the A0-A2 review. The status note above records the completed corrections without rewriting the remaining historical findings.
 
 No **critical** (results-corrupting-today) findings survived verification. The severity ceiling is **high**: design flaws and silent-instability risks with real ongoing cost.
 
@@ -19,9 +39,9 @@ No **critical** (results-corrupting-today) findings survived verification. The s
 
 1. **Three PPO loops are copy-pasted and have drifted.** `trainer.py`, `bc_then_rl.py` (the shipping recipe), and `train_and_plot.py` each re-implement the same ~100-line rollout/update/eval/checkpoint body. They already disagree on RNG-restore-on-resume, `best.pt` tracking, LR/entropy schedules, and eval-seed policy. This is the root cause behind several other findings.
 2. **The centralized critic's gradients are never clipped.** On CTDE runs — the machinery added specifically to break the ~0.60 explained-variance ceiling, and the path that produced the shipped Run B — the shared Adam optimizer updates the critic, but `clip_grad_norm_` bounds only the actor's parameters. The value clip does *not* bound the gradient (the unclipped squared-error branch wins in the high-error regime), so high-variance full-state value gradients can spike unbounded. This is silent, nothing errors, and it lands on exactly the metric CTDE was introduced to improve.
-3. **The shipping recipe's resume is not reproducible.** `bc_then_rl.py` never restores RNG on resume and rebuilds the network from CLI flags rather than the checkpoint's stamped `net_config`. A Run C assembled across Kaggle's 12h cap is not continuous with its first session, and a forgotten `--centralized-critic` on resume silently drops the critic. `checkpoint.py` advertises byte-consistent resume unconditionally — false for the recipe that ships models.
+3. **Historical resume finding, resolved for current CPU checkpoints by A0.** The audit found that the shipping recipe did not restore RNG or checkpoint vector streams. Current checkpoints carry exact vector rollout state and restore RNG after construction; legacy checkpoints do not gain that guarantee.
 4. **The headline "~71% vs heuristic" is a biased point estimate.** `best.pt` is the argmax over ~90 noisy 100-game evals against a single deterministic opponent that is *also the BC teacher*, with no confidence interval and no re-evaluation on a fresh deal block. The exact CI tooling exists but is never called from any training path. This matches the team's own 74.5%→71% audit.
-5. **The observation cannot represent the running score.** Points-captured-this-round and per-team trick counts are neither encoded nor derivable from the 462-float observation (it records who *played* each card, never who *won* each trick). Even the CTDE critic that broke the 0.30 EV ceiling estimates returns blind to the in-progress round score — a plausible contributor to the model-free plateau.
+5. **Historical observation finding, implemented by A2 but not promoted.** The old 462-float observation could not represent current-round captures, trick counts, or caller identity. The 470-float schema now appends those eight public features, but its strength benefit remains subject to the unrun three-seed ablation.
 
 **What the restructure must preserve** (Section 3) is as important as what it must fix: the string-only enum wire contract, the three-layer serving parity guard, `checkpoint.py`'s `net.config` stamping, the frozen `EVAL_SEED_BASE` discipline, the leak-free reward-delivery + terminal-boundary machinery, and the tightly-pinned GAE/normalization test suite.
 
@@ -31,7 +51,7 @@ No **critical** (results-corrupting-today) findings survived verification. The s
 
 The module trains Beccaccino bots by behavioral cloning (BC) warm-start followed by PPO self-play, then serves them to the game backend over HTTP.
 
-- **`becca_env/`** — pure-Python game engine (`deck.py`, `rules.py`, `game.py`), the shared signal convention (`signals.py`), the 462-float observation + 160-slot action encoder (`observation.py`), and the Gymnasium wrapper + reward design (`env.py`).
+- **`becca_env/`** — pure-Python game engine (`deck.py`, `rules.py`, `game.py`), the shared signal convention (`signals.py`), the 470-float observation + 160-slot action encoder (`observation.py`), and the Gymnasium wrapper + reward design (`env.py`).
 - **`training/`** — `config.py` (TrainConfig), `network.py` (V1–V4 architectures; V4 is the shipped transformer), `ppo.py` (the update), `rollout.py`/`dual_rollout.py`, `trainer.py` (a pure-PPO loop), `imitation.py` (BC), `checkpoint.py`, `normalization.py`, self-play pool, curriculum, and vec-env.
 - **`evaluation/`** — `arena.py` (`NeuralAgent`, eval-vs-random, frozen `EVAL_SEED_BASE`, Elo ladder), `heuristic.py` (scripted baseline = BC teacher = eval yardstick), `stats.py` (Wilson CI), `elo.py`.
 - **`serving/`** — `app.py` (FastAPI `/predict` + `/act` + `/tiers`), `state_adapter.py` (backend JSON → `BeccaGame`), `tiers.py` (facile/medio/forte/esperto), committed fixtures, ONNX export.
@@ -50,12 +70,12 @@ These are load-bearing correctness seams. Breaking any of them silently corrupts
 - **String-only enum wire contract.** `state_adapter.py` crosses everything as enum strings, never indices, structurally neutralizing the `DENARA/SPADE/COPPE/BASTONI` (backend) vs `denara,spade,coppe,bastoni` (Python) suit-order transposition. It is documented (`state_adapter.py:7-16`) and defended by a regression test that fails if the two enum orders ever converge (`tests/test_state_adapter_parity.py:178-189`).
 - **Python as single rules authority.** `_trick_record` recomputes each completed trick's winner via `determine_hand_winner` rather than trusting the backend (`state_adapter.py:128-146`), pinned by `test_completed_trick_winner_is_recomputed_not_trusted`.
 - **Three-layer serving parity guard.** Python round-trip parity across all four viewer perspectives, committed `(state, expected_obs)` fixtures the TS serializer is asserted against with a "regeneration must be a no-op" contract, and the runtime 409 legality gate. The scope gaps of each layer are stated honestly rather than hidden.
-- **`checkpoint.py` architecture provenance.** `save_checkpoint` persists model+optimizer+normalizer+pool+RNG+config in one place, and `net.config` stamping (`network.py:210-213`) lets `build_net` reconstruct any architecture without the caller guessing shapes (`checkpoint.py:78-82`). This is the one part of the orchestration layer that resisted drift; it should anchor the restructure.
+- **Checkpoint provenance and exact CPU continuation.** `save_checkpoint` persists model, optimizer, normalizer, pool, RNG, config, and current vector `rollout_state`. The latter includes each live game/seed stream plus unfinished rollout carry. `net.config` stamps `obs_size`, while legacy widths are inferred for inference compatibility.
 - **`signals.py` single convention.** The honesty convention (`BUSSO_STRENGTH_FLOOR`, `STRISCIO_MIN_REMAINING`, volo=void) is defined once and consumed by reward shaping (`env.py:191`), the BC teacher, and the audit, with `honest_signal_for` consistent with `signal_is_honest` by construction (`signals.py:34-65`). This eliminates the train-against-one-convention/measure-another failure mode.
-- **Reward delivery is leak-free and double-count-free.** In `env.step`, round-end credits all four seats' `_pending_rewards`, the acting seat drains its own share into this step's reward (`env.py:163-164`) and is zeroed before the residual export (`env.py:176`), while the other seats retain pending and drain on their next action or are exported once at game-over — no reward is delivered twice or lost. The signal-honesty hook fires only for a trick leader (`game.py:245` forces `signal=None` for followers), reads the correct post-play/pre-redeal hand (`env.py:135-140`, `signals.py:34-45`), and is credited to the declarer on the same step. The final trick emits a single mutated event (`game.py:288-360`) — never both `trick_complete` and `round_end` — so trick-shaping cannot double-count. Zero-sum and per-team formulae are pinned by `tests/test_rewards.py`.
+- **Reward delivery and attribution are leak-free and double-count-free after A1.** `env.step` returns reward generated by the current action and surfaces older pending credit as `prior_reward`. Collectors retro-credit that value to the previous transition for the same `(env, seat)`. Terminal residual handling remains separate. Focused tests pin round-boundary attribution for all learner seats/teams and preserve per-game and zero-sum totals.
 - **Opponent-ended-game terminal handling in the buffer is correct.** `compute_gae` resets all four seats of an env on any `done` (`rollout.py:86-92`), and `_mark_latest_transition_done` stamps `done` on the single most-recent learner transition when an opponent seat plays the final card (`dual_rollout.py:174-191`); because both learner seats' last transitions are at or before that index, the reverse-pass reset cuts *both* chains, so one stamp genuinely suffices. Terminal residuals are routed to each learner seat's own last transition, landing the boundary reward on the same transition GAE treats as terminal, and `_credit_terminal_residuals` skips the acting seat and near-zero residuals so no seat is credited twice (`rollout.py:159-171`). The SAME_STEP autoreset does not mispair obs/reward: the stored transition uses the pre-step obs with the same step's reward/done, and the reset obs is only consumed on the next iteration.
 - **Frozen `EVAL_SEED_BASE`.** Every checkpoint is scored on an identical deal block (`arena.py:17-20`, `heuristic.py:260-261`), so win-rate curves track skill rather than deal luck. Correctly and consistently implemented in both `trainer.py` and `bc_then_rl.py`, and tested (`test_eval_against_random_is_deterministic_on_frozen_seed`).
-- **Exemplary RL-math tests.** `tests/test_gae.py` includes real negative controls (`test_opponent_terminal_cuts_trajectory_across_game_boundary` proves the leak occurs *without* the fix) and per-(env,seat) isolation regressions with hand-computed expected values. `tests/test_normalization.py` pins Welford streaming-vs-oneshot equality and per-(env,seat) isolation, and confirms the normalizer persists only the load-bearing rms state (not the transient `_returns`) across checkpoints. These would catch sign flips and off-by-ones and must not be weakened.
+- **Exemplary RL-math tests.** `tests/test_gae.py` includes real negative controls and per-(env,seat) isolation regressions with hand-computed expected values. A1 adds round-boundary retro-credit tests. `tests/test_normalization.py` pins Welford streaming-vs-oneshot equality, per-(env,seat) isolation, and round-tripping of live return chains required for exact CPU resume.
 - **Correct PPO KL early-stop.** `ppo.py:58-120` compares each epoch's own mean divergence to `target_kl` (`epoch_kl_sum/epoch_mb_count`), with an explicit comment on why a cumulative accumulator would dilute epoch-0's near-zero KL and disable the brake — a fix many implementations get wrong.
 - **BC warm-start masks illegal actions and leaves the value head untrained.** `forward()` adds `(1-mask)*(-1e8)` before `Categorical`, so illegal actions and follower signal slots get ~0 probability and zero gradient (`imitation.py:150-151`, `network.py:129,386`); only logits enter the loss, so the value head is correctly left cold while the shared trunk is warm-started.
 - **CTDE value bookkeeping is self-consistent.** When a critic is supplied, the stored `old_values` (`dual_rollout.py:110-113`) and the refit `new_val` (`ppo.py:74`) both come from `critic(full_obs)` on the same per-transition `full_obs`, so the value clip is applied in one coherent value space rather than mixing critic and actor estimates.
@@ -97,17 +117,25 @@ There are **no critical** findings. High findings follow, then medium, then low.
 
 ---
 
-#### H3 — The shipping recipe's resume is not reproducible: RNG state is not restored, and the vec-env deal stream is not checkpointed
+#### H3 — RESOLVED BY A0: shipping resume did not restore exact stochastic state
 
 **Location:** `scripts/bc_then_rl.py:298-314`, `training/checkpoint.py:1-8`, `training/vec_env.py:25-46`, `becca_env/env.py:107-117`
 
-**Description.** Two independent mechanisms break the "reproducible from its seed / resumed byte-consistently" claim, both on the recipe that produces every shipped model.
+**Historical finding.** Two independent mechanisms broke the "reproducible from
+its seed / resumed byte-consistently" claim: the shipping recipe did not restore
+parent RNG, and vector workers did not checkpoint their live deal streams.
 
-**Evidence.**
-- **Parent RNG not restored.** `bc_then_rl.py`'s resume path restores model/optimizer/critic/normalizer/pool/counters/best-bar but never calls `restore_rng`, even though `save_checkpoint` *does* persist RNG state (`checkpoint.py:50`). `grep` confirms `restore_rng` is called only in `trainer.py:134`, never in `bc_then_rl.py`. `main()` re-seeds to `args.seed` — not the interrupted state. So a resumed run diverges in opponent sampling, action sampling, and env draws. `checkpoint.py`'s docstring (`:5-8`) makes the byte-consistent claim unconditionally.
-- **Worker deal stream not checkpointed.** Each `AsyncVectorEnv` worker deals via `effective_seed = _base_seed + _game_count` (`env.py:110-114`), but `_game_count` is instance state, never serialized. On resume the vec env is rebuilt with `_game_count = 0`, so every worker re-deals from the start of its seed stream rather than continuing — re-showing already-seen deals and reducing diversity.
+**Current resolution.** Worker `i`, game `g`, now draws
+`base_seed + i + g * num_workers`, which is collision-free across the vector
+run. `rollout_state` snapshots each live game, pending rewards, game counter,
+current seed/deal fingerprint, current observation, and unfinished rollout
+carry. The return normalizer persists live per-seat chains, and global RNG is
+restored only after constructors that consume it. The CPU regression compares
+the complete resumed rollout with uninterrupted execution and then compares
+the subsequent worker seed/fingerprint state.
 
-**What better looks like.** Restore RNG in the resume path (matching `trainer.py`), or downgrade the `checkpoint.py` claim to state that resume continues weights/optimizer but not the stochastic stream. Given all GPU runs go through `bc_then_rl`, the former is what the docs already promise. Document explicitly what is reproducible (single-env arena eval, seed-fresh full runs) vs what is not (mid-run resume of the async deal stream); if mid-run deal continuity matters, checkpoint each worker's `_game_count`. Byte-consistency under subprocess scheduling may be unattainable — say so rather than implying it.
+Checkpoints predating `rollout_state` are rejected for exact resume. This is an
+exact CPU guarantee, not a claim of bit-identical GPU continuation.
 
 ---
 
@@ -135,15 +163,25 @@ There are **no critical** findings. High findings follow, then medium, then low.
 
 ---
 
-#### H6 — Trick-winner history is not encoded, and points-captured-this-round is not derivable from the observation
+#### H6 — IMPLEMENTED BY A2; PROMOTION ABLATION OPEN: current-round public state
 
 **Location:** `becca_env/observation.py:148-238`, `becca_env/game.py:172,317-318`
 
-**Description.** The 462-float observation records, per card, *who played* it (`card_status` one-hot: mine/partner/left/right) but never *who won* the trick it belonged to, and it does not group played cards into tricks. Points in Beccaccino accrue to the trick winner, not the player, so from a single observation the network cannot compute how many raw points each team has captured this round, nor how many tricks each team has taken. This is not merely omitted — it is **unrecoverable**: `card_status` is a flat per-card snapshot with no trick grouping. Furthermore, `total_scores` is accumulated only at round *end* (`game.py:317-318`), so during a round in progress the captured points are absent entirely. `encode_full_state` (the CTDE critic input) also lacks it, so the critic that broke the 0.30 EV ceiling estimates returns without knowing the current round's score-in-progress.
+**Historical finding.** The 462-float observation recorded who played each card
+but could not recover which team won completed tricks, current-round captures,
+trick counts, or caller identity.
 
-**Evidence.** `encode_observation` read in full: it encodes `my_hand`, `card_status`, `current_trick`, `briscola`, `my_seat`, `trick_starter`, `hand_number`, `round_number`, cumulative scores, `void_mask`, `signal_mask` — no trick-winner field. `TrickRecord.winner` exists (`game.py:41-45`) and is surfaced in `get_observation` (`game.py:172`), but the encoder never reads `tr.winner`. A strong player tracks running captured points constantly (it determines whether to grab, duck, or dump).
+**Current resolution.** `OBS_SIZE` is 470 and `FULL_STATE_SIZE` is 590. The
+legacy prefix is unchanged. Offsets `462:464` encode team raw captures divided
+by 35, `464:466` encode team trick counts divided by 10, and `466:470` encode
+the caller seat relative to the viewer. State-collision tests prove that
+changing only trick ownership changes the appended features, and serving
+fixtures were regenerated.
 
-**What better looks like.** Add explicit per-team captured-raw-points-this-round (2 floats, seat-relative) and per-team trick counts, plus optionally which team won the immediately preceding trick, computed from `hands_played[].winner`. Feed both the actor obs and the full-state critic. Verify by confirming a value probe predicts end-of-round differential materially better with the feature present. This is the strongest single candidate for structurally lifting the model-free plateau.
+**Open gate.** This proves representation and parity, not model quality. A
+fixed-budget three-seed ablation must improve held-out explained variance or
+paired playing strength without slice regression before the A2 architecture is
+promoted. No such result exists yet.
 
 ---
 
@@ -223,11 +261,14 @@ The 160-slot action space is flat `card_idx*4 + signal_idx`. For `CHOOSE_BRISCOL
 
 `void_mask` and `signal_mask` use viewer-relative rows (`rel=(s-viewer_seat)%4`) and `card_status` uses relative classes (mine/partner/left/right), but `my_seat` (`:204`), `trick_starter` (`:208`), and the score pair (`:223-224`) are absolute. To recover "did my partner lead this trick" or "am I ahead," the network must cross-reference the absolute `my_seat` one-hot against the absolute `trick_starter`/scores — wasting capacity and breaking the seat-rotation symmetry the relative masks were designed to give the transformer. **Better:** pick one frame (viewer-relative is natural given the masks and self-play symmetry) and apply it uniformly — encode `trick_starter` relative to the viewer and scores as `(my_team, opp_team)`.
 
-#### M3 — The caller (briscola chooser) is exposed in state but dropped by the encoder
+#### M3 — RESOLVED BY A2: caller identity was dropped by the encoder
 
 **Location:** `becca_env/observation.py:148-238`, `becca_env/game.py:176`
 
-`caller_seat` is surfaced in `get_observation` (`game.py:176`) but `encode_observation` never encodes it (grep for `caller` in `observation.py`: zero hits; the offset accounting asserts 462 with none allocated). It is also not recoverable mid-round: `trick_starter` begins as `caller_seat` but is overwritten to the winner after every trick (`game.py:295`), and `card_status` has no trick ordering. Whether your partner or an opponent called is a first-order strategic feature that changes correct play substantially. **Better:** add a 4-slot viewer-relative one-hot for the caller; regenerate the obs size and fixtures in lockstep.
+The audit found that `caller_seat` was public but absent from the legacy
+observation and unrecoverable after `trick_starter` changed. A2 now appends a
+4-slot viewer-relative caller one-hot at offsets `466:470`; observation and
+serving-fixture tests pin the layout.
 
 #### M4 — The backend-parity guarantee rests on a thin fixture set
 
@@ -263,7 +304,13 @@ Both eval functions play half the games with the neural agent as team0 on seeds 
 
 **Location:** `evaluation/arena.py:20`, `becca_env/env.py:107-115`, `scripts/bc_then_rl.py:175-179`
 
-Training env `i` draws deals from `(base_seed + i) + game_count` (base from `config.seed`, default 0), and the BC dataset also starts at `args.seed=0`; eval uses `EVAL_SEED_BASE=20260724`. In practice the eval band (~20.26M) sits far above the training band, so there is no overlap *today* — but this is an accidental property of a large constant, not an enforced invariant. Raising `--seed`, training vastly longer, or refactoring the seeding scheme could silently push training deals into the eval block, at which point "skill not deal luck" quietly becomes "partially memorized eval deals" with no error. Grep confirms `EVAL_SEED_BASE` is never checked against the training range. **Better:** reserve an eval seed range and assert at eval time it cannot collide given `config.seed` and run length, or derive eval seeds from a distinct namespace. A one-line guard converts a fragile accident into a guarantee.
+After A0, training worker `i`, game `g`, draws
+`base_seed + i + g * num_workers`, eliminating collisions between workers. The
+BC dataset still starts at `args.seed=0`, while eval uses
+`EVAL_SEED_BASE=20260724`. The worker fix does not reserve a separate eval
+namespace: a sufficiently large run or raised base seed could still enter the
+eval band. Reserve an eval range or assert non-overlap from the configured base
+and maximum game count.
 
 #### M10 — Malformed `/act` state returns an opaque 500, contradicting the documented 422 contract
 
@@ -372,7 +419,7 @@ historical context.
 
 ### 5.1 The training-pipeline restructuring question (three-loop duplication)
 
-The single most consequential structural fact is that **three PPO driver loops re-implement the same body** (`trainer.py`, the shipping `bc_then_rl.py`, and the `train_and_plot.py` demo), and they have already drifted (H1). This is not hypothetical debt — it is the direct root cause of H3 (RNG-restore present in `trainer` but not the recipe), M5 (sliding eval seed in the demo only), M7 (wandb hardcoded off in the recipe only), and M16 (schedule reshaping on resume), and it is the reason a script had to import a private trainer helper (L1). The deferred `run_ppo` consolidation now has measurable cost.
+The single most consequential structural fact is that **three PPO driver loops re-implement the same body** (`trainer.py`, the shipping `bc_then_rl.py`, and the `train_and_plot.py` demo), and they have already drifted (H1). This caused the historical H3 RNG discrepancy; A0 fixed exact vector/RNG resume in the live training paths, but duplication still leaves M5, M7, M16, and future drift risks.
 
 **What a consolidated architecture should own:** one parameterized PPO engine in `training/` that is the *sole* implementation of the loop, the LR/entropy schedules and their **resume horizon**, the eval cadence and **eval-seed policy**, `best.pt`/`last.pt` selection, RNG restore-on-resume, and the checkpoint-write policy. The three entry points become thin config-assembly front-ends differing only in setup (BC warm-start, plotting) and a single `TrainConfig`. Behavior differences that must persist (wandb on/off, curriculum on/off) become config flags, not forked code. Two invariants must move *into* the engine so they can never be re-decided per script: (1) resume reconstructs the network from the checkpoint's stamped `net_config` (H4), and (2) there is exactly one on-disk checkpoint format (H5). The engine consolidation and the checkpoint/config unification (M6) are the two changes that make an entire class of silent inequivalence structurally impossible.
 
@@ -380,7 +427,12 @@ The single most consequential structural fact is that **three PPO driver loops r
 
 ### 5.2 Training-loop soundness (new dimension)
 
-The core game engine and the reward-delivery/GAE machinery are correct and well-tested — but the PPO *loop* around them is not uniformly sound, and the defects concentrate on the very machinery added to push past the plateau. The centralized critic's gradients are never clipped even though the shared optimizer updates them (H2), so on CTDE runs — the ones built to raise explained variance — high-variance value gradients can spike unbounded while the actor is dutifully clipped. The `ReturnNormalizer` leaks its per-seat return accumulator across episode boundaries for all but one seat per game (M19) and its running std never decays, so it cannot follow the reward-scale shift when the curriculum raises `win_points` (M20). GAE bootstraps the truncated rollout tail from zero instead of `V(next_obs)` (M21), biasing the tail transitions' targets. The value clip borrows the policy's `clip_eps` in normalized-return units and may cap the value fit (M17). None of these corrupt shipped data, but together they mean the explained-variance plateau cannot be called "structural" until the loop itself is clipped, normalized, and bootstrapped correctly — and the objective math that ties it all together has no direction-pinning test (H9).
+The core game engine and A1 reward-attribution/GAE machinery are now
+well-tested, but the PPO *loop* still has independent open findings. The
+centralized critic's gradients are never clipped (H2), the
+`ReturnNormalizer` has the M19/M20 episode and curriculum concerns, and the
+value clip may cap value fit (M17). M21's rollout-tail bias is resolved by
+carrying bootstrap-only live tails across windows.
 
 ### 5.3 Observability
 
@@ -400,13 +452,13 @@ Ordered by leverage against risk. Effort: S ≈ hours–1 day, M ≈ several day
 
 2. **PPO/GAE training-soundness correctness (S–M).** Clip the critic's gradients together with the actor's (H2); pin the objective's loss direction, clip activation, and value-clip behavior with unit tests (H9); bootstrap the truncated rollout tail from `V(next_obs)` instead of zero (M21); and ablate/decouple value clipping from the policy `clip_eps` (M17). *Fixes H2, H9, M21; addresses M17.* Rationale: these are the live training-soundness defects on the shipped CTDE path; they and their tests must land before anyone restructures `ppo.py`/`rollout.py`, otherwise a sign flip or an unclipped critic ships green.
 
-3. **Consolidate the three PPO loops into one parameterized engine (L) — the keystone.** *Fixes H1; dissolves H3's RNG drift, M5, M6, M16, L1.* Rationale: root cause of the most findings; makes drift structurally impossible rather than discouraged. Sequence after (1)–(2) so the new engine is guarded by tests and CI.
+3. **Consolidate the three PPO loops into one parameterized engine (L) — the keystone.** *Fixes H1 and reduces recurrence risk after A0; dissolves M5, M6, M16, L1.* Rationale: root cause of the most findings; makes drift structurally impossible rather than discouraged. Sequence after (1)–(2) so the new engine is guarded by tests and CI.
 
 4. **Unify checkpoint I/O and resume-from-`net_config` (M).** One writer (`save_checkpoint`), one on-disk format, resume reconstructs the net and structural flags from the stamped config, and persist the original schedule horizon so resume is continuous. *Fixes H4, H5, M16; enables deleting the `net_config_of` shim and L2's silent-V2 risk.* Rationale: eliminates the silent-critic-drop, wrong-architecture-load, and schedule-discontinuity classes of bugs; naturally folds into (3).
 
 5. **Evaluation rigor pass (M).** CI on the selection metric, `best.pt` re-eval on a held-out frozen block, mirror the deals in the two eval functions, gate curriculum advancement at the stage's own `win_points`, add a periodic PIMC eval to bound the ceiling, and log per-role/side + signal-honesty/briscola + per-class BC accuracy per checkpoint. *Fixes H7, H8, M8, M15, M18; substantiates the "plateau is structural" claim.* Rationale: makes shipped numbers honest and gives selection more than one self-referential signal.
 
-6. **Observation redesign (M–L).** Add trick-winner/captured-points-this-round and per-team trick counts (to both actor and critic), add the caller one-hot, unify the seat frame to viewer-relative, and regenerate fixtures in lockstep. *Fixes H6, M2, M3; addresses L3, L4.* Rationale: H6 is the strongest structural candidate for lifting the model-free plateau; the rest are cheap once the encoder is being reworked. Validate H6 with a value-probe before/after.
+6. **A2 observation redesign — implementation complete, promotion open (M–L).** Captured points, trick counts, and caller identity are now appended to actor and critic inputs, and fixtures are regenerated. H6 and M3 are implemented; M2's broader seat-frame inconsistency remains. Run the fixed-budget three-seed ablation before promotion.
 
 7. **Serving cleanup (M).** Decide and implement `esperto`'s signal policy (either make PIMC signal-aware or collapse the tied action set and document no-signal), pick one inference stack (`/act`+torch or ONNX+parity test), decide the temperature policy, add 422 validation + hand-size conservation to the adapter, and make the legality gate required for PLAY_CARD. *Fixes H11, M10, M11, M12; addresses L8, L9, L10.* Rationale: H11 is a live behavioral regression on the flagship tier; the rest reduce the serving surface before a restructure.
 
@@ -422,6 +474,6 @@ Every finding produced across all six review dimensions resolved to **CONFIRMED*
 
 Three empirical questions are *created by* the confirmed findings and should gate their respective workstreams rather than being taken on faith:
 
-- **Does encoding running captured-points materially improve value estimation? (settles the priority of H6.)** Experiment: add the per-team captured-raw-points and trick-count features to `encode_full_state`, train a value probe (or a short critic fit) to predict end-of-round point differential with and without the feature on the frozen deal block, and compare explained variance. A material gain justifies prioritizing the observation redesign as a plateau lever.
+- **Does A2 improve value estimation or playing strength? (promotion gate.)** The 470-feature implementation exists, but no three-seed result does. Compare fixed-budget 462-prefix and 470-feature runs across three seeds using held-out explained variance and paired playing strength; promote only with improvement and no slice regression.
 - **Where is the model-free ceiling relative to PIMC? (settles the "plateau is structural" claim underlying H8.)** Experiment: run the existing `esperto` PIMC agent against the same frozen block used for heuristic eval and report the win rate with a Wilson CI, then compare `best.pt` (`forte`) against PIMC head-to-head. A large PIMC>forte gap bounds how much headroom remains inside model-free training versus what only inference-time search can recover.
 - **Does the shared policy/value clip materially cap the value fit? (settles the harm magnitude of M17.)** Experiment: train with `clip_range_vf=None` (or a decoupled value clip) versus the current `clip_eps=0.2` on the same frozen block and compare `explained_variance`. Given ~0.60 is the stated bottleneck and CTDE was added specifically to raise it, an over-tight value clip is a plausible contributor worth ruling out before concluding the plateau is structural — and this ablation should run alongside the H2 critic-gradient fix, since both touch the same value-fit path.

@@ -38,7 +38,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from becca_env.observation import FULL_STATE_SIZE
+from becca_env.observation import FULL_STATE_SIZE, OBS_SIZE
 from evaluation.arena import evaluate_against_random
 from evaluation.heuristic import evaluate_against_heuristic
 from training.checkpoint import (
@@ -229,12 +229,14 @@ def _net_config_dict(args) -> dict:
             "nhead": args.nhead,
             "num_layers": args.layers,
             "dim_feedforward": args.dim_feedforward,
+            "obs_size": OBS_SIZE,
         }
     return {
         "version": args.network_version,
         "hidden_size": args.hidden,
         "num_layers": args.layers,
         "use_layer_norm": True,
+        "obs_size": OBS_SIZE,
     }
 
 
@@ -257,6 +259,11 @@ def make_net(args, device):
 
 def _validate_resume_architecture(args, ck: dict) -> None:
     net_config = net_config_of(ck)
+    if net_config["obs_size"] != OBS_SIZE:
+        raise SystemExit(
+            f"checkpoint observation width is {net_config['obs_size']}, current "
+            f"training requires {OBS_SIZE}; start a new run from regenerated BC"
+        )
     explicit = getattr(args, "_explicit_options", set())
     flag_config_pairs = [
         ("--network-version", "network_version", "version"),

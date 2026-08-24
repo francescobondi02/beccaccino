@@ -43,7 +43,7 @@ class NeuralAgent:
 
     @torch.no_grad()
     def select_action(self, game: BeccaGame, seat: int) -> object:
-        obs = encode_observation(game, seat)
+        obs = encode_observation(game, seat, obs_size=self.net.obs_size)
         mask = encode_action_mask(game, seat)
 
         obs_t = torch.from_numpy(obs).unsqueeze(0).to(self.device)

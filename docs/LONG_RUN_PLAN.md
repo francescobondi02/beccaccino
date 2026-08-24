@@ -359,9 +359,9 @@ complexity; the wins are in Python and IPC.
 
 **Files:** `becca_env/observation.py` (`encode_full_state`), `becca_env/env.py` (`_get_obs`).
 **Why:** `_get_obs` calls `encode_observation` AND `encode_full_state`, and
-`encode_full_state`'s first line re-runs `encode_observation` internally. The 462-float
-actor encoding — the single most expensive per-step Python cost — is computed twice on
-every step of every env.
+`encode_full_state`'s first line re-runs `encode_observation` internally. The actor
+encoding (462 floats when this measurement was made, 470 after A2) — the single most
+expensive per-step Python cost — is computed twice on every step of every env.
 **Change:** Give `encode_full_state` an optional `obs: np.ndarray | None = None` parameter;
 when provided, copy it into `full[:OBS_SIZE]` instead of re-encoding. In `_get_obs`, encode
 once and pass it in. No layout change — the fixtures must not move.
@@ -374,10 +374,10 @@ env-step rate improvement.
 **Files:** `becca_env/env.py` (`BeccaEnv.__init__`, `_get_obs`, `_terminal_obs`,
 `observation_space`), `training/vec_env.py` (`make_env`, `create_vec_env`),
 `scripts/bc_then_rl.py` / `training/trainer.py` (pass the flag).
-**Why:** `full_obs` (582 floats) is computed and shipped through AsyncVectorEnv subprocess
-pipes on EVERY step — including runs with no centralized critic, and including opponent
-steps where `dual_rollout` never reads it. Encoding + pickling + pipe traffic on the
-hot path, for data that is often discarded.
+**Why:** `full_obs` (582 floats when measured, 590 after A2) is computed and shipped
+through AsyncVectorEnv subprocess pipes on EVERY step — including runs with no
+centralized critic, and including opponent steps where `dual_rollout` never reads it.
+Encoding + pickling + pipe traffic on the hot path, for data that is often discarded.
 **Change:** `BeccaEnv(include_full_obs: bool = True)` (default True = today's behaviour, so
 nothing breaks). When False: omit `full_obs` from the observation dict AND from
 `observation_space` (a Dict space without the key — vector envs require space consistency,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from becca_env.observation import OBS_SIZE
+from becca_env.observation import LEGACY_OBS_SIZE, OBS_SIZE
 from training.checkpoint import (
     build_net,
     load_checkpoint,
@@ -28,7 +28,13 @@ def _state_dicts_equal(a: dict, b: dict) -> bool:
 
 def test_net_config_rebuilds_v2_identically():
     net = create_network(version=2, hidden_size=128, num_layers=2)
-    assert net.config == {"version": 2, "hidden_size": 128, "num_layers": 2, "use_layer_norm": True}
+    assert net.config == {
+        "version": 2,
+        "hidden_size": 128,
+        "num_layers": 2,
+        "use_layer_norm": True,
+        "obs_size": OBS_SIZE,
+    }
     rebuilt = create_network(**net.config)
     rebuilt.load_state_dict(net.state_dict())
     assert _state_dicts_equal(net.state_dict(), rebuilt.state_dict())
@@ -131,6 +137,23 @@ def test_build_net_normalizes_legacy_network_version_key():
     ckpt = {"model": net.state_dict(), "net_config": legacy}
 
     rebuilt = build_net(ckpt, torch.device("cpu"))
+    assert _state_dicts_equal(net.state_dict(), rebuilt.state_dict())
+
+
+def test_build_net_infers_legacy_observation_width():
+    net = create_network(
+        version=4,
+        d_model=32,
+        nhead=2,
+        num_layers=1,
+        dim_feedforward=64,
+        obs_size=LEGACY_OBS_SIZE,
+    )
+    config = dict(net.config)
+    config.pop("obs_size")
+    rebuilt = build_net({"model": net.state_dict(), "config": config}, torch.device("cpu"))
+
+    assert rebuilt.obs_size == LEGACY_OBS_SIZE
     assert _state_dicts_equal(net.state_dict(), rebuilt.state_dict())
 
 

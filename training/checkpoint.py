@@ -72,7 +72,18 @@ def net_config_of(ckpt: dict) -> dict:
     config = dict(config)
     if "network_version" in config:
         config["version"] = config.pop("network_version")
+    if "obs_size" not in config:
+        config["obs_size"] = _infer_checkpoint_obs_size(ckpt["model"], config["version"])
     return config
+
+
+def _infer_checkpoint_obs_size(state_dict: dict, version: int) -> int:
+    """Infer input width for checkpoints written before obs_size was stamped."""
+    if version == 1:
+        return int(state_dict["policy_net.0.weight"].shape[1])
+    if version == 4:
+        return 400 + int(state_dict["global_proj.weight"].shape[1])
+    return int(state_dict["trunk.0.weight"].shape[1])
 
 
 def build_net(ckpt: dict, device) -> nn.Module:

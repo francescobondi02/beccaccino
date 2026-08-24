@@ -44,13 +44,12 @@ When an AI player's turn arrives:
 
 The AI never touches the database or sockets — it's a stateless function: `observation → action`.
 
-> **Companion work before a signals/critic-trained net can serve:** the
-> observation is now **462 floats** (it includes the 12-float signal mask). Whoever
-> owns the TypeScript backend must make its observation encoder emit the same 462
-> features in the same order (the trailing block is 4 relative seats × 3 signal
-> types), and `serving/model.onnx` must be re-exported at the new input width via
-> `serving/export_onnx.py`. The centralized critic is train-time only and does not
-> affect serving.
+> **Observation contract:** new policies consume **470 floats**. The first 462
+> retain the legacy layout; current-round captures, trick counts, and the caller
+> seat occupy the final eight entries. The backend sends a state DTO and Python
+> remains the canonical encoder. Cross-language fixtures pin that DTO contract,
+> and `serving/model.onnx` must be exported at the checkpoint's input width. The
+> centralized critic is train-time only and does not affect serving.
 
 ## Setup
 
@@ -59,7 +58,7 @@ cd ai/
 uv venv .venv && source .venv/bin/activate
 uv pip install -e ".[dev]"       # core + test tools
 uv pip install -e ".[train]"     # + PyTorch + TensorBoard
-pytest                            # run the full suite (~200 tests, a few seconds)
+pytest                            # run the full suite
 python scripts/benchmark.py       # ~2400 games/sec throughput
 ```
 
@@ -172,7 +171,7 @@ print(f"Agent A wins: {result.team0_wins}, Agent B wins: {result.team1_wins}")
 | 4 | Train to >55% vs heuristic on full 41-point games | Done — Run B hit ~71% (see below) |
 | 5 | Signal reward shaping (beyond observability) | Planned |
 | 6 | PIMC / search wired into serving | Partial (PIMC in `inference/`, not yet in serving) |
-| 7 | Serving API + web integration | Partial (FastAPI + ONNX export done; backend encoder must emit the 462-float obs) |
+| 7 | Serving API + web integration | Done for the state-DTO `/act` path, with cross-language parity fixtures |
 
 ## Run B — first full training run with signals + CTDE critic (2026-07-25)
 
