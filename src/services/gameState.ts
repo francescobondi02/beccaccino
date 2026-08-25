@@ -1,7 +1,8 @@
 import { prisma } from "../db";
 import { logger } from "../logger";
 import { GameError } from "../utils/gameError";
-import { cumulativeScore } from "../utils/score";
+import { cumulativeScore, decideGameWinner, Team } from "../utils/score";
+import { GAME_WIN_POINTS } from "../gameConfig";
 import {
   resolveCaller,
   resolveCurrentTurnUserId,
@@ -54,7 +55,17 @@ export async function loadGameState(roomCode: string, userId: number) {
     throw new GameError("No active round found", 404);
   }
 
-  const callerPlayerId = await resolveCaller(currentRound, gameRoom.players);
+  let callerPlayerId = await resolveCaller(currentRound, gameRoom.players);
+  if (callerPlayerId === null) {
+    callerPlayerId =
+      (
+        await prisma.hand.findFirst({
+          where: { roundId: currentRound.id },
+          orderBy: { number: "asc" },
+          select: { starterId: true },
+        })
+      )?.starterId ?? null;
+  }
   const callerUserId =
     gameRoom.players.find((player) => player.id === callerPlayerId)?.userId ??
     null;
@@ -94,15 +105,15 @@ export async function loadGameState(roomCode: string, userId: number) {
       },
     },
   });
-  const serializeCards = (
-    cards: NonNullable<typeof currentHand>["cards"] | undefined,
-  ) =>
-    cards?.map((card) => ({
+  const serializeHand = (hand: typeof currentHand) =>
+    hand?.cards.map((card) => ({
       playerId: card.playerId,
       userId: card.player.userId,
       suit: card.suit,
       value: card.value,
       position: card.position,
+      signal: card.signal,
+      handNumber: hand.number,
     })) ?? [];
 
   const completedRounds = await prisma.round.findMany({
@@ -115,9 +126,34 @@ export async function loadGameState(roomCode: string, userId: number) {
       team1Points: true,
       team0Figures: true,
       team1Figures: true,
+      winnerTeam: true,
     },
   });
   const cumulative = cumulativeScore(completedRounds);
+  const callerTeam = gameRoom.players.find(
+    (player) => player.id === callerPlayerId,
+  )?.team;
+  const winnerTeam =
+    gameRoom.finished && (callerTeam === 0 || callerTeam === 1)
+      ? decideGameWinner(cumulative, GAME_WIN_POINTS, callerTeam as Team)
+      : null;
+  const finishedGame =
+    gameRoom.finished && winnerTeam !== null
+      ? {
+          winnerTeam,
+          totalRounds: completedRounds.length,
+          finalScores: {
+            team0: cumulative.team0.points,
+            team1: cumulative.team1.points,
+          },
+          roundsWon: {
+            team0: completedRounds.filter((round) => round.winnerTeam === 0)
+              .length,
+            team1: completedRounds.filter((round) => round.winnerTeam === 1)
+              .length,
+          },
+        }
+      : null;
 
   let timerState = getTurnTimerState(roomCode);
   if (!timerState && !gameRoom.finished && currentTurnUserId !== null) {
@@ -133,6 +169,11 @@ export async function loadGameState(roomCode: string, userId: number) {
   }
 
   return {
+    status: gameRoom.finished
+      ? "finished"
+      : currentRound.briscola === null
+        ? "choosing_briscola"
+        : "playing",
     round: {
       id: currentRound.id,
       number: currentRound.number,
@@ -142,9 +183,9 @@ export async function loadGameState(roomCode: string, userId: number) {
     currentHandNumber: currentHand?.number ?? null,
     callerUserId,
     myCards,
-    currentTurnUserId,
-    playedCards: serializeCards(currentHand?.cards),
-    lastHandCards: serializeCards(lastCompletedHand?.cards),
+    currentTurnUserId: gameRoom.finished ? null : currentTurnUserId,
+    playedCards: serializeHand(currentHand),
+    lastHandCards: serializeHand(lastCompletedHand),
     totalPoints: {
       team0Points: cumulative.team0.points,
       team1Points: cumulative.team1.points,
@@ -152,6 +193,7 @@ export async function loadGameState(roomCode: string, userId: number) {
       team1Figures: cumulative.team1.figures,
     },
     turnTimer: timerState,
+    finishedGame,
     isPractice: gameRoom.isPractice,
     allHands: gameRoom.isPractice
       ? await revealAllHands(gameRoom.players, currentRound.id)

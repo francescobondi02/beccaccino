@@ -132,6 +132,20 @@ describe("Full Beccaccino game", () => {
         totalPoints.team0Points >= WINNING_SCORE ||
           totalPoints.team1Points >= WINNING_SCORE
       ).toBe(true);
+      expect(afterRound.body.status).toBe("finished");
+      expect(afterRound.body.currentTurnUserId).toBeNull();
+      expect(afterRound.body.finishedGame).toEqual({
+        winnerTeam: expect.any(Number),
+        totalRounds: expect.any(Number),
+        finalScores: {
+          team0: totalPoints.team0Points,
+          team1: totalPoints.team1Points,
+        },
+        roundsWon: {
+          team0: expect.any(Number),
+          team1: expect.any(Number),
+        },
+      });
     } else {
       // New round started
       expect(afterRound.body.round.number).toBe(2);
