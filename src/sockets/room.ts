@@ -22,6 +22,11 @@ interface JoinRoomData {
   username: string;
 }
 
+interface JoinRoomResult {
+  ok: boolean;
+  error?: string;
+}
+
 interface ChooseTeamData {
   roomCode: string;
   userId: number;
@@ -35,7 +40,6 @@ interface ReadyData {
 }
 
 export function registerRoomSocket(socket: Socket, io: Server) {
-
   /**
    * JOIN_LOBBY - Un utente loggato entra nella pagina principale
    * Si unisce alla "lobby globale" per ricevere aggiornamenti su nuove stanze
@@ -56,69 +60,86 @@ export function registerRoomSocket(socket: Socket, io: Server) {
    * Quando un utente entra in una room, si unisce alla "stanza" socket
    * e notifica tutti gli altri utenti nella stanza
    */
-  socket.on("join_room", async (data: JoinRoomData) => {
-    const { roomCode } = data;
+  socket.on(
+    "join_room",
+    async (
+      data: JoinRoomData,
+      acknowledge?: (result: JoinRoomResult) => void,
+    ) => {
+      const { roomCode } = data;
 
-    // Use verified identity from JWT handshake when available (production).
-    // Fall back to client-sent data only in test mode where JWT handshake is skipped.
-    const userId = socket.data.user?.userId ?? data.userId;
-    const username = socket.data.user?.username ?? data.username;
+      // Use verified identity from JWT handshake when available (production).
+      // Fall back to client-sent data only in test mode where JWT handshake is skipped.
+      const userId = socket.data.user?.userId ?? data.userId;
+      const username = socket.data.user?.username ?? data.username;
 
-    if (!userId || !username) {
-      socket.emit("error", { message: "Not authenticated" });
-      return;
-    }
+      if (!userId || !username) {
+        socket.emit("error", { message: "Not authenticated" });
+        acknowledge?.({ ok: false, error: "Not authenticated" });
+        return;
+      }
 
-
-    try {
-      // Verifica che la room esista e l'utente sia un player
-      const room = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-        include: {
-          players: {
-            select: PUBLIC_PLAYER_SELECT,
+      try {
+        // Verifica che la room esista e l'utente sia un player
+        const room = await prisma.gameRoom.findUnique({
+          where: { code: roomCode },
+          include: {
+            players: {
+              select: PUBLIC_PLAYER_SELECT,
+            },
           },
-        },
-      });
+        });
 
-      if (!room) {
-        socket.emit("error", { message: "Room not found" });
-        return;
+        if (!room) {
+          socket.emit("error", { message: "Room not found" });
+          acknowledge?.({ ok: false, error: "Room not found" });
+          return;
+        }
+
+        const player = room.players.find((p) => p.userId === userId);
+        if (!player) {
+          socket.emit("error", { message: "You are not in this room" });
+          acknowledge?.({ ok: false, error: "You are not in this room" });
+          return;
+        }
+
+        const existingSocketIds = io.sockets.adapter.rooms.get(roomCode);
+        const alreadyPresent = [...(existingSocketIds ?? [])].some(
+          (socketId) =>
+            io.sockets.sockets.get(socketId)?.data.user?.userId === userId,
+        );
+
+        // Unisce l'utente alla room socket e salva il riferimento per il disconnect handler
+        socket.join(roomCode);
+        socket.data.roomCode = roomCode;
+        // Store user info for use by other handlers (chat, disconnect, etc.)
+        // In production this comes from JWT; in test from client data.
+        socket.data.user = { userId, username, id: userId };
+
+        // Notifica tutti gli altri nella room che un nuovo player si è unito
+        if (!alreadyPresent) {
+          socket.to(roomCode).emit("player_joined", {
+            player: {
+              id: player.id,
+              userId: player.userId,
+              username: player.user.username,
+              seat: player.seat,
+              team: player.team,
+              isReady: player.isReady,
+            },
+          });
+        }
+        acknowledge?.({ ok: true });
+      } catch (error) {
+        Sentry.captureException(error, {
+          extra: { event: "join_room", roomCode, userId },
+        });
+        logger.error({ err: error, roomCode, userId }, "join_room_failed");
+        socket.emit("error", { message: "Failed to join room" });
+        acknowledge?.({ ok: false, error: "Failed to join room" });
       }
-
-      const player = room.players.find((p) => p.userId === userId);
-      if (!player) {
-        socket.emit("error", { message: "You are not in this room" });
-        return;
-      }
-
-      // Unisce l'utente alla room socket e salva il riferimento per il disconnect handler
-      socket.join(roomCode);
-      socket.data.roomCode = roomCode;
-      // Store user info for use by other handlers (chat, disconnect, etc.)
-      // In production this comes from JWT; in test from client data.
-      socket.data.user = { userId, username, id: userId };
-
-      // Notifica tutti gli altri nella room che un nuovo player si è unito
-      socket.to(roomCode).emit("player_joined", {
-        player: {
-          id: player.id,
-          userId: player.userId,
-          username: player.user.username,
-          seat: player.seat,
-          team: player.team,
-          isReady: player.isReady,
-        },
-      });
-
-    } catch (error) {
-      Sentry.captureException(error, {
-        extra: { event: "join_room", roomCode, userId },
-      });
-      logger.error({ err: error, roomCode, userId }, "join_room_failed");
-      socket.emit("error", { message: "Failed to join room" });
-    }
-  });
+    },
+  );
 
   /**
    * CHOOSE_TEAM — Deprecated socket handler.
@@ -248,7 +269,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         message: sanitized,
         timestamp: new Date().toISOString(),
       });
-
     },
   );
 
@@ -259,19 +279,30 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   socket.on("leave_room", (data: { roomCode: string }) => {
     const { roomCode } = data;
     socket.leave(roomCode);
+    if (socket.data.roomCode === roomCode) {
+      delete socket.data.roomCode;
+    }
   });
 
   /**
    * DISCONNECT - Quando un client si disconnette
    * Notifica gli altri nella room e pulisce lo stato
    */
-  socket.on("disconnect", () => {
+  socket.on("disconnecting", () => {
     const userId = socket.data.user?.id;
     const username = socket.data.user?.username;
 
-    // Se abbiamo l'informazione dell'utente e della room, notifica gli altri
     if (userId && socket.data.roomCode) {
-      socket.to(socket.data.roomCode).emit("player_disconnected", {
+      const roomCode = socket.data.roomCode;
+      const roomSocketIds = io.sockets.adapter.rooms.get(roomCode);
+      const hasAnotherSocket = [...(roomSocketIds ?? [])].some(
+        (socketId) =>
+          socketId !== socket.id &&
+          io.sockets.sockets.get(socketId)?.data.user?.userId === userId,
+      );
+      if (hasAnotherSocket) return;
+
+      socket.to(roomCode).emit("player_disconnected", {
         userId,
         username: username ?? "Unknown",
       });

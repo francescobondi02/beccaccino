@@ -79,6 +79,25 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+interface JoinRoomResult {
+  ok: boolean;
+  error?: string;
+}
+
+function joinSocketRoom(
+  socket: ClientSocket,
+  roomCode: string,
+  user: TestUser,
+): Promise<JoinRoomResult> {
+  return new Promise((resolve) => {
+    socket.emit(
+      "join_room",
+      { roomCode, userId: user.id, username: user.username },
+      resolve,
+    );
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -196,6 +215,20 @@ describe("Socket.IO real WebSocket integration", () => {
   // join_room
   // =========================================================================
   describe("join_room", () => {
+    it("acknowledges only after the socket has joined the room", async () => {
+      const user = await createUser("Alice");
+      const roomCode = await createRoom(user);
+      const client = createClient();
+      await waitForConnect(client);
+
+      await expect(joinSocketRoom(client, roomCode, user)).resolves.toEqual({
+        ok: true,
+      });
+      expect(
+        ioServer.sockets.adapter.rooms.get(roomCode)?.has(client.id!),
+      ).toBe(true);
+    });
+
     it("should notify other clients in the room when a player joins", async () => {
       const u1 = await createUser("Alice");
       const u2 = await createUser("Bob");
@@ -235,6 +268,35 @@ describe("Socket.IO real WebSocket integration", () => {
         team: null,
         isReady: false,
       });
+    });
+
+    it("does not rebroadcast presence for repeated joins or another tab", async () => {
+      const observer = await createUser("Alice");
+      const returningUser = await createUser("Bob");
+      const roomCode = await createRoom(observer);
+      await joinRoom(roomCode, returningUser);
+
+      const observerClient = createClient();
+      const primaryClient = createClient();
+      const secondTabClient = createClient();
+      await Promise.all([
+        waitForConnect(observerClient),
+        waitForConnect(primaryClient),
+        waitForConnect(secondTabClient),
+      ]);
+      await joinSocketRoom(observerClient, roomCode, observer);
+
+      let joinedEvents = 0;
+      observerClient.on("player_joined", ({ player }) => {
+        if (player.userId === returningUser.id) joinedEvents += 1;
+      });
+
+      await joinSocketRoom(primaryClient, roomCode, returningUser);
+      await joinSocketRoom(primaryClient, roomCode, returningUser);
+      await joinSocketRoom(secondTabClient, roomCode, returningUser);
+      await delay(100);
+
+      expect(joinedEvents).toBe(1);
     });
 
     it("should emit error if room does not exist", async () => {
@@ -759,6 +821,46 @@ describe("Socket.IO real WebSocket integration", () => {
       const event = await disconnectPromise;
       expect(event.userId).toBe(u2.id);
       expect(event.username).toBe("Bob");
+    });
+
+    it("reports a player disconnected only after their final socket closes", async () => {
+      const observer = await createUser("Alice");
+      const connectedUser = await createUser("Bob");
+      const roomCode = await createRoom(observer);
+      await joinRoom(roomCode, connectedUser);
+
+      const observerClient = createClient();
+      const primaryClient = createClient();
+      const secondTabClient = createClient();
+      await Promise.all([
+        waitForConnect(observerClient),
+        waitForConnect(primaryClient),
+        waitForConnect(secondTabClient),
+      ]);
+      await joinSocketRoom(observerClient, roomCode, observer);
+      await joinSocketRoom(primaryClient, roomCode, connectedUser);
+      await joinSocketRoom(secondTabClient, roomCode, connectedUser);
+
+      let disconnectedEvents = 0;
+      observerClient.on("player_disconnected", () => {
+        disconnectedEvents += 1;
+      });
+
+      primaryClient.disconnect();
+      await delay(100);
+      expect(disconnectedEvents).toBe(0);
+
+      const finalDisconnect = waitForEvent<{
+        userId: number;
+        username: string;
+      }>(observerClient, "player_disconnected");
+      secondTabClient.disconnect();
+
+      await expect(finalDisconnect).resolves.toEqual({
+        userId: connectedUser.id,
+        username: connectedUser.username,
+      });
+      expect(disconnectedEvents).toBe(1);
     });
 
     it("should NOT emit player_disconnected if socket was not in a room", async () => {
