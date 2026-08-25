@@ -808,12 +808,14 @@ async function playCardUnlocked({
     return { kind: "clear", roomCode };
   }
 
-  io.to(roomCode).emit("new_round_started", {
-    roundNumber: currentRound.number + 1,
-  });
   const newCaller = room.players.find(
     (p) => p.id === nextRound!.callerPlayerId,
   );
+  io.to(roomCode).emit("new_round_started", {
+    roundId: nextRound!.roundId,
+    roundNumber: nextRound!.roundNumber,
+    callerUserId: newCaller?.userId ?? null,
+  });
   return newCaller
     ? {
         kind: "schedule",
