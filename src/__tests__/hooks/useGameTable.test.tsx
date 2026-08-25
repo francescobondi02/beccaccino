@@ -147,7 +147,7 @@ describe("useGameTable turn synchronization", () => {
     await waitFor(() => expect(result.current.playableCards).toEqual([myCard]));
   });
 
-  it("advances a completed trick before the delayed REST reconciliation", async () => {
+  it("keeps the next trick disabled until the completed trick is reconciled", async () => {
     let stateCalls = 0;
     const playedCards = [0, 1, 2].map((position) => ({
       playerId: position + 10,
@@ -163,7 +163,7 @@ describe("useGameTable turn synchronization", () => {
         stateCalls += 1;
         return Promise.resolve(
           gameState({
-            currentTurnUserId: stateCalls === 1 ? 1 : 2,
+            currentTurnUserId: 1,
             playedCards: stateCalls === 1 ? playedCards : [],
           }),
         );
@@ -210,7 +210,7 @@ describe("useGameTable turn synchronization", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(result.current.playableCards).toEqual([myCard]);
+    expect(result.current.playableCards).toEqual([]);
 
     act(() => vi.advanceTimersByTime(2_999));
     expect(stateCalls).toBe(1);
@@ -218,8 +218,12 @@ describe("useGameTable turn synchronization", () => {
     await act(async () => {
       vi.advanceTimersByTime(1);
       await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
     });
     expect(stateCalls).toBe(2);
+    expect(result.current.playedCards).toEqual([]);
+    expect(result.current.playableCards).toEqual([myCard]);
   });
 
   it("unsubscribes events and cancels delayed reconciliation on unmount", async () => {

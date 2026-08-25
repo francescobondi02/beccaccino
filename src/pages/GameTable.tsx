@@ -252,6 +252,7 @@ const GameTable = () => {
       const message =
         error instanceof ApiError ? error.body?.error : undefined;
       toast.error(message || "Errore nel giocare la carta");
+      await refetchGameState();
     } finally {
       setIsPlayingCard(false);
     }

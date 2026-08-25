@@ -100,7 +100,12 @@ export function useGameTable(
       setGameStateStatus("ready");
 
       // Fetch playable cards immediately if it's our turn
-      if (data.currentTurnUserId === uid && data.round?.briscola) {
+      if (
+        data.currentTurnUserId === uid &&
+        data.round?.briscola &&
+        data.currentHandNumber !== null &&
+        (data.playedCards?.length ?? 0) < 4
+      ) {
         await fetchPlayableCards(code);
       } else {
         playableRequestSequence.current += 1;
@@ -123,7 +128,13 @@ export function useGameTable(
 
   // Fetch playable cards when it's my turn
   useEffect(() => {
-    if (!userId || !gameRoomCode || state.currentTurnUserId !== userId) {
+    const canRequestPlayableCards =
+      Boolean(state.currentRound?.briscola) &&
+      state.currentHandNumber !== null &&
+      state.playedCards.length < 4 &&
+      state.currentTurnUserId === userId;
+
+    if (!userId || !gameRoomCode || !canRequestPlayableCards) {
       playableRequestSequence.current += 1;
       dispatch({ type: "playable_cards_fetched", cards: [] });
       return;
@@ -135,6 +146,7 @@ export function useGameTable(
     userId,
     gameRoomCode,
     state.currentRound?.briscola,
+    state.currentHandNumber,
     state.playedCards.length,
     state.myCards.length,
     state.turnTimer,
@@ -172,6 +184,7 @@ export function useGameTable(
     };
 
     const handleCardPlayed = (data: CardPlayedPayload) => {
+      playableRequestSequence.current += 1;
       dispatch({
         type: "card_played",
         data,

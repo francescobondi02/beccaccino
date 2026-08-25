@@ -143,14 +143,18 @@ describe("gameTableReducer", () => {
     expect(newTrick.currentSignal).toBeNull();
   });
 
-  it("card_played clears the running timer and appends to the move log", () => {
+  it("card_played invalidates the previous turn and appends to the move log", () => {
     const withTimer: GameTableState = {
       ...initialGameTableState,
+      currentTurnUserId: 11,
+      playableCards: stateResponse.myCards,
       turnTimer: { turnUserId: 11, totalMs: 60_000, startedAt: 0, phase: "play_card" },
     };
 
     const state = playCard(withTimer, cardPlayed());
 
+    expect(state.currentTurnUserId).toBeNull();
+    expect(state.playableCards).toEqual([]);
     expect(state.turnTimer).toBeNull();
     expect(state.moveLog).toEqual([
       { handNumber: 3, username: "anna", suit: "denara", value: "asso", signal: null },

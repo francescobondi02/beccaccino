@@ -87,6 +87,7 @@ export function gameTableReducer(
         myCards: data.myCards ?? [],
         currentTurnUserId: data.currentTurnUserId ?? null,
         playedCards: data.playedCards ?? [],
+        playableCards: [],
         lastHand: data.lastHandCards ?? [],
         currentHandNumber: data.currentHandNumber ?? null,
         totalPoints: data.totalPoints ?? EMPTY_POINTS,
@@ -113,6 +114,8 @@ export function gameTableReducer(
       return {
         ...state,
         // The next timer arrives through turn_timer_started.
+        currentTurnUserId: null,
+        playableCards: [],
         turnTimer: null,
         moveLog: [
           ...state.moveLog,
