@@ -250,6 +250,37 @@ describe("useGameTable turn synchronization", () => {
     expect(result.current.playableCards).toEqual([myCard]);
   });
 
+  it("shows the next caller while the new-round state fetch is pending", async () => {
+    const nextRoundState = deferred<GameStateResponse>();
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }))
+      .mockImplementationOnce(() => nextRoundState.promise);
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ]),
+    );
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
+
+    emitSocket("new_round_started", {
+      roundId: 21,
+      roundNumber: 2,
+      callerUserId: 1,
+    });
+
+    expect(result.current.currentRound).toEqual({
+      id: 21,
+      number: 2,
+      briscola: null,
+      cricca: false,
+    });
+    expect(result.current.callerUserId).toBe(1);
+    expect(result.current.currentTurnUserId).toBe(1);
+    expect(result.current.playedCards).toEqual([]);
+  });
+
   it("unsubscribes events and cancels delayed reconciliation on unmount", async () => {
     mocks.apiGet.mockImplementation((path) => {
       if (path === "/games/ROOM/state") {

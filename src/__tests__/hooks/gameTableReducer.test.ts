@@ -273,10 +273,20 @@ describe("gameTableReducer", () => {
           winnerTeam: 0,
         },
       },
-      { type: "new_round_started" },
+      {
+        type: "new_round_started",
+        data: { roundId: 8, roundNumber: 2, callerUserId: 12 },
+      },
     );
 
-    expect(state.currentRound).toBeNull();
+    expect(state.currentRound).toEqual({
+      id: 8,
+      number: 2,
+      briscola: null,
+      cricca: false,
+    });
+    expect(state.callerUserId).toBe(12);
+    expect(state.currentTurnUserId).toBe(12);
     expect(state.myCards).toEqual([]);
     expect(state.playedCards).toEqual([]);
     expect(state.playableCards).toEqual([]);

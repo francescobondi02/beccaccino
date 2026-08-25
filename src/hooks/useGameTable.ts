@@ -11,6 +11,7 @@ import type {
   BriscolaChosenPayload,
   RoundEndedPayload,
   GameFinishedPayload,
+  NewRoundStartedPayload,
   TurnTimerStartedPayload,
   AutoPlayedPayload,
   PlayerKickedTimeoutPayload,
@@ -222,10 +223,10 @@ export function useGameTable(
       dispatch({ type: "round_ended", data });
     };
 
-    const handleNewRoundStarted = () => {
+    const handleNewRoundStarted = (data: NewRoundStartedPayload) => {
       invalidateStateRequests();
       playableRequestSequence.current += 1;
-      dispatch({ type: "new_round_started" });
+      dispatch({ type: "new_round_started", data });
       toast.success("Nuovo round iniziato!");
       void refetchGameState();
     };

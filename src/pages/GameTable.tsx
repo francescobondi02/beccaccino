@@ -510,10 +510,14 @@ const GameTable = () => {
                     (p) => p.userId === playedCard.userId,
                   )?.position ?? "bottom",
               }))}
-              briscolaChosen={currentRound?.briscola !== null}
+              briscolaChosen={Boolean(currentRound?.briscola)}
               waitingForUsername={
                 playersWithPositions.find(
-                  (p) => p.userId === currentTurnUserId,
+                  (p) =>
+                    p.userId ===
+                    (currentRound?.briscola === null
+                      ? callerUserId
+                      : currentTurnUserId),
                 )?.username ?? "giocatore"
               }
               countdown={countdown}

@@ -92,7 +92,9 @@ export interface GameFinishedPayload {
   roundsWon: { team0: number; team1: number };
 }
 export interface NewRoundStartedPayload {
+  roundId: number;
   roundNumber: number;
+  callerUserId: number | null;
 }
 // totalMs is null for bot turns (no deadline to count down to).
 export interface TurnTimerStartedPayload {

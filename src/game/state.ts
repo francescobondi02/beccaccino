@@ -1,5 +1,6 @@
 import type {
   GameFinishedPayload,
+  NewRoundStartedPayload,
   RoundEndedPayload,
 } from "@/sockets/events";
 import type {
@@ -43,7 +44,7 @@ export type GameTableAction =
     }
   | { type: "briscola_chosen"; briscola: string }
   | { type: "round_ended"; data: RoundEndedPayload }
-  | { type: "new_round_started" }
+  | { type: "new_round_started"; data: NewRoundStartedPayload }
   | { type: "round_end_dismissed" }
   | { type: "game_finished"; data: GameFinishedPayload }
   | { type: "turn_timer_started"; timer: TurnTimer };
@@ -181,10 +182,15 @@ export function gameTableReducer(
     case "new_round_started":
       return {
         ...state,
-        currentRound: null,
-        callerUserId: null,
+        currentRound: {
+          id: action.data.roundId,
+          number: action.data.roundNumber,
+          briscola: null,
+          cricca: false,
+        },
+        callerUserId: action.data.callerUserId,
         myCards: [],
-        currentTurnUserId: null,
+        currentTurnUserId: action.data.callerUserId,
         playedCards: [],
         playableCards: [],
         currentHandNumber: null,
