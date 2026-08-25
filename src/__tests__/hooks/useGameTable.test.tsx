@@ -332,6 +332,130 @@ describe("useGameTable turn synchronization", () => {
     expect(result.current.currentTurnUserId).toBe(2);
   });
 
+  it("does not let an older state response erase a game-finished event", async () => {
+    const stale = deferred<GameStateResponse>();
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }))
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementation((path) => {
+        if (path === "/games/playable-cards/ROOM") {
+          return Promise.resolve({ playableCards: [myCard] });
+        }
+        return Promise.reject(new Error(`Unexpected request: ${path}`));
+      });
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ]),
+    );
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
+
+    act(() => {
+      void result.current.refetchGameState();
+    });
+    await waitFor(() => expect(stateRequestCount()).toBe(2));
+
+    emitSocket("game_finished", {
+      winnerTeam: 0,
+      totalRounds: 3,
+      finalScores: { team0: 15, team1: 11 },
+      roundsWon: { team0: 2, team1: 1 },
+    });
+    expect(result.current.gameFinishedData?.winnerTeam).toBe(0);
+
+    await act(async () => {
+      stale.resolve(gameState({ currentTurnUserId: 3 }));
+      await Promise.resolve();
+    });
+
+    expect(result.current.gameFinishedData?.winnerTeam).toBe(0);
+    expect(result.current.currentTurnUserId).toBe(2);
+  });
+
+  it("keeps newer card and timer events when an older state response arrives", async () => {
+    const stale = deferred<GameStateResponse>();
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }))
+      .mockImplementationOnce(() => stale.promise)
+      .mockImplementation((path) => {
+        if (path === "/games/playable-cards/ROOM") {
+          return Promise.resolve({ playableCards: [myCard] });
+        }
+        return Promise.reject(new Error(`Unexpected request: ${path}`));
+      });
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ]),
+    );
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
+
+    act(() => {
+      void result.current.refetchGameState();
+    });
+    await waitFor(() => expect(stateRequestCount()).toBe(2));
+
+    emitSocket("card_played", {
+      playerId: 12,
+      userId: 2,
+      suit: "coppe",
+      value: "tre",
+      position: 0,
+      handNumber: 1,
+      signal: "busso",
+    });
+    emitSocket("turn_timer_started", {
+      turnUserId: 1,
+      totalMs: 60_000,
+      serverTimestamp: 1,
+      phase: "play_card",
+      isBot: false,
+    });
+
+    await act(async () => {
+      stale.resolve(gameState({ currentTurnUserId: 2, playedCards: [] }));
+      await Promise.resolve();
+    });
+
+    expect(result.current.playedCards).toHaveLength(1);
+    expect(result.current.currentSignal).toEqual({
+      userId: 2,
+      signal: "busso",
+    });
+    expect(result.current.currentTurnUserId).toBe(1);
+  });
+
+  it("keeps loaded state usable when join reconciliation fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }))
+      .mockRejectedValueOnce(new Error("temporary network failure"));
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ]),
+    );
+    await waitFor(() => expect(result.current.gameStateStatus).toBe("ready"));
+
+    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[2] as
+      | (() => void)
+      | undefined;
+    act(() => onJoined?.());
+
+    await waitFor(() => expect(stateRequestCount()).toBe(2));
+    expect(result.current.gameStateStatus).toBe("ready");
+    expect(result.current.currentTurnUserId).toBe(2);
+    consoleError.mockRestore();
+  });
+
   it("exposes a retryable error when game-state loading fails", async () => {
     const consoleError = vi
       .spyOn(console, "error")

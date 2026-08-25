@@ -114,7 +114,9 @@ export function useGameTable(
     } catch (error) {
       if (requestId !== stateRequestSequence.current) return;
       console.error("Error refetching game state:", error);
-      setGameStateStatus("error");
+      if (!hasLoadedGameState.current) {
+        setGameStateStatus("error");
+      }
     }
   }, [fetchPlayableCards]);
 
@@ -186,8 +188,12 @@ export function useGameTable(
       }, delay);
       reconciliationTimers.add(timer);
     };
+    const invalidateStateRequests = () => {
+      stateRequestSequence.current += 1;
+    };
 
     const handleCardPlayed = (data: CardPlayedPayload) => {
+      invalidateStateRequests();
       playableRequestSequence.current += 1;
       dispatch({
         type: "card_played",
@@ -204,16 +210,19 @@ export function useGameTable(
     };
 
     const handleBriscolaChosen = (data: BriscolaChosenPayload) => {
+      invalidateStateRequests();
       dispatch({ type: "briscola_chosen", briscola: data.briscola });
       // Refetch to get updated turn info
       scheduleRefetch(300);
     };
 
     const handleRoundEnded = (data: RoundEndedPayload) => {
+      invalidateStateRequests();
       dispatch({ type: "round_ended", data });
     };
 
     const handleNewRoundStarted = () => {
+      invalidateStateRequests();
       playableRequestSequence.current += 1;
       dispatch({ type: "new_round_started" });
       toast.success("Nuovo round iniziato!");
@@ -221,6 +230,7 @@ export function useGameTable(
     };
 
     const handleGameFinished = (data: GameFinishedPayload) => {
+      invalidateStateRequests();
       dispatch({ type: "game_finished", data });
     };
 
@@ -229,6 +239,7 @@ export function useGameTable(
     };
 
     const handleTurnTimerStarted = (data: TurnTimerStartedPayload) => {
+      invalidateStateRequests();
       // Anchor on receipt time, not the server's clock (skew-safe: the timer
       // just started, so transit latency is the only error).
       dispatch({
