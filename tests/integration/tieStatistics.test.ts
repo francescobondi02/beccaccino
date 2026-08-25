@@ -55,6 +55,29 @@ async function createCallerTieGame() {
 }
 
 describe("Caller-tie statistics", () => {
+  it("restores the final caller's team as winner for every player", async () => {
+    const { users } = await createCallerTieGame();
+
+    for (const user of users) {
+      const response = await apiAs(user.id, user.username).get(
+        "/api/games/TIE001/state",
+      );
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toMatchObject({
+        status: "finished",
+        currentTurnUserId: null,
+        turnTimer: null,
+        finishedGame: {
+          winnerTeam: 1,
+          totalRounds: 1,
+          finalScores: { team0: 5, team1: 5 },
+          roundsWon: { team0: 1, team1: 0 },
+        },
+      });
+    }
+  });
+
   it("reports the final caller's team as the profile winner", async () => {
     const { users } = await createCallerTieGame();
 

@@ -203,6 +203,48 @@ describe("Full Beccaccino game", () => {
     }
   });
 
+  it("returns the persisted lead signal to reconnecting players", async () => {
+    const { roomCode, round, cards } = await setupGame();
+    await chooseBriscola(roomCode, round, cards);
+    const room = await prisma.gameRoom.findUniqueOrThrow({
+      where: { code: roomCode },
+      include: { players: { include: { user: true } } },
+    });
+    const observer = room.players[0];
+    const state = await apiAs(observer.userId, observer.user.username).get(
+      `/api/games/${roomCode}/state`,
+    );
+    const leader = room.players.find(
+      (player) => player.userId === state.body.currentTurnUserId,
+    )!;
+    const playable = await apiAs(leader.userId, leader.user.username).get(
+      `/api/games/playable-cards/${roomCode}`,
+    );
+    const card = playable.body.playableCards[0];
+
+    const played = await apiAs(leader.userId, leader.user.username)
+      .post("/api/games/play-card")
+      .send({
+        roomCode,
+        suit: card.suit,
+        value: card.value,
+        signal: "busso",
+      });
+    expect(played.statusCode).toBe(200);
+
+    const reconnected = await apiAs(
+      observer.userId,
+      observer.user.username,
+    ).get(`/api/games/${roomCode}/state`);
+    expect(reconnected.statusCode).toBe(200);
+    expect(reconnected.body.playedCards[0]).toMatchObject({
+      userId: leader.userId,
+      position: 0,
+      signal: "busso",
+      handNumber: 1,
+    });
+  });
+
   it("total card points per round always sum to 11", async () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);

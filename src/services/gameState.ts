@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { logger } from "../logger";
 import { GameError } from "../utils/gameError";
@@ -12,12 +13,14 @@ import {
   restoreBotSeats,
   startTurnTimer,
 } from "./turnTimer";
+import { withRoomLock } from "../utils/roomLock";
 
 async function revealAllHands(
+  client: Prisma.TransactionClient,
   players: { userId: number; id: number; botModel: string | null }[],
   roundId: number,
 ) {
-  const cards = await prisma.playerCard.findMany({
+  const cards = await client.playerCard.findMany({
     where: { roundId },
     orderBy: [{ suit: "asc" }, { value: "asc" }],
   });
@@ -31,8 +34,12 @@ async function revealAllHands(
   }));
 }
 
-export async function loadGameState(roomCode: string, userId: number) {
-  const gameRoom = await prisma.gameRoom.findUnique({
+async function readGameStateSnapshot(
+  client: Prisma.TransactionClient,
+  roomCode: string,
+  userId: number,
+) {
+  const gameRoom = await client.gameRoom.findUnique({
     where: { code: roomCode },
     include: { players: true },
   });
@@ -47,7 +54,7 @@ export async function loadGameState(roomCode: string, userId: number) {
     throw new GameError("Game has not started yet", 400);
   }
 
-  const currentRound = await prisma.round.findFirst({
+  const currentRound = await client.round.findFirst({
     where: { gameRoomId: gameRoom.id },
     orderBy: { number: "desc" },
   });
@@ -55,11 +62,15 @@ export async function loadGameState(roomCode: string, userId: number) {
     throw new GameError("No active round found", 404);
   }
 
-  let callerPlayerId = await resolveCaller(currentRound, gameRoom.players);
+  let callerPlayerId = await resolveCaller(
+    currentRound,
+    gameRoom.players,
+    client,
+  );
   if (callerPlayerId === null) {
     callerPlayerId =
       (
-        await prisma.hand.findFirst({
+        await client.hand.findFirst({
           where: { roundId: currentRound.id },
           orderBy: { number: "asc" },
           select: { starterId: true },
@@ -72,7 +83,7 @@ export async function loadGameState(roomCode: string, userId: number) {
   const myPlayer = gameRoom.players.find(
     (player) => player.userId === userId,
   );
-  const myCards = await prisma.playerCard.findMany({
+  const myCards = await client.playerCard.findMany({
     where: {
       playerId: myPlayer!.id,
       roundId: currentRound.id,
@@ -83,9 +94,10 @@ export async function loadGameState(roomCode: string, userId: number) {
     currentRound,
     gameRoom.players,
     callerUserId,
+    client,
   );
 
-  const currentHand = await prisma.hand.findFirst({
+  const currentHand = await client.hand.findFirst({
     where: { roundId: currentRound.id, winnerId: null },
     orderBy: { number: "desc" },
     include: {
@@ -95,7 +107,7 @@ export async function loadGameState(roomCode: string, userId: number) {
       },
     },
   });
-  const lastCompletedHand = await prisma.hand.findFirst({
+  const lastCompletedHand = await client.hand.findFirst({
     where: { roundId: currentRound.id, winnerId: { not: null } },
     orderBy: { number: "desc" },
     include: {
@@ -116,7 +128,7 @@ export async function loadGameState(roomCode: string, userId: number) {
       handNumber: hand.number,
     })) ?? [];
 
-  const completedRounds = await prisma.round.findMany({
+  const completedRounds = await client.round.findMany({
     where: {
       gameRoomId: gameRoom.id,
       winnerTeam: { not: null },
@@ -155,6 +167,72 @@ export async function loadGameState(roomCode: string, userId: number) {
         }
       : null;
 
+  const allHands = gameRoom.isPractice
+    ? await revealAllHands(client, gameRoom.players, currentRound.id)
+    : null;
+
+  return {
+    gameRoom,
+    currentRound,
+    currentHandNumber: currentHand?.number ?? null,
+    callerUserId,
+    myCards,
+    currentTurnUserId,
+    playedCards: serializeHand(currentHand),
+    lastHandCards: serializeHand(lastCompletedHand),
+    cumulative,
+    finishedGame,
+    allHands,
+  };
+}
+
+async function loadGameStateUnlocked(roomCode: string, userId: number) {
+  let snapshot: Awaited<ReturnType<typeof readGameStateSnapshot>> | null =
+    null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    snapshot = await prisma.$transaction(
+      (client) => readGameStateSnapshot(client, roomCode, userId),
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    const marker = await prisma.gameRoom.findUnique({
+      where: { id: snapshot.gameRoom.id },
+      select: {
+        finished: true,
+        rounds: {
+          orderBy: { number: "desc" },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+    if (
+      marker?.finished === snapshot.gameRoom.finished &&
+      marker.rounds[0]?.id === snapshot.currentRound.id
+    ) {
+      break;
+    }
+    snapshot = null;
+  }
+
+  if (!snapshot) {
+    throw new GameError("Game state changed while loading; retry", 409);
+  }
+
+  const {
+    gameRoom,
+    currentRound,
+    currentHandNumber,
+    callerUserId,
+    myCards,
+    currentTurnUserId,
+    playedCards,
+    lastHandCards,
+    cumulative,
+    finishedGame,
+    allHands,
+  } = snapshot;
+
   let timerState = getTurnTimerState(roomCode);
   if (!timerState && !gameRoom.finished && currentTurnUserId !== null) {
     const phase =
@@ -180,12 +258,12 @@ export async function loadGameState(roomCode: string, userId: number) {
       briscola: currentRound.briscola,
       cricca: currentRound.cricca,
     },
-    currentHandNumber: currentHand?.number ?? null,
+    currentHandNumber,
     callerUserId,
     myCards,
     currentTurnUserId: gameRoom.finished ? null : currentTurnUserId,
-    playedCards: serializeHand(currentHand),
-    lastHandCards: serializeHand(lastCompletedHand),
+    playedCards,
+    lastHandCards,
     totalPoints: {
       team0Points: cumulative.team0.points,
       team1Points: cumulative.team1.points,
@@ -195,8 +273,12 @@ export async function loadGameState(roomCode: string, userId: number) {
     turnTimer: timerState,
     finishedGame,
     isPractice: gameRoom.isPractice,
-    allHands: gameRoom.isPractice
-      ? await revealAllHands(gameRoom.players, currentRound.id)
-      : null,
+    allHands,
   };
+}
+
+export function loadGameState(roomCode: string, userId: number) {
+  return withRoomLock(roomCode, () =>
+    loadGameStateUnlocked(roomCode, userId),
+  );
 }

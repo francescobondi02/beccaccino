@@ -23,6 +23,11 @@ import {
   VALUES,
 } from "../domain/cards";
 
+type GameReadClient = Pick<
+  Prisma.TransactionClient,
+  "hand" | "playerCard" | "round"
+>;
+
 export type TurnDirective =
   | {
       kind: "schedule";
@@ -60,15 +65,16 @@ function callerAfter(
 export async function resolveCaller(
   round: { id: number; number: number; gameRoomId: number },
   players: { id: number; seat: number | null }[],
+  client: GameReadClient = prisma,
 ): Promise<number | null> {
   if (round.number === 1) {
-    const quattroDenara = await prisma.playerCard.findFirst({
+    const quattroDenara = await client.playerCard.findFirst({
       where: { roundId: round.id, suit: "denara", value: "quattro" },
     });
     return quattroDenara?.playerId ?? null;
   }
 
-  const previousRound = await prisma.round.findFirst({
+  const previousRound = await client.round.findFirst({
     where: { gameRoomId: round.gameRoomId, number: round.number - 1 },
     include: { hands: { orderBy: { number: "asc" }, take: 1 } },
   });
@@ -87,10 +93,11 @@ export async function resolveCurrentTurnUserId(
   round: { id: number; briscola: string | null },
   players: { id: number; userId: number; seat: number | null }[],
   callerUserId: number | null,
+  client: GameReadClient = prisma,
 ): Promise<number | null> {
   if (round.briscola === null) return callerUserId;
 
-  const lastHand = await prisma.hand.findFirst({
+  const lastHand = await client.hand.findFirst({
     where: { roundId: round.id },
     orderBy: { number: "desc" },
     include: { cards: { orderBy: { position: "asc" } } },
