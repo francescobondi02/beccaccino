@@ -119,6 +119,10 @@ export interface ChatMessagePayload {
 export interface ErrorPayload {
   message: string;
 }
+export interface JoinRoomResult {
+  ok: boolean;
+  error?: string;
+}
 
 export interface ServerToClientEvents {
   room_created: (payload: RoomCreatedPayload) => void;
@@ -149,11 +153,14 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   join_lobby: (payload: { userId: number }) => void;
   leave_lobby: () => void;
-  join_room: (payload: {
-    roomCode: string;
-    userId: number;
-    username: string;
-  }) => void;
+  join_room: (
+    payload: {
+      roomCode: string;
+      userId: number;
+      username: string;
+    },
+    acknowledge: (result: JoinRoomResult) => void,
+  ) => void;
   leave_room: (payload: { roomCode: string }) => void;
   choose_team: (payload: {
     roomCode: string;

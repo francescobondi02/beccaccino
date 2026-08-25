@@ -170,10 +170,14 @@ export function useGameTable(
   useEffect(() => {
     if (!userId || !username || !gameRoomCode) return;
 
-    const unregisterRoom = registerRoomHandlers(gameRoomCode, {
-      userId,
-      username,
-    });
+    const unregisterRoom = registerRoomHandlers(
+      gameRoomCode,
+      {
+        userId,
+        username,
+      },
+      () => void refetchGameState(),
+    );
     const reconciliationTimers = new Set<ReturnType<typeof setTimeout>>();
     const scheduleRefetch = (delay: number) => {
       const timer = setTimeout(() => {

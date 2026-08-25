@@ -25,6 +25,7 @@ interface RoomEventSocket {
 export function registerRoomHandlers(
   roomCode: string,
   user: UserShort,
+  onJoined?: () => void,
 ): () => void {
   const socket = getSocket();
   if (!isSocketConnected()) {
@@ -32,14 +33,20 @@ export function registerRoomHandlers(
   }
 
   const joinRoom = () => {
-    socket.emit("join_room", {
-      roomCode,
-      userId: user.userId,
-      username: user.username,
-    });
+    socket.emit(
+      "join_room",
+      {
+        roomCode,
+        userId: user.userId,
+        username: user.username,
+      },
+      (result) => {
+        if (result.ok) onJoined?.();
+      },
+    );
   };
 
-  joinRoom();
+  if (socket.connected) joinRoom();
   socket.on("connect", joinRoom);
 
   return () => {

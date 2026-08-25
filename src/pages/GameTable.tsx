@@ -72,7 +72,7 @@ const GameTable = () => {
     dismissRoundEnd,
     applyLocalBriscola,
   } = useGameTable(gameRoomCode, userId, username, room?.players ?? []);
-  const connectionStatus = useConnectionStatus(refetchGameState);
+  const connectionStatus = useConnectionStatus();
 
   // Dialog state
   const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);

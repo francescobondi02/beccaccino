@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => {
 
   const handlers = new Map<string, Handler>();
 
-    return {
+  return {
     apiGet: vi.fn<(path: string) => Promise<unknown>>(),
     handlers,
     registerRoomHandlers: vi.fn(),
@@ -69,13 +69,13 @@ function gameState(
       team0Figures: 0,
       team1Figures: 0,
     },
-      turnTimer: null,
-      isPractice: false,
-      allHands: null,
-      ...overrides,
-      status: overrides.status ?? "playing",
-      finishedGame: overrides.finishedGame ?? null,
-    };
+    turnTimer: null,
+    isPractice: false,
+    allHands: null,
+    ...overrides,
+    status: overrides.status ?? "playing",
+    finishedGame: overrides.finishedGame ?? null,
+  };
 }
 
 function emitSocket(event: string, payload: unknown) {
@@ -113,6 +113,26 @@ describe("useGameTable turn synchronization", () => {
     cleanup();
     vi.clearAllTimers();
     vi.useRealTimers();
+  });
+
+  it("reconciles state after the socket room join is acknowledged", async () => {
+    mocks.apiGet.mockResolvedValue(gameState());
+
+    renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+      ]),
+    );
+
+    await waitFor(() => expect(stateRequestCount()).toBe(1));
+    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[2] as
+      | (() => void)
+      | undefined;
+    expect(onJoined).toEqual(expect.any(Function));
+
+    act(() => onJoined?.());
+
+    await waitFor(() => expect(stateRequestCount()).toBe(2));
   });
 
   it("advances to my turn and fetches fresh playable cards", async () => {

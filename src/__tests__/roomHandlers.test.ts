@@ -42,6 +42,14 @@ function socketListener(event: string) {
   return call[1] as (...args: unknown[]) => void;
 }
 
+function lastJoinAcknowledgement() {
+  const call = mockSocket.emit.mock.calls
+    .filter(([name]) => name === "join_room")
+    .at(-1);
+  if (!call) throw new Error("No join_room emission");
+  return call[2] as (result: { ok: boolean; error?: string }) => void;
+}
+
 describe("roomHandlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -55,7 +63,7 @@ describe("roomHandlers", () => {
       roomCode: "ROOM",
       userId: 1,
       username: "alice",
-    });
+    }, expect.any(Function));
 
     mockSocket.emit.mockClear();
     socketListener("connect")();
@@ -64,13 +72,30 @@ describe("roomHandlers", () => {
       roomCode: "ROOM",
       userId: 1,
       username: "alice",
-    });
+    }, expect.any(Function));
   });
 
   it("connects before joining when needed", () => {
     mockSocket.connected = false;
     registerRoomHandlers("ROOM", { userId: 1, username: "alice" });
     expect(mockSocket.connect).toHaveBeenCalledOnce();
+  });
+
+  it("reconciles only after the server acknowledges a successful join", () => {
+    const onJoined = vi.fn();
+    registerRoomHandlers(
+      "ROOM",
+      { userId: 1, username: "alice" },
+      onJoined,
+    );
+
+    expect(onJoined).not.toHaveBeenCalled();
+    lastJoinAcknowledgement()({ ok: false, error: "Room not found" });
+    expect(onJoined).not.toHaveBeenCalled();
+
+    socketListener("connect")();
+    lastJoinAcknowledgement()({ ok: true });
+    expect(onJoined).toHaveBeenCalledOnce();
   });
 
   it("unregisters only its own reconnect listener", () => {
