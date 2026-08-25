@@ -16,6 +16,7 @@ import {
   setReadyCommand,
 } from "../services/roomCommands";
 import { GameError } from "../utils/gameError";
+import { BotServiceError } from "../services/botClient";
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -92,6 +93,13 @@ export const createPracticeRoom = async (req: Request, res: Response) => {
         error: error.message,
         activeRoomCode: error.activeRoomCode,
       });
+    }
+    if (error instanceof BotServiceError) {
+      (req.log ?? logger).warn(
+        { err: error, userId, tier },
+        "practice_bot_service_unavailable",
+      );
+      return res.status(503).json({ error: "Bot service unavailable" });
     }
     Sentry.captureException(error, { extra: { userId, tier, op: "create_practice_room" } });
     (req.log ?? logger).error(

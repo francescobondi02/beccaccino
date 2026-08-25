@@ -95,6 +95,10 @@ npm start               # node dist/index.js
 Dockerfile: multi-stage Node 24 Alpine build; the runtime applies migrations before starting.
 Render auto-deploys from `backend/` root directory on push.
 
+Practice games require `BOT_SERVICE_URL` and `BOT_SERVICE_TOKEN`. Creation
+checks the AI service's authenticated, tier-specific `/ready` endpoint before
+writing room state, while individual `/act` calls keep a 5-second timeout.
+
 ## Test Commands
 
 ```bash

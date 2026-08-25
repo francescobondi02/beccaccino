@@ -2,6 +2,8 @@ import { prisma } from "../../src/db";
 import { clearDatabase, api, apiAs } from "../helpers/gameHelpers";
 import { getTurnTimerState } from "../../src/services/turnTimer";
 import { playableCards } from "../../src/services/cardService";
+import { ensureBotServiceReady } from "../../src/services/botClient";
+import { isBotTier } from "../../src/services/botService";
 
 /**
  * End-to-end against the REAL Python bot service — the only test that proves the
@@ -9,9 +11,11 @@ import { playableCards } from "../../src/services/cardService";
  *
  * Explicitly enabled only when the Python service is part of the test run:
  *
- *     cd ai && uvicorn serving.app:app --port 8011
+ *     cd ai && BOT_SERVICE_TOKEN=local-secret \
+ *       uvicorn serving.app:app --port 8011
  *     cd backend && RUN_LIVE_BOT_TESTS=true \
- *       BOT_SERVICE_URL=http://localhost:8011 npm run test:integration
+ *       BOT_SERVICE_URL=http://localhost:8011 \
+ *       BOT_SERVICE_TOKEN=local-secret npm run test:integration
  *
  * What it can prove is narrow but exactly what the diagnostic needs: the model
  * accepts our serialized board (no 409/422 legality disagreement), returns legal
@@ -39,12 +43,10 @@ describeLive("Live bot service (real model)", () => {
     if (!LIVE_SERVICE_URL) {
       throw new Error("BOT_SERVICE_URL is required for live bot tests");
     }
-    const health = await fetch(`${LIVE_SERVICE_URL}/health`, {
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!health.ok) {
-      throw new Error(`bot service health check returned ${health.status}`);
+    if (!isBotTier(TIER)) {
+      throw new Error(`BOT_LIVE_TIER is invalid: ${TIER}`);
     }
+    await ensureBotServiceReady(TIER);
     process.env.BOT_THINK_DELAY_MS = "0";
   });
 

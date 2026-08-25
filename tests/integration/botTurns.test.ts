@@ -22,6 +22,7 @@ import { logger } from "../../src/logger";
  *  - abandoning a practice game tears it down instead of leaving a zombie room.
  */
 describe("Bot turn driver", () => {
+  const TOKEN = "bot-turn-test-token";
   let stub: BotServiceStub;
   let userId: number;
 
@@ -79,6 +80,7 @@ describe("Bot turn driver", () => {
   afterEach(async () => {
     await stub?.close();
     delete process.env.BOT_SERVICE_URL;
+    delete process.env.BOT_SERVICE_TOKEN;
     delete process.env.BOT_THINK_DELAY_MS;
   });
 
@@ -98,8 +100,9 @@ describe("Bot turn driver", () => {
   };
 
   async function startPractice(handler = playFirstLegalMove, tier = "forte") {
-    stub = await startBotServiceStub(handler);
+    stub = await startBotServiceStub(handler, { requiredToken: TOKEN });
     process.env.BOT_SERVICE_URL = stub.url;
+    process.env.BOT_SERVICE_TOKEN = TOKEN;
     const res = await apiAs(userId, "human").post("/api/rooms/practice").send({ tier });
     expect(res.statusCode).toBe(201);
     return res.body.code as string;
@@ -125,8 +128,15 @@ describe("Bot turn driver", () => {
 
     const round = await loadRound(roomCode);
     expect(round!.briscola).not.toBeNull();
+    expect(stub.readyHeaders).toHaveLength(1);
+    expect(stub.readyHeaders[0].authorization).toBe(`Bearer ${TOKEN}`);
     expect(stub.requests[0].state.phase).toBe("choose_briscola");
     expect(stub.requests[0].tier).toBe("forte");
+    expect(
+      stub.actHeaders.every(
+        (headers) => headers.authorization === `Bearer ${TOKEN}`,
+      ),
+    ).toBe(true);
 
     // Seat 0 is the human, so the bots play up to (but not past) their turn.
     const played = round!.hands.flatMap((h) => h.cards);
@@ -321,8 +331,11 @@ describe("Bot turn driver", () => {
   });
 
   it("leaves human-vs-human games on the unchanged timer path", async () => {
-    stub = await startBotServiceStub(playFirstLegalMove);
+    stub = await startBotServiceStub(playFirstLegalMove, {
+      requiredToken: TOKEN,
+    });
     process.env.BOT_SERVICE_URL = stub.url;
+    process.env.BOT_SERVICE_TOKEN = TOKEN;
 
     const { setupGame } = await import("../helpers/gameHelpers");
     const { roomCode } = await setupGame();

@@ -146,9 +146,17 @@ npm run test:unit
 npm run test:integration
 
 # Include the real Python model gate (requires the AI service on port 8011)
-RUN_LIVE_BOT_TESTS=true BOT_SERVICE_URL=http://localhost:8011 \
+RUN_LIVE_BOT_TESTS=true \
+BOT_SERVICE_URL=http://localhost:8011 \
+BOT_SERVICE_TOKEN=local-secret \
 npm run test:integration -- tests/integration/botLive.test.ts
 ```
+
+Practice-room creation calls the AI service's authenticated, tier-specific
+`/ready` endpoint before writing any room or bot state. A sleeping Render
+service can take about one minute to wake; this readiness path has a separate
+75-second allowance. Once ready, every `/act` call retains the 5-second move
+timeout.
 
 ### Test Architecture
 

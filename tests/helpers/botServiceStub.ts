@@ -1,4 +1,4 @@
-import http from "http";
+import http, { IncomingHttpHeaders } from "http";
 import { AddressInfo } from "net";
 
 /**
@@ -10,6 +10,9 @@ export interface BotServiceStub {
   url: string;
   /** Every /act request received, in order. */
   requests: ActRequest[];
+  actHeaders: IncomingHttpHeaders[];
+  readyHeaders: IncomingHttpHeaders[];
+  readyTiers: (string | null)[];
   close(): Promise<void>;
 }
 
@@ -27,21 +30,73 @@ export type ActRequest = {
 
 export type ActHandler = (request: ActRequest) => Promise<StubMove> | StubMove;
 
+export type BotServiceStubOptions = {
+  readyStatus?: number;
+  readyBody?: unknown;
+  readyDelayMs?: number;
+  requiredToken?: string;
+};
+
 /**
  * Start the stub. `handler` returns the move body, or throws to make the
  * endpoint fail — `{ status, body }` to control the HTTP response precisely.
  */
 export async function startBotServiceStub(
   handler: ActHandler,
+  options: BotServiceStubOptions = {},
 ): Promise<BotServiceStub> {
   const requests: BotServiceStub["requests"] = [];
+  const actHeaders: BotServiceStub["actHeaders"] = [];
+  const readyHeaders: BotServiceStub["readyHeaders"] = [];
+  const readyTiers: BotServiceStub["readyTiers"] = [];
 
   const server = http.createServer((req, res) => {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", async () => {
-      if (req.url !== "/act") {
+      const requestUrl = new URL(req.url ?? "/", "http://bot.test");
+      const expectedAuthorization = options.requiredToken
+        ? `Bearer ${options.requiredToken}`
+        : null;
+
+      if (requestUrl.pathname === "/ready") {
+        const tier = requestUrl.searchParams.get("tier");
+        readyHeaders.push(req.headers);
+        readyTiers.push(tier);
+        if (options.readyDelayMs) {
+          await new Promise((resolve) => setTimeout(resolve, options.readyDelayMs));
+        }
+        if (
+          expectedAuthorization &&
+          req.headers.authorization !== expectedAuthorization
+        ) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ detail: "unauthorized" }));
+          return;
+        }
+        res.writeHead(options.readyStatus ?? 200, {
+          "Content-Type": "application/json",
+        });
+        res.end(
+          JSON.stringify(
+            options.readyBody ?? { status: "ok", model: "ready", tier },
+          ),
+        );
+        return;
+      }
+
+      if (requestUrl.pathname !== "/act") {
         res.writeHead(404).end();
+        return;
+      }
+
+      actHeaders.push(req.headers);
+      if (
+        expectedAuthorization &&
+        req.headers.authorization !== expectedAuthorization
+      ) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ detail: "unauthorized" }));
         return;
       }
 
@@ -66,6 +121,9 @@ export async function startBotServiceStub(
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
+    actHeaders,
+    readyHeaders,
+    readyTiers,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }

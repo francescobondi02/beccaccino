@@ -5,6 +5,7 @@ import { startFirstRound } from "./turnCoordinator";
 import { generateRoomCode } from "../utils/generateRoomCode";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 import { BotTier, ensureBotUsers } from "./botService";
+import { ensureBotServiceReady } from "./botClient";
 import {
   clearRoomTimerData,
   registerBotSeats,
@@ -79,51 +80,54 @@ export async function createPracticeRoomCommand(args: {
   userId: number;
   tier: BotTier;
 }) {
-  await rejectActiveGame(args.userId);
+  return withRoomLock(`practice-user:${args.userId}`, async () => {
+    await rejectActiveGame(args.userId);
+    await ensureBotServiceReady(args.tier);
 
-  const botUserIds = await ensureBotUsers();
-  const code = await generateUniqueRoomCode();
-  const room = await prisma.gameRoom.create({
-    data: {
-      code,
-      isPractice: true,
-      players: {
-        create: [
-          { userId: args.userId, seat: 0, team: 0, isReady: true },
-          {
-            userId: botUserIds[0],
-            seat: 1,
-            team: 1,
-            isReady: true,
-            botModel: args.tier,
-          },
-          {
-            userId: botUserIds[1],
-            seat: 2,
-            team: 0,
-            isReady: true,
-            botModel: args.tier,
-          },
-          {
-            userId: botUserIds[2],
-            seat: 3,
-            team: 1,
-            isReady: true,
-            botModel: args.tier,
-          },
-        ],
+    const botUserIds = await ensureBotUsers();
+    const code = await generateUniqueRoomCode();
+    const room = await prisma.gameRoom.create({
+      data: {
+        code,
+        isPractice: true,
+        players: {
+          create: [
+            { userId: args.userId, seat: 0, team: 0, isReady: true },
+            {
+              userId: botUserIds[0],
+              seat: 1,
+              team: 1,
+              isReady: true,
+              botModel: args.tier,
+            },
+            {
+              userId: botUserIds[1],
+              seat: 2,
+              team: 0,
+              isReady: true,
+              botModel: args.tier,
+            },
+            {
+              userId: botUserIds[2],
+              seat: 3,
+              team: 1,
+              isReady: true,
+              botModel: args.tier,
+            },
+          ],
+        },
       },
-    },
-    select: { id: true, code: true },
+      select: { id: true, code: true },
+    });
+
+    registerBotSeats(
+      code,
+      botUserIds.map((userId) => ({ userId, tier: args.tier })),
+    );
+    await startFirstRound(room.id, room.code);
+
+    return room;
   });
-
-  registerBotSeats(
-    code,
-    botUserIds.map((userId) => ({ userId, tier: args.tier })),
-  );
-  await startFirstRound(room.id, room.code);
-
-  return room;
 }
 
 export async function joinRoomCommand(args: {

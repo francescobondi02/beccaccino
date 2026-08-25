@@ -6,6 +6,10 @@ import {
   api,
   apiAs,
 } from "../helpers/gameHelpers";
+import {
+  BotServiceStub,
+  startBotServiceStub,
+} from "../helpers/botServiceStub";
 
 /**
  * The reveal-hands field must be impossible to obtain in a real multiplayer game.
@@ -16,8 +20,25 @@ import {
  * future refactor from turning it into a client-trusted flag.
  */
 describe("Reveal-hands is gated to practice games", () => {
+  const TOKEN = "reveal-test-token";
+  let stub: BotServiceStub;
+
   beforeEach(async () => {
     await clearDatabase();
+    stub = await startBotServiceStub(
+      () => {
+        throw { status: 503, body: { detail: "move not needed" } };
+      },
+      { requiredToken: TOKEN },
+    );
+    process.env.BOT_SERVICE_URL = stub.url;
+    process.env.BOT_SERVICE_TOKEN = TOKEN;
+  });
+
+  afterEach(async () => {
+    await stub.close();
+    delete process.env.BOT_SERVICE_URL;
+    delete process.env.BOT_SERVICE_TOKEN;
   });
 
   const fetchState = (roomCode: string, userId: number, username: string) =>

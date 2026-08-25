@@ -2,10 +2,9 @@
 /**
  * HTTP client for the Python bot service (`ai/serving/app.py`).
  *
- * Bots are disabled unless BOT_SERVICE_URL is set, so production is unaffected
- * until we deliberately point it somewhere. The service is trusted but its
- * responses are still shape-checked: a malformed move must fail here, where the
- * caller falls back to autoplay, rather than deep inside playCard.
+ * Practice games require BOT_SERVICE_URL and BOT_SERVICE_TOKEN. Responses are
+ * still shape-checked: a malformed move must fail here, where the caller falls
+ * back to autoplay, rather than deep inside playCard.
  */
 
 import { BotState } from "./botState";
@@ -25,9 +24,12 @@ import {
  * a fallback rather than a hung seat.
  */
 const BOT_REQUEST_TIMEOUT_MS = 5_000;
+const BOT_READY_TIMEOUT_MS = 75_000;
 
-/** Read per call, not at import, so tests can point this at a stub. */
-const botServiceUrl = () => process.env.BOT_SERVICE_URL;
+type BotServiceConfig = {
+  baseUrl: string;
+  token: string;
+};
 
 export type BotMove =
   | { kind: "briscola"; suit: Suit }
@@ -38,7 +40,45 @@ export type BotMove =
       signal: CardSignal | null;
     };
 
-export class BotServiceError extends Error {}
+export class BotServiceError extends Error {
+  readonly cause?: unknown;
+
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "BotServiceError";
+    this.cause = cause;
+  }
+}
+
+/** Wake the service and verify both the promoted model and shared credential. */
+export async function ensureBotServiceReady(tier: BotTier): Promise<void> {
+  const config = botServiceConfig();
+  let response: Response;
+  try {
+    response = await fetch(
+      `${config.baseUrl}/ready?tier=${encodeURIComponent(tier)}`,
+      {
+        headers: authorizationHeaders(config.token),
+        signal: AbortSignal.timeout(BOT_READY_TIMEOUT_MS),
+      },
+    );
+  } catch (error) {
+    throw new BotServiceError("bot service readiness request failed", error);
+  }
+
+  if (!response.ok) {
+    throw new BotServiceError(`bot service readiness returned ${response.status}`);
+  }
+
+  try {
+    const body = (await response.json()) as Record<string, unknown>;
+    if (body.status !== "ok" || body.model !== "ready" || body.tier !== tier) {
+      throw new Error("unexpected readiness response");
+    }
+  } catch {
+    throw new BotServiceError("bot service returned invalid readiness");
+  }
+}
 
 /**
  * Ask the bot service for a move.
@@ -54,22 +94,26 @@ export async function requestBotMove(args: {
   tier: BotTier;
   expectedLegalCards?: { suit: string; value: string }[];
 }): Promise<BotMove> {
-  const baseUrl = botServiceUrl();
-  if (!baseUrl) {
-    throw new BotServiceError("BOT_SERVICE_URL is not set");
+  const config = botServiceConfig();
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/act`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authorizationHeaders(config.token),
+      },
+      body: JSON.stringify({
+        state: args.state,
+        seat: args.seat,
+        tier: args.tier,
+        expected_legal_cards: args.expectedLegalCards,
+      }),
+      signal: AbortSignal.timeout(BOT_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new BotServiceError("bot service move request failed", error);
   }
-
-  const response = await fetch(`${baseUrl}/act`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      state: args.state,
-      seat: args.seat,
-      tier: args.tier,
-      expected_legal_cards: args.expectedLegalCards,
-    }),
-    signal: AbortSignal.timeout(BOT_REQUEST_TIMEOUT_MS),
-  });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -101,4 +145,23 @@ function parseMove(body: unknown): BotMove {
   }
 
   throw new BotServiceError(`unrecognised move: ${JSON.stringify(body).slice(0, 200)}`);
+}
+
+/** Read per call so tests and local tools can point the client at a stub. */
+function botServiceConfig(): BotServiceConfig {
+  const baseUrl = process.env.BOT_SERVICE_URL?.replace(/\/+$/, "");
+  if (!baseUrl) {
+    throw new BotServiceError("BOT_SERVICE_URL is not set");
+  }
+
+  const token = process.env.BOT_SERVICE_TOKEN;
+  if (!token) {
+    throw new BotServiceError("BOT_SERVICE_TOKEN is not set");
+  }
+
+  return { baseUrl, token };
+}
+
+function authorizationHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}` };
 }
