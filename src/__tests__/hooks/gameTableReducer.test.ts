@@ -17,6 +17,7 @@ import type {
  */
 describe("gameTableReducer", () => {
   const stateResponse: GameStateResponse = {
+    status: "playing",
     round: { id: 7, number: 2, briscola: "coppe" },
     currentHandNumber: 3,
     callerUserId: 11,
@@ -30,6 +31,7 @@ describe("gameTableReducer", () => {
     lastHandCards: [],
     totalPoints: { team0Points: 4, team1Points: 3, team0Figures: 2, team1Figures: 1 },
     turnTimer: null,
+    finishedGame: null,
     isPractice: true,
     allHands: [],
   };
@@ -72,6 +74,28 @@ describe("gameTableReducer", () => {
     expect(state.totalPoints.team0Points).toBe(4);
     expect(state.isPractice).toBe(true);
     expect(state.turnTimer).toBeNull();
+  });
+
+  it("state_fetched restores a finished game without a socket event", () => {
+    const finishedGame = {
+      winnerTeam: 1,
+      totalRounds: 5,
+      finalScores: { team0: 34, team1: 42 },
+      roundsWon: { team0: 2, team1: 3 },
+    };
+    const state = gameTableReducer(initialGameTableState, {
+      type: "state_fetched",
+      data: {
+        ...stateResponse,
+        status: "finished",
+        currentTurnUserId: null,
+        finishedGame,
+      },
+      now: 1000,
+    });
+
+    expect(state.currentTurnUserId).toBeNull();
+    expect(state.gameFinishedData).toEqual(finishedGame);
   });
 
   it("state_fetched rebuilds the timer start from the server's remaining time", () => {

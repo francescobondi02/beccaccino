@@ -92,6 +92,7 @@ export function gameTableReducer(
         lastHand: data.lastHandCards ?? [],
         currentHandNumber: data.currentHandNumber ?? null,
         totalPoints: data.totalPoints ?? EMPTY_POINTS,
+        gameFinishedData: data.finishedGame ?? null,
         isPractice: data.isPractice ?? false,
         allHands: data.allHands ?? null,
         turnTimer: data.turnTimer

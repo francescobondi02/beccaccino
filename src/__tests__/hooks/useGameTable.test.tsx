@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => {
 
   const handlers = new Map<string, Handler>();
 
-  return {
+    return {
     apiGet: vi.fn<(path: string) => Promise<unknown>>(),
     handlers,
     registerRoomHandlers: vi.fn(),
@@ -69,11 +69,13 @@ function gameState(
       team0Figures: 0,
       team1Figures: 0,
     },
-    turnTimer: null,
-    isPractice: false,
-    allHands: null,
-    ...overrides,
-  };
+      turnTimer: null,
+      isPractice: false,
+      allHands: null,
+      ...overrides,
+      status: overrides.status ?? "playing",
+      finishedGame: overrides.finishedGame ?? null,
+    };
 }
 
 function emitSocket(event: string, payload: unknown) {

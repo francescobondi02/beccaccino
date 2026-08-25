@@ -59,6 +59,7 @@ export interface RevealedHand {
 
 // Response from GET /games/:code/state.
 export interface GameStateResponse {
+  status: "choosing_briscola" | "playing" | "finished";
   round: {
     id: number;
     number: number;
@@ -77,6 +78,12 @@ export interface GameStateResponse {
     remainingMs: number;
     totalMs: number;
     phase: string;
+  } | null;
+  finishedGame: {
+    winnerTeam: number;
+    totalRounds: number;
+    finalScores: { team0: number; team1: number };
+    roundsWon: { team0: number; team1: number };
   } | null;
   isPractice: boolean;
   allHands: RevealedHand[] | null;
