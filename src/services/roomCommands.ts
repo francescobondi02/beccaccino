@@ -17,6 +17,16 @@ export class ActiveGameConflict extends GameError {
   }
 }
 
+class PracticeRoomCleanupError extends Error {
+  constructor(
+    readonly startError: unknown,
+    readonly cleanupError: unknown,
+  ) {
+    super("Practice room start failed and cleanup was unsuccessful");
+    this.name = "PracticeRoomCleanupError";
+  }
+}
+
 export async function findActiveGame(userId: number) {
   return prisma.player.findFirst({
     where: {
@@ -120,13 +130,22 @@ export async function createPracticeRoomCommand(args: {
       select: { id: true, code: true },
     });
 
-    registerBotSeats(
-      code,
-      botUserIds.map((userId) => ({ userId, tier: args.tier })),
-    );
-    await startFirstRound(room.id, room.code);
-
-    return room;
+    try {
+      registerBotSeats(
+        code,
+        botUserIds.map((userId) => ({ userId, tier: args.tier })),
+      );
+      await startFirstRound(room.id, room.code);
+      return room;
+    } catch (startError) {
+      clearRoomTimerData(code);
+      try {
+        await deleteRoomAndPlay(room.id);
+      } catch (cleanupError) {
+        throw new PracticeRoomCleanupError(startError, cleanupError);
+      }
+      throw startError;
+    }
   });
 }
 

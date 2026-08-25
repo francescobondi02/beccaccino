@@ -5,6 +5,7 @@ import {
   BotServiceStub,
   startBotServiceStub,
 } from "../helpers/botServiceStub";
+import { setRng } from "../../src/utils/random";
 
 /**
  * POST /api/rooms/practice must hand back a game that is ready to play: started,
@@ -134,6 +135,23 @@ describe("Practice room creation", () => {
     expect(stub.readyTiers).toEqual(["forte"]);
     expect(await prisma.gameRoom.count()).toBe(0);
     expect(await prisma.user.count({ where: { isBot: true } })).toBe(0);
+  });
+
+  it("removes the partial room when initial round setup fails", async () => {
+    const restoreRng = setRng(() => {
+      throw new Error("injected practice deal failure");
+    });
+
+    let res;
+    try {
+      res = await createPractice("forte");
+    } finally {
+      restoreRng();
+    }
+
+    expect(res.statusCode).toBe(500);
+    expect(await prisma.gameRoom.count()).toBe(0);
+    expect(await prisma.player.count()).toBe(0);
   });
 
   it("serializes concurrent practice creation for one user", async () => {
