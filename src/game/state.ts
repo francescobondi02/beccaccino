@@ -81,6 +81,9 @@ export function gameTableReducer(
   switch (action.type) {
     case "state_fetched": {
       const { data, now } = action;
+      const leadCard = data.playedCards?.find(
+        (card) => card.position === 0,
+      );
       return {
         ...state,
         currentRound: data.round,
@@ -105,6 +108,10 @@ export function gameTableReducer(
               phase: data.turnTimer.phase,
             }
           : null,
+        currentSignal:
+          leadCard?.signal
+            ? { userId: leadCard.userId, signal: leadCard.signal }
+            : null,
       };
     }
 

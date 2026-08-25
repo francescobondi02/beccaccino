@@ -123,6 +123,37 @@ describe("gameTableReducer", () => {
     });
   });
 
+  it("state_fetched restores the lead signal and clears it for an empty trick", () => {
+    const signalled = gameTableReducer(initialGameTableState, {
+      type: "state_fetched",
+      data: {
+        ...stateResponse,
+        playedCards: [
+          {
+            playerId: 5,
+            userId: 11,
+            suit: "spade",
+            value: "re",
+            position: 0,
+            signal: "busso",
+          },
+        ],
+      },
+      now: 1000,
+    });
+    expect(signalled.currentSignal).toEqual({
+      userId: 11,
+      signal: "busso",
+    });
+
+    const emptyTrick = gameTableReducer(signalled, {
+      type: "state_fetched",
+      data: { ...stateResponse, playedCards: [] },
+      now: 1000,
+    });
+    expect(emptyTrick.currentSignal).toBeNull();
+  });
+
   it("card_played by me removes the card from my hand and adds it to the table", () => {
     const withHand: GameTableState = {
       ...initialGameTableState,
