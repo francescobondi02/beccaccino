@@ -8,6 +8,7 @@ describe("normalizeRoom", () => {
       code: "ROOM",
       started: false,
       finished: false,
+      isPractice: true,
       players: [
         {
           id: 10,
@@ -28,6 +29,7 @@ describe("normalizeRoom", () => {
       team: null,
       isReady: false,
     });
+    expect(room.isPractice).toBe(true);
   });
 
   it("preserves a direct username from an already-flat response", () => {
@@ -36,6 +38,7 @@ describe("normalizeRoom", () => {
       code: "ROOM",
       started: true,
       finished: false,
+      isPractice: false,
       players: [
         {
           id: 10,
@@ -57,6 +60,7 @@ describe("normalizeRoom", () => {
       code: "ROOM",
       started: false,
       finished: false,
+      isPractice: false,
       players: [
         {
           id: 10,

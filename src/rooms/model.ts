@@ -22,6 +22,7 @@ export interface Room {
   code: string;
   started: boolean;
   finished: boolean;
+  isPractice: boolean;
   players: RoomPlayer[];
 }
 

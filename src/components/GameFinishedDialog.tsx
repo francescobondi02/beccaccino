@@ -7,8 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trophy, Award, Target, TrendingUp } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Trophy, Award, Target, TrendingUp, Loader2 } from "lucide-react";
 
 interface GameFinishedDialogProps {
   open: boolean;
@@ -23,6 +22,8 @@ interface GameFinishedDialogProps {
     team1: number;
   };
   myTeam: number | null;
+  onHome: () => Promise<void>;
+  isReturningHome: boolean;
 }
 
 const GameFinishedDialog = ({
@@ -32,8 +33,9 @@ const GameFinishedDialog = ({
   finalScores,
   roundsWon,
   myTeam,
+  onHome,
+  isReturningHome,
 }: GameFinishedDialogProps) => {
-  const navigate = useNavigate();
   const isMyTeamWinner = myTeam === winnerTeam;
 
   return (
@@ -181,9 +183,17 @@ const GameFinishedDialog = ({
             <Button
               variant="gradient"
               className="w-full"
-              onClick={() => navigate("/")}
+              onClick={() => void onHome()}
+              disabled={isReturningHome}
             >
-              Torna alla Home
+              {isReturningHome ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Uscita in corso...
+                </>
+              ) : (
+                "Torna alla Home"
+              )}
             </Button>
           </div>
         </div>

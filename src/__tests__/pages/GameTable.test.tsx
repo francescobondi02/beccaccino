@@ -2,11 +2,13 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameTable from "@/pages/GameTable";
+import type { GameFinishedPayload } from "@/sockets/events";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn<(path: string) => Promise<unknown>>(),
   apiPost: vi.fn(),
   navigate: vi.fn(),
+  toastError: vi.fn(),
   playerLeft: null as ((payload: { userId: number }) => void) | null,
   gameHook: {
     currentRound: {
@@ -57,7 +59,7 @@ const mocks = vi.hoisted(() => ({
     allHands: null,
     moveLog: [],
     roundEndData: null,
-    gameFinishedData: null,
+    gameFinishedData: null as GameFinishedPayload | null,
     gameStateStatus: "ready" as "loading" | "ready" | "error",
     refetchGameState: vi.fn<() => Promise<void>>(),
     dismissRoundEnd: vi.fn(),
@@ -109,7 +111,7 @@ vi.mock("react-router-dom", async () => {
 });
 vi.mock("sonner", () => ({
   toast: {
-    error: vi.fn(),
+    error: mocks.toastError,
     success: vi.fn(),
     warning: vi.fn(),
   },
@@ -168,7 +170,24 @@ vi.mock("@/components/RoundEndDialog", () => ({
   default: () => null,
 }));
 vi.mock("@/components/GameFinishedDialog", () => ({
-  default: () => null,
+  default: ({
+    open,
+    onHome,
+    isReturningHome,
+  }: {
+    open: boolean;
+    onHome: () => Promise<void>;
+    isReturningHome: boolean;
+  }) =>
+    open ? (
+      <button
+        type="button"
+        onClick={() => void onHome()}
+        disabled={isReturningHome}
+      >
+        Torna alla Home
+      </button>
+    ) : null,
 }));
 vi.mock("@/components/PracticePanel", () => ({
   default: () => null,
@@ -179,6 +198,7 @@ const room = {
   code: "ROOM",
   started: true,
   finished: false,
+  isPractice: false,
   players: [
     {
       id: 10,
@@ -215,14 +235,36 @@ const room = {
   ],
 };
 
-function renderGameTable() {
-  return render(
+const finishedGame: GameFinishedPayload = {
+  winnerTeam: 0,
+  totalRounds: 3,
+  finalScores: {
+    team0: 181,
+    team1: 179,
+  },
+  roundsWon: {
+    team0: 2,
+    team1: 1,
+  },
+};
+
+function gameTableRoute() {
+  return (
     <MemoryRouter initialEntries={["/game/ROOM"]}>
       <Routes>
         <Route path="/game/:gameRoomCode" element={<GameTable />} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderGameTable() {
+  return render(gameTableRoute());
+}
+
+function usePracticeRoom() {
+  mocks.gameHook.isPractice = true;
+  mocks.apiGet.mockResolvedValue({ ...room, isPractice: true });
 }
 
 describe("GameTable page behavior", () => {
@@ -239,6 +281,8 @@ describe("GameTable page behavior", () => {
     mocks.gameHook.callerUserId = 1;
     mocks.gameHook.currentTurnUserId = 1;
     mocks.gameHook.playedCards = [];
+    mocks.gameHook.isPractice = false;
+    mocks.gameHook.gameFinishedData = null;
     mocks.gameHook.gameStateStatus = "ready";
     mocks.gameHook.refetchGameState.mockResolvedValue(undefined);
     mocks.apiGet.mockResolvedValue(room);
@@ -331,5 +375,118 @@ describe("GameTable page behavior", () => {
     });
 
     expect(screen.queryByText("bob")).not.toBeInTheDocument();
+  });
+
+  it("waits for practice cleanup before explicit Home navigation", async () => {
+    usePracticeRoom();
+    mocks.gameHook.gameFinishedData = finishedGame;
+    let resolveCleanup: (() => void) | undefined;
+    mocks.apiPost.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCleanup = () => resolve({});
+        }),
+    );
+
+    renderGameTable();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Torna alla Home" }),
+    );
+
+    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {});
+    expect(mocks.navigate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveCleanup?.();
+    });
+
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+  });
+
+  it("does not delete a practice room on unmount or page refresh", async () => {
+    usePracticeRoom();
+    const view = renderGameTable();
+    await screen.findByTestId("game-table-page");
+
+    view.unmount();
+
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("does not duplicate cleanup after explicit Home succeeds", async () => {
+    usePracticeRoom();
+    mocks.gameHook.gameFinishedData = finishedGame;
+    const view = renderGameTable();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Torna alla Home" }),
+    );
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+
+    view.unmount();
+
+    expect(mocks.apiPost).toHaveBeenCalledTimes(1);
+    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {});
+  });
+
+  it("never cleans up a multiplayer room", async () => {
+    mocks.gameHook.gameFinishedData = finishedGame;
+    const view = renderGameTable();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Torna alla Home" }),
+    );
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+
+    view.unmount();
+
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("treats an already-swept practice room as cleaned up", async () => {
+    usePracticeRoom();
+    mocks.gameHook.gameFinishedData = finishedGame;
+    mocks.apiPost.mockRejectedValueOnce(
+      new (await import("@/lib/api")).ApiError(404, "Room not found"),
+    );
+    renderGameTable();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Torna alla Home" }),
+    );
+
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("keeps the finished dialog open when cleanup fails and allows retry", async () => {
+    usePracticeRoom();
+    mocks.gameHook.gameFinishedData = finishedGame;
+    mocks.apiPost
+      .mockRejectedValueOnce(new Error("cleanup failed"))
+      .mockResolvedValueOnce({});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    renderGameTable();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Torna alla Home" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Impossibile chiudere la partita di pratica. Riprova.",
+      ),
+    );
+    expect(mocks.navigate).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Torna alla Home" }),
+    );
+
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+    expect(mocks.apiPost).toHaveBeenCalledTimes(2);
+    consoleError.mockRestore();
   });
 });

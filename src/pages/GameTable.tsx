@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -79,6 +79,7 @@ const GameTable = () => {
   const [lastTrickDialogOpen, setLastTrickDialogOpen] = useState(false);
   const [roundEndDialogOpen, setRoundEndDialogOpen] = useState(false);
   const [gameFinishedDialogOpen, setGameFinishedDialogOpen] = useState(false);
+  const [isReturningHome, setIsReturningHome] = useState(false);
 
   // Signal dialog state (pending card waiting for signal choice)
   const [pendingCard, setPendingCard] = useState<PlayerCard | null>(null);
@@ -87,6 +88,17 @@ const GameTable = () => {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isPlayingCard, setIsPlayingCard] = useState(false);
   const [handsRevealed, setHandsRevealed] = useState(false);
+
+  const cleanupPracticeRoom = useCallback(async (): Promise<void> => {
+    if (!room?.isPractice || !gameRoomCode) return;
+
+    try {
+      await apiPost(`/rooms/${gameRoomCode}/leave`, {});
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return;
+      throw error;
+    }
+  }, [gameRoomCode, room?.isPractice]);
 
   // Carica i dati della stanza
   useEffect(() => {
@@ -317,6 +329,18 @@ const GameTable = () => {
         console.error("Error choosing briscola:", error);
         toast.error("Errore nella scelta della briscola");
       }
+    }
+  };
+
+  const handleFinishedHome = async () => {
+    setIsReturningHome(true);
+    try {
+      await cleanupPracticeRoom();
+      navigate("/");
+    } catch (error) {
+      console.error("Error cleaning up practice room:", error);
+      toast.error("Impossibile chiudere la partita di pratica. Riprova.");
+      setIsReturningHome(false);
     }
   };
 
@@ -651,6 +675,8 @@ const GameTable = () => {
           finalScores={gameFinishedData.finalScores}
           roundsWon={gameFinishedData.roundsWon}
           myTeam={myPlayer?.team ?? null}
+          onHome={handleFinishedHome}
+          isReturningHome={isReturningHome}
         />
       )}
     </div>
