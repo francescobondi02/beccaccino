@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
   return {
     apiGet: vi.fn<(path: string) => Promise<unknown>>(),
     handlers,
+    leaveRoom: vi.fn(),
     registerRoomHandlers: vi.fn(),
     unregisterRoom: vi.fn(),
   };
@@ -21,6 +22,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/sockets/roomHandlers", () => ({
+  leaveRoom: mocks.leaveRoom,
   registerRoomHandlers: (...args: unknown[]) => {
     mocks.registerRoomHandlers(...args);
     return mocks.unregisterRoom;
@@ -285,6 +287,7 @@ describe("useGameTable turn synchronization", () => {
     unmount();
     expect(mocks.handlers.size).toBe(0);
     expect(mocks.unregisterRoom).toHaveBeenCalledOnce();
+    expect(mocks.leaveRoom).toHaveBeenCalledWith("ROOM");
 
     await act(async () => {
       vi.advanceTimersByTime(300);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 import { apiGet } from "@/lib/api";
 import {
+  leaveRoom,
   registerRoomHandlers,
   subscribeToRoomEvent,
 } from "@/sockets/roomHandlers";
@@ -280,6 +281,7 @@ export function useGameTable(
     return () => {
       unsubscribers.forEach((unsubscribe) => unsubscribe());
       unregisterRoom();
+      leaveRoom(gameRoomCode);
       reconciliationTimers.forEach((timer) => clearTimeout(timer));
     };
   }, [userId, username, gameRoomCode, refetchGameState, usernameOf]);
