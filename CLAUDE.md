@@ -110,6 +110,12 @@ resume current 518-feature training.
 
 - `/act` is the only inference contract. It accepts raw state and returns a
   briscola or card move.
+- `serving/models/run_d2_champion.pt` is the verified model-only artifact used
+  by both Run D2 tiers. Regenerate it only from the promoted source checkpoint.
+- Service startup preloads `forte`; `/health` is public, while `/act` requires
+  bearer auth whenever `BOT_SERVICE_TOKEN` is configured.
+- Render Free is the supported online target. The backend owns cold-start
+  readiness before room creation; per-move requests keep their short timeout.
 - The removed `/predict`/ONNX path must not be reintroduced without a deployed
   consumer and parity with `/act`.
 - `esperto` uses the same `inference.pimc.PIMCAgent` as evaluation.
@@ -132,12 +138,20 @@ Build and smoke the wheel when package discovery changes:
 python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/becca-wheel .
 ```
 
+Build the deployment image when serving dependencies, artifacts, or startup
+behavior changes:
+
+```bash
+docker build -t becca-ai .
+```
+
 ## Documentation
 
 - `README.md`: install and short commands
 - `docs/TRAINING_RUNBOOK.md`: current operator procedure
 - `docs/EVALUATION_PROTOCOL.md`: binding benchmark and promotion gates
 - `docs/EXPERIMENTS.md`: append-only historical evidence
+- `docs/DEPLOYMENT.md`: inference platform decision and operator runbook
 - `docs/archive/`: dated design, analysis, and implementation snapshots
 
 Do not put live status in archived plans. Update the current runbook when an

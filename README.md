@@ -94,14 +94,27 @@ promotion and NearPerfect-v1 gates. Historical results are kept separately in
 ## Serve
 
 ```bash
-uvicorn serving.app:app --host 0.0.0.0 --port 8011
+BOT_SERVICE_TOKEN=local-secret \
+  uvicorn serving.app:app --host 0.0.0.0 --port 8011
 curl http://localhost:8011/tiers
+curl http://localhost:8011/health
 ```
 
 The backend calls `POST /act` with raw game state. Python owns state adaptation,
 observation encoding, checkpoint inference, legality validation, and action
 decoding. `GET /tiers` reports only tiers whose required local checkpoints are
-available.
+available. `GET /health` is public and reports ready only after the promoted
+policy loads. `POST /act` requires `Authorization: Bearer <token>` whenever
+`BOT_SERVICE_TOKEN` is set.
+
+Run D2's selected update-1,200 policy is committed as a verified, model-only
+artifact and backs both `forte` and `esperto`. The latter adds experimental PIMC
+search; it does not carry a separate strength claim.
+
+The supported online target is a Render Free Docker service. Its cold start is
+handled by the backend before practice-room creation. See
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the platform decision, deployment
+procedure, secrets, and verification gates.
 
 The pre-encoded `/predict` and ONNX path were retired because no deployed
 consumer used them.

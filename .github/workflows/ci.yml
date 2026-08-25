@@ -37,7 +37,27 @@ jobs:
           python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/becca-wheel .
           python -m pip install --no-deps --target /tmp/becca-wheel-site /tmp/becca-wheel/becca_ai-*.whl
           cd /tmp
-          PYTHONPATH=/tmp/becca-wheel-site python -c "import importlib.util; from pathlib import Path; import inference.pimc, serving.tiers; root = Path('/tmp/becca-wheel-site'); assert Path(inference.pimc.__file__).is_relative_to(root); assert Path(serving.tiers.__file__).is_relative_to(root); assert importlib.util.find_spec('serving.export_onnx') is None; assert importlib.util.find_spec('training.self_play_env') is None"
+          PYTHONPATH=/tmp/becca-wheel-site python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          import inference.pimc
+          import serving
+          import serving.tiers
+          import torch
+          from serving.artifact import load_inference_artifact
+          from training.checkpoint import build_net
+
+          root = Path("/tmp/becca-wheel-site")
+          assert Path(inference.pimc.__file__).is_relative_to(root)
+          assert Path(serving.tiers.__file__).is_relative_to(root)
+          assert importlib.util.find_spec("serving.export_onnx") is None
+          assert importlib.util.find_spec("training.self_play_env") is None
+          artifact = load_inference_artifact(
+              Path(serving.__file__).parent / "models" / "run_d2_champion.pt"
+          )
+          assert sum(p.numel() for p in build_net(artifact, torch.device("cpu")).parameters()) == 1_262_021
+          PY
 
       - name: Fixture drift gate
         # The fixture is consumed byte-for-byte by the backend serializer test, so a
