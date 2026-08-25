@@ -22,13 +22,13 @@ from serving.tiers import (
 )
 
 BOT_SERVICE_TOKEN_ENV = "BOT_SERVICE_TOKEN"
-REQUIRED_TIER = "forte"
+PROMOTED_TIER = "forte"
 
 
-def _configured_bot_token() -> str | None:
+def _configured_bot_token() -> str:
     token = os.environ.get(BOT_SERVICE_TOKEN_ENV)
-    if token == "":
-        raise RuntimeError(f"{BOT_SERVICE_TOKEN_ENV} must not be empty")
+    if not token:
+        raise RuntimeError(f"{BOT_SERVICE_TOKEN_ENV} must be set and not empty")
     return token
 
 
@@ -36,8 +36,6 @@ def _require_bot_token(
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
     expected = _configured_bot_token()
-    if expected is None:
-        return
 
     scheme, separator, supplied = (authorization or "").partition(" ")
     if (
@@ -56,7 +54,7 @@ def _require_bot_token(
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Fail startup unless the promoted policy and production config are usable."""
     _configured_bot_token()
-    get_agent(REQUIRED_TIER)
+    get_agent(PROMOTED_TIER)
     yield
 
 
@@ -191,17 +189,19 @@ def tiers():
 
 @app.get("/health")
 def health():
-    return _readiness_response()
+    return _readiness_response(PROMOTED_TIER)
 
 
 @app.get("/ready", dependencies=[Depends(_require_bot_token)])
-def ready():
-    return _readiness_response()
+def ready(tier: str):
+    return _readiness_response(tier)
 
 
-def _readiness_response() -> dict[str, str]:
+def _readiness_response(tier: str) -> dict[str, str]:
     try:
-        get_agent(REQUIRED_TIER)
+        get_agent(tier)
+    except UnknownTierError as exc:
+        raise HTTPException(422, str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(503, "promoted model is unavailable") from exc
-    return {"status": "ok", "model": "ready"}
+        raise HTTPException(503, f"tier {tier!r} is unavailable") from exc
+    return {"status": "ok", "model": "ready", "tier": tier}

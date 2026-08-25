@@ -98,16 +98,17 @@ BOT_SERVICE_TOKEN=local-secret \
   uvicorn serving.app:app --host 0.0.0.0 --port 8011
 curl http://localhost:8011/tiers
 curl http://localhost:8011/health
-curl -H "Authorization: Bearer local-secret" http://localhost:8011/ready
+curl -H "Authorization: Bearer local-secret" \
+  "http://localhost:8011/ready?tier=forte"
 ```
 
 The backend calls `POST /act` with raw game state. Python owns state adaptation,
 observation encoding, checkpoint inference, legality validation, and action
 decoding. `GET /tiers` reports only tiers whose required local checkpoints are
 available. `GET /health` is public for platform probes. `GET /ready` lets the
-backend verify both model readiness and the shared credential before creating a
-practice room. `/ready` and `POST /act` require
-`Authorization: Bearer <token>` whenever `BOT_SERVICE_TOKEN` is set.
+backend verify the requested tier and shared credential before creating a
+practice room. The service refuses to start without `BOT_SERVICE_TOKEN`;
+`/ready` and `POST /act` require `Authorization: Bearer <token>`.
 
 Run D2's selected update-1,200 policy is committed as a verified, model-only
 artifact and backs both `forte` and `esperto`. The latter adds experimental PIMC

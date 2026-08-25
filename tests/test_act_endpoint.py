@@ -14,15 +14,17 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
+import serving.app as serving_app  # noqa: E402
 from becca_env.deck import Card, Suit, Value  # noqa: E402
 from becca_env.game import BeccaGame, GamePhase, Signal  # noqa: E402
 from serving.app import BOT_SERVICE_TOKEN_ENV, app  # noqa: E402
 from serving.state_adapter import game_to_state_dict  # noqa: E402
-from serving.tiers import TIERS, available_tiers  # noqa: E402
+from serving.tiers import TIERS, TierUnavailableError, available_tiers  # noqa: E402
 
 # Esperto runs PIMC search; the design budgets well under a second per move and
 # the point of the bound is to catch an accidental net-rollout config (~39 s).
 ESPERTO_MAX_SECONDS = 5.0
+TEST_TOKEN = "test-bot-token"
 
 NEURAL_TIERS = ["facile", "forte"]
 
@@ -43,7 +45,8 @@ def tier_params(names):
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, TEST_TOKEN)
     with TestClient(app) as test_client:
         yield test_client
 
@@ -52,7 +55,11 @@ def _act(client, game: BeccaGame, tier: str, **overrides):
     seat = game.current_seat
     body = {"state": game_to_state_dict(game, seat), "seat": seat, "tier": tier}
     body.update(overrides)
-    return client.post("/act", json=body)
+    return client.post(
+        "/act",
+        json=body,
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
 
 
 def _apply(game: BeccaGame, move: dict) -> None:
@@ -84,20 +91,34 @@ def test_health_reports_loaded_model_without_authentication(client, monkeypatch)
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "model": "ready"}
+    assert response.json() == {
+        "status": "ok",
+        "model": "ready",
+        "tier": "forte",
+    }
 
 
 def test_ready_requires_configured_bearer_token(client, monkeypatch):
     monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, "secret")
 
-    missing = client.get("/ready")
-    wrong = client.get("/ready", headers={"Authorization": "Bearer wrong"})
-    correct = client.get("/ready", headers={"Authorization": "Bearer secret"})
+    missing = client.get("/ready?tier=forte")
+    wrong = client.get(
+        "/ready?tier=forte",
+        headers={"Authorization": "Bearer wrong"},
+    )
+    correct = client.get(
+        "/ready?tier=forte",
+        headers={"Authorization": "Bearer secret"},
+    )
 
     assert missing.status_code == 401
     assert wrong.status_code == 401
     assert correct.status_code == 200
-    assert correct.json() == {"status": "ok", "model": "ready"}
+    assert correct.json() == {
+        "status": "ok",
+        "model": "ready",
+        "tier": "forte",
+    }
 
 
 def test_act_requires_configured_bearer_token(client, monkeypatch):
@@ -118,11 +139,40 @@ def test_act_requires_configured_bearer_token(client, monkeypatch):
     assert correct.status_code == 200
 
 
-def test_startup_rejects_empty_token(monkeypatch):
-    monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, "")
+@pytest.mark.parametrize("token", [None, ""])
+def test_startup_requires_nonempty_token(monkeypatch, token):
+    if token is None:
+        monkeypatch.delenv(BOT_SERVICE_TOKEN_ENV, raising=False)
+    else:
+        monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, token)
 
-    with pytest.raises(RuntimeError, match="must not be empty"), TestClient(app):
+    with pytest.raises(RuntimeError, match="must be set and not empty"), TestClient(app):
         pass
+
+
+def test_ready_rejects_unknown_tier(client):
+    response = client.get(
+        "/ready?tier=impossibile",
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+
+    assert response.status_code == 422
+    assert "unknown tier" in response.json()["detail"]
+
+
+def test_ready_rejects_unavailable_tier(client, monkeypatch):
+    def unavailable(_: str):
+        raise TierUnavailableError("checkpoint missing")
+
+    monkeypatch.setattr(serving_app, "get_agent", unavailable)
+
+    response = client.get(
+        "/ready?tier=facile",
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+
+    assert response.status_code == 503
+    assert "facile" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("tier", tier_params(sorted(TIERS)))
@@ -210,7 +260,9 @@ def test_malformed_state_returns_422(client):
     del state["hands"]["1"]
 
     response = client.post(
-        "/act", json={"state": state, "seat": game.current_seat, "tier": "forte"}
+        "/act",
+        json={"state": state, "seat": game.current_seat, "tier": "forte"},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
     )
     assert response.status_code == 422
     assert "malformed game state" in response.json()["detail"]

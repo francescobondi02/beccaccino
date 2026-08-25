@@ -62,7 +62,7 @@ Review and commit both the artifact and its `.sha256` sidecar together.
 4. Deploy and wait for `GET /health` to return:
 
    ```json
-   {"status":"ok","model":"ready"}
+   {"status":"ok","model":"ready","tier":"forte"}
    ```
 
 5. Configure the backend with the same token and the Render service URL:
@@ -73,14 +73,15 @@ Review and commit both the artifact and its `.sha256` sidecar together.
    ```
 
 6. Create a practice room. The backend's authenticated `GET /ready` request
-   wakes a sleeping service and verifies the shared secret before any room or
-   bot rows are created.
+   wakes a sleeping service and verifies the requested tier plus shared secret
+   before any room or bot rows are created.
 
 The container uses the PyTorch CPU wheel, one Uvicorn worker, and one BLAS
 thread. Startup fails if the promoted artifact is missing, corrupt, or
 incompatible. `/health` remains public for Render's probe; `/act` requires the
-bearer token whenever `BOT_SERVICE_TOKEN` is configured. The backend uses
-authenticated `/ready`, not the public platform probe.
+bearer token, and startup fails when `BOT_SERVICE_TOKEN` is absent or empty.
+The backend uses authenticated, tier-specific `/ready`, not the public platform
+probe.
 
 The 2026-08-25 local Linux ARM64 container gate measured a 230.8 MB compressed
 image and 164.8 MiB resident memory after model preload. Render runs Linux
