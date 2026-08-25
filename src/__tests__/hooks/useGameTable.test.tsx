@@ -118,15 +118,39 @@ describe("useGameTable turn synchronization", () => {
   });
 
   it("reconciles state after the socket room join is acknowledged", async () => {
-    mocks.apiGet.mockResolvedValue(gameState());
+    const playedCard = {
+      playerId: 12,
+      userId: 2,
+      suit: "coppe",
+      value: "tre",
+      position: 0,
+      signal: "busso" as const,
+      handNumber: 1,
+    };
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }))
+      .mockResolvedValueOnce(
+        gameState({
+          currentTurnUserId: 1,
+          playedCards: [playedCard],
+          turnTimer: {
+            turnUserId: 1,
+            remainingMs: 45_000,
+            totalMs: 60_000,
+            phase: "play_card",
+          },
+        }),
+      )
+      .mockResolvedValue({ playableCards: [myCard] });
 
-    renderHook(() =>
+    const { result } = renderHook(() =>
       useGameTable("ROOM", 1, "alice", [
         { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
       ]),
     );
 
-    await waitFor(() => expect(stateRequestCount()).toBe(1));
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
     const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[2] as
       | (() => void)
       | undefined;
@@ -134,7 +158,55 @@ describe("useGameTable turn synchronization", () => {
 
     act(() => onJoined?.());
 
-    await waitFor(() => expect(stateRequestCount()).toBe(2));
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(1));
+    expect(result.current.playedCards).toEqual([playedCard]);
+    expect(result.current.currentSignal).toEqual({
+      userId: 2,
+      signal: "busso",
+    });
+    expect(result.current.turnTimer).toMatchObject({
+      turnUserId: 1,
+      totalMs: 60_000,
+      phase: "play_card",
+    });
+  });
+
+  it("recovers the finished result when the game ends while disconnected", async () => {
+    const finishedGame = {
+      winnerTeam: 1,
+      totalRounds: 4,
+      finalScores: { team0: 18, team1: 22 },
+      roundsWon: { team0: 1, team1: 3 },
+    };
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }))
+      .mockResolvedValueOnce(
+        gameState({
+          status: "finished",
+          currentTurnUserId: null,
+          finishedGame,
+          turnTimer: null,
+        }),
+      );
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ]),
+    );
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
+
+    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[2] as
+      | (() => void)
+      | undefined;
+    act(() => onJoined?.());
+
+    await waitFor(() =>
+      expect(result.current.gameFinishedData).toEqual(finishedGame),
+    );
+    expect(result.current.currentTurnUserId).toBeNull();
+    expect(result.current.turnTimer).toBeNull();
   });
 
   it("advances to my turn and fetches fresh playable cards", async () => {
