@@ -191,6 +191,15 @@ def tiers():
 
 @app.get("/health")
 def health():
+    return _readiness_response()
+
+
+@app.get("/ready", dependencies=[Depends(_require_bot_token)])
+def ready():
+    return _readiness_response()
+
+
+def _readiness_response() -> dict[str, str]:
     try:
         get_agent(REQUIRED_TIER)
     except Exception as exc:

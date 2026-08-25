@@ -112,8 +112,8 @@ resume current 518-feature training.
   briscola or card move.
 - `serving/models/run_d2_champion.pt` is the verified model-only artifact used
   by both Run D2 tiers. Regenerate it only from the promoted source checkpoint.
-- Service startup preloads `forte`; `/health` is public, while `/act` requires
-  bearer auth whenever `BOT_SERVICE_TOKEN` is configured.
+- Service startup preloads `forte`; `/health` is public for platform probes,
+  while backend readiness uses authenticated `/ready` and moves use `/act`.
 - Render Free is the supported online target. The backend owns cold-start
   readiness before room creation; per-move requests keep their short timeout.
 - The removed `/predict`/ONNX path must not be reintroduced without a deployed

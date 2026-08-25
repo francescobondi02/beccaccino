@@ -87,6 +87,19 @@ def test_health_reports_loaded_model_without_authentication(client, monkeypatch)
     assert response.json() == {"status": "ok", "model": "ready"}
 
 
+def test_ready_requires_configured_bearer_token(client, monkeypatch):
+    monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, "secret")
+
+    missing = client.get("/ready")
+    wrong = client.get("/ready", headers={"Authorization": "Bearer wrong"})
+    correct = client.get("/ready", headers={"Authorization": "Bearer secret"})
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert correct.status_code == 200
+    assert correct.json() == {"status": "ok", "model": "ready"}
+
+
 def test_act_requires_configured_bearer_token(client, monkeypatch):
     monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, "secret")
     game = BeccaGame(seed=10)
