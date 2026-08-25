@@ -252,7 +252,7 @@ export async function deleteRoomAndPlay(gameRoomId: number): Promise<void> {
     prisma.hand.deleteMany({ where: { roundId: { in: roundIds } } }),
     prisma.round.deleteMany({ where: { gameRoomId } }),
     prisma.player.deleteMany({ where: { gameRoomId } }),
-    prisma.gameRoom.delete({ where: { id: gameRoomId } }),
+    prisma.gameRoom.deleteMany({ where: { id: gameRoomId } }),
   ]);
 }
 

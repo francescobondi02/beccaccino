@@ -389,6 +389,12 @@ async function setBriscolaUnlocked({
         starterId: playerId,
       },
     });
+    if (gameRoom.isPractice) {
+      await tx.gameRoom.update({
+        where: { id: gameRoomId },
+        data: { lastActivityAt: new Date() },
+      });
+    }
     const updatedRound = await tx.round.findUniqueOrThrow({
       where: { id: currentRound.id },
     });
@@ -603,9 +609,15 @@ async function playCardUnlocked({
     });
 
   if (position < 3) {
-    await prisma.$transaction((tx) =>
-      persistPlayedCard(tx, playerCard.id, playedCardData),
-    );
+    await prisma.$transaction(async (tx) => {
+      await persistPlayedCard(tx, playerCard.id, playedCardData);
+      if (room.isPractice) {
+        await tx.gameRoom.update({
+          where: { id: room.id },
+          data: { lastActivityAt: new Date() },
+        });
+      }
+    });
     publish();
 
     const nextPlayer = room.players.find(
@@ -640,6 +652,12 @@ async function playCardUnlocked({
           starterId: winnerPlayerId,
         },
       });
+      if (room.isPractice) {
+        await tx.gameRoom.update({
+          where: { id: room.id },
+          data: { lastActivityAt: new Date() },
+        });
+      }
     });
     publish();
 
@@ -751,11 +769,16 @@ async function playCardUnlocked({
         winnerTeam,
       },
     });
-    if (finalWinnerTeam !== null) {
+    if (room.isPractice || finalWinnerTeam !== null) {
       await tx.gameRoom.update({
         where: { id: room.id },
-        data: { finished: true },
+        data: {
+          ...(room.isPractice ? { lastActivityAt: new Date() } : {}),
+          ...(finalWinnerTeam !== null ? { finished: true } : {}),
+        },
       });
+    }
+    if (finalWinnerTeam !== null) {
       return null;
     }
     return setupRound(room.id, currentRound.number + 1, tx);

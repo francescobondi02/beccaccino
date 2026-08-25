@@ -7,6 +7,10 @@ import { prisma } from "./db";
 import { logger } from "./logger";
 import { createServer } from "./server";
 import { startMetrics, stopMetrics } from "./services/metrics";
+import {
+  startPracticeRoomSweeper,
+  stopPracticeRoomSweeper,
+} from "./services/practiceRoomSweeper";
 
 const REQUIRED_ENV = ["DATABASE_URL", "JWT_SECRET"] as const;
 for (const key of REQUIRED_ENV) {
@@ -25,7 +29,10 @@ const { httpServer, close } = createServer();
 const port = process.env.PORT ? Number(process.env.PORT) : 8000;
 httpServer.listen(port, () => {
   logger.info({ port }, "server_started");
-  if (process.env.NODE_ENV !== "test") startMetrics();
+  if (process.env.NODE_ENV !== "test") {
+    startMetrics();
+    startPracticeRoomSweeper();
+  }
 });
 
 let isShuttingDown = false;
@@ -35,6 +42,7 @@ const shutdown = async (signal: string) => {
   logger.info({ signal }, "shutdown_initiated");
 
   stopMetrics();
+  await stopPracticeRoomSweeper();
   let exitCode = 0;
   try {
     await close();

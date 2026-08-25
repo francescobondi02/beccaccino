@@ -6,7 +6,7 @@ Node 24, TypeScript, Express 5. Stateful WebSocket server for real-time card gam
 
 ```
 src/
-  index.ts              Process entry: env validation, listen, metrics, shutdown
+  index.ts              Process entry: env validation, listen, background jobs, shutdown
   server.ts             HTTP + Socket.IO factory: JWT auth, IP admission, handlers
   app.ts                Express app: middleware, routes, health/readiness probes
   gameConfig.ts         Game-wide environment-backed rules such as win points
@@ -27,6 +27,7 @@ src/
     cardService.ts      Gets playable cards with follow-suit filtering
     turnTimer.ts        Timer/bot state, autoplay, kick after 3 timeouts
     roomCommands.ts     Serialized room lifecycle, team, and ready commands
+    practiceRoomSweeper.ts  Locked cleanup of finished or stale practice rooms
   sockets/
     room.ts             All socket event handlers: lobby, room join/leave, game events, chat
   middleware/
@@ -98,6 +99,11 @@ Render auto-deploys from `backend/` root directory on push.
 Practice games require `BOT_SERVICE_URL` and `BOT_SERVICE_TOKEN`. Creation
 checks the AI service's authenticated, tier-specific `/ready` endpoint before
 writing room state, while individual `/act` calls keep a 5-second timeout.
+The server also sweeps practice rooms immediately at startup and every 10
+minutes, deleting finished rooms or rooms inactive for at least 24 hours.
+Successful briscola choices and card plays update the activity timestamp in the
+same transaction as the move. Each candidate is revalidated under its room lock;
+room/game rows are removed while shared bot users are retained.
 
 ## Test Commands
 

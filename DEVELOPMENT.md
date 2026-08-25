@@ -53,7 +53,7 @@ npm run dev
 ```
 backend/
 ├── src/
-│   ├── index.ts            # Process entry: env, listen, metrics, shutdown
+│   ├── index.ts            # Process entry: env, listen, background jobs, shutdown
 │   ├── server.ts           # HTTP + Socket.IO factory, auth and IP admission
 │   ├── app.ts              # Express app, routes, health/readiness probes
 │   ├── gameConfig.ts       # Environment-backed game rules
@@ -71,6 +71,7 @@ backend/
 │   │   ├── turnCoordinator.ts   # Controller-facing transition coordinator
 │   │   ├── turnTimer.ts         # Timers, bots, autoplay, timeout state
 │   │   ├── roomCommands.ts      # Shared room lifecycle, team, and ready commands
+│   │   ├── practiceRoomSweeper.ts # Periodic abandoned-practice cleanup
 │   │   └── cardService.ts       # playableCards (follow-suit rules)
 │   ├── sockets/            # WebSocket event handlers
 │   │   └── room.ts             # join_lobby, join_room, choose_team, set_ready
@@ -158,6 +159,13 @@ service can take about one minute to wake; this readiness path has a separate
 75-second allowance. Once ready, every `/act` call retains the 5-second move
 timeout.
 
+Outside test mode, the process immediately sweeps disposable practice rooms and
+repeats every 10 minutes. The sweep removes only practice rooms that are
+finished or inactive for at least 24 hours. Successful briscola choices and card
+plays refresh the activity timestamp transactionally. The sweep serializes with
+live room activity, revalidates eligibility under the room lock, and deletes
+game rows while retaining the reusable bot `User` accounts.
+
 ### Test Architecture
 
 | Project | Runs | DB Required | Files |
@@ -204,7 +212,7 @@ timeout.
 | POST | `/api/rooms/join` | Yes | Join a room by code |
 | POST | `/api/rooms/:roomCode/choose-team` | Yes | Choose team 0 or 1 |
 | POST | `/api/rooms/:roomCode/ready` | Yes | Toggle ready state |
-| POST | `/api/rooms/:roomCode/leave` | Yes | Leave an open lobby; active games return 409 and finished-game history is preserved |
+| POST | `/api/rooms/:roomCode/leave` | Yes | Leave an open lobby; practice rooms are deleted, active multiplayer returns 409, and finished multiplayer history is preserved |
 | POST | `/api/games/choose-briscola` | Yes | Choose trump suit |
 | POST | `/api/games/play-card` | Yes | Play a card |
 | GET | `/api/games/playable-cards/:roomCode` | Yes | Get legal cards for current turn |

@@ -81,12 +81,13 @@ model Player {
 // GameRoom
 // ===========
 model GameRoom {
-  id         Int       @id @default(autoincrement())
-  code       String    @unique  // tipo "ABCD"
-  started    Boolean   @default(false)
-  finished   Boolean   @default(false)
-  isPractice Boolean   @default(false)  // Human vs bots: excluded from all aggregates
-  createdAt  DateTime  @default(now())
+  id             Int       @id @default(autoincrement())
+  code           String    @unique  // tipo "ABCD"
+  started        Boolean   @default(false)
+  finished       Boolean   @default(false)
+  isPractice     Boolean   @default(false)  // Human vs bots: excluded from all aggregates
+  createdAt      DateTime  @default(now())
+  lastActivityAt DateTime  @default(now())
 
   players   Player[]
   rounds    Round[]
