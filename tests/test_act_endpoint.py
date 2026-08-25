@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from becca_env.deck import Card, Suit, Value  # noqa: E402
 from becca_env.game import BeccaGame, GamePhase, Signal  # noqa: E402
-from serving.app import app  # noqa: E402
+from serving.app import BOT_SERVICE_TOKEN_ENV, app  # noqa: E402
 from serving.state_adapter import game_to_state_dict  # noqa: E402
 from serving.tiers import TIERS, available_tiers  # noqa: E402
 
@@ -26,9 +26,8 @@ ESPERTO_MAX_SECONDS = 5.0
 
 NEURAL_TIERS = ["facile", "forte"]
 
-# Checkpoints are not committed (gitignored .pt files), so on a fresh clone —
-# CI included — only the checkpoint-free heuristic tier is servable. Tests that
-# drive a real network skip rather than fail there.
+# Forte and esperto ship the promoted model. Historical checkpoints remain
+# optional, so tests for tiers such as facile skip when their artifact is absent.
 AVAILABLE_TIERS = {t.name for t in available_tiers()}
 
 
@@ -45,7 +44,8 @@ def tier_params(names):
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def _act(client, game: BeccaGame, tier: str, **overrides):
@@ -76,6 +76,40 @@ def test_tiers_endpoint_lists_available_tiers(client):
 
 def test_removed_predict_contract_returns_404(client):
     assert client.post("/predict", json={}).status_code == 404
+
+
+def test_health_reports_loaded_model_without_authentication(client, monkeypatch):
+    monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, "secret")
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "model": "ready"}
+
+
+def test_act_requires_configured_bearer_token(client, monkeypatch):
+    monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, "secret")
+    game = BeccaGame(seed=10)
+    body = {
+        "state": game_to_state_dict(game, game.current_seat),
+        "seat": game.current_seat,
+        "tier": "forte",
+    }
+
+    missing = client.post("/act", json=body)
+    wrong = client.post("/act", json=body, headers={"Authorization": "Bearer wrong"})
+    correct = client.post("/act", json=body, headers={"Authorization": "Bearer secret"})
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert correct.status_code == 200
+
+
+def test_startup_rejects_empty_token(monkeypatch):
+    monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, "")
+
+    with pytest.raises(RuntimeError, match="must not be empty"), TestClient(app):
+        pass
 
 
 @pytest.mark.parametrize("tier", tier_params(sorted(TIERS)))

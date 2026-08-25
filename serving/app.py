@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+import os
+import secrets
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from becca_env.deck import Card
@@ -17,7 +21,50 @@ from serving.tiers import (
     get_agent,
 )
 
-app = FastAPI(title="Becca AI", description="Beccaccino card game AI inference")
+BOT_SERVICE_TOKEN_ENV = "BOT_SERVICE_TOKEN"
+REQUIRED_TIER = "forte"
+
+
+def _configured_bot_token() -> str | None:
+    token = os.environ.get(BOT_SERVICE_TOKEN_ENV)
+    if token == "":
+        raise RuntimeError(f"{BOT_SERVICE_TOKEN_ENV} must not be empty")
+    return token
+
+
+def _require_bot_token(
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    expected = _configured_bot_token()
+    if expected is None:
+        return
+
+    scheme, separator, supplied = (authorization or "").partition(" ")
+    if (
+        separator != " "
+        or scheme.lower() != "bearer"
+        or not secrets.compare_digest(supplied, expected)
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="invalid bot service credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Fail startup unless the promoted policy and production config are usable."""
+    _configured_bot_token()
+    get_agent(REQUIRED_TIER)
+    yield
+
+
+app = FastAPI(
+    title="Becca AI",
+    description="Beccaccino card game AI inference",
+    lifespan=lifespan,
+)
 
 # Sampling temperature bounds. 0 is greedy; above ~2 the policy is close to
 # uniform over legal moves, which is indistinguishable from a random opponent.
@@ -50,7 +97,7 @@ class CardMove(BaseModel):
     signal: str | None = None
 
 
-@app.post("/act")
+@app.post("/act", dependencies=[Depends(_require_bot_token)])
 def act(request: ActRequest) -> BriscolaMove | CardMove:
     """Choose a move for a bot seat from raw game state."""
     try:
@@ -144,4 +191,8 @@ def tiers():
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    try:
+        get_agent(REQUIRED_TIER)
+    except Exception as exc:
+        raise HTTPException(503, "promoted model is unavailable") from exc
+    return {"status": "ok", "model": "ready"}
