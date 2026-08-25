@@ -9,7 +9,11 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   playerLeft: null as ((payload: { userId: number }) => void) | null,
   gameHook: {
-    currentRound: { id: 30, number: 1, briscola: "spade" },
+    currentRound: {
+      id: 30,
+      number: 1,
+      briscola: "spade",
+    } as { id: number; number: number; briscola: string | null },
     callerUserId: 1,
     myCards: [
       {
@@ -148,9 +152,6 @@ vi.mock("@/components/PlayerSeat", () => ({
     testId?: string;
   }) => <div data-testid={testId}>{player.username}</div>,
 }));
-vi.mock("@/components/TableCenter", () => ({
-  default: () => <div data-testid="table-center" />,
-}));
 vi.mock("@/components/ConnectionBanner", () => ({
   default: () => null,
 }));
@@ -230,12 +231,34 @@ describe("GameTable page behavior", () => {
     mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
     mocks.playerLeft = null;
+    mocks.gameHook.currentRound = {
+      id: 30,
+      number: 1,
+      briscola: "spade",
+    };
+    mocks.gameHook.callerUserId = 1;
     mocks.gameHook.currentTurnUserId = 1;
     mocks.gameHook.playedCards = [];
     mocks.gameHook.gameStateStatus = "ready";
     mocks.gameHook.refetchGameState.mockResolvedValue(undefined);
     mocks.apiGet.mockResolvedValue(room);
     mocks.apiPost.mockResolvedValue({});
+  });
+
+  it("names the caller while a new round is waiting for briscola", async () => {
+    mocks.gameHook.currentRound = {
+      id: 31,
+      number: 2,
+      briscola: null,
+    };
+    mocks.gameHook.callerUserId = 2;
+    mocks.gameHook.currentTurnUserId = 2;
+
+    renderGameTable();
+
+    expect(
+      await screen.findByText("bob sta selezionando la briscola..."),
+    ).toBeInTheDocument();
   });
 
   it("renders normalized room state and submits a leader card after signal choice", async () => {
