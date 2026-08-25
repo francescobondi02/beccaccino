@@ -43,6 +43,7 @@ export type GameTableAction =
     }
   | { type: "briscola_chosen"; briscola: string }
   | { type: "round_ended"; data: RoundEndedPayload }
+  | { type: "new_round_started" }
   | { type: "round_end_dismissed" }
   | { type: "game_finished"; data: GameFinishedPayload }
   | { type: "turn_timer_started"; timer: TurnTimer };
@@ -168,6 +169,21 @@ export function gameTableReducer(
         },
       };
     }
+
+    case "new_round_started":
+      return {
+        ...state,
+        currentRound: null,
+        callerUserId: null,
+        myCards: [],
+        currentTurnUserId: null,
+        playedCards: [],
+        playableCards: [],
+        currentHandNumber: null,
+        turnTimer: null,
+        currentSignal: null,
+        roundEndData: null,
+      };
 
     case "round_end_dismissed":
       return { ...state, roundEndData: null };

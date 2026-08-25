@@ -54,7 +54,7 @@ const TableCenter = ({
         <p className="text-muted-foreground text-sm">
           {briscolaChosen
             ? `In attesa di ${waitingForUsername}...`
-            : "In attesa che venga scelta la briscola..."}
+            : `${waitingForUsername} sta selezionando la briscola...`}
         </p>
         {countdown !== null && (
           <div

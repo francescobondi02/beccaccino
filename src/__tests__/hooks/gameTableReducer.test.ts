@@ -199,6 +199,37 @@ describe("gameTableReducer", () => {
     expect(dismissed.roundEndData).toBeNull();
   });
 
+  it("new_round_started clears previous-round transient state", () => {
+    const state = gameTableReducer(
+      {
+        ...initialGameTableState,
+        currentRound: { id: 7, number: 1, briscola: "spade" },
+        callerUserId: 11,
+        myCards: stateResponse.myCards,
+        currentTurnUserId: 11,
+        playedCards: stateResponse.playedCards,
+        playableCards: stateResponse.myCards,
+        currentHandNumber: 10,
+        currentSignal: { userId: 11, signal: "busso" },
+        roundEndData: {
+          roundNumber: 1,
+          team0Points: 6,
+          team1Points: 5,
+          winnerTeam: 0,
+        },
+      },
+      { type: "new_round_started" },
+    );
+
+    expect(state.currentRound).toBeNull();
+    expect(state.myCards).toEqual([]);
+    expect(state.playedCards).toEqual([]);
+    expect(state.playableCards).toEqual([]);
+    expect(state.currentHandNumber).toBeNull();
+    expect(state.currentSignal).toBeNull();
+    expect(state.roundEndData).toBeNull();
+  });
+
   it("game_finished stores the result and closes the round-end summary", () => {
     const midRoundEnd: GameTableState = {
       ...initialGameTableState,

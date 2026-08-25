@@ -149,15 +149,22 @@ const GameTable = () => {
   // chiudibile in altro modo, quindi ri-aprirlo a ogni cambio di stato è
   // equivalente al vecchio open-on-fetch).
   useEffect(() => {
-    if (currentRound?.briscola === null && callerUserId === userId) {
-      setTrumpDialogOpen(true);
-    }
-  }, [currentRound?.briscola, callerUserId, userId]);
+    setTrumpDialogOpen(
+      currentRound?.briscola === null &&
+        callerUserId === userId &&
+        !roundEndData &&
+        !gameFinishedData,
+    );
+  }, [
+    currentRound?.briscola,
+    callerUserId,
+    userId,
+    roundEndData,
+    gameFinishedData,
+  ]);
 
   useEffect(() => {
-    if (roundEndData) {
-      setRoundEndDialogOpen(true);
-    }
+    setRoundEndDialogOpen(Boolean(roundEndData));
   }, [roundEndData]);
 
   useEffect(() => {

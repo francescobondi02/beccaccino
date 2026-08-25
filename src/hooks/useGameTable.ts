@@ -210,8 +210,10 @@ export function useGameTable(
     };
 
     const handleNewRoundStarted = () => {
+      playableRequestSequence.current += 1;
+      dispatch({ type: "new_round_started" });
       toast.success("Nuovo round iniziato!");
-      refetchGameState();
+      void refetchGameState();
     };
 
     const handleGameFinished = (data: GameFinishedPayload) => {

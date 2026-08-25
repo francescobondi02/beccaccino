@@ -17,7 +17,7 @@ describe("TableCenter", () => {
   it("waits for the briscola before anything else", () => {
     renderCenter({ briscolaChosen: false });
     expect(
-      screen.getByText("In attesa che venga scelta la briscola..."),
+      screen.getByText("anna sta selezionando la briscola..."),
     ).toBeInTheDocument();
   });
 
