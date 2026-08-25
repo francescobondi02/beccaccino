@@ -154,13 +154,48 @@ The audit's best-versus-last score was inconclusive and no current-format
 per-deal result was retained. Run D must not resume; the `rund` preset fails
 closed. Run D2 is a fresh run identity.
 
+## Run D2 - 2026-08-25
+
+Purpose: rerun the 60M-step mixed `win_points=5,41` recipe from a fresh
+post-A0-A12 identity, then select a checkpoint and compare it directly with the
+deployed Run C policy on predeclared held-out deals.
+
+| Field | Result |
+|---|---|
+| Source | `22cd0dc6720733c8862074117cb8e699f6a32bbc`, clean tree |
+| Recipe | V4 `192/6/4/384`, CTDE critic, BC anchor, signal shaping `0.05 -> 0`, 64 envs x 512 steps |
+| BC data | 6,000 games, 246,000 actions, 97.9% final accuracy |
+| PPO | 1,831 updates, 29,999,925 learner transitions, 59,998,208 environment steps |
+| Resume | session 2 resumed at update 1,432; all 1,431 prior metric rows were preserved |
+| Final training state | 841,256 games; EV 0.6996 at update 1,831 |
+| Final vs monitoring-best | 50.50% [48.89%, 52.11%], 1,000 mirrored deals; retained `best.pt` from update 1,200 |
+| Selected Run D2 vs Run C | 62.90% [61.15%, 64.65%], 1,000 mirrored deals; promote |
+| Status | seed-0 champion gate passed; NearPerfect-v1 remains unproven |
+
+Selected checkpoint:
+
+- `checkpoints/kaggle-rund2-session2/checkpoints/best.pt`
+- SHA-256: `2d281bf0d1150c7629c33360c840b5c3e051599c2a977801a29d8eac79407775`
+
+Evaluation artifacts:
+
+- `runs/runD2-final-vs-best-20260825/score.jsonl`
+  (`c0dbe3edf765b082e9722faa9b0e06fac3568d2895ae2f66775c703c89fff3c9`)
+- `runs/runD2-winner-vs-runC-20260825/score.jsonl`
+  (`d11072c9cac30e43c5a15d1a160f6fd9b5d6e1f36ade5a5e5161d2357f0e5f4a`)
+
+The two gates used disjoint seed blocks frozen before the final checkpoint was
+read. The 95% heuristic monitoring peak was not used as promotion evidence.
+The next training step is two exact-recipe replications with distinct seeds;
+do not extend seed 0 or tune the recipe before replication.
+
 ## Open Experiments
 
 These gates are defined but unrun:
 
 | Experiment | Required decision evidence |
 |---|---|
-| Run D2 | current-format resume drill, complete 60M horizon, fresh champion gate |
+| Run D2 replication | seed 0 completed; repeat the frozen recipe with seeds 1 and 2 |
 | 518-feature observation | three seeds, fixed budget, paired strength or EV improvement, no slice regression |
 | Card-conditioned signal head | targeted response improvement, no card-only or paired-strength regression |
 | Repaired PIMC | at least +2 points and positive paired lower bound; CPU p95 below 1s and max below 5s |
