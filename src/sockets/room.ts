@@ -109,6 +109,11 @@ export function registerRoomSocket(socket: Socket, io: Server) {
             io.sockets.sockets.get(socketId)?.data.user?.userId === userId,
         );
 
+        const previousRoomCode = socket.data.roomCode;
+        if (previousRoomCode && previousRoomCode !== roomCode) {
+          socket.leave(previousRoomCode);
+        }
+
         // Unisce l'utente alla room socket e salva il riferimento per il disconnect handler
         socket.join(roomCode);
         socket.data.roomCode = roomCode;

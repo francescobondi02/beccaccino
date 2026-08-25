@@ -299,6 +299,39 @@ describe("Socket.IO real WebSocket integration", () => {
       expect(joinedEvents).toBe(1);
     });
 
+    it("leaves the previous socket room before joining another one", async () => {
+      const switchingUser = await createUser("Alice");
+      const otherOwner = await createUser("Bob");
+      const firstRoomCode = await createRoom(switchingUser);
+      const secondRoomCode = await createRoom(otherOwner);
+      const secondRoom = await prisma.gameRoom.findUniqueOrThrow({
+        where: { code: secondRoomCode },
+      });
+      await prisma.player.create({
+        data: {
+          gameRoomId: secondRoom.id,
+          userId: switchingUser.id,
+          isReady: false,
+        },
+      });
+
+      const client = createClient();
+      await waitForConnect(client);
+      await joinSocketRoom(client, firstRoomCode, switchingUser);
+      expect(
+        ioServer.sockets.adapter.rooms.get(firstRoomCode)?.has(client.id!),
+      ).toBe(true);
+
+      await joinSocketRoom(client, secondRoomCode, switchingUser);
+
+      expect(
+        ioServer.sockets.adapter.rooms.get(firstRoomCode)?.has(client.id!),
+      ).not.toBe(true);
+      expect(
+        ioServer.sockets.adapter.rooms.get(secondRoomCode)?.has(client.id!),
+      ).toBe(true);
+    });
+
     it("should emit error if room does not exist", async () => {
       const u = await createUser("Charlie");
 
