@@ -243,9 +243,9 @@ describe("useGameTable turn synchronization", () => {
     await waitFor(() => expect(result.current.playableCards).toEqual([myCard]));
   });
 
-  it("keeps the next trick disabled until the completed trick is reconciled", async () => {
+  it("holds a completed trick across stale and new-round reconciliation", async () => {
     let stateCalls = 0;
-    const playedCards = [0, 1, 2].map((position) => ({
+    const playedCards = [0, 1].map((position) => ({
       playerId: position + 10,
       userId: position + 1,
       suit: "coppe",
@@ -259,6 +259,10 @@ describe("useGameTable turn synchronization", () => {
         stateCalls += 1;
         return Promise.resolve(
           gameState({
+            round:
+              stateCalls === 1
+                ? { id: 20, number: 1, briscola: "spade" }
+                : { id: 21, number: 2, briscola: "denara" },
             currentTurnUserId: 1,
             playedCards: stateCalls === 1 ? playedCards : [],
           }),
@@ -283,6 +287,15 @@ describe("useGameTable turn synchronization", () => {
     vi.useFakeTimers();
 
     emitSocket("card_played", {
+      playerId: 12,
+      userId: 3,
+      suit: "bastoni",
+      value: "cavallo",
+      position: 2,
+      handNumber: 1,
+      signal: null,
+    });
+    emitSocket("card_played", {
       playerId: 13,
       userId: 4,
       suit: "spade",
@@ -291,25 +304,33 @@ describe("useGameTable turn synchronization", () => {
       handNumber: 1,
       signal: null,
     });
-    emitSocket("turn_timer_started", {
-      turnUserId: 1,
-      totalMs: 60_000,
-      serverTimestamp: 2,
-      phase: "play_card",
-      isBot: false,
+    emitSocket("new_round_started", {
+      roundId: 21,
+      roundNumber: 2,
+      callerUserId: 1,
     });
-
-    expect(result.current.playedCards).toHaveLength(4);
-    expect(result.current.currentTurnUserId).toBe(1);
-    expect(result.current.playableCards).toEqual([]);
 
     await act(async () => {
       await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
     });
-    expect(result.current.playableCards).toEqual([]);
 
-    act(() => vi.advanceTimersByTime(2_999));
-    expect(stateCalls).toBe(1);
+    expect(result.current.playedCards).toHaveLength(4);
+    expect(result.current.playableCards).toEqual([]);
+    expect(result.current.currentRound?.id).toBe(21);
+    expect(stateCalls).toBe(2);
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+    });
+    expect(stateCalls).toBe(2);
+    expect(result.current.playedCards).toHaveLength(4);
+
+    act(() => vi.advanceTimersByTime(2_699));
+    expect(result.current.playedCards).toHaveLength(4);
+    expect(result.current.playableCards).toEqual([]);
 
     await act(async () => {
       vi.advanceTimersByTime(1);
@@ -317,7 +338,7 @@ describe("useGameTable turn synchronization", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(stateCalls).toBe(2);
+    expect(stateCalls).toBe(3);
     expect(result.current.playedCards).toEqual([]);
     expect(result.current.playableCards).toEqual([myCard]);
   });

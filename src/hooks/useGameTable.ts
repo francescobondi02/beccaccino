@@ -133,6 +133,7 @@ export function useGameTable(
   // Fetch playable cards when it's my turn
   useEffect(() => {
     const canRequestPlayableCards =
+      state.completedTricks.length === 0 &&
       Boolean(state.currentRound?.briscola) &&
       state.currentHandNumber !== null &&
       state.playedCards.length < 4 &&
@@ -152,23 +153,24 @@ export function useGameTable(
     state.currentRound?.briscola,
     state.currentHandNumber,
     state.playedCards.length,
+    state.completedTricks.length,
     state.myCards.length,
     state.turnTimer,
     fetchPlayableCards,
   ]);
 
-  // A completed trick (4 cards) refetches after 3 seconds, giving the backend
-  // time to create the next hand; incomplete tricks refetch after 300ms (see
-  // handleCardPlayed below).
+  // Keep the completed trick visible while authoritative state continues to
+  // reconcile underneath it.
   useEffect(() => {
-    if (state.playedCards.length !== 4) return;
+    if (state.completedTricks.length === 0) return;
 
     const timer = setTimeout(() => {
-      refetchGameState();
+      dispatch({ type: "completed_trick_released" });
+      void refetchGameState();
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, [state.playedCards.length, refetchGameState]);
+  }, [state.completedTricks, refetchGameState]);
 
   // Game socket events
   useEffect(() => {
@@ -183,6 +185,10 @@ export function useGameTable(
       () => void refetchGameState(),
     );
     const reconciliationTimers = new Set<ReturnType<typeof setTimeout>>();
+    const cancelScheduledRefetches = () => {
+      reconciliationTimers.forEach((timer) => clearTimeout(timer));
+      reconciliationTimers.clear();
+    };
     const scheduleRefetch = (delay: number) => {
       const timer = setTimeout(() => {
         reconciliationTimers.delete(timer);
@@ -195,6 +201,7 @@ export function useGameTable(
     };
 
     const handleCardPlayed = (data: CardPlayedPayload) => {
+      cancelScheduledRefetches();
       invalidateStateRequests();
       playableRequestSequence.current += 1;
       dispatch({
@@ -283,7 +290,7 @@ export function useGameTable(
       unsubscribers.forEach((unsubscribe) => unsubscribe());
       unregisterRoom();
       leaveRoom(gameRoomCode);
-      reconciliationTimers.forEach((timer) => clearTimeout(timer));
+      cancelScheduledRefetches();
     };
   }, [userId, username, gameRoomCode, refetchGameState, usernameOf]);
 
@@ -299,8 +306,14 @@ export function useGameTable(
     [],
   );
 
+  const { completedTricks, ...visibleState } = state;
+  const visibleCompletedTrick = completedTricks[0];
+
   return {
-    ...state,
+    ...visibleState,
+    playedCards: visibleCompletedTrick ?? visibleState.playedCards,
+    playableCards:
+      completedTricks.length > 0 ? [] : visibleState.playableCards,
     gameStateStatus,
     refetchGameState,
     dismissRoundEnd,

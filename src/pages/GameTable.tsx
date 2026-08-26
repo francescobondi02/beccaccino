@@ -12,9 +12,14 @@ import SignalDialog from "@/components/SignalDialog";
 import ConnectionBanner from "@/components/ConnectionBanner";
 import PlayerSeat from "@/components/PlayerSeat";
 import TableCenter from "@/components/TableCenter";
-import PracticePanel from "@/components/PracticePanel";
+import PracticeHistoryDialog from "@/components/PracticeHistoryDialog";
 import AuthErrorState from "@/components/AuthErrorState";
-import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import {
+  AlertCircle,
+  History,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 import { toast } from "sonner";
 import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
@@ -87,6 +92,7 @@ const GameTable = () => {
 
   const [countdown, setCountdown] = useState<number | null>(null);
   const [isPlayingCard, setIsPlayingCard] = useState(false);
+  const [practiceHistoryOpen, setPracticeHistoryOpen] = useState(false);
   const [handsRevealed, setHandsRevealed] = useState(false);
 
   const cleanupPracticeRoom = useCallback(async (): Promise<void> => {
@@ -254,6 +260,26 @@ const GameTable = () => {
     myPlayer?.team === 0
       ? totalPoints.team1Points
       : totalPoints.team0Points;
+  const showPracticeHistory = import.meta.env.DEV && isPractice;
+  const practiceHistoryBlocked =
+    trumpDialogOpen ||
+    signalDialogOpen ||
+    roundEndDialogOpen ||
+    gameFinishedDialogOpen;
+
+  useEffect(() => {
+    if (!showPracticeHistory || practiceHistoryBlocked) {
+      setPracticeHistoryOpen(false);
+      setHandsRevealed(false);
+    }
+  }, [practiceHistoryBlocked, showPracticeHistory]);
+
+  const handlePracticeHistoryOpenChange = (open: boolean) => {
+    setPracticeHistoryOpen(open);
+    if (!open) {
+      setHandsRevealed(false);
+    }
+  };
 
   const sendPlayCard = async (
     card: PlayerCard,
@@ -432,61 +458,80 @@ const GameTable = () => {
       )}
 
       {/* Team Points Panel */}
-      <Card className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm" data-testid="team-points-panel">
-        {currentHandNumber && currentRound && (
-          <div className="text-center text-xs text-muted-foreground mb-2 border-b border-border pb-1">
-            Round {currentRound.number} &middot; Mano {currentHandNumber}/10
+      <div className="container absolute inset-x-0 top-4 mx-auto flex justify-center px-4">
+        <Card
+          className="px-6 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm"
+          data-testid="team-points-panel"
+        >
+          {currentHandNumber && currentRound && (
+            <div className="text-center text-xs text-muted-foreground mb-2 border-b border-border pb-1">
+              Round {currentRound.number} &middot; Mano {currentHandNumber}/10
+            </div>
+          )}
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <div className="text-xs text-muted-foreground mb-1">
+                La tua squadra (Team {(myPlayer.team ?? 0) + 1})
+              </div>
+              <div
+                className="text-2xl font-bold text-primary"
+                data-testid="my-team-points"
+              >
+                {myTeamPoints}
+              </div>
+            </div>
+            <div className="h-8 w-px bg-border" />
+            <div className="text-center">
+              <div className="text-xs text-muted-foreground mb-1">
+                Avversari (Team {((myPlayer.team ?? 0) === 0 ? 1 : 0) + 1})
+              </div>
+              <div
+                className="text-2xl font-bold text-accent"
+                data-testid="opponent-team-points"
+              >
+                {opponentTeamPoints}
+              </div>
+            </div>
           </div>
-        )}
-        <div className="flex items-center gap-6">
-          <div className="text-center">
-            <div className="text-xs text-muted-foreground mb-1">
-              La tua squadra (Team {(myPlayer.team ?? 0) + 1})
-            </div>
-            <div className="text-2xl font-bold text-primary" data-testid="my-team-points">
-              {myTeamPoints}
-            </div>
-          </div>
-          <div className="h-8 w-px bg-border" />
-          <div className="text-center">
-            <div className="text-xs text-muted-foreground mb-1">
-              Avversari (Team {((myPlayer.team ?? 0) === 0 ? 1 : 0) + 1})
-            </div>
-            <div className="text-2xl font-bold text-accent" data-testid="opponent-team-points">
-              {opponentTeamPoints}
-            </div>
-          </div>
-        </div>
-      </Card>
+        </Card>
+      </div>
 
       {/* Main game area */}
-      <div className="container mx-auto h-screen flex flex-col justify-between items-center py-20 px-4">
-        {/* Top Player */}
-        <div className="flex flex-col items-center gap-2">
-          {playersWithPositions
-            .filter((p) => p.position === "top")
-            .map((player) => (
-              <PlayerSeat
-                key={player.id}
-                testId="player-seat-top"
-                player={player}
-                isTurn={currentTurnUserId === player.userId}
-                showRole
-                countdown={countdown}
-                signal={
-                  currentSignal?.userId === player.userId
-                    ? currentSignal.signal
-                    : null
-                }
-              />
-            ))}
-        </div>
+      <div
+        className="container mx-auto h-screen flex flex-col items-center pt-32 pb-4 px-4"
+        data-testid="game-layout"
+      >
+        <div className="flex-1 min-h-0 flex items-center justify-center w-full">
+          <div className="relative w-full h-full max-h-[34rem] max-w-[50rem] flex items-center justify-center">
+            {/* Top Player */}
+            <div
+              className="absolute left-1/2 top-0 -translate-x-1/2"
+              data-testid="player-position-top"
+            >
+              {playersWithPositions
+                .filter((p) => p.position === "top")
+                .map((player) => (
+                  <PlayerSeat
+                    key={player.id}
+                    testId="player-seat-top"
+                    player={player}
+                    isTurn={currentTurnUserId === player.userId}
+                    showRole
+                    countdown={countdown}
+                    signal={
+                      currentSignal?.userId === player.userId
+                        ? currentSignal.signal
+                        : null
+                    }
+                  />
+                ))}
+            </div>
 
-        {/* Central Table Area */}
-        <div className="flex-1 flex items-center justify-center w-full max-w-4xl">
-          <div className="relative w-full h-full max-h-96 flex items-center justify-center">
             {/* Left Player */}
-            <div className="absolute left-0 top-1/2 -translate-y-1/2">
+            <div
+              className="absolute left-8 top-1/2 -translate-y-1/2"
+              data-testid="player-position-left"
+            >
               {playersWithPositions
                 .filter((p) => p.position === "left")
                 .map((player) => (
@@ -505,7 +550,10 @@ const GameTable = () => {
             </div>
 
             {/* Right Player */}
-            <div className="absolute right-0 top-1/2 -translate-y-1/2">
+            <div
+              className="absolute right-8 top-1/2 -translate-y-1/2"
+              data-testid="player-position-right"
+            >
               {playersWithPositions
                 .filter((p) => p.position === "right")
                 .map((player) => (
@@ -550,9 +598,12 @@ const GameTable = () => {
         </div>
 
         {/* Bottom: Local Player Info + Hand */}
-        <div className="flex flex-col items-center gap-4 w-full">
+        <div className="flex flex-col items-center gap-3 w-full">
           {/* Player's Hand */}
-          <div className="flex gap-2 flex-wrap justify-center max-w-5xl" data-testid="player-hand">
+          <div
+            className="flex gap-2 xl:gap-1 flex-wrap justify-center max-w-5xl"
+            data-testid="player-hand"
+          >
             {myCards
               .filter((c) => c.inHand)
               .map((card) => {
@@ -568,6 +619,7 @@ const GameTable = () => {
                     value={card.value}
                     onClick={() => handleCardClick(card)}
                     size="lg"
+                    className="xl:w-[5.5rem] xl:h-[7.75rem] xl:hover:scale-105"
                     clickable={isMyTurn && isPlayable}
                     disabled={!isMyTurn || !isPlayable}
                     data-testid={`hand-card-${card.suit}-${card.value}`}
@@ -590,27 +642,20 @@ const GameTable = () => {
         </div>
       </div>
 
-      {/* Practice diagnostics — a fixed side rail, hidden below xl so it never
-          squeezes the table on a narrow screen. */}
-      {isPractice && (
-        <div
-          className="hidden xl:block fixed right-4 top-20 w-72 z-30"
-          data-testid="practice-panel"
-        >
-          <PracticePanel
-            moveLog={moveLog}
-            hands={allHands}
-            revealed={handsRevealed}
-            onToggleReveal={() => setHandsRevealed((prev) => !prev)}
-            usernameOf={(id) =>
-              room?.players.find((p) => p.userId === id)?.username ?? `#${id}`
-            }
-          />
-        </div>
-      )}
-
       {/* Game Action Buttons */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+        {showPracticeHistory && !practiceHistoryBlocked && (
+          <Button
+            variant="secondary"
+            size="icon"
+            onClick={() => setPracticeHistoryOpen(true)}
+            aria-label="Apri storico pratica"
+            title="Storico pratica"
+            data-testid="open-practice-history"
+          >
+            <History className="h-4 w-4" />
+          </Button>
+        )}
         <GameChat
           roomCode={gameRoomCode ?? ""}
           userId={userId}
@@ -651,6 +696,20 @@ const GameTable = () => {
         players={playersWithPositions}
         userId={userId}
       />
+      {showPracticeHistory && (
+        <PracticeHistoryDialog
+          open={practiceHistoryOpen}
+          onOpenChange={handlePracticeHistoryOpenChange}
+          moveLog={moveLog}
+          hands={allHands}
+          handsRevealed={handsRevealed}
+          onToggleHands={() => setHandsRevealed((revealed) => !revealed)}
+          usernameOf={(id) =>
+            room.players.find((player) => player.userId === id)?.username ??
+            `#${id}`
+          }
+        />
+      )}
       {roundEndData && (
         <RoundEndDialog
           open={roundEndDialogOpen}

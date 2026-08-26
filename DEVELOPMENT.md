@@ -49,6 +49,7 @@ frontend/
 │   │   ├── Header.tsx          # Top nav bar
 │   │   ├── PlayingCard.tsx     # Card image renderer
 │   │   ├── TrumpSuitDialog.tsx # Briscola selection dialog
+│   │   ├── PracticeHistoryDialog.tsx # Development-only practice history
 │   │   ├── RoundEndDialog.tsx  # Round results
 │   │   ├── GameFinishedDialog.tsx  # Game over screen
 │   │   ├── LastTrickDialog.tsx # View last trick
@@ -82,6 +83,7 @@ frontend/
 - **Auth via HTTP-only cookies**: The backend sets a `authToken` cookie. All `fetch()` calls use `credentials: "include"`.
 - **State management**: Local React state + React Query. No global store.
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
+- **Practice history**: When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
 
 ## Testing
 
@@ -116,8 +118,8 @@ frontend/src/__tests__/
 └── utils.test.ts          # Shared utility behavior
 ```
 
-The current suite contains 137 tests across 22 files. Use the Vitest summary
-from `npm test` as the authoritative count as the suite evolves.
+Use the Vitest summary from `npm test` as the authoritative source for current
+test-file and test counts.
 
 #### Coverage
 

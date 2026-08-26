@@ -21,6 +21,7 @@ export interface GameTableState {
   currentTurnUserId: number | null;
   playedCards: PlayedCardData[];
   playableCards: PlayerCard[];
+  completedTricks: PlayedCardData[][];
   lastHand: PlayedCardData[];
   currentHandNumber: number | null;
   totalPoints: TotalPoints;
@@ -47,7 +48,8 @@ export type GameTableAction =
   | { type: "new_round_started"; data: NewRoundStartedPayload }
   | { type: "round_end_dismissed" }
   | { type: "game_finished"; data: GameFinishedPayload }
-  | { type: "turn_timer_started"; timer: TurnTimer };
+  | { type: "turn_timer_started"; timer: TurnTimer }
+  | { type: "completed_trick_released" };
 
 const EMPTY_POINTS: TotalPoints = {
   team0Points: 0,
@@ -63,6 +65,7 @@ export const initialGameTableState: GameTableState = {
   currentTurnUserId: null,
   playedCards: [],
   playableCards: [],
+  completedTricks: [],
   lastHand: [],
   currentHandNumber: null,
   totalPoints: EMPTY_POINTS,
@@ -85,6 +88,9 @@ export function gameTableReducer(
       const leadCard = data.playedCards?.find(
         (card) => card.position === 0,
       );
+      const roundChanged =
+        state.currentRound !== null &&
+        state.currentRound.id !== data.round.id;
       return {
         ...state,
         currentRound: data.round,
@@ -99,6 +105,7 @@ export function gameTableReducer(
         gameFinishedData: data.finishedGame ?? null,
         isPractice: data.isPractice ?? false,
         allHands: data.allHands ?? null,
+        moveLog: roundChanged ? [] : state.moveLog,
         turnTimer: data.turnTimer
           ? {
               turnUserId: data.turnTimer.turnUserId,
@@ -117,10 +124,13 @@ export function gameTableReducer(
     }
 
     case "playable_cards_fetched":
+      if (state.completedTricks.length > 0) return state;
       return { ...state, playableCards: action.cards };
 
     case "card_played": {
       const { data, myUserId, username } = action;
+      const currentTrick = data.position === 0 ? [] : state.playedCards;
+      const playedCards = [...currentTrick, data];
       return {
         ...state,
         // The next timer arrives through turn_timer_started.
@@ -153,7 +163,11 @@ export function gameTableReducer(
                   ),
               )
             : state.myCards,
-        playedCards: [...state.playedCards, data],
+        playedCards,
+        completedTricks:
+          playedCards.length === 4
+            ? [...state.completedTricks, playedCards]
+            : state.completedTricks,
       };
     }
 
@@ -196,6 +210,7 @@ export function gameTableReducer(
         currentHandNumber: null,
         turnTimer: null,
         currentSignal: null,
+        moveLog: [],
         roundEndData: null,
       };
 
@@ -211,6 +226,13 @@ export function gameTableReducer(
         currentTurnUserId: action.timer.turnUserId,
         playableCards: [],
         turnTimer: action.timer,
+      };
+
+    case "completed_trick_released":
+      return {
+        ...state,
+        completedTricks: state.completedTricks.slice(1),
+        playableCards: [],
       };
   }
 }

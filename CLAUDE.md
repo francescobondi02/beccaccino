@@ -23,8 +23,7 @@ src/
     TrumpSuitDialog.tsx Briscola selection (4 suit buttons + hand preview)
     SignalDialog.tsx     Signal declaration (striscio/busso/volo/niente)
     SignalBadge.tsx     Declared signal, shown on every seat
-    PracticePanel.tsx   Practice diagnostics: move log + reveal-hands toggle
-    MoveLog.tsx         Running list of played cards with their signals
+    PracticeHistoryDialog.tsx Development-only practice history dialog
     GameChat.tsx        In-game chat panel (Socket.IO)
     LastTrickDialog.tsx View last completed trick
     RoundEndDialog.tsx  Round score summary
@@ -105,6 +104,7 @@ npx playwright show-report  # HTML report with traces after failures
 
 - All UI text is in Italian
 - Card images: `/images/cards/{value}_{suit}.png` where suit uses "denari" (not "denara") in filenames
+- When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`
-- Animations: card-from-bottom CSS animation used for chat panel and card plays
+- Animations: card-from-bottom for chat; directional table-card animations for plays
 - Responsive: mobile-friendly layout, cards resize based on viewport

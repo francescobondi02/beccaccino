@@ -104,5 +104,8 @@ test.describe("First Trick", () => {
       .getByTestId("game-table-center")
       .locator('[data-testid^="card-"]');
     await expect(tableCards).toHaveCount(4);
+    await players[0].page.waitForTimeout(1_000);
+    await expect(tableCards).toHaveCount(4);
+    await expect(tableCards).toHaveCount(0, { timeout: 5_000 });
   });
 });

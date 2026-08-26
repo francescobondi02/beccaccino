@@ -148,3 +148,63 @@ All colors MUST be HSL.
 .animate-card-from-right {
   animation: card-fly-from-right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
+
+@keyframes table-card-from-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes table-card-from-top {
+  from {
+    opacity: 0;
+    transform: translateY(-60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes table-card-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes table-card-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-table-card-from-bottom {
+  animation: table-card-from-bottom 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-table-card-from-top {
+  animation: table-card-from-top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-table-card-from-left {
+  animation: table-card-from-left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-table-card-from-right {
+  animation: table-card-from-right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}

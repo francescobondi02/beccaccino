@@ -98,6 +98,40 @@ describe("gameTableReducer", () => {
     expect(state.gameFinishedData).toEqual(finishedGame);
   });
 
+  it("state_fetched preserves history within a deck and clears it for a new deck", () => {
+    const moveLog = [
+      {
+        handNumber: 2,
+        username: "anna",
+        suit: "coppe",
+        value: "tre",
+        signal: null,
+      },
+    ];
+    const inRound: GameTableState = {
+      ...initialGameTableState,
+      currentRound: stateResponse.round,
+      moveLog,
+    };
+
+    const refreshed = gameTableReducer(inRound, {
+      type: "state_fetched",
+      data: stateResponse,
+      now: 1000,
+    });
+    expect(refreshed.moveLog).toEqual(moveLog);
+
+    const nextRound = gameTableReducer(refreshed, {
+      type: "state_fetched",
+      data: {
+        ...stateResponse,
+        round: { ...stateResponse.round, id: 8, number: 3 },
+      },
+      now: 1000,
+    });
+    expect(nextRound.moveLog).toEqual([]);
+  });
+
   it("state_fetched rebuilds the timer start from the server's remaining time", () => {
     const state = gameTableReducer(initialGameTableState, {
       type: "state_fetched",
@@ -212,8 +246,97 @@ describe("gameTableReducer", () => {
     expect(state.playableCards).toEqual([]);
     expect(state.turnTimer).toBeNull();
     expect(state.moveLog).toEqual([
-      { handNumber: 3, username: "anna", suit: "denara", value: "asso", signal: null },
+      {
+        handNumber: 3,
+        username: "anna",
+        suit: "denara",
+        value: "asso",
+        signal: null,
+      },
     ]);
+  });
+
+  it("holds a completed trick across authoritative updates until released", () => {
+    const firstThreeCards = [0, 1, 2].map((position) =>
+      cardPlayed({
+        playerId: position + 5,
+        userId: position + 11,
+        position,
+      }),
+    );
+    const completed = playCard(
+      {
+        ...initialGameTableState,
+        playedCards: firstThreeCards,
+        playableCards: stateResponse.myCards,
+      },
+      cardPlayed({ playerId: 8, userId: 14, position: 3 }),
+    );
+
+    expect(completed.completedTricks).toHaveLength(1);
+    expect(completed.completedTricks[0]).toHaveLength(4);
+    expect(completed.playableCards).toEqual([]);
+
+    const reconciled = gameTableReducer(completed, {
+      type: "state_fetched",
+      data: { ...stateResponse, playedCards: [] },
+      now: 1000,
+    });
+    const withPlayableResponse = gameTableReducer(reconciled, {
+      type: "playable_cards_fetched",
+      cards: stateResponse.myCards,
+    });
+    const nextRound = gameTableReducer(withPlayableResponse, {
+      type: "new_round_started",
+      data: { roundId: 8, roundNumber: 3, callerUserId: 12 },
+    });
+
+    expect(nextRound.playedCards).toEqual([]);
+    expect(nextRound.playableCards).toEqual([]);
+    expect(nextRound.completedTricks).toEqual(completed.completedTricks);
+
+    const released = gameTableReducer(nextRound, {
+      type: "completed_trick_released",
+    });
+    expect(released.completedTricks).toEqual([]);
+    expect(released.playedCards).toEqual([]);
+    expect(released.playableCards).toEqual([]);
+  });
+
+  it("queues rapid completed tricks and releases them in order", () => {
+    const completeTrick = (
+      state: GameTableState,
+      handNumber: number,
+      userOffset: number,
+    ) =>
+      [0, 1, 2, 3].reduce(
+        (nextState, position) =>
+          playCard(
+            nextState,
+            cardPlayed({
+              playerId: userOffset + position,
+              userId: userOffset + position,
+              suit: handNumber === 1 ? "coppe" : "spade",
+              value: ["asso", "tre", "re", "sette"][position],
+              position,
+              handNumber,
+            }),
+          ),
+        state,
+      );
+
+    const firstCompleted = completeTrick(initialGameTableState, 1, 10);
+    const secondCompleted = completeTrick(firstCompleted, 2, 20);
+
+    expect(secondCompleted.completedTricks).toHaveLength(2);
+    expect(secondCompleted.completedTricks[0][0].handNumber).toBe(1);
+    expect(secondCompleted.completedTricks[1][0].handNumber).toBe(2);
+
+    const firstReleased = gameTableReducer(secondCompleted, {
+      type: "completed_trick_released",
+    });
+    expect(firstReleased.completedTricks).toHaveLength(1);
+    expect(firstReleased.completedTricks[0][0].handNumber).toBe(2);
   });
 
   it("briscola_chosen updates the round and clears the timer", () => {
@@ -266,6 +389,15 @@ describe("gameTableReducer", () => {
         playableCards: stateResponse.myCards,
         currentHandNumber: 10,
         currentSignal: { userId: 11, signal: "busso" },
+        moveLog: [
+          {
+            handNumber: 10,
+            username: "anna",
+            suit: "spade",
+            value: "re",
+            signal: "busso",
+          },
+        ],
         roundEndData: {
           roundNumber: 1,
           team0Points: 6,
@@ -292,6 +424,7 @@ describe("gameTableReducer", () => {
     expect(state.playableCards).toEqual([]);
     expect(state.currentHandNumber).toBeNull();
     expect(state.currentSignal).toBeNull();
+    expect(state.moveLog).toEqual([]);
     expect(state.roundEndData).toBeNull();
   });
 
