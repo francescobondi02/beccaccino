@@ -44,11 +44,13 @@ def test_busso_ignores_strength_in_other_suits():
     assert not signal_is_honest(Signal.BUSSO, [_card(Value.TRE, Suit.COPPE)], Suit.SPADE)
 
 
-def test_striscio_needs_two_or_more_remaining():
-    one = [_card(Value.CINQUE, Suit.BASTONI)]
-    assert not signal_is_honest(Signal.STRISCIO, one, Suit.BASTONI)
-    two = [*one, _card(Value.SEI, Suit.BASTONI)]
-    assert signal_is_honest(Signal.STRISCIO, two, Suit.BASTONI)
+def test_striscio_requires_three_cards_in_suit_without_strength():
+    played = _card(Value.QUATTRO, Suit.BASTONI)
+    two_card_suit = [played, _card(Value.CINQUE, Suit.BASTONI)]
+    assert not signal_is_honest(Signal.STRISCIO, two_card_suit[1:], played.suit)
+
+    three_card_suit = [*two_card_suit, _card(Value.SEI, Suit.BASTONI)]
+    assert signal_is_honest(Signal.STRISCIO, three_card_suit[1:], played.suit)
 
 
 def test_honest_signal_for_never_contradicts_the_audit():
