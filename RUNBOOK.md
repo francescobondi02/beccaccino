@@ -121,6 +121,7 @@ Common gotcha: the release in `Sentry.init` must match the release passed to the
 - **Turn timers are in-memory.** A server restart mid-game wipes them. The first `getGameState` fetch after restart restores the active timer, so auto-play resumes — but the player may need to refresh. Documented at `backend/src/controllers/gameController.ts` (lazy timer recovery block).
 - **Socket.IO sticky sessions.** If you scale Render to >1 instance you must enable a Redis adapter or sticky sessions. Currently single-instance.
 - **Leaderboard cache.** 60 s in-memory TTL. After a game finishes, the leaderboard may not update for up to a minute.
+- **Practice cleanup is also the archive.** Deleting a practice room first snapshots it into `PracticeMatch`, in the same transaction. If the snapshot fails, the delete rolls back: the room stays and the sweeper retries it every 10 minutes, and a player leaving that room sees an error. Look for `practice_room_sweep_room_failed`. Nothing is lost while this is broken — but the room cannot be cleaned up until it is fixed.
 
 ## Operational levers (env vars)
 

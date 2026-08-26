@@ -63,6 +63,9 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
   (`Round.team0Points`/`team0Figures`, `schema.prisma:112-115`) — `computePoints` returns
   `floor(raw/3)` plus `raw % 3`. To recover raw: `raw = points*3 + figures`. Summing only
   `*Points` silently drops each round's remainder.
+- Practice games are archived into one `PracticeMatch` row as they are deleted (training data).
+  The replay keeps complete card history, while `humanActions` contains only
+  direct human choices. Bot moves and human timeouts never become labels.
 - Socket events are the source of truth for real-time state; REST is for mutations.
 - Tests: backend integration uses `becca_test` DB, loaded via `tests/loadTestEnv.ts` before Prisma imports.
 - Test auth bypass: `NODE_ENV=test` skips JWT, allows `x-test-user-id` header.
@@ -102,6 +105,7 @@ Cross-origin deploy requires cookie `sameSite: 'none'` + `secure: true`.
 - `backend/src/services/turnTimer.ts` — timeout/auto-play/kick logic + bot-turn dispatch
 - `backend/src/services/botService.ts` — bot identity (fixed pool of 3 users) + difficulty tiers
 - `backend/src/services/botState.ts` — serializes a game into the bot service's wire format
+- `backend/src/services/practiceArchive.ts` — snapshots a practice game into `PracticeMatch` before deletion (training data)
 - `backend/src/services/botClient.ts` — HTTP client for the Python `/act` endpoint
 - `backend/src/sockets/room.ts` — all Socket.IO event handlers (lobby + game)
 - `frontend/src/sockets/socketClient.ts` — singleton socket with reconnection (Infinity attempts)

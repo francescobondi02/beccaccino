@@ -96,24 +96,11 @@ Treat the four highs plus the `trust proxy` rate-limiter trap as pre-launch bloc
 - **LOW — Cross-repo fixture path couples the backend integration test to the monorepo layout** (`backend/tests/integration/botStateFixtures.test.ts:13`). The test reads `../../../ai/serving/fixtures/bot_states.json` (the sibling `ai` submodule) eagerly at collection time, so a standalone clone of the backend repo (which is how Render deploys it) or submodule-level CI throws a missing-file error with no explanation. Guard with `describe.skip` + a clear message when the fixture is absent, and document the monorepo requirement.
 - **LOW — Frontend tracks two lockfiles** (`frontend/package.json:1`). Both `package-lock.json` (2026-05-31) and a ~7.5-month-stale `bun.lockb` (2025-10-14) are committed, though the toolchain is npm everywhere and there is no CI to catch a divergent tree. Delete the stale `bun.lockb` and `.gitignore` it; keep exactly one source of dependency truth.
 
-## 4. Roadmap to production quality
+## 4. Future improvements
 
-1. **(S) Fix the two scoring-correctness highs first.** Add `orderBy: { number: 'asc' }` to the round-end `hand.findMany`, and extract one `cumulativeRealPoints(rounds)` helper (`raw = points*3 + figures`) used by the game-end check, `getUserStats`, and `getLeaderboard`. Verify with unit tests that reproduce a remainder-carrying win and a wrong-team last-trick/cricca bonus. These corrupt the product's core output — nothing else matters until they're correct.
-2. **(M) Fix account deletion.** Anonymize/soft-delete finished-game `Player` rows (or add `onDelete: Cascade`), correct the misleading comment, and add an integration test: register → finish a game → `DELETE /me` returns 200. Data-rights blocker.
-3. **(S) Close the two production-boot traps.** Stop pruning the Prisma CLI (or move `prisma` to dependencies) so boot uses a pinned, offline CLI, and set `app.set('trust proxy', 1)` in non-test envs so the REST limiters key on the real client IP. Both are launch blockers — this unlocks a deploy that starts reliably and doesn't lock users out.
-4. **(S) Fix contributor-experience and hygiene loose ends.** Repair the `docker-compose` `DIRECT_URL` (or drop the backend service), scrub the `.env.e2e` secret, and delete the stale `bun.lockb`. Cheap, and it stops wasting the next contributor's first hour.
-5. **(M/L) Add minimal CI, now that the tree is green.** Per-submodule GitHub Actions: backend `npm ci && test:unit && test:integration` against a Postgres service container; frontend `npm ci && lint && tsc --noEmit && test` (add the `typecheck` script and turn on `strictNullChecks`); ai `pytest && ruff`. Add one cross-cutting job that runs `gen_bot_fixtures` and fails on any diff, and runs `botStateFixtures.test.ts`. This locks in steps 1-3 and every contract guard the repo already built — it is the single highest-leverage structural change.
-6. **(M) Kill the drift-prone duplication.** Extract `resolveCaller`/`seatOrder`/`gameWinner` on the backend; add a shared frontend `apiClient`, `useAuth()` hook, typed `normalizePlayer`, and a single socket `events.ts` contract; unify the two listener registries on one pattern. This unlocks safe feature work — most remaining findings are instances of this duplication.
-7. **(M/L) Harden the state layer and decompose GameTable.** Wrap `setupRound` and the round-end/next-round writes in transactions, add the defensive `@@unique` constraints, and put `joinRoom` behind `withRoomLock`. Split `GameTable` into a reducer + hooks + `<PlayerSeat>`/`<ConnectionBanner>` and add unit tests for its optimistic/timer/signal logic.
-8. **(S) Polish sweep.** Surface socket `error` events as toasts; remove or build the `/settings` route; give auth-failed reconnects a re-login prompt; rebase the live turn-timer onto the client clock; map errors via typed classes instead of string-matching; share the username validator; fix the kicked-player re-emit and timeout-counter reset; remove dead code and hoist magic numbers.
-9. **(M) Extend expert annotation only after V1 proves the workflow.** Add an account-scoped annotator portal for viewing previous responses and making explicit corrections, and persist the pending unanswered scenario assignment so returning experts resume the same scenario after closing or changing browsers. Neither enhancement is required for the V1 release.
-
-**Explicitly do NOT do (over-engineering to avoid):**
-- **Do not** convert the repo to a workspaces monorepo or build a shared-types package pipeline just to dedupe socket types — a single hand-maintained `events.ts` is enough at this scale.
-- **Do not** add a Redis Socket.IO adapter or multi-instance scaling now; keep the single-instance assumption and rely on the `@@unique` backstops, as `RUNBOOK.md` already documents.
-- **Do not** build a materialized standings table or move the leaderboard to SQL until there are thousands of games; the 60s cache covers current scale.
-- **Do not** flip full TS `strict` in one PR; enable `strictNullChecks` and burn down incrementally.
-- **Do not** add error handling for impossible states or FAANG-grade infrastructure — the findings are already calibrated to a small game with real users; keep it there.
+The maintained ideas and next-steps list has moved to
+[`FUTURE_IMPROVEMENTS.md`](FUTURE_IMPROVEMENTS.md). This review remains a
+historical description of the codebase at the time it was written.
 
 ## 5. Scope note
 

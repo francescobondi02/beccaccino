@@ -200,6 +200,31 @@ without first reviewing the dry run against the same database.
 
 ---
 
+## Practice Game Data Collection
+
+Practice games (human vs three bots) are kept as training data. They used to be
+deleted outright; now deleting the room first snapshots the whole game into one
+`PracticeMatch` row — the cards each seat was dealt plus every play in order.
+
+The full card history is replay context. Each round separately records
+`humanActions`, containing only choices made directly by the human; bot choices
+and server-selected timeout moves never enter that list. The archive identifies
+the human only by seat and stores no account ID or pseudonym.
+
+Run `npm run practice:export > practice_matches.jsonl` from the backend after a
+build. No practice-export secret is required.
+
+On-disk cost is ~1.4 KB per game (Postgres compresses the JSONB ~15x), so no
+archiving job or manual compression is warranted.
+
+Details, payload shape, and the auto-play flags that mark non-human moves are in
+[`backend/DEVELOPMENT.md`](backend/DEVELOPMENT.md#practice-game-data).
+
+Deferred ideas and next steps are tracked in
+[`FUTURE_IMPROVEMENTS.md`](FUTURE_IMPROVEMENTS.md).
+
+---
+
 ## Environment Variables
 
 **`backend/.env`** (development):
