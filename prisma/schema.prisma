@@ -37,21 +37,65 @@ enum Value {
 // User
 // ===========
 model User {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique
-  email     String?  @unique          // Email opzionale per OAuth
-  password  String?                   // Password opzionale (null per OAuth)
-  isBot     Boolean  @default(false)  // Bot account: excluded from leaderboard/stats
+  id                      Int       @id @default(autoincrement())
+  username                String    @unique
+  email                   String?   @unique          // Email opzionale per OAuth
+  password                String?                    // Password opzionale (null per OAuth)
+  isBot                   Boolean   @default(false)  // Bot account: excluded from leaderboard/stats
+  expertAccessGrantedAt   DateTime?
 
   // OAuth fields
   googleId  String?  @unique          // Google OAuth ID
 
   // Metadata
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt @default(now())
-  deletedAt DateTime?               // Set when the account is anonymized (soft delete)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt @default(now())
+  deletedAt DateTime?                // Set when the account is anonymized (soft delete)
 
-  players   Player[]
+  players             Player[]
+  expertAnnotations   ExpertAnnotation[]
+}
+
+// =================
+// Expert annotation
+// =================
+model AnnotationScenario {
+  id                  Int      @id @default(autoincrement())
+  code                String   @unique
+  predictedDifficulty String
+  importance          Int
+  tags                String[]
+  state               Json
+  stateHash           String   @unique
+  sourceBatch         String
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  annotations ExpertAnnotation[]
+
+  @@index([active, predictedDifficulty])
+}
+
+model ExpertAnnotation {
+  id                  Int      @id @default(autoincrement())
+  userId              Int
+  scenarioId          Int
+  scenarioHash        String
+  selectedSuit        Suit?
+  selectedValue       Value?
+  selectedSignal      String?
+  skipped             Boolean  @default(false)
+  comment             String?
+  perceivedDifficulty String
+  responseTimeMs      Int
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt @default(now())
+
+  user     User               @relation(fields: [userId], references: [id])
+  scenario AnnotationScenario @relation(fields: [scenarioId], references: [id])
+
+  @@unique([userId, scenarioId])
+  @@index([scenarioId])
 }
 
 // ===========
