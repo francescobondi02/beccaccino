@@ -1,5 +1,13 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameTable from "@/pages/GameTable";
 import type { RoundEndData } from "@/game/model";
@@ -162,7 +170,16 @@ vi.mock("@/components/GameChat", () => ({
   default: () => null,
 }));
 vi.mock("@/components/TrumpSuitDialog", () => ({
-  default: () => null,
+  default: ({
+    open,
+    practiceLeaveAction,
+  }: {
+    open: boolean;
+    practiceLeaveAction?: ReactNode;
+  }) =>
+    open ? (
+      <div data-testid="trump-suit-dialog">{practiceLeaveAction}</div>
+    ) : null,
 }));
 vi.mock("@/components/LastTrickDialog", () => ({
   default: () => null,
@@ -496,6 +513,65 @@ describe("GameTable page behavior", () => {
     });
 
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+  });
+
+  it("does not abandon a practice game when confirmation is cancelled", async () => {
+    usePracticeRoom();
+    renderGameTable();
+
+    fireEvent.click(await screen.findByTestId("abandon-practice-button"));
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Annulla" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
+    );
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("reaches confirmed practice leave from the briscola dialog", async () => {
+    usePracticeRoom();
+    mocks.gameHook.currentRound = {
+      id: 30,
+      number: 1,
+      briscola: null,
+    };
+    renderGameTable();
+
+    const trumpDialog = await screen.findByTestId("trump-suit-dialog");
+    fireEvent.click(
+      within(trumpDialog).getByTestId("abandon-practice-button"),
+    );
+    // Scoped to the dialog: the trigger carries the same label.
+    const confirm = within(screen.getByRole("alertdialog"));
+    fireEvent.click(confirm.getByRole("button", { name: "Abbandona" }));
+
+    await waitFor(() =>
+      expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {}),
+    );
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+  });
+
+  it("offers no mid-play abandon after a practice game finishes", async () => {
+    usePracticeRoom();
+    mocks.gameHook.gameFinishedData = finishedGame;
+    renderGameTable();
+
+    await screen.findByRole("button", { name: "Torna alla Home" });
+    expect(
+      screen.queryByTestId("abandon-practice-button"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers no mid-play abandon in a multiplayer game", async () => {
+    renderGameTable();
+    await screen.findByTestId("game-table-page");
+
+    expect(
+      screen.queryByTestId("abandon-practice-button"),
+    ).not.toBeInTheDocument();
   });
 
   it("does not delete a practice room on unmount or page refresh", async () => {

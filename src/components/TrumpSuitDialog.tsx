@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,7 @@ type TrumpSuitDialogProps = {
   onOpenChange: (open: boolean) => void;
   onSelectSuit: (suit: string) => void;
   myCards: PlayerCard[];
+  practiceLeaveAction?: ReactNode;
 };
 
 const italianSuits = [
@@ -27,6 +29,7 @@ const TrumpSuitDialog = ({
   open,
   onSelectSuit,
   myCards,
+  practiceLeaveAction,
 }: Omit<TrumpSuitDialogProps, "onOpenChange">) => {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
@@ -89,6 +92,10 @@ const TrumpSuitDialog = ({
             ))}
           </div>
         </div>
+
+        {practiceLeaveAction && (
+          <div className="flex justify-end">{practiceLeaveAction}</div>
+        )}
       </DialogContent>
     </Dialog>
   );

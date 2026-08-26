@@ -126,6 +126,7 @@ npx playwright show-report  # HTML report with traces after failures
 
 - All UI text is in Italian
 - Card images: `/images/cards/{value}_{suit}.png` where suit uses "denari" (not "denara") in filenames
+- Practice games show an "Abbandona" button while playing, which confirms and then deletes the room. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".
 - When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`
 - Animations: card-from-bottom for chat; directional table-card animations for plays

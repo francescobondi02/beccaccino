@@ -15,6 +15,17 @@ import TableCenter from "@/components/TableCenter";
 import PracticeHistoryDialog from "@/components/PracticeHistoryDialog";
 import AuthErrorState from "@/components/AuthErrorState";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   AlertCircle,
   History,
   Loader2,
@@ -358,7 +369,9 @@ const GameTable = () => {
     }
   };
 
-  const handleFinishedHome = async () => {
+  // Shared by the end-of-game dialog and the practice abandon button: both mean
+  // "go home, tearing down the practice room first if this is one".
+  const handleReturnHome = async () => {
     setIsReturningHome(true);
     try {
       await cleanupPracticeRoom();
@@ -369,6 +382,38 @@ const GameTable = () => {
       setIsReturningHome(false);
     }
   };
+
+  const practiceLeaveAction = isPractice && !gameFinishedData && (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={isReturningHome}
+          data-testid="abandon-practice-button"
+        >
+          Abbandona
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent className="bg-card">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Abbandonare l'allenamento?</AlertDialogTitle>
+          <AlertDialogDescription>
+            La partita verrà chiusa e non potrai riprenderla.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Annulla</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleReturnHome}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            Abbandona
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 
   if (authError) {
     return <AuthErrorState onRetry={retryAuth} />;
@@ -677,6 +722,7 @@ const GameTable = () => {
             Scegli Briscola
           </Button>
         )}
+        {!trumpDialogOpen && practiceLeaveAction}
       </div>
 
       {/* Dialogs */}
@@ -688,6 +734,7 @@ const GameTable = () => {
         open={trumpDialogOpen}
         onSelectSuit={handleTrumpSelect}
         myCards={myCards}
+        practiceLeaveAction={practiceLeaveAction}
       />
       <LastTrickDialog
         open={lastTrickDialogOpen}
@@ -734,7 +781,7 @@ const GameTable = () => {
           finalScores={gameFinishedData.finalScores}
           roundsWon={gameFinishedData.roundsWon}
           myTeam={myPlayer?.team ?? null}
-          onHome={handleFinishedHome}
+          onHome={handleReturnHome}
           isReturningHome={isReturningHome}
         />
       )}
