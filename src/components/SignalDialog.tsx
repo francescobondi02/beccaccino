@@ -17,7 +17,8 @@ const signals = [
   {
     value: "striscio" as const,
     label: "Striscio",
-    description: "Sono forte in questo seme",
+    description:
+      "Inclusa la carta giocata, ho almeno 3 carte di questo seme",
     color: "bg-green-500/10 border-green-500/30 hover:bg-green-500/20",
   },
   {
