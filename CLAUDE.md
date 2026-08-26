@@ -12,11 +12,16 @@ src/
   gameConfig.ts         Game-wide environment-backed rules such as win points
   db.ts                 Prisma client singleton
   socketInstance.ts     Global io getter/setter (used by services to emit events)
+  annotations/
+    constants.ts        Fixed difficulty, tag, and importance vocabulary
+    scenario.ts         Generated scenario parser and public-state validation
+    selection.ts        Per-user difficulty balancing and usefulness ranking
   domain/
     cards.ts            Prisma-backed card enums, signal types, and parsers
     publicPlayer.ts     Public player projection for room payloads
   controllers/
     userController.ts   Register, login, logout, profile, stats, leaderboard
+    annotationController.ts Annotation status, access, next scenario, response upsert
     roomController.ts   Create room, join room, list rooms
     gameController.ts   Choose briscola, play card, get playable cards, get game state
     chooseTeam.ts       Team selection logic
@@ -32,12 +37,17 @@ src/
     room.ts             All socket event handlers: lobby, room join/leave, game events, chat
   middleware/
     auth.ts             JWT cookie auth (bypassed in test via x-test-user-id header)
+    annotationAccess.ts Account-level expert-access gate
     validate.ts         Input validation for game endpoints (suit/value enum checks)
     rateLimiter.ts      Per-route rate limiting
   routes/
     users.ts            /api/users/*
     rooms.ts            /api/rooms/*
     games.ts            /api/games/*
+    annotations.ts      /api/annotations/* (account auth + shared-code access gate)
+  scripts/
+    importAnnotationScenarios.ts Transactional offline-batch import
+    exportAnnotations.ts Pseudonymous JSONL export
   utils/
     computePoints.ts    Raw points → {points, figures} per team
     determineHandWinner.ts  Trick winner logic (briscola > lead suit > off-suit)
@@ -48,7 +58,7 @@ src/
     sanitizeChatMessage.ts  Production chat input sanitizer
 prisma/
   schema.prisma         Models: User, Player, GameRoom, Round, Hand, PlayedCard, PlayerCard
-  migrations/           14 migrations
+  migrations/           17 migrations
 tests/
   unit/                 Pure rules, card parsing, scoring, room codes, chat sanitization
   integration/          Full API tests with real DB plus production server/socket tests
@@ -80,8 +90,32 @@ tests/
 - Production: `secure: true`, `sameSite: 'strict'` (same-origin) or `'none'` (cross-origin)
 - `createServer()` applies Socket.IO JWT auth before per-IP admission, then attaches verified identity to `socket.data.user`
 
+### Expert Annotations
+- Normal BECCA account authentication protects all four endpoints:
+  `GET /api/annotations/status`, `POST /api/annotations/access`,
+  `GET /api/annotations/next`, and `POST /api/annotations/responses`.
+  The access endpoint verifies `ANNOTATION_ACCESS_CODE` and records expert
+  access on the account.
+- Deterministic scenario batches are generated offline by the AI package,
+  validated again by the backend, and imported transactionally into SQL.
+  Existing scenario identifiers and state hashes cannot be overwritten.
+- Selection keeps each user's answers near the 20/40/40 difficulty mix and
+  ranks unanswered scenarios by importance and global response count without a
+  response cap.
+- Scenario hash, the complete suit/value/signal legal action, perceived
+  difficulty, and an optional 500-character skip comment are verified
+  server-side before an idempotent per-account/per-scenario upsert. One current
+  response row is stored for that pair; no response-history portal exists.
+- The UI shows an open-ended contribution count. A null next scenario means
+  only that the user has answered every currently active scenario.
+- `ANNOTATION_EXPORT_SALT=... npm run annotations:export` emits the exact
+  visible scenario with deterministic user pseudonyms and optional skip
+  comments; it never reads username or email.
+
 ### Database Notes
 - Player has unique constraints on `[gameRoomId, seat]` and `[gameRoomId, userId]`
+- AnnotationScenario has unique `code` and `stateHash` fields; ExpertAnnotation
+  is unique on `[userId, scenarioId]`
 - PlayedCard.signal: nullable string ("striscio"|"busso"|"volo"|null), only set for trick leader (position 0)
 - Indexes on all foreign keys (added in migration 20260517190703)
 - `binaryTargets` includes `linux-musl-arm64-openssl-3.0.x` for Docker Alpine

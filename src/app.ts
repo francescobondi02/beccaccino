@@ -11,6 +11,7 @@ import { randomUUID } from "crypto";
 import userRouter from "./routes/users";
 import roomRouter from "./routes/rooms";
 import gameRouter from "./routes/games";
+import annotationRouter from "./routes/annotations";
 import { logger } from "./logger";
 import { prisma } from "./db";
 
@@ -71,6 +72,7 @@ if (process.env.NODE_ENV === "test") {
 app.use("/api/users", userRouter);
 app.use("/api/rooms", roomRouter);
 app.use("/api/games", gameRouter);
+app.use("/api/annotations", annotationRouter);
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });

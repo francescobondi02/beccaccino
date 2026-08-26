@@ -1,0 +1,363 @@
+import { Prisma, Suit, Value } from "@prisma/client";
+import jwt from "jsonwebtoken";
+import request from "supertest";
+import { prisma } from "../../src/db";
+import { annotationStateHash } from "../../src/annotations/scenario";
+import { generateToken } from "../../src/utils/jwt";
+import {
+  annotationScenarioCreateData,
+  annotationScenarioState,
+} from "../helpers/annotationScenario";
+import {
+  apiAs,
+  clearDatabase,
+  getServer,
+} from "../helpers/gameHelpers";
+
+const ACCESS_CODE = "annotation-integration-code";
+const originalAccessCode = process.env.ANNOTATION_ACCESS_CODE;
+
+beforeAll(() => {
+  process.env.ANNOTATION_ACCESS_CODE = ACCESS_CODE;
+});
+
+afterAll(() => {
+  if (originalAccessCode === undefined) {
+    delete process.env.ANNOTATION_ACCESS_CODE;
+  } else {
+    process.env.ANNOTATION_ACCESS_CODE = originalAccessCode;
+  }
+});
+
+beforeEach(async () => {
+  await clearDatabase();
+});
+
+async function createUser(username: string, hasAccess = false) {
+  return prisma.user.create({
+    data: {
+      username,
+      expertAccessGrantedAt: hasAccess ? new Date() : null,
+    },
+  });
+}
+
+async function createScenario(
+  code: string,
+  predictedDifficulty: "easy" | "medium" | "hard" = "medium",
+  score = 0,
+  importance: 1 | 2 | 3 = 2,
+) {
+  const state = annotationScenarioState({
+    totalScores: { 0: score, 1: 0 },
+  });
+  return prisma.annotationScenario.create({
+    data: {
+      ...annotationScenarioCreateData({
+        code,
+        predictedDifficulty,
+        importance,
+        state,
+        stateHash: annotationStateHash(state),
+      }),
+      state: state as unknown as Prisma.InputJsonValue,
+    },
+  });
+}
+
+function authCookie(user: { id: number; username: string }) {
+  return `authToken=${generateToken({
+    userId: user.id,
+    username: user.username,
+  })}`;
+}
+
+function responseFor(
+  scenario: Awaited<ReturnType<typeof createScenario>>,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    scenarioId: scenario.id,
+    scenarioHash: scenario.stateHash,
+    selectedAction: {
+      suit: Suit.denara,
+      value: Value.asso,
+      signal: null,
+    },
+    skipped: false,
+    comment: null,
+    perceivedDifficulty: "medium",
+    responseTimeMs: 1234,
+    ...overrides,
+  };
+}
+
+describe("expert annotation API", () => {
+  it("uses account authentication for every endpoint", async () => {
+    const responses = await Promise.all([
+      request(getServer()).get("/api/annotations/status"),
+      request(getServer())
+        .post("/api/annotations/access")
+        .send({ code: ACCESS_CODE }),
+      request(getServer()).get("/api/annotations/next"),
+      request(getServer()).post("/api/annotations/responses").send({}),
+    ]);
+
+    expect(responses.map((response) => response.statusCode)).toEqual([
+      401, 401, 401, 401,
+    ]);
+  });
+
+  it.each([
+    [
+      "invalid",
+      jwt.sign(
+        { userId: 1, username: "expert" },
+        "incorrect-annotation-test-secret",
+      ),
+    ],
+    [
+      "expired",
+      jwt.sign(
+        { userId: 1, username: "expert" },
+        process.env.JWT_SECRET!,
+        { expiresIn: -1 },
+      ),
+    ],
+  ])("returns 401 for an %s account cookie", async (_kind, token) => {
+    const response = await request(getServer())
+      .get("/api/annotations/status")
+      .set("Cookie", `authToken=${token}`);
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("rejects a bad code without granting access or invalidating login", async () => {
+    const user = await createUser("expert");
+    const cookie = authCookie(user);
+
+    const invalid = await request(getServer())
+      .post("/api/annotations/access")
+      .set("Cookie", cookie)
+      .send({ code: "wrong" });
+    expect(invalid.statusCode).toBe(400);
+    expect(
+      (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+        .expertAccessGrantedAt,
+    ).toBeNull();
+
+    const statusBeforeGrant = await request(getServer())
+      .get("/api/annotations/status")
+      .set("Cookie", cookie);
+    expect(statusBeforeGrant.statusCode).toBe(200);
+    expect(statusBeforeGrant.body).toEqual({
+      accessGranted: false,
+      contributionCount: 0,
+    });
+
+    const granted = await request(getServer())
+      .post("/api/annotations/access")
+      .set("Cookie", cookie)
+      .send({ code: ACCESS_CODE });
+    expect(granted.statusCode).toBe(200);
+    expect(granted.body).toEqual({
+      accessGranted: true,
+      contributionCount: 0,
+    });
+    expect(
+      (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+        .expertAccessGrantedAt,
+    ).not.toBeNull();
+
+    const status = await request(getServer())
+      .get("/api/annotations/status")
+      .set("Cookie", cookie);
+    expect(status.body).toEqual({
+      accessGranted: true,
+      contributionCount: 0,
+    });
+  });
+
+  it("reports unavailable configuration without granting access", async () => {
+    const user = await createUser("unconfigured");
+    delete process.env.ANNOTATION_ACCESS_CODE;
+    try {
+      const response = await apiAs(user.id, user.username)
+        .post("/api/annotations/access")
+        .send({ code: ACCESS_CODE });
+      expect(response.statusCode).toBe(503);
+      expect(
+        (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+          .expertAccessGrantedAt,
+      ).toBeNull();
+    } finally {
+      process.env.ANNOTATION_ACCESS_CODE = ACCESS_CODE;
+    }
+  });
+
+  it("keeps expert authorization and responses isolated by account", async () => {
+    const expert = await createUser("authorized", true);
+    const player = await createUser("player");
+    await createScenario("initial-v1-0001");
+
+    const forbidden = await apiAs(player.id, player.username).get(
+      "/api/annotations/next",
+    );
+    expect(forbidden.statusCode).toBe(403);
+    const forbiddenResponse = await apiAs(player.id, player.username)
+      .post("/api/annotations/responses")
+      .send({});
+    expect(forbiddenResponse.statusCode).toBe(403);
+
+    const next = await apiAs(expert.id, expert.username).get(
+      "/api/annotations/next",
+    );
+    expect(next.statusCode).toBe(200);
+    expect(next.body.scenario.code).toBe("initial-v1-0001");
+  });
+
+  it("mixes difficulty per user and never exposes generated labels", async () => {
+    const user = await createUser("balanced", true);
+    const medium = await createScenario("initial-v1-medium", "medium", 0);
+    const hard = await createScenario("initial-v1-hard", "hard", 3);
+    const easy = await createScenario("initial-v1-easy", "easy", 6);
+
+    const expected = [medium, hard, easy];
+    for (const scenario of expected) {
+      const next = await apiAs(user.id, user.username).get(
+        "/api/annotations/next",
+      );
+      expect(next.statusCode).toBe(200);
+      expect(next.body.scenario.id).toBe(scenario.id);
+      expect(next.body.scenario.predictedDifficulty).toBeUndefined();
+      expect(next.body.scenario.importance).toBeUndefined();
+      expect(next.body.scenario.tags).toBeUndefined();
+      expect(next.body.scenario.hand).toBeDefined();
+
+      const saved = await apiAs(user.id, user.username)
+        .post("/api/annotations/responses")
+        .send(responseFor(scenario));
+      expect(saved.statusCode).toBe(200);
+    }
+  });
+
+  it("keeps answered corner cases eligible and prefers importance on score ties", async () => {
+    const user = await createUser("ranked", true);
+    const standard = await createScenario(
+      "initial-v1-standard",
+      "medium",
+      0,
+      1,
+    );
+    const corner = await createScenario("initial-v1-corner", "medium", 3, 3);
+    const contributors = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        createUser(`contributor-${index}`),
+      ),
+    );
+    await prisma.expertAnnotation.createMany({
+      data: contributors.map((contributor) => ({
+        userId: contributor.id,
+        scenarioId: corner.id,
+        scenarioHash: corner.stateHash,
+        skipped: true,
+        perceivedDifficulty: "hard",
+        responseTimeMs: 1000,
+      })),
+    });
+
+    const next = await apiAs(user.id, user.username).get(
+      "/api/annotations/next",
+    );
+
+    expect(standard.id).toBeLessThan(corner.id);
+    expect(next.statusCode).toBe(200);
+    expect(next.body.scenario.id).toBe(corner.id);
+  });
+
+  it("rejects stale identities, illegal actions, and invalid perceived difficulty", async () => {
+    const user = await createUser("validator", true);
+    const scenario = await createScenario("initial-v1-validation");
+
+    const stale = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(responseFor(scenario, { scenarioHash: "0".repeat(64) }));
+    expect(stale.statusCode).toBe(409);
+
+    const illegal = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(
+        responseFor(scenario, {
+          selectedAction: {
+            suit: Suit.coppe,
+            value: Value.asso,
+            signal: null,
+          },
+        }),
+      );
+    expect(illegal.statusCode).toBe(400);
+
+    const invalidDifficulty = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(responseFor(scenario, { perceivedDifficulty: "expert" }));
+    expect(invalidDifficulty.statusCode).toBe(400);
+    expect(await prisma.expertAnnotation.count()).toBe(0);
+  });
+
+  it("stores idempotent account-linked answers and contribution count", async () => {
+    const user = await createUser("repeat", true);
+    const scenario = await createScenario("initial-v1-repeat");
+    const payload = responseFor(scenario, { perceivedDifficulty: "hard" });
+    const first = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(payload);
+    const second = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(payload);
+
+    expect(first.statusCode).toBe(200);
+    expect(first.body.contributionCount).toBe(1);
+    expect(second.statusCode).toBe(200);
+    expect(second.body.contributionCount).toBe(1);
+    expect(await prisma.expertAnnotation.count()).toBe(1);
+    expect(
+      (await prisma.expertAnnotation.findFirstOrThrow()).perceivedDifficulty,
+    ).toBe("hard");
+  });
+
+  it("stores a trimmed optional skip comment with the difficulty rating", async () => {
+    const user = await createUser("skip", true);
+    const scenario = await createScenario("initial-v1-skip");
+    const response = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(
+        responseFor(scenario, {
+          selectedAction: null,
+          skipped: true,
+          comment: "  Non ricordo il segnale.  ",
+          perceivedDifficulty: "hard",
+        }),
+      );
+
+    expect(response.statusCode).toBe(200);
+    const stored = await prisma.expertAnnotation.findFirstOrThrow();
+    expect(stored.userId).toBe(user.id);
+    expect(stored.selectedSuit).toBeNull();
+    expect(stored.comment).toBe("Non ricordo il segnale.");
+    expect(stored.perceivedDifficulty).toBe("hard");
+  });
+
+  it("returns an empty pool state without declaring completion", async () => {
+    const user = await createUser("empty", true);
+    const next = await apiAs(user.id, user.username).get(
+      "/api/annotations/next",
+    );
+
+    expect(next.statusCode).toBe(200);
+    expect(next.body).toEqual({
+      scenario: null,
+      contributionCount: 0,
+    });
+    expect(next.body.complete).toBeUndefined();
+  });
+});

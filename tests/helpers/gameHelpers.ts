@@ -88,6 +88,8 @@ export function apiAs(userId: number, username: string) {
 
 export async function clearDatabase() {
   await prisma.$transaction([
+    prisma.expertAnnotation.deleteMany(),
+    prisma.annotationScenario.deleteMany(),
     prisma.playedCard.deleteMany(),
     prisma.playerCard.deleteMany(),
     prisma.hand.deleteMany(),

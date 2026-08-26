@@ -34,6 +34,7 @@
   },
   "scripts": {
     "dev": "npx prisma generate && npx prisma migrate deploy && ts-node-dev src/index.ts",
+    "dev:e2e": "npm run db:test:prepare && NODE_ENV=test DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' DIRECT_URL='postgresql://postgres:postgres@localhost:5432/becca_test' ANNOTATION_ACCESS_CODE='becca-expert' ts-node-dev src/index.ts",
     "db:test:prepare": "DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' DIRECT_URL='postgresql://postgres:postgres@localhost:5432/becca_test' npx prisma db push --skip-generate --accept-data-loss",
     "pretest": "npm run db:test:prepare",
     "pretest:integration": "npm run db:test:prepare",
@@ -44,6 +45,8 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "migrate": "npx prisma migrate deploy",
+    "annotations:import": "node dist/scripts/importAnnotationScenarios.js",
+    "annotations:export": "node dist/scripts/exportAnnotations.js",
     "sentry:sourcemaps": "node scripts/upload-sourcemaps.js"
   }
 }

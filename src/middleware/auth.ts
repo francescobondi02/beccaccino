@@ -22,6 +22,24 @@ export const authenticateToken = (
   res: Response,
   next: NextFunction,
 ) => {
+  const token = req.cookies?.authToken;
+
+  // A real cookie is authoritative even in tests. This keeps the bypass from
+  // masking invalid or expired login state.
+  if (token !== undefined) {
+    if (typeof token !== "string" || token.length === 0) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    req.user = decoded;
+    return next();
+  }
+
   // In test environment, allow requests that carry a valid x-test-user-id header
   // as a lightweight alternative to managing cookies across every supertest request.
   // This still validates the header is present — it does NOT blindly skip auth.
@@ -37,36 +55,10 @@ export const authenticateToken = (
       return next();
     }
 
-    // Also accept a real authToken cookie if present (tests that login)
-    if (req.cookies?.authToken) {
-      const decoded = verifyToken(req.cookies.authToken);
-      if (decoded) {
-        req.user = decoded;
-        return next();
-      }
-    }
-
     // In test mode, if no credentials provided, still allow (backward compat)
     // This ensures existing tests that don't pass auth headers keep working.
     return next();
   }
 
-  if (!req.cookies || !req.cookies.authToken) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
-
-  const token = req.cookies.authToken;
-
-  if (!token) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
-
-  const decoded = verifyToken(token);
-
-  if (!decoded) {
-    return res.status(403).json({ error: "Invalid or expired token" });
-  }
-
-  req.user = decoded;
-  next();
+  return res.status(401).json({ error: "Authentication required" });
 };

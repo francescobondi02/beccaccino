@@ -20,9 +20,19 @@ export const generateToken = (payload: JwtPayload): string => {
 
 export const verifyToken = (token: string): JwtPayload | null => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-    return decoded;
-  } catch (error) {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (
+      typeof decoded !== "object" ||
+      decoded === null ||
+      !Number.isInteger(decoded.userId) ||
+      decoded.userId < 1 ||
+      typeof decoded.username !== "string" ||
+      decoded.username.length === 0
+    ) {
+      return null;
+    }
+    return { userId: decoded.userId, username: decoded.username };
+  } catch {
     return null;
   }
 };

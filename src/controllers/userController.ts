@@ -411,6 +411,7 @@ export const deleteCurrentUser = async (req: Request, res: Response) => {
         username: `deleted_user_${userId}_${anonToken}`,
         email: `deleted_user_${userId}_${anonToken}@deleted.invalid`,
         password: null,
+        expertAccessGrantedAt: null,
       },
     });
 

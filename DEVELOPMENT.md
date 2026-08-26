@@ -10,10 +10,11 @@
 
 ```sh
 cp .env.example .env
-# Edit .env to set a real JWT_SECRET: openssl rand -hex 32
+# Edit .env to set a real JWT_SECRET and private ANNOTATION_ACCESS_CODE
 ```
 
-The defaults work with Finch Compose out of the box. Only `JWT_SECRET` needs to be changed from the placeholder.
+The database defaults work with Finch Compose out of the box. Replace both
+`JWT_SECRET` and `ANNOTATION_ACCESS_CODE` before sharing the annotation page.
 
 For integration tests, a separate `.env.test` is already provided:
 
@@ -21,6 +22,7 @@ For integration tests, a separate `.env.test` is already provided:
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
 DIRECT_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
 JWT_SECRET="test-secret"
+ANNOTATION_ACCESS_CODE="test-access-code"
 NODE_ENV="test"
 PORT=8000
 FRONTEND_URL="http://localhost:8081"
@@ -59,9 +61,11 @@ backend/
 │   ├── gameConfig.ts       # Environment-backed game rules
 │   ├── db.ts               # Prisma client singleton
 │   ├── socketInstance.ts    # Socket.IO singleton (get/set)
+│   ├── annotations/         # Annotation scenario validation and selection
 │   ├── domain/              # Card types and public DTO projections
 │   ├── controllers/        # Request handlers
 │   │   ├── userController.ts    # register, login, logout, getCurrentUser
+│   │   ├── annotationController.ts # annotation status, access, next scenario, responses
 │   │   ├── roomController.ts    # createRoom, joinRoom, setPlayerReady, leaveRoom
 │   │   ├── chooseTeam.ts        # Team selection
 │   │   └── gameController.ts    # chooseBriscola, playCard, getGameState
@@ -76,6 +80,7 @@ backend/
 │   ├── sockets/            # WebSocket event handlers
 │   │   └── room.ts             # join_lobby, join_room, choose_team, set_ready
 │   ├── routes/             # Express route definitions
+│   ├── scripts/            # Operational CLIs, including JSONL annotation export
 │   ├── middleware/          # auth.ts (JWT cookie verification)
 │   └── utils/              # Pure functions
 │       ├── computePoints.ts
@@ -174,6 +179,8 @@ game rows while retaining the reusable bot `User` accounts.
 | `integration` | In band (serial) | Yes (`becca_test`) | `tests/integration/**/*.test.ts` |
 
 - **Unit tests** cover pure card parsing, scoring, trick rules, room-code generation, and the production chat sanitizer.
+- The annotation scenario unit suite enforces the exact public-state contract,
+  chronological plays, hand-bound legal actions, and hidden-field rejection.
 - **Integration tests** use Supertest and real Socket.IO clients against the Express/server factory with PostgreSQL. Auth bypass is available only when explicitly enabled in test mode.
 - Each integration test calls `clearDatabase()` in `beforeEach` for isolation.
 - Shared teardown closes HTTP servers, sockets, Prisma, and all turn timers.
@@ -183,6 +190,7 @@ game rows while retaining the reusable bot `User` accounts.
 | Script | Description |
 |--------|-------------|
 | `npm run dev` | Generate Prisma + migrate + start dev server with hot-reload |
+| `npm run dev:e2e` | Start the backend against the isolated Playwright database |
 | `npm test` | Run all Jest tests |
 | `npm run test:unit` | Unit tests only |
 | `npm run test:integration` | Integration tests only (serial) |
@@ -191,6 +199,53 @@ game rows while retaining the reusable bot `User` accounts.
 | `npm run db:test:prepare` | Apply the Prisma schema to the isolated `becca_test` database |
 | `npm start` | Run compiled `dist/index.js` (production) |
 | `npm run migrate` | Apply Prisma migrations |
+| `npm run annotations:import -- <batch> <manifest> [--apply]` | Validate or import an offline scenario batch |
+| `npm run annotations:export` | Emit self-contained pseudonymous annotation rows as JSONL |
+
+## Expert Annotation Data
+
+All annotation endpoints use the normal BECCA account cookie.
+`POST /api/annotations/access` checks the backend-only
+`ANNOTATION_ACCESS_CODE` and permanently grants expert access to that account.
+One current response row is stored per account and scenario, so identical
+retries update the same row and keep the contribution count unchanged. Answers
+remain associated with the account so progress survives login on another
+browser. There is no response-history portal.
+
+The AI package creates deterministic scenario batches offline. Build the
+backend, validate a batch with a dry run, then import it explicitly:
+
+```sh
+npm run build
+npm run annotations:import -- scenarios.json manifest.json
+npm run annotations:import -- scenarios.json manifest.json --apply
+```
+
+Imports are transactional and idempotent. Existing scenario codes and state
+hashes cannot be changed. The next-scenario query keeps each user's answers
+close to a 20% easy, 40% medium, 40% hard mix, then ranks unanswered scenarios
+by `importance / sqrt(1 + response count)`. There is no response cap. Skips
+retain null selected-card fields and may include a trimmed optional comment of
+at most 500 characters. Every response also records the user's easy, medium, or
+hard rating.
+
+For production, deploy the annotation migration and API before importing. Run
+the importer from a controlled environment with the production `DATABASE_URL`
+and `DIRECT_URL` injected, never pasted into shell history. The command without
+`--apply` validates and queries for conflicts but writes nothing. Confirm the
+database host and dry-run summary before adding `--apply`. The complete
+generation, import, launch, replenishment, and recovery runbook is
+`ai/docs/EXPERT_DATA_COLLECTION.md` in the parent BECCA checkout.
+
+Each export row includes the exact visible scenario, the selected action or
+skip, and the optional skip comment. It pseudonymizes the account ID and never
+selects the username or email. Set a private stable salt and redirect stdout to
+create a JSONL export:
+
+```sh
+ANNOTATION_EXPORT_SALT="<at-least-16-private-characters>" \
+npm run annotations:export > annotations.jsonl
+```
 
 ## API Endpoints
 
@@ -204,6 +259,10 @@ game rows while retaining the reusable bot `User` accounts.
 | DELETE | `/api/users/me` | Yes | Anonymize current user |
 | GET | `/api/users/me/stats` | Yes | Get player statistics |
 | GET | `/api/users/leaderboard` | No | Get multiplayer leaderboard |
+| GET | `/api/annotations/status` | Account | Get account access status and contribution count |
+| POST | `/api/annotations/access` | Account + code | Grant expert access to the authenticated account |
+| GET | `/api/annotations/next` | Expert account | Get the next unanswered public scenario |
+| POST | `/api/annotations/responses` | Expert account | Upsert the account's current answer or skip |
 | POST | `/api/rooms/` | Yes | Create a new room |
 | POST | `/api/rooms/practice` | Yes | Start a practice game against bots |
 | GET | `/api/rooms/available` | Yes | List joinable rooms + active games |
