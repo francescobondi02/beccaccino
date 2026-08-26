@@ -72,10 +72,12 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 | Module | Var | Purpose |
 |--------|-----|---------|
 | backend | DATABASE_URL | Postgres connection string |
+| backend | DIRECT_URL | Non-pooled Postgres URL used by Prisma migrations |
 | backend | JWT_SECRET | Token signing key |
 | backend | PORT | Server port (default 8000) |
 | backend | NODE_ENV | `development` / `production` / `test` |
 | backend | FRONTEND_URL | CORS origin (Vercel URL in prod) |
+| backend | ANNOTATION_ACCESS_CODE | Private shared code granting expert access to authenticated accounts |
 | backend | GAME_WIN_POINTS | Points to win (default 41, lower for testing) |
 | backend | TURN_TIMEOUT_SECONDS | Card play timeout (default 60) |
 | backend | BRISCOLA_TIMEOUT_SECONDS | Briscola choice timeout (default 90) |
