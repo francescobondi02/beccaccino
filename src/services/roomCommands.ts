@@ -20,10 +20,10 @@ export class ActiveGameConflict extends GameError {
 
 class PracticeRoomCleanupError extends Error {
   constructor(
-    readonly startError: unknown,
+    readonly creationError: unknown,
     readonly cleanupError: unknown,
   ) {
-    super("Practice room start failed and cleanup was unsuccessful");
+    super("Practice room creation failed and cleanup was unsuccessful");
     this.name = "PracticeRoomCleanupError";
   }
 }
@@ -32,7 +32,7 @@ export async function findActiveGame(userId: number) {
   return prisma.player.findFirst({
     where: {
       userId,
-      gameRoom: { started: true, finished: false },
+      gameRoom: { started: true, finished: false, isPractice: false },
     },
     select: {
       gameRoom: {
@@ -46,6 +46,28 @@ async function rejectActiveGame(userId: number): Promise<void> {
   const activeGame = await findActiveGame(userId);
   if (activeGame) {
     throw new ActiveGameConflict(activeGame.gameRoom.code);
+  }
+}
+
+async function deletePreviousPracticeRooms(
+  userId: number,
+  newRoomCode: string,
+): Promise<void> {
+  const rooms = await prisma.gameRoom.findMany({
+    where: {
+      isPractice: true,
+      code: { not: newRoomCode },
+      players: { some: { userId } },
+    },
+    select: { code: true },
+  });
+
+  for (const room of rooms) {
+    try {
+      await leaveRoomCommand({ roomCode: room.code, userId });
+    } catch (error) {
+      if (!(error instanceof GameError && error.status === 404)) throw error;
+    }
   }
 }
 
@@ -137,15 +159,18 @@ export async function createPracticeRoomCommand(args: {
         botUserIds.map((userId) => ({ userId, tier: args.tier })),
       );
       await startFirstRound(room.id, room.code);
+      await deletePreviousPracticeRooms(args.userId, room.code);
       return room;
-    } catch (startError) {
-      clearRoomTimerData(code);
+    } catch (creationError) {
       try {
-        await deleteRoomAndPlay(room.id);
+        await withRoomLock(code, async () => {
+          await deleteRoomAndPlay(room.id);
+          clearRoomTimerData(code);
+        });
       } catch (cleanupError) {
-        throw new PracticeRoomCleanupError(startError, cleanupError);
+        throw new PracticeRoomCleanupError(creationError, cleanupError);
       }
-      throw startError;
+      throw creationError;
     }
   });
 }
@@ -215,8 +240,8 @@ export async function leaveRoomCommand(args: {
     }
 
     if (room.isPractice) {
-      clearRoomTimerData(args.roomCode);
       await deleteRoomAndPlay(room.id);
+      clearRoomTimerData(args.roomCode);
       return { kind: "practice_deleted" };
     }
     if (room.started && !room.finished) {

@@ -5,7 +5,11 @@ import {
   BotServiceStub,
   startBotServiceStub,
 } from "../helpers/botServiceStub";
-import { setRng } from "../../src/utils/random";
+import * as turnCoordinator from "../../src/services/turnCoordinator";
+import {
+  clearRoomTimerData,
+  getTurnTimerState,
+} from "../../src/services/turnTimer";
 
 /**
  * POST /api/rooms/practice must hand back a game that is ready to play: started,
@@ -96,15 +100,69 @@ describe("Practice room creation", () => {
     expect(stub.readyTiers).toHaveLength(0);
   });
 
-  it("refuses a second practice game while one is active", async () => {
+  it("abandons previous practice games after creating a playable replacement", async () => {
     const first = await createPractice("medio");
     expect(first.statusCode).toBe(201);
+    await prisma.gameRoom.create({
+      data: {
+        code: "OLD002",
+        isPractice: true,
+        players: { create: { userId, seat: 0 } },
+      },
+    });
 
     const second = await createPractice("medio");
-    expect(second.statusCode).toBe(409);
-    expect(second.body.activeRoomCode).toBe(first.body.code);
-    expect(stub.readyHeaders).toHaveLength(1);
-    expect(stub.readyTiers).toEqual(["medio"]);
+    expect(second.statusCode).toBe(201);
+    expect(second.body.code).not.toBe(first.body.code);
+    expect(stub.readyTiers).toEqual(["medio", "medio"]);
+
+    const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
+    expect(rooms.map((room) => room.code)).toEqual([second.body.code]);
+  });
+
+  it("does not block creating a multiplayer room", async () => {
+    const practice = await createPractice("medio");
+    expect(practice.statusCode).toBe(201);
+
+    const res = await apiAs(userId, "human").post("/api/rooms").send({});
+
+    expect(res.statusCode).toBe(201);
+    expect(
+      await prisma.gameRoom.findUnique({ where: { code: practice.body.code } }),
+    ).not.toBeNull();
+  });
+
+  it("does not block joining a multiplayer room", async () => {
+    const practice = await createPractice("medio");
+    const owner = await api()
+      .post("/api/users/register")
+      .send({ username: "owner", password: "test123" });
+    const target = await apiAs(owner.body.id, "owner")
+      .post("/api/rooms")
+      .send({});
+
+    const res = await apiAs(userId, "human")
+      .post("/api/rooms/join")
+      .send({ roomCode: target.body.code });
+
+    expect(res.statusCode).toBe(200);
+    expect(
+      await prisma.gameRoom.findUnique({ where: { code: practice.body.code } }),
+    ).not.toBeNull();
+  });
+
+  it("keeps active multiplayer games blocking practice", async () => {
+    const active = await apiAs(userId, "human").post("/api/rooms").send({});
+    await prisma.gameRoom.update({
+      where: { code: active.body.code },
+      data: { started: true },
+    });
+
+    const res = await createPractice("medio");
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body.activeRoomCode).toBe(active.body.code);
+    expect(stub.readyTiers).toHaveLength(0);
   });
 
   it("creates no state when the bot service is unavailable", async () => {
@@ -137,21 +195,61 @@ describe("Practice room creation", () => {
     expect(await prisma.user.count({ where: { isBot: true } })).toBe(0);
   });
 
-  it("removes the partial room when initial round setup fails", async () => {
-    const restoreRng = setRng(() => {
-      throw new Error("injected practice deal failure");
-    });
+  it("preserves previous practice games when initial round setup fails", async () => {
+    const first = await createPractice("forte");
+    jest
+      .spyOn(turnCoordinator, "startFirstRound")
+      .mockRejectedValueOnce(new Error("injected practice deal failure"));
+
+    const res = await createPractice("forte");
+
+    expect(res.statusCode).toBe(500);
+    expect(stub.readyTiers).toEqual(["forte", "forte"]);
+    expect(
+      await prisma.gameRoom.findMany({ select: { code: true } }),
+    ).toEqual([{ code: first.body.code }]);
+  });
+
+  it("removes the replacement when a previous room cannot be deleted", async () => {
+    const first = await createPractice("forte");
+    const firstRoom = await loadRoom(first.body.code);
+    const firstTimer = getTurnTimerState(first.body.code);
+    expect(firstTimer).not.toBeNull();
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION practice_fail_room_delete() RETURNS trigger AS $$
+      BEGIN
+        IF OLD."id" = ${firstRoom!.id} THEN
+          RAISE EXCEPTION 'injected practice cleanup failure';
+        END IF;
+        RETURN OLD;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER practice_fail_room_delete
+      BEFORE DELETE ON "GameRoom"
+      FOR EACH ROW EXECUTE FUNCTION practice_fail_room_delete()
+    `);
 
     let res;
     try {
       res = await createPractice("forte");
     } finally {
-      restoreRng();
+      await prisma.$executeRawUnsafe(
+        'DROP TRIGGER practice_fail_room_delete ON "GameRoom"',
+      );
+      await prisma.$executeRawUnsafe("DROP FUNCTION practice_fail_room_delete()");
     }
 
     expect(res.statusCode).toBe(500);
-    expect(await prisma.gameRoom.count()).toBe(0);
-    expect(await prisma.player.count()).toBe(0);
+    expect(
+      await prisma.gameRoom.findMany({ select: { code: true } }),
+    ).toEqual([{ code: first.body.code }]);
+    expect(getTurnTimerState(first.body.code)).toMatchObject({
+      turnUserId: firstTimer!.turnUserId,
+      phase: firstTimer!.phase,
+    });
+    clearRoomTimerData(first.body.code);
   });
 
   it("serializes concurrent practice creation for one user", async () => {
@@ -169,22 +267,12 @@ describe("Practice room creation", () => {
       createPractice("forte"),
     ]);
 
-    expect(responses.map((response) => response.statusCode).sort()).toEqual([
-      201, 409,
-    ]);
+    expect(responses.map((response) => response.statusCode)).toEqual([201, 201]);
     expect(await prisma.gameRoom.count()).toBe(1);
-    expect(stub.readyHeaders).toHaveLength(1);
-    expect(stub.readyTiers).toEqual(["forte"]);
+    expect(stub.readyTiers).toEqual(["forte", "forte"]);
   });
 
   it("reuses the same three bot users across games", async () => {
-    const first = await createPractice("facile");
-    await prisma.gameRoom.update({
-      where: { code: first.body.code },
-      data: { finished: true },
-    });
-    const second = await createPractice("esperto");
-
     const botsOf = async (code: string) => {
       const room = await loadRoom(code);
       return room!.players
@@ -193,7 +281,11 @@ describe("Practice room creation", () => {
         .sort();
     };
 
-    expect(await botsOf(second.body.code)).toEqual(await botsOf(first.body.code));
+    const first = await createPractice("facile");
+    const firstBots = await botsOf(first.body.code);
+    const second = await createPractice("esperto");
+
+    expect(await botsOf(second.body.code)).toEqual(firstBots);
     expect(await prisma.user.count({ where: { isBot: true } })).toBe(3);
   });
 

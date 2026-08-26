@@ -159,6 +159,14 @@ Successful briscola choices and card plays update the activity timestamp in the
 same transaction as the move. Each candidate is revalidated under its room lock;
 room/game rows are removed while shared bot users are retained.
 
+Only an active *multiplayer* game blocks creating or joining another one
+(`findActiveGame`). Practice games are excluded, so one left open by a crash
+never locks the account out. Starting a new practice game while old practice
+games exist is equivalent to abandoning those old games and creating a new one.
+The replacement must be playable before the old practice rooms are deleted and
+is removed if setup or deletion fails. Leaving is still refused
+mid-multiplayer-game and always allowed in practice, where it deletes the room.
+
 ## Test Commands
 
 ```bash
