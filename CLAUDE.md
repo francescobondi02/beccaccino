@@ -33,6 +33,7 @@ src/
     turnTimer.ts        Timer/bot state, autoplay, kick after 3 timeouts
     roomCommands.ts     Serialized room lifecycle, team, and ready commands
     practiceRoomSweeper.ts  Locked cleanup of finished or stale practice rooms
+    practiceArchive.ts  Snapshots a practice game before its rows are deleted
   sockets/
     room.ts             All socket event handlers: lobby, room join/leave, game events, chat
   middleware/
@@ -48,6 +49,7 @@ src/
   scripts/
     importAnnotationScenarios.ts Transactional offline-batch import
     exportAnnotations.ts Pseudonymous JSONL export
+    exportPracticeMatches.ts JSONL export of archived practice games
   utils/
     computePoints.ts    Raw points → {points, figures} per team
     determineHandWinner.ts  Trick winner logic (briscola > lead suit > off-suit)
@@ -57,7 +59,7 @@ src/
     random.ts           Seeded RNG for deterministic card shuffle (Fisher-Yates)
     sanitizeChatMessage.ts  Production chat input sanitizer
 prisma/
-  schema.prisma         Models: User, Player, GameRoom, Round, Hand, PlayedCard, PlayerCard
+  schema.prisma         Models: User, Player, GameRoom, Round, Hand, PlayedCard, PlayerCard, PracticeMatch
   migrations/           17 migrations
 tests/
   unit/                 Pure rules, card parsing, scoring, room codes, chat sanitization
@@ -111,6 +113,24 @@ tests/
 - `ANNOTATION_EXPORT_SALT=... npm run annotations:export` emits the exact
   visible scenario with deterministic user pseudonyms and optional skip
   comments; it never reads username or email.
+
+### Practice Game Archive
+- `deleteRoomAndPlay` snapshots a practice game into one `PracticeMatch` row
+  before deleting it, in the same transaction. It is the only exit practice data
+  has: leaving the table deletes the room immediately, and the sweeper deletes
+  finished or day-old ones.
+- The payload holds each seat's dealt cards plus every card played in order,
+  which is enough to rebuild the complete game. Each round has a separate
+  `humanActions` list containing only direct human choices. Bot moves remain
+  replay context and never appear in that training-label list.
+- A full game is ~20 KB of JSON but
+  **~1.4 KB on disk**: Postgres compresses JSONB over ~2 KB automatically
+  (measured 15x), so there is nothing to gain from compressing it in the app.
+- `PlayedCard.autoPlayed` and `Round.briscolaAutoChosen` mark moves the server
+  chose (human timeout, or the fallback when the bot service fails). They are
+  used while building `humanActions`; `true` and unknown (`null`) choices are
+  excluded.
+- Practice archives contain no account ID, username, email, or pseudonym.
 
 ### Database Notes
 - Player has unique constraints on `[gameRoomId, seat]` and `[gameRoomId, userId]`

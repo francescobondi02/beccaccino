@@ -47,6 +47,7 @@
     "migrate": "npx prisma migrate deploy",
     "annotations:import": "node dist/scripts/importAnnotationScenarios.js",
     "annotations:export": "node dist/scripts/exportAnnotations.js",
+    "practice:export": "node dist/scripts/exportPracticeMatches.js",
     "sentry:sourcemaps": "node scripts/upload-sourcemaps.js"
   }
 }

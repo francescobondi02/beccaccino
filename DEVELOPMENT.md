@@ -201,6 +201,7 @@ game rows while retaining the reusable bot `User` accounts.
 | `npm run migrate` | Apply Prisma migrations |
 | `npm run annotations:import -- <batch> <manifest> [--apply]` | Validate or import an offline scenario batch |
 | `npm run annotations:export` | Emit self-contained pseudonymous annotation rows as JSONL |
+| `npm run practice:export` | Emit archived practice games as JSONL, one game per line |
 
 ## Expert Annotation Data
 
@@ -245,6 +246,40 @@ create a JSONL export:
 ```sh
 ANNOTATION_EXPORT_SALT="<at-least-16-private-characters>" \
 npm run annotations:export > annotations.jsonl
+```
+
+## Practice Game Data
+
+Practice games are training data. A practice room is deleted as soon as the
+human leaves it, and the sweeper deletes finished or day-old ones, so
+`deleteRoomAndPlay` snapshots the game into one `PracticeMatch` row on its way
+out — in the same transaction, so a failed snapshot keeps the game for the next
+attempt instead of losing it.
+
+The row holds the cards each seat was dealt plus every card played in order,
+which is enough to rebuild the complete game. Bot cards remain in that history
+because they define the situation the human answered; they are context, not
+training labels.
+
+Each round also contains `humanActions`. This is the only training-label list.
+It contains a briscola or card choice only when the acting seat is the human and
+the server did not choose for them. `PlayedCard.autoPlayed` and
+`Round.briscolaAutoChosen` are checked while building this list. `true` means
+the server chose after a timeout or fallback, while `null` means the action
+predates provenance tracking; both are excluded.
+
+Storage is a non-issue and needs no tuning. A full 8-round game is about 20 KB
+of JSON, but Postgres compresses JSONB values over ~2 KB automatically — the
+measured on-disk size is **1.4 KB per game**, so 10,000 games is ~14 MB. App-side
+gzip, shorter card codes, and dropping the redundant deal together save under
+500 bytes per game; none of it is worth the opacity.
+
+Practice archives contain no account ID, username, email, or pseudonym. The
+human is identified only by `humanSeat`, which is enough to distinguish their
+choices from the three bot seats.
+
+```sh
+npm run practice:export > practice_matches.jsonl
 ```
 
 ## API Endpoints

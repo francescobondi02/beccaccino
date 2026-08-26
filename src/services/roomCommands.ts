@@ -6,6 +6,7 @@ import { generateRoomCode } from "../utils/generateRoomCode";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 import { BotTier, ensureBotUsers } from "./botService";
 import { ensureBotServiceReady } from "./botClient";
+import { archivePracticeMatch } from "./practiceArchive";
 import {
   clearRoomTimerData,
   registerBotSeats,
@@ -244,16 +245,21 @@ export async function deleteRoomAndPlay(gameRoomId: number): Promise<void> {
   });
   const roundIds = rounds.map((round) => round.id);
 
-  await prisma.$transaction([
-    prisma.playedCard.deleteMany({
+  await prisma.$transaction(async (tx) => {
+    // Practice games are training data, and this is the only exit they have.
+    // Snapshot before the deletes, in the same transaction: either both land or
+    // the game stays and the next sweep retries it.
+    await archivePracticeMatch(tx, gameRoomId);
+
+    await tx.playedCard.deleteMany({
       where: { hand: { roundId: { in: roundIds } } },
-    }),
-    prisma.playerCard.deleteMany({ where: { roundId: { in: roundIds } } }),
-    prisma.hand.deleteMany({ where: { roundId: { in: roundIds } } }),
-    prisma.round.deleteMany({ where: { gameRoomId } }),
-    prisma.player.deleteMany({ where: { gameRoomId } }),
-    prisma.gameRoom.deleteMany({ where: { id: gameRoomId } }),
-  ]);
+    });
+    await tx.playerCard.deleteMany({ where: { roundId: { in: roundIds } } });
+    await tx.hand.deleteMany({ where: { roundId: { in: roundIds } } });
+    await tx.round.deleteMany({ where: { gameRoomId } });
+    await tx.player.deleteMany({ where: { gameRoomId } });
+    await tx.gameRoom.deleteMany({ where: { id: gameRoomId } });
+  });
 }
 
 export async function chooseTeamCommand(args: {

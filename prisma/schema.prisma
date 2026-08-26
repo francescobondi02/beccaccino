@@ -98,6 +98,23 @@ model ExpertAnnotation {
   @@index([scenarioId])
 }
 
+// ==============
+// PracticeMatch
+// ==============
+// A finished or abandoned practice game, snapshotted just before its live rows
+// are deleted (see services/practiceArchive.ts). One row per game: the whole
+// match lives in `payload`, so nothing here needs the game tables to survive.
+model PracticeMatch {
+  id            Int      @id @default(autoincrement())
+  humanSeat     Int
+  botTier       String   // Difficulty the three bots played at
+  completed     Boolean  // false = abandoned before a team reached the win score
+  schemaVersion Int      // Payload and replay rules, so old games stay readable
+  payload       Json
+  startedAt     DateTime
+  endedAt       DateTime // Last move in the game, not the archive time
+}
+
 // ===========
 // Player
 // ===========
@@ -160,6 +177,8 @@ model Round {
   id          Int       @id @default(autoincrement())
   number      Int                 // 1, 2, 3, ...
   briscola    Suit?               // fissata a inizio round
+  // null = scelta precedente al tracciamento; true = scelta dal server
+  briscolaAutoChosen Boolean?
   cricca      Boolean   @default(false) // true se il caller ha Tre+Due+Asso di briscola
   gameRoomId  Int
   winnerTeam  Int?                // 0 o 1 (oppure nullable finché non finisce)
@@ -186,6 +205,11 @@ model PlayedCard {
   value    Value      // "asso", "due", "re", etc.
   position Int       // ordine di gioco: 0–3
   signal   String?    // "striscio" | "busso" | "volo" | null
+  // true quando la carta è stata scelta dal server, non dal proprietario del
+  // posto: timeout di un umano, oppure fallback quando il bot service fallisce.
+  // Serve per escludere queste mosse dai dati di training.
+  // null = giocata precedente al tracciamento
+  autoPlayed Boolean?
 
   hand     Hand   @relation(fields: [handId], references: [id])
   player   Player @relation(fields: [playerId], references: [id])

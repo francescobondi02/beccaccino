@@ -468,6 +468,7 @@ async function autoPlayCard(roomCode: string, userId: number): Promise<void> {
     userId,
     suit: card.suit,
     value: card.value,
+    autoPlayed: true,
   });
   applyTurnDirective(directive);
 }
@@ -510,6 +511,7 @@ async function autoChooseBriscola(
     gameRoomId: room.id,
     playerId: player.id,
     suit: bestSuit,
+    autoChosen: true,
   });
   applyTurnDirective(turnDirective);
 }

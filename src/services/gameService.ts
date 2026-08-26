@@ -324,6 +324,8 @@ export async function setBriscola(args: {
   gameRoomId: number;
   playerId: number;
   suit: Suit;
+  /** Set by the timer: the server picked this suit, the caller did not. */
+  autoChosen?: boolean;
 }) {
   // We need the roomCode to key the lock. Look it up once; the inner function
   // will re-fetch the full room with players for correctness.
@@ -339,10 +341,12 @@ async function setBriscolaUnlocked({
   gameRoomId,
   playerId,
   suit,
+  autoChosen = false,
 }: {
   gameRoomId: number;
   playerId: number;
   suit: Suit;
+  autoChosen?: boolean;
 }) {
   const gameRoom = await prisma.gameRoom.findUnique({
     where: { id: gameRoomId },
@@ -377,7 +381,7 @@ async function setBriscolaUnlocked({
   const { updatedRound, firstHand } = await prisma.$transaction(async (tx) => {
     const claim = await tx.round.updateMany({
       where: { id: currentRound.id, briscola: null },
-      data: { briscola: suit, cricca: hasCricca },
+      data: { briscola: suit, cricca: hasCricca, briscolaAutoChosen: autoChosen },
     });
     if (claim.count !== 1) {
       throw new GameError("Briscola already set for this round", 409);
@@ -444,6 +448,7 @@ type PlayedCardInput = {
   value: Value;
   position: number;
   signal: CardSignal | null;
+  autoPlayed: boolean;
 };
 
 async function persistPlayedCard(
@@ -491,6 +496,8 @@ export async function playCard(args: {
   suit: Suit;
   value: Value;
   signal?: CardSignal | null;
+  /** Set by the timer: the server picked this card, the seat's owner did not. */
+  autoPlayed?: boolean;
 }) {
   return withRoomLock(args.roomCode, () => playCardUnlocked(args));
 }
@@ -501,12 +508,14 @@ async function playCardUnlocked({
   suit,
   value,
   signal,
+  autoPlayed = false,
 }: {
   roomCode: string;
   userId: number;
   suit: Suit;
   value: Value;
   signal?: CardSignal | null;
+  autoPlayed?: boolean;
 }): Promise<TurnDirective | null> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -594,6 +603,7 @@ async function playCardUnlocked({
     value,
     position,
     signal: validSignal,
+    autoPlayed,
   };
   const publish = () =>
     publishPlayedCard({
