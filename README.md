@@ -31,6 +31,28 @@ git diff --exit-code serving/fixtures/
 CI also builds a wheel, installs it outside the source tree, and imports the
 `inference` and `serving` packages from that wheel.
 
+## Generate annotation batches
+
+Annotation scenarios are generated only by an explicit offline command:
+
+```bash
+.venv/bin/python -m scripts.generate_annotation_scenarios \
+  --master-seed-file .private/annotation-master.seed \
+  --batch-id expert-2026-08-a \
+  --scenario-count 50 \
+  --model-artifact serving/models/run_d2_champion.pt \
+  --output-batch out/annotations/expert-2026-08-a.json \
+  --manifest out/annotations/expert-2026-08-a.manifest.json \
+  --generator-commit "$(git rev-parse HEAD)"
+```
+
+Retain the private seed file securely: the same seed bytes and inputs reproduce
+the exact batch and manifest, but the seed is never written to either output.
+Replenishment is another offline generation and backend import with a new batch
+ID, never generation during service startup or a request. See
+[docs/EXPERT_DATA_COLLECTION.md](docs/EXPERT_DATA_COLLECTION.md) for seed setup,
+batch verification, production import, replenishment, and recovery procedures.
+
 ## Train
 
 The recommended recipe is behavioral cloning followed by PPO self-play:
