@@ -15,8 +15,10 @@ src/
     Profile.tsx         User profile and stats
     Leaderboard.tsx     Global leaderboard
     Practice.tsx        Tier picker: start a game vs 3 AI bots
+    Annotation.tsx      Account login, shared-code gate, and scenario labeling
     NotFound.tsx        404 page
   components/
+    AnnotationScenario.tsx Scenario context, chronological history, card/signal decision
     AuthDialog.tsx      Login/register modal
     Header.tsx          Nav bar with auth state
     PlayingCard.tsx     Single card renderer (suit + value → image)
@@ -38,6 +40,7 @@ src/
     useConnectionStatus.ts Socket status and reconnect refresh
     useGameTable.ts     Game table state and socket coordination
   game/                 Game DTOs and reducer state
+  annotations/          Expert annotation API model types
   rooms/                Room DTOs and response normalization
   lib/
     utils.ts            cn() utility for Tailwind class merging
@@ -49,6 +52,7 @@ e2e/
     fixtures.ts         Multi-browser test fixtures (4 independent contexts)
   lobby-to-game.spec.ts  4 players: register → room → teams → ready → game starts
   first-trick.spec.ts    Briscola selection and the first 4-card trick
+  annotation.spec.ts     Account-linked expert answer and skip workflow
 public/
   images/cards/         40 card PNGs (format: {value}_{suit}.png, e.g., asso_denari.png)
   images/semi/          4 suit icon PNGs
@@ -76,6 +80,24 @@ public/
 - Cookie set by backend, sent automatically via `credentials: 'include'` on fetch and Socket.IO
 - `GET /api/users/me` to check auth state on page load
 - Redirect to home if not authenticated on protected pages
+
+### Expert Annotation Flow
+- `/annotate` is lazy-loaded and uses the normal BECCA registration/login flow
+- The shared code grants expert access to the authenticated account
+- REST loads `/annotations/status`, then `/annotations/next`
+- The acting seat is always rendered at the bottom and scores convert raw thirds
+  into points plus figures
+- The full round history reuses `TrickHistoryDialog`, shared with practice games
+- Card enablement and signal options come only from `scenario.legalActions`
+- Leaders must choose an explicit signal, including `Niente`; followers do not
+  receive a signal prompt
+- `Non sono sicuro` opens an optional 500-character comment dialog
+- Every answer or skip asks for easy, medium, or hard perceived difficulty
+- Responses include scenario id and state hash, selected action or skip,
+  perceived difficulty, optional skip comment, and client response time
+- Show an open-ended contribution count, never a target or completion total
+- Do not display predicted difficulty, importance, tags, model outputs, or
+  suggested actions
 
 ### Environment
 - `VITE_API_URL` — backend REST (e.g., `http://localhost:8000/api`)

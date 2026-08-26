@@ -18,7 +18,7 @@ export default defineConfig({
 
   webServer: [
     {
-      command: "cd ../backend && npm run dev",
+      command: "cd ../backend && npm run dev:e2e",
       url: "http://localhost:8000/health",
       reuseExistingServer: true,
       timeout: 30_000,

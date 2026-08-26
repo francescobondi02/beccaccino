@@ -1,4 +1,4 @@
-import { User, LogOut, Trophy } from "lucide-react";
+import { ClipboardCheck, User, LogOut, Trophy } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
@@ -77,6 +77,10 @@ const Header = () => {
               <DropdownMenuItem onClick={() => navigate("/leaderboard")}>
                 <Trophy className="mr-2 h-4 w-4" />
                 <span>Classifica</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate("/annotate")}>
+                <ClipboardCheck className="mr-2 h-4 w-4" />
+                <span>Dati esperti</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => void handleLogout()}>

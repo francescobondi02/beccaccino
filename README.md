@@ -3,6 +3,12 @@
 React 18 + Vite + TypeScript + Tailwind + shadcn/ui. Real-time multiplayer Italian
 card game UI. Connects to the Express + Socket.IO backend over REST + WebSocket.
 
+Invited experts use their normal BECCA account at `/annotate` to label game
+scenarios. The workflow keeps the acting player at the bottom, validates
+choices against server-provided legal actions, records explicit leader
+signals, asks for perceived difficulty, and keeps an open-ended contribution
+count.
+
 ## Quick start
 
 ```bash
@@ -39,3 +45,22 @@ you must redeploy.
 
 Auto-deploys to Vercel from the `main` branch. The included `vercel.json` sets
 SPA rewrites and security headers.
+
+## Expert annotation
+
+The `/annotate` page uses the normal registration and login flow. It then asks
+for the private shared code once and stores expert access on the account, so
+responses and the contribution count follow the user across browsers. The UI
+does not impose or display a target number of scenarios. Only submitted
+responses are persisted; an unfinished card selection or draft comment is not.
+It calls:
+
+- `POST /annotations/access`
+- `GET /annotations/status`
+- `GET /annotations/next`
+- `POST /annotations/responses`
+
+Scenario labels come exclusively from the expert's card and signal selection.
+Every answer or skip includes an easy, medium, or hard rating. `Non sono
+sicuro` also accepts an optional short comment. The UI does not render the
+backend's predicted difficulty, importance, tags, or model suggestions.

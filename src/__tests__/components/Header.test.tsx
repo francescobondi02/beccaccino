@@ -78,4 +78,13 @@ describe("Header", () => {
     renderHeader("TestPlayer");
     expect(screen.getByText("TestPlayer")).toBeInTheDocument();
   });
+
+  it("opens expert data from the account menu", async () => {
+    renderHeader("TestPlayer");
+
+    fireEvent.keyDown(screen.getByRole("button"), { key: "Enter" });
+    fireEvent.click(await screen.findByText("Dati esperti"));
+
+    expect(mocks.navigate).toHaveBeenCalledWith("/annotate");
+  });
 });

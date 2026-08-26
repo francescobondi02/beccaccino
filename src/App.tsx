@@ -10,6 +10,7 @@ const GameTable = lazy(() => import("./pages/GameTable"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Practice = lazy(() => import("./pages/Practice"));
+const Annotation = lazy(() => import("./pages/Annotation"));
 
 const queryClient = new QueryClient();
 
@@ -25,6 +26,7 @@ const App = () => (
           <Route path="/profile" element={<Profile />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/practice" element={<Practice />} />
+          <Route path="/annotate" element={<Annotation />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

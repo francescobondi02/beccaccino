@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Node.js** 18+
-- Backend running at `http://localhost:8000` (via Docker Compose from project root)
+- Backend running at `http://localhost:8000` (via Finch Compose from project root)
 
 ## Environment Setup
 
@@ -43,8 +43,10 @@ frontend/
 │   │   ├── Profile.tsx         # User profile and statistics
 │   │   ├── Leaderboard.tsx     # Global leaderboard
 │   │   ├── Practice.tsx        # Practice game setup
+│   │   ├── Annotation.tsx      # Expert access-code gate and annotation workflow
 │   │   └── NotFound.tsx        # 404
 │   ├── components/
+│   │   ├── AnnotationScenario.tsx # Scenario context, history, and decision controls
 │   │   ├── AuthDialog.tsx      # Login/register modal
 │   │   ├── Header.tsx          # Top nav bar
 │   │   ├── PlayingCard.tsx     # Card image renderer
@@ -63,6 +65,7 @@ frontend/
 │   │   ├── useConnectionStatus.ts # Socket status and reconnect refresh
 │   │   └── useGameTable.ts     # Game table loading and socket coordination
 │   ├── game/                   # Game DTOs and reducer state
+│   ├── annotations/            # Expert annotation API model types
 │   ├── rooms/                  # Room DTOs and response normalization
 │   └── lib/
 │       ├── api.ts              # Typed REST request helpers
@@ -84,6 +87,11 @@ frontend/
 - **State management**: Local React state + React Query. No global store.
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
 - **Practice history**: When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
+- **Expert annotations**: REST-only workflow. The backend supplies immutable
+  scenario identity and legal actions; the client returns the selected action
+  or an explicit skip plus perceived difficulty without exposing model
+  suggestions. Normal account login owns progress, while a separate shared
+  code grants expert access.
 
 ## Testing
 
@@ -133,12 +141,13 @@ End-to-end tests use **Playwright** to simulate 4 real browser sessions playing 
 
 #### Prerequisites
 
-- Docker DB running (`docker compose up -d db` from project root)
+- Finch DB running (`finch compose up -d db` from project root)
 - Backend dependencies and environment configured
 - Frontend dependencies installed
 
-Playwright auto-starts the backend and frontend through `playwright.config.ts`, or
-reuses servers already listening on ports 8000 and 8081.
+Playwright auto-starts the backend and frontend through `playwright.config.ts`,
+or reuses servers already listening on ports 8000 and 8081. The auto-started
+backend uses the isolated `becca_test` database.
 
 #### Commands
 
@@ -162,9 +171,14 @@ frontend/e2e/
 ├── helpers/
 │   ├── BotPlayer.ts        # Player abstraction (register, join, play cards, etc.)
 │   └── fixtures.ts         # Playwright fixtures with createBot factory
+├── annotation.spec.ts      # Account login, expert code, answer, skip, and ratings
 ├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
 └── first-trick.spec.ts     # Briscola selection and the first 4-card trick
 ```
+
+The annotation E2E test seeds two valid SQL scenarios through
+`backend/tests/helpers/seedAnnotationE2e.ts`; it does not depend on a
+pre-populated local database.
 
 #### How It Works
 
@@ -243,7 +257,29 @@ npx playwright test first-trick --headed --timeout=120000
 | `/room/:roomCode` | GameRoom | Waiting room — team pick, ready |
 | `/game/:gameRoomCode` | GameTable | Active game |
 | `/profile` | Profile | User stats and account settings |
+| `/annotate` | Annotation | Shared-code gate and expert scenario labeling |
 | `*` | NotFound | 404 |
+
+## Expert Annotation API
+
+`Annotation.tsx` uses the normal BECCA registration and account login flow.
+The shared code grants expert access to that account, and the backend then
+serves one unanswered scenario at a time with the account's contribution
+count. `AnnotationScenario.tsx` rotates all seat labels around the acting seat,
+renders raw scores as points plus figures, and enables only cards present in
+`legalActions`. A trick leader must explicitly choose `Striscio`, `Busso`,
+`Volo`, or `Niente`; followers submit the legal null-signal action directly.
+`Non sono sicuro` accepts an optional 500-character comment before submitting
+the skipped response.
+
+The page uses these REST endpoints through `src/lib/api.ts`:
+
+```text
+GET  /annotations/status
+POST /annotations/access
+GET  /annotations/next
+POST /annotations/responses
+```
 
 ## Card Image Naming Convention
 
@@ -266,4 +302,4 @@ Images are at `/images/cards/{value}_{suit}.png`:
 **Socket not connecting:**
 - Check `VITE_SOCKET_URL` in `.env`
 - Verify backend is running and accessible
-- Browser must have the auth cookie set (login first)
+- Annotation access does not authenticate the game Socket.IO connection
