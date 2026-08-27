@@ -22,9 +22,13 @@ export interface AnnotationCard {
   value: AnnotationValue;
 }
 
-export interface AnnotationAction extends AnnotationCard {
+export interface AnnotationPlayCardAction extends AnnotationCard {
   signal: AnnotationSignal;
 }
+
+export type AnnotationSelectedAction =
+  | (AnnotationPlayCardAction & { decisionType: "play_card" })
+  | { decisionType: "choose_briscola"; suit: AnnotationSuit };
 
 export interface AnnotationPlay extends AnnotationCard {
   seat: AnnotationSeat;
@@ -40,7 +44,7 @@ export interface AnnotationTrick {
   plays: AnnotationPlay[];
 }
 
-export interface AnnotationScenario {
+interface AnnotationScenarioBase {
   id: number;
   code: string;
   stateHash: string;
@@ -48,14 +52,28 @@ export interface AnnotationScenario {
   roundNumber: number;
   actingSeat: AnnotationSeat;
   callerSeat: AnnotationSeat;
-  trickStarter: AnnotationSeat;
-  briscola: AnnotationSuit;
   totalScores: { 0: number; 1: number };
   hand: AnnotationCard[];
+}
+
+export interface AnnotationPlayCardScenario extends AnnotationScenarioBase {
+  decisionType: "play_card";
+  trickStarter: AnnotationSeat;
+  briscola: AnnotationSuit;
   completedTricks: Array<AnnotationTrick & { winnerSeat: AnnotationSeat }>;
   currentTrick: AnnotationTrick;
-  legalActions: AnnotationAction[];
+  legalActions: AnnotationPlayCardAction[];
 }
+
+export interface AnnotationChooseBriscolaScenario
+  extends AnnotationScenarioBase {
+  decisionType: "choose_briscola";
+  legalActions: AnnotationSuit[];
+}
+
+export type AnnotationScenario =
+  | AnnotationPlayCardScenario
+  | AnnotationChooseBriscolaScenario;
 
 export interface AnnotationStatusResponse {
   accessGranted: boolean;
@@ -70,7 +88,7 @@ export interface NextAnnotationResponse {
 export interface AnnotationResponseRequest {
   scenarioId: number;
   scenarioHash: string;
-  selectedAction: AnnotationAction | null;
+  selectedAction: AnnotationSelectedAction | null;
   skipped: boolean;
   comment: string | null;
   perceivedDifficulty: AnnotationDifficulty;

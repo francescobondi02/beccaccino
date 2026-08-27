@@ -60,7 +60,8 @@ It calls:
 - `GET /annotations/next`
 - `POST /annotations/responses`
 
-Scenario labels come exclusively from the expert's card and signal selection.
-Every answer or skip includes an easy, medium, or hard rating. `Non sono
-sicuro` also accepts an optional short comment. The UI does not render the
-backend's predicted difficulty, importance, tags, or model suggestions.
+Scenario labels come from either the expert's card and signal selection or a
+briscola suit selection, according to the scenario decision type. Every answer
+or skip includes an easy, medium, or hard rating. `Non sono sicuro` also
+accepts an optional short comment. The UI does not render the backend's
+predicted difficulty, importance, tags, or model suggestions.

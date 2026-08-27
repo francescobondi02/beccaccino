@@ -16,12 +16,15 @@ import {
   type AnnotationDifficulty,
 } from "@/annotations/constants";
 import type {
-  AnnotationAction,
   AnnotationCard,
   AnnotationPlay,
+  AnnotationPlayCardAction,
+  AnnotationPlayCardScenario,
   AnnotationScenario as AnnotationScenarioModel,
   AnnotationSeat,
+  AnnotationSelectedAction,
   AnnotationSignal,
+  AnnotationSuit,
   AnnotationTrick,
 } from "@/annotations/model";
 import PlayingCard from "@/components/PlayingCard";
@@ -48,7 +51,7 @@ interface AnnotationScenarioProps {
   errorMessage?: string | null;
   onLoadAnotherScenario?: () => void;
   onConfirm: (
-    action: AnnotationAction,
+    action: AnnotationSelectedAction,
     difficulty: AnnotationDifficulty,
     responseTimeMs: number,
   ) => void;
@@ -64,7 +67,7 @@ type SignalChoice = AnnotationSignal | undefined;
 type PendingDecision =
   | {
       kind: "answer";
-      action: AnnotationAction;
+      action: AnnotationSelectedAction;
       responseTimeMs: number;
     }
   | {
@@ -88,6 +91,25 @@ const SIGNAL_OPTIONS: Array<{
   { value: "busso", label: "Busso" },
   { value: "volo", label: "Volo" },
   { value: null, label: "Niente" },
+];
+
+const SUIT_OPTIONS: Array<{
+  value: AnnotationSuit;
+  label: string;
+  image: string;
+}> = [
+  {
+    value: "denara",
+    label: "Denara",
+    image: "/images/semi/denara_seme.png",
+  },
+  { value: "coppe", label: "Coppe", image: "/images/semi/coppe_seme.png" },
+  { value: "spade", label: "Spade", image: "/images/semi/spade_seme.png" },
+  {
+    value: "bastoni",
+    label: "Bastoni",
+    image: "/images/semi/bastoni_seme.png",
+  },
 ];
 
 function relativePosition(
@@ -120,7 +142,7 @@ function cardKey(card: AnnotationCard): string {
 }
 
 function actionMatchesCard(
-  action: AnnotationAction,
+  action: AnnotationPlayCardAction,
   card: AnnotationCard,
 ): boolean {
   return action.suit === card.suit && action.value === card.value;
@@ -190,7 +212,7 @@ function CurrentTrick({
   );
 }
 
-function historyFor(scenario: AnnotationScenarioModel): HistoryTrick[] {
+function historyFor(scenario: AnnotationPlayCardScenario): HistoryTrick[] {
   const completed = scenario.completedTricks.map((trick) => ({
     number: trick.number,
     winnerLabel: seatLabel(trick.winnerSeat, scenario.actingSeat),
@@ -231,6 +253,7 @@ const AnnotationScenario = ({
   onSkip,
 }: AnnotationScenarioProps) => {
   const [selectedCard, setSelectedCard] = useState<AnnotationCard | null>(null);
+  const [selectedSuit, setSelectedSuit] = useState<AnnotationSuit | null>(null);
   const [signalChoice, setSignalChoice] = useState<SignalChoice>(undefined);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [skipDialogOpen, setSkipDialogOpen] = useState(false);
@@ -240,10 +263,14 @@ const AnnotationScenario = ({
     useState<PendingDecision | null>(null);
   const [difficulty, setDifficulty] =
     useState<AnnotationDifficulty | null>(null);
-  const history = useMemo(() => historyFor(scenario), [scenario]);
+  const history = useMemo(
+    () => (scenario.decisionType === "play_card" ? historyFor(scenario) : []),
+    [scenario],
+  );
 
   useEffect(() => {
     setSelectedCard(null);
+    setSelectedSuit(null);
     setSignalChoice(undefined);
     setHistoryOpen(false);
     setSkipDialogOpen(false);
@@ -252,17 +279,36 @@ const AnnotationScenario = ({
     setDifficulty(null);
   }, [scenario.id]);
 
-  const isLeader = scenario.actingSeat === scenario.currentTrick.starterSeat;
+  const isLeader =
+    scenario.decisionType === "play_card" &&
+    scenario.actingSeat === scenario.currentTrick.starterSeat;
   const actingTeam = (scenario.actingSeat % 2) as 0 | 1;
   const opposingTeam = actingTeam === 0 ? 1 : 0;
-  const selectedAction =
-    selectedCard && (!isLeader || signalChoice !== undefined)
-      ? (scenario.legalActions.find(
-          (action) =>
-            actionMatchesCard(action, selectedCard) &&
-            action.signal === (isLeader ? signalChoice : null),
-        ) ?? null)
-      : null;
+  let selectedAction: AnnotationSelectedAction | null = null;
+  if (scenario.decisionType === "choose_briscola" && selectedSuit) {
+    if (scenario.legalActions.includes(selectedSuit)) {
+      selectedAction = {
+        decisionType: "choose_briscola",
+        suit: selectedSuit,
+      };
+    }
+  } else if (
+    scenario.decisionType === "play_card" &&
+    selectedCard &&
+    (!isLeader || signalChoice !== undefined)
+  ) {
+    const action = scenario.legalActions.find(
+      (candidate) =>
+        actionMatchesCard(candidate, selectedCard) &&
+        candidate.signal === (isLeader ? signalChoice : null),
+    );
+    if (action) {
+      selectedAction = {
+        decisionType: "play_card",
+        ...action,
+      };
+    }
+  }
 
   const responseTime = () => Math.max(0, Date.now() - startedAt);
 
@@ -292,7 +338,12 @@ const AnnotationScenario = ({
 
   return (
     <div className="min-w-0 space-y-6">
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section
+        className={cn(
+          "grid gap-3 sm:grid-cols-2",
+          scenario.decisionType === "play_card" && "lg:grid-cols-4",
+        )}
+      >
         <div className="flex min-w-0 items-center gap-3 border-b border-border px-1 py-3 sm:border-b-0 sm:border-r">
           <Target className="h-5 w-5 shrink-0 text-primary" />
           <div className="min-w-0">
@@ -302,7 +353,12 @@ const AnnotationScenario = ({
             </p>
           </div>
         </div>
-        <div className="flex min-w-0 items-center gap-3 border-b border-border px-1 py-3 sm:border-b-0 lg:border-r">
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-3 border-b border-border px-1 py-3 sm:border-b-0",
+            scenario.decisionType === "play_card" && "lg:border-r",
+          )}
+        >
           <Crown className="h-5 w-5 shrink-0 text-amber-600" />
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">Chiamante</p>
@@ -311,28 +367,32 @@ const AnnotationScenario = ({
             </p>
           </div>
         </div>
-        <div className="flex min-w-0 items-center gap-3 border-b border-border px-1 py-3 sm:border-b-0 sm:border-r">
-          <Flag className="h-5 w-5 shrink-0 text-accent" />
-          <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">Apre la mano</p>
-            <p className="truncate font-semibold">
-              {seatLabel(scenario.trickStarter, scenario.actingSeat)}
-            </p>
-          </div>
-        </div>
-        <div className="flex min-w-0 items-center gap-3 px-1 py-3">
-          <img
-            src={`/images/semi/${scenario.briscola}_seme.png`}
-            alt=""
-            className="h-8 w-8 shrink-0 object-contain"
-          />
-          <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">Briscola</p>
-            <p className="truncate font-semibold capitalize">
-              {scenario.briscola}
-            </p>
-          </div>
-        </div>
+        {scenario.decisionType === "play_card" && (
+          <>
+            <div className="flex min-w-0 items-center gap-3 border-b border-border px-1 py-3 sm:border-b-0 sm:border-r">
+              <Flag className="h-5 w-5 shrink-0 text-accent" />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Apre la mano</p>
+                <p className="truncate font-semibold">
+                  {seatLabel(scenario.trickStarter, scenario.actingSeat)}
+                </p>
+              </div>
+            </div>
+            <div className="flex min-w-0 items-center gap-3 px-1 py-3">
+              <img
+                src={`/images/semi/${scenario.briscola}_seme.png`}
+                alt=""
+                className="h-8 w-8 shrink-0 object-contain"
+              />
+              <div className="min-w-0">
+                <p className="text-xs text-muted-foreground">Briscola</p>
+                <p className="truncate font-semibold capitalize">
+                  {scenario.briscola}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2" aria-label="Punteggio totale">
@@ -356,103 +416,162 @@ const AnnotationScenario = ({
         </div>
       </section>
 
-      <Card className="border-border/70">
-        <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-lg">Mano in corso</CardTitle>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            title="Storico del round"
-            aria-label="Apri storico del round"
-            onClick={() => setHistoryOpen(true)}
-          >
-            <History className="h-4 w-4" />
-          </Button>
-        </CardHeader>
-        <CardContent className="flex justify-center px-3 sm:px-6">
-          <CurrentTrick
-            trick={scenario.currentTrick}
-            actingSeat={scenario.actingSeat}
-          />
-        </CardContent>
-      </Card>
+      {scenario.decisionType === "play_card" && (
+        <Card className="border-border/70">
+          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-lg">Mano in corso</CardTitle>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title="Storico del round"
+              aria-label="Apri storico del round"
+              onClick={() => setHistoryOpen(true)}
+            >
+              <History className="h-4 w-4" />
+            </Button>
+          </CardHeader>
+          <CardContent className="flex justify-center px-3 sm:px-6">
+            <CurrentTrick
+              trick={scenario.currentTrick}
+              actingSeat={scenario.actingSeat}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-border/70">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">La tua mano</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="overflow-x-auto pb-3">
-            <div className="flex min-w-max gap-3 px-1 pt-2">
-              {scenario.hand.map((card) => {
-                const legal = scenario.legalActions.some((action) =>
-                  actionMatchesCard(action, card),
-                );
-                const selected =
-                  selectedCard !== null &&
-                  cardKey(selectedCard) === cardKey(card);
-                return (
-                  <button
-                    key={cardKey(card)}
-                    type="button"
-                    className={cn(
-                      "rounded-md p-1 outline-none ring-offset-2 transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                      selected && "bg-primary/10 ring-2 ring-primary",
-                    )}
-                    aria-label={`Seleziona ${card.value} di ${card.suit}`}
-                    aria-pressed={selected}
-                    disabled={!legal || isSubmitting}
-                    onClick={() => {
-                      setSelectedCard(card);
-                      setSignalChoice(undefined);
-                    }}
-                  >
-                    <PlayingCard
-                      suit={card.suit}
-                      value={card.value}
-                      size="md"
-                      disabled={!legal}
-                    />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {isLeader && selectedCard && (
-            <div className="space-y-3" data-testid="annotation-signal-choice">
-              <div className="flex items-center gap-2">
-                <MessageCircle className="h-4 w-4 text-primary" />
-                <p className="text-sm font-semibold">
-                  Scegli esplicitamente il segnale
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {SIGNAL_OPTIONS.map((option) => {
-                  const allowed = scenario.legalActions.some(
-                    (action) =>
-                      actionMatchesCard(action, selectedCard) &&
-                      action.signal === option.value,
+          {scenario.decisionType === "play_card" ? (
+            <div className="overflow-x-auto pb-3">
+              <div className="flex min-w-max gap-3 px-1 pt-2">
+                {scenario.hand.map((card) => {
+                  const legal = scenario.legalActions.some((action) =>
+                    actionMatchesCard(action, card),
                   );
+                  const selected =
+                    selectedCard !== null &&
+                    cardKey(selectedCard) === cardKey(card);
                   return (
-                    <Button
-                      key={option.label}
+                    <button
+                      key={cardKey(card)}
                       type="button"
-                      variant={
-                        signalChoice === option.value ? "default" : "outline"
-                      }
-                      disabled={!allowed || isSubmitting}
-                      aria-pressed={signalChoice === option.value}
-                      onClick={() => setSignalChoice(option.value)}
+                      className={cn(
+                        "rounded-md p-1 outline-none ring-offset-2 transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                        selected && "bg-primary/10 ring-2 ring-primary",
+                      )}
+                      aria-label={`Seleziona ${card.value} di ${card.suit}`}
+                      aria-pressed={selected}
+                      disabled={!legal || isSubmitting}
+                      onClick={() => {
+                        setSelectedCard(card);
+                        setSignalChoice(undefined);
+                      }}
                     >
-                      {option.label}
-                    </Button>
+                      <PlayingCard
+                        suit={card.suit}
+                        value={card.value}
+                        size="md"
+                        disabled={!legal}
+                      />
+                    </button>
                   );
                 })}
               </div>
             </div>
+          ) : (
+            <>
+              <div
+                className="flex flex-wrap justify-center gap-2 px-1 pt-2 sm:gap-3"
+                data-testid="annotation-briscola-hand"
+              >
+                {scenario.hand.map((card) => (
+                  <PlayingCard
+                    key={cardKey(card)}
+                    suit={card.suit}
+                    value={card.value}
+                    size="md"
+                  />
+                ))}
+              </div>
+              <div
+                className="space-y-3 border-t border-border pt-4"
+                role="radiogroup"
+                aria-label="Seleziona la briscola"
+              >
+                <p className="text-sm font-semibold">Scegli la briscola</p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {SUIT_OPTIONS.map((suit) => {
+                    const allowed = scenario.legalActions.includes(suit.value);
+                    return (
+                      <Button
+                        key={suit.value}
+                        type="button"
+                        role="radio"
+                        variant={
+                          selectedSuit === suit.value ? "default" : "outline"
+                        }
+                        className="h-20 flex-col gap-1 px-2 sm:h-24"
+                        disabled={!allowed || isSubmitting}
+                        aria-label={`Scegli ${suit.label} come briscola`}
+                        aria-checked={selectedSuit === suit.value}
+                        onClick={() => setSelectedSuit(suit.value)}
+                      >
+                        <img
+                          src={suit.image}
+                          alt=""
+                          className="h-9 w-9 object-contain sm:h-10 sm:w-10"
+                        />
+                        <span>{suit.label}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
           )}
+
+          {scenario.decisionType === "play_card" &&
+            isLeader &&
+            selectedCard && (
+              <div
+                className="space-y-3"
+                data-testid="annotation-signal-choice"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 text-primary" />
+                  <p className="text-sm font-semibold">
+                    Scegli esplicitamente il segnale
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {SIGNAL_OPTIONS.map((option) => {
+                    const allowed = scenario.legalActions.some(
+                      (action) =>
+                        actionMatchesCard(action, selectedCard) &&
+                        action.signal === option.value,
+                    );
+                    return (
+                      <Button
+                        key={option.label}
+                        type="button"
+                        variant={
+                          signalChoice === option.value ? "default" : "outline"
+                        }
+                        disabled={!allowed || isSubmitting}
+                        aria-pressed={signalChoice === option.value}
+                        onClick={() => setSignalChoice(option.value)}
+                      >
+                        {option.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
           <div className="flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
             <Button
@@ -490,14 +609,16 @@ const AnnotationScenario = ({
         </CardContent>
       </Card>
 
-      <TrickHistoryDialog
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        title="Storico del round"
-        description="Carte giocate e segnali, mano per mano"
-        tricks={history}
-        testId="annotation-history"
-      />
+      {scenario.decisionType === "play_card" && (
+        <TrickHistoryDialog
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          title="Storico del round"
+          description="Carte giocate e segnali, mano per mano"
+          tricks={history}
+          testId="annotation-history"
+        />
+      )}
 
       <Dialog
         open={skipDialogOpen}

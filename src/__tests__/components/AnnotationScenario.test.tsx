@@ -1,15 +1,19 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import AnnotationScenario from "@/components/AnnotationScenario";
-import type { AnnotationScenario as AnnotationScenarioModel } from "@/annotations/model";
+import type {
+  AnnotationChooseBriscolaScenario,
+  AnnotationPlayCardScenario,
+} from "@/annotations/model";
 
 function createScenario(
-  overrides: Partial<AnnotationScenarioModel> = {},
-): AnnotationScenarioModel {
+  overrides: Partial<AnnotationPlayCardScenario> = {},
+): AnnotationPlayCardScenario {
   return {
     id: 17,
     code: "initial-v1-0017",
     stateHash: "scenario-hash",
+    decisionType: "play_card",
     targetPoints: 41,
     roundNumber: 3,
     actingSeat: 2,
@@ -53,6 +57,36 @@ function createScenario(
   };
 }
 
+function createBriscolaScenario(
+  overrides: Partial<AnnotationChooseBriscolaScenario> = {},
+): AnnotationChooseBriscolaScenario {
+  return {
+    id: 18,
+    code: "briscola-v2-0018",
+    stateHash: "briscola-hash",
+    decisionType: "choose_briscola",
+    targetPoints: 41,
+    roundNumber: 4,
+    actingSeat: 2,
+    callerSeat: 2,
+    totalScores: { 0: 35, 1: 17 },
+    hand: [
+      { suit: "coppe", value: "asso" },
+      { suit: "spade", value: "re" },
+      { suit: "denara", value: "tre" },
+      { suit: "bastoni", value: "sette" },
+      { suit: "coppe", value: "due" },
+      { suit: "spade", value: "quattro" },
+      { suit: "denara", value: "cinque" },
+      { suit: "bastoni", value: "sei" },
+      { suit: "coppe", value: "fante" },
+      { suit: "spade", value: "cavallo" },
+    ],
+    legalActions: ["denara", "coppe", "spade", "bastoni"],
+    ...overrides,
+  };
+}
+
 function renderScenario(
   overrides: Partial<React.ComponentProps<typeof AnnotationScenario>> = {},
 ) {
@@ -85,7 +119,12 @@ describe("AnnotationScenario", () => {
     fireEvent.click(screen.getByRole("button", { name: "Invia risposta" }));
 
     expect(props.onConfirm).toHaveBeenCalledWith(
-      { suit: "coppe", value: "asso", signal: null },
+      {
+        decisionType: "play_card",
+        suit: "coppe",
+        value: "asso",
+        signal: null,
+      },
       "medium",
       expect.any(Number),
     );
@@ -123,8 +162,59 @@ describe("AnnotationScenario", () => {
     fireEvent.click(screen.getByRole("button", { name: "Invia risposta" }));
 
     expect(onConfirm).toHaveBeenCalledWith(
-      { suit: "coppe", value: "asso", signal: null },
+      {
+        decisionType: "play_card",
+        suit: "coppe",
+        value: "asso",
+        signal: null,
+      },
       "easy",
+      expect.any(Number),
+    );
+  });
+
+  it("shows the full hand and submits a briscola choice without trick context", () => {
+    const onConfirm = vi.fn();
+    renderScenario({
+      scenario: createBriscolaScenario(),
+      onConfirm,
+    });
+
+    expect(
+      screen.getByText("4 · obiettivo 41"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Tu")).toBeInTheDocument();
+    expect(screen.getByText("5 punti + 2 figure")).toBeInTheDocument();
+    expect(screen.getByText("11 punti + 2 figure")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("annotation-briscola-hand")).getAllByRole(
+        "img",
+      ),
+    ).toHaveLength(10);
+    expect(
+      screen.getAllByRole("radio", { name: /come briscola$/ }),
+    ).toHaveLength(4);
+    expect(screen.queryByText("Mano in corso")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Apri storico del round" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Briscola$/)).not.toBeInTheDocument();
+
+    const confirm = screen.getByRole("button", { name: "Conferma scelta" });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("radio", {
+        name: "Scegli Coppe come briscola",
+      }),
+    );
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    fireEvent.click(screen.getByRole("button", { name: "Media" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invia risposta" }));
+
+    expect(onConfirm).toHaveBeenCalledWith(
+      { decisionType: "choose_briscola", suit: "coppe" },
+      "medium",
       expect.any(Number),
     );
   });

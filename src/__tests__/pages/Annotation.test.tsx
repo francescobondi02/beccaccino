@@ -64,6 +64,7 @@ const scenario: AnnotationScenario = {
   id: 31,
   code: "initial-v1-0031",
   stateHash: "state-31",
+  decisionType: "play_card",
   targetPoints: 41,
   roundNumber: 2,
   actingSeat: 0,
@@ -88,6 +89,31 @@ const scenario: AnnotationScenario = {
     ],
   },
   legalActions: [{ suit: "coppe", value: "asso", signal: null }],
+};
+
+const briscolaScenario: AnnotationScenario = {
+  id: 32,
+  code: "briscola-v2-0032",
+  stateHash: "state-32",
+  decisionType: "choose_briscola",
+  targetPoints: 41,
+  roundNumber: 3,
+  actingSeat: 1,
+  callerSeat: 1,
+  totalScores: { 0: 10, 1: 7 },
+  hand: [
+    { suit: "spade", value: "asso" },
+    { suit: "coppe", value: "tre" },
+    { suit: "denara", value: "due" },
+    { suit: "bastoni", value: "quattro" },
+    { suit: "spade", value: "cinque" },
+    { suit: "coppe", value: "sei" },
+    { suit: "denara", value: "sette" },
+    { suit: "bastoni", value: "fante" },
+    { suit: "spade", value: "cavallo" },
+    { suit: "coppe", value: "re" },
+  ],
+  legalActions: ["denara", "coppe", "spade", "bastoni"],
 };
 
 function renderAnnotation() {
@@ -328,18 +354,20 @@ describe("Annotation page", () => {
     await waitFor(() =>
       expect(mocks.apiPost).toHaveBeenCalledWith(
         "/annotations/responses",
-        expect.objectContaining({
+        {
           scenarioId: 31,
           scenarioHash: "state-31",
           selectedAction: {
+            decisionType: "play_card",
             suit: "coppe",
             value: "asso",
             signal: null,
           },
           skipped: false,
+          comment: null,
           perceivedDifficulty: "hard",
           responseTimeMs: expect.any(Number),
-        }),
+        },
       ),
     );
     expect(
@@ -348,6 +376,68 @@ describe("Annotation page", () => {
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Risposta salvata.");
     expect(screen.queryByText(/\/50/)).not.toBeInTheDocument();
     expect(screen.queryByText("Raccolta completata")).not.toBeInTheDocument();
+  });
+
+  it("treats a V1 scenario without decisionType as play_card", async () => {
+    const { decisionType: _decisionType, ...legacyScenario } = scenario;
+    mocks.apiGet
+      .mockResolvedValueOnce({ accessGranted: true, contributionCount: 0 })
+      .mockResolvedValueOnce({
+        scenario: legacyScenario,
+        contributionCount: 0,
+      });
+
+    renderAnnotation();
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Seleziona asso di coppe",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("radio", { name: /come briscola$/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("submits the exact selected briscola action", async () => {
+    let nextCalls = 0;
+    mocks.apiGet.mockImplementation((path) => {
+      if (path === "/annotations/status") {
+        return Promise.resolve({ accessGranted: true, contributionCount: 2 });
+      }
+      nextCalls += 1;
+      return Promise.resolve(
+        nextCalls === 1
+          ? { scenario: briscolaScenario, contributionCount: 2 }
+          : { scenario: null, contributionCount: 3 },
+      );
+    });
+    mocks.apiPost.mockResolvedValue({ contributionCount: 3 });
+
+    renderAnnotation();
+    fireEvent.click(
+      await screen.findByRole("radio", {
+        name: "Scegli Spade come briscola",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Conferma scelta" }));
+    fireEvent.click(screen.getByRole("button", { name: "Facile" }));
+    fireEvent.click(screen.getByRole("button", { name: "Invia risposta" }));
+
+    await waitFor(() =>
+      expect(mocks.apiPost).toHaveBeenCalledWith("/annotations/responses", {
+        scenarioId: 32,
+        scenarioHash: "state-32",
+        selectedAction: {
+          decisionType: "choose_briscola",
+          suit: "spade",
+        },
+        skipped: false,
+        comment: null,
+        perceivedDifficulty: "easy",
+        responseTimeMs: expect.any(Number),
+      }),
+    );
   });
 
   it("confirms success only after the response write resolves", async () => {

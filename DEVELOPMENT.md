@@ -46,7 +46,7 @@ frontend/
 │   │   ├── Annotation.tsx      # Expert access-code gate and annotation workflow
 │   │   └── NotFound.tsx        # 404
 │   ├── components/
-│   │   ├── AnnotationScenario.tsx # Scenario context, history, and decision controls
+│   │   ├── AnnotationScenario.tsx # Shared context and play-card/briscola decisions
 │   │   ├── AuthDialog.tsx      # Login/register modal
 │   │   ├── Header.tsx          # Top nav bar
 │   │   ├── PlayingCard.tsx     # Card image renderer
@@ -90,8 +90,10 @@ frontend/
 - **Expert annotations**: REST-only workflow. The backend supplies immutable
   scenario identity and legal actions; the client returns the selected action
   or an explicit skip plus perceived difficulty without exposing model
-  suggestions. Normal account login owns progress, while a separate shared
-  code grants expert access.
+  suggestions. Scenarios are discriminated as card-play or briscola decisions;
+  both reuse the same skip, timing, difficulty, retry, and stale-response flow.
+  Normal account login owns progress, while a separate shared code grants
+  expert access.
 
 ## Testing
 
@@ -266,9 +268,11 @@ npx playwright test first-trick --headed --timeout=120000
 The shared code grants expert access to that account, and the backend then
 serves one unanswered scenario at a time with the account's contribution
 count. `AnnotationScenario.tsx` rotates all seat labels around the acting seat,
-renders raw scores as points plus figures, and enables only cards present in
-`legalActions`. A trick leader must explicitly choose `Striscio`, `Busso`,
+renders raw scores as points plus figures, and enables only actions present in
+`legalActions`. Card-play leaders must explicitly choose `Striscio`, `Busso`,
 `Volo`, or `Niente`; followers submit the legal null-signal action directly.
+Briscola scenarios show the full hand and four suit choices without trick
+history or an already selected briscola.
 `Non sono sicuro` accepts an optional 500-character comment before submitting
 the skipped response.
 
