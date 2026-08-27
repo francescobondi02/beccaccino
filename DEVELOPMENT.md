@@ -42,8 +42,7 @@ The integration tests require a dedicated `becca_test` database. Create it once:
 
 ```sh
 cd backend
-DB="postgresql://postgres:postgres@localhost:5432/becca_test"
-DATABASE_URL="$DB" DIRECT_URL="$DB" npx prisma db push
+npm run db:test:prepare
 ```
 
 Make sure `docker compose up` is running before running integration tests.

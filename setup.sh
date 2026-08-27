@@ -21,7 +21,7 @@ echo "🗃️  Running migrations on becca..."
 npx prisma migrate deploy
 
 echo "🗃️  Pushing schema to becca_test..."
-DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' npx prisma db push --skip-generate
+npm run db:test:prepare
 
 cd ..
 
