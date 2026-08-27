@@ -56,37 +56,41 @@ jobs:
       - name: Install pinned Vercel CLI
         run: npm install --global vercel@59.7.0
 
-      - name: Link Vercel project
-        run: >-
-          vercel link --yes
-          --project="$VERCEL_PROJECT"
-          --scope="$VERCEL_SCOPE"
-          --token="$VERCEL_TOKEN"
+      - name: Resolve Vercel project
+        shell: bash
+        run: |
+          project="$(
+            curl --fail --silent --show-error \
+              --header "Authorization: Bearer $VERCEL_TOKEN" \
+              --get \
+              --data-urlencode "slug=$VERCEL_SCOPE" \
+              "https://api.vercel.com/v9/projects/$VERCEL_PROJECT"
+          )"
+          org_id="$(jq -r '.accountId // empty' <<< "$project")"
+          project_id="$(jq -r '.id // empty' <<< "$project")"
+          if [[ -z "$org_id" || -z "$project_id" ]]; then
+            echo "::error::Vercel project lookup returned no account or project ID."
+            exit 1
+          fi
+          {
+            echo "VERCEL_ORG_ID=$org_id"
+            echo "VERCEL_PROJECT_ID=$project_id"
+          } >> "$GITHUB_ENV"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Pull production environment
-        run: >-
-          vercel pull --yes
-          --environment=production
-          --scope="$VERCEL_SCOPE"
-          --token="$VERCEL_TOKEN"
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Build exact commit
-        run: >-
-          vercel build --prod
-          --scope="$VERCEL_SCOPE"
-          --token="$VERCEL_TOKEN"
+        run: vercel build --prod --token="$VERCEL_TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy exact build
-        run: >-
-          vercel deploy --prebuilt --prod
-          --scope="$VERCEL_SCOPE"
-          --token="$VERCEL_TOKEN"
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
