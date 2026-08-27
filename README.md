@@ -45,9 +45,10 @@ you must redeploy.
 
 GitHub Actions validates `main`, checks out the exact successful commit, and
 uses the pinned Vercel CLI to build and deploy it. Configure repository secrets
-`VERCEL_TOKEN`, `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID`. Direct Vercel Git
-deployments are disabled in `vercel.json`, and missing credentials fail the
-deployment workflow.
+with a `VERCEL_TOKEN` scoped to the `beccaccino-client` project. The workflow
+links that project under the `francesco-bondi-s-projects` scope before building.
+Direct Vercel Git deployments are disabled in `vercel.json`, and a missing token
+fails the deployment workflow.
 
 Production builds require `VITE_API_URL` and `VITE_SOCKET_URL` to be valid HTTPS
 URLs and require a commit SHA from Vercel or GitHub Actions. The build writes

@@ -28,20 +28,18 @@ jobs:
       FRONTEND_URL: https://beccaccino-client.vercel.app
       BACKEND_URL: https://beccaccino-server.onrender.com
       AI_URL: https://becca-ai.onrender.com
+      VERCEL_PROJECT: beccaccino-client
+      VERCEL_SCOPE: francesco-bondi-s-projects
     steps:
       - name: Require deployment configuration
         shell: bash
         run: |
-          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
-            if [[ -z "${!name}" ]]; then
-              echo "::error::$name is not configured."
-              exit 1
-            fi
-          done
+          if [[ -z "$VERCEL_TOKEN" ]]; then
+            echo "::error::VERCEL_TOKEN is not configured."
+            exit 1
+          fi
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - uses: actions/checkout@v4
         with:
@@ -58,26 +56,39 @@ jobs:
       - name: Install pinned Vercel CLI
         run: npm install --global vercel@59.7.0
 
-      - name: Pull production environment
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Link Vercel project
+        run: >-
+          vercel link --yes
+          --project="$VERCEL_PROJECT"
+          --scope="$VERCEL_SCOPE"
+          --token="$VERCEL_TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Pull production environment
+        run: >-
+          vercel pull --yes
+          --environment=production
+          --scope="$VERCEL_SCOPE"
+          --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Build exact commit
-        run: vercel build --prod --token="$VERCEL_TOKEN"
+        run: >-
+          vercel build --prod
+          --scope="$VERCEL_SCOPE"
+          --token="$VERCEL_TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Deploy exact build
-        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+        run: >-
+          vercel deploy --prebuilt --prod
+          --scope="$VERCEL_SCOPE"
+          --token="$VERCEL_TOKEN"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
       - name: Verify deployed commit
         shell: bash
