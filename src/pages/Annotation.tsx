@@ -11,10 +11,11 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { AnnotationDifficulty } from "@/annotations/constants";
 import type {
-  AnnotationAction,
   AnnotationResponseRequest,
   AnnotationResponseResult,
+  AnnotationPlayCardScenario,
   AnnotationScenario as AnnotationScenarioModel,
+  AnnotationSelectedAction,
   AnnotationStatusResponse,
   NextAnnotationResponse,
 } from "@/annotations/model";
@@ -42,6 +43,17 @@ type PageStatus =
   | "empty"
   | "error";
 type RetryTarget = "auth" | "initial" | "next";
+type LegacyPlayCardScenario = Omit<
+  AnnotationPlayCardScenario,
+  "decisionType"
+>;
+
+function normalizeScenario(
+  scenario: AnnotationScenarioModel | LegacyPlayCardScenario | null,
+): AnnotationScenarioModel | null {
+  if (!scenario || "decisionType" in scenario) return scenario;
+  return { ...scenario, decisionType: "play_card" };
+}
 
 const Annotation = () => {
   const navigate = useNavigate();
@@ -92,10 +104,11 @@ const Annotation = () => {
     setResponseIsStale(false);
     try {
       const data = await apiGet<NextAnnotationResponse>("/annotations/next");
+      const nextScenario = normalizeScenario(data.scenario);
       setContributionCount(data.contributionCount);
-      setScenario(data.scenario);
+      setScenario(nextScenario);
       setScenarioStartedAt(Date.now());
-      setStatus(data.scenario ? "scenario" : "empty");
+      setStatus(nextScenario ? "scenario" : "empty");
     } catch (error) {
       if (await handleUnauthorized(error)) return;
       setRetryTarget("next");
@@ -177,7 +190,7 @@ const Annotation = () => {
   };
 
   const submitResponse = async (
-    selectedAction: AnnotationAction | null,
+    selectedAction: AnnotationSelectedAction | null,
     skipped: boolean,
     comment: string | null,
     perceivedDifficulty: AnnotationDifficulty,

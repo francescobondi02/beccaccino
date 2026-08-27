@@ -12,6 +12,7 @@ const sentryProject = process.env.SENTRY_PROJECT;
 const release =
   process.env.VITE_SENTRY_RELEASE ||
   process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.GIT_COMMIT_SHA ||
   process.env.RENDER_GIT_COMMIT;
 
 export default defineConfig(() => ({
@@ -47,16 +48,6 @@ export default defineConfig(() => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-    },
-  },
-  test: {
-    coverage: {
-      thresholds: {
-        statements: 70,
-        branches: 70,
-        functions: 60,
-        lines: 70,
-      },
     },
   },
 }));

@@ -18,7 +18,7 @@ src/
     Annotation.tsx      Account login, shared-code gate, and scenario labeling
     NotFound.tsx        404 page
   components/
-    AnnotationScenario.tsx Scenario context, chronological history, card/signal decision
+    AnnotationScenario.tsx Shared scenario context with card/signal or briscola decisions
     AuthDialog.tsx      Login/register modal
     Header.tsx          Nav bar with auth state
     PlayingCard.tsx     Single card renderer (suit + value → image)
@@ -88,9 +88,11 @@ public/
 - The acting seat is always rendered at the bottom and scores convert raw thirds
   into points plus figures
 - The full round history reuses `TrickHistoryDialog`, shared with practice games
-- Card enablement and signal options come only from `scenario.legalActions`
+- Card, signal, and briscola options come only from `scenario.legalActions`
 - Leaders must choose an explicit signal, including `Niente`; followers do not
   receive a signal prompt
+- Briscola scenarios show the caller, team scores, and full hand with four suit
+  choices, without a current trick, history, or preselected briscola
 - `Non sono sicuro` opens an optional 500-character comment dialog
 - Every answer or skip asks for easy, medium, or hard perceived difficulty
 - Responses include scenario id and state hash, selected action or skip,
