@@ -167,47 +167,30 @@ export function annotationExportRecord(
   };
 }
 
-async function main() {
-  const salt = process.env.ANNOTATION_EXPORT_SALT;
-  if (!salt) {
-    throw new Error("ANNOTATION_EXPORT_SALT must contain at least 16 characters");
-  }
-  const prisma = new PrismaClient({ log: [] });
-  try {
-    const annotations = await prisma.expertAnnotation.findMany({
-      orderBy: [{ userId: "asc" }, { scenarioId: "asc" }],
-      include: {
-        scenario: {
-          select: {
-            code: true,
-            decisionType: true,
-            predictedDifficulty: true,
-            importance: true,
-            tags: true,
-            state: true,
-            stateHash: true,
-            sourceBatch: true,
-          },
+export async function annotationExportRecords(
+  prisma: PrismaClient,
+  salt: string,
+) {
+  const annotations = await prisma.expertAnnotation.findMany({
+    orderBy: [{ userId: "asc" }, { scenarioId: "asc" }],
+    include: {
+      scenario: {
+        select: {
+          code: true,
+          decisionType: true,
+          predictedDifficulty: true,
+          importance: true,
+          tags: true,
+          state: true,
+          stateHash: true,
+          sourceBatch: true,
         },
       },
-    });
-
-    // Validate the complete dataset before writing the first line.
-    const records = annotations.map((annotation) =>
-      annotationExportRecord(annotation, salt),
-    );
-    for (const record of records) {
-      process.stdout.write(`${JSON.stringify(record)}\n`);
-    }
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
-if (require.main === module) {
-  void main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`Annotation export failed: ${message}\n`);
-    process.exitCode = 1;
+    },
   });
+
+  // Validate the complete dataset before writing the first line.
+  return annotations.map((annotation) =>
+    annotationExportRecord(annotation, salt),
+  );
 }

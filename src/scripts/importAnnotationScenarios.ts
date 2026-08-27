@@ -13,9 +13,13 @@ interface AnnotationBatchManifest {
 
 export interface AnnotationImportSummary {
   batchId: string;
+  catalogSha256: string;
   validated: number;
+  wouldInsert: number;
   inserted: number;
   skipped: number;
+  wouldActivate: number;
+  activated: number;
   wouldDeactivate: number;
   deactivated: number;
   applied: boolean;
@@ -24,6 +28,20 @@ export interface AnnotationImportSummary {
 export interface AnnotationImportOptions {
   apply: boolean;
   replaceActive?: boolean;
+  validatePlan?: (summary: AnnotationImportSummary) => void;
+}
+
+interface AnnotationCatalogRow {
+  id: number;
+  code: string;
+  decisionType: string;
+  predictedDifficulty: string;
+  importance: number;
+  tags: string[];
+  state: Prisma.JsonValue;
+  stateHash: string;
+  sourceBatch: string;
+  active: boolean;
 }
 
 function parseManifest(value: unknown): AnnotationBatchManifest {
@@ -68,17 +86,12 @@ export async function readAnnotationBatch(
   return { manifest, scenarios };
 }
 
+export type LoadedAnnotationBatch = Awaited<
+  ReturnType<typeof readAnnotationBatch>
+>;
+
 function sameScenario(
-  existing: {
-    code: string;
-    decisionType: string;
-    predictedDifficulty: string;
-    importance: number;
-    tags: string[];
-    state: Prisma.JsonValue;
-    stateHash: string;
-    sourceBatch: string;
-  },
+  existing: AnnotationCatalogRow,
   incoming: ReturnType<typeof parseAnnotationScenarioBatch>[number],
   batchId: string,
 ): boolean {
@@ -94,111 +107,142 @@ function sameScenario(
   );
 }
 
-export async function importAnnotationBatch(
-  batchPath: string,
-  manifestPath: string,
+function annotationCatalogSha256(
+  catalog: readonly AnnotationCatalogRow[],
+): string {
+  return createHash("sha256").update(canonicalJson(catalog)).digest("hex");
+}
+
+export async function importLoadedAnnotationBatch(
+  batch: LoadedAnnotationBatch,
   options: AnnotationImportOptions,
   client?: PrismaClient,
 ): Promise<AnnotationImportSummary> {
   const prisma = client ?? new PrismaClient({ log: [] });
-  const { manifest, scenarios } = await readAnnotationBatch(
-    batchPath,
-    manifestPath,
-  );
+  const { manifest, scenarios } = batch;
   try {
-    return await prisma.$transaction(async (tx) => {
-      const existing = await tx.annotationScenario.findMany({
-        where: {
-          OR: [
-            { code: { in: scenarios.map((scenario) => scenario.code) } },
-            {
-              stateHash: {
-                in: scenarios.map((scenario) => scenario.stateHash),
-              },
-            },
-          ],
-        },
-        select: {
-          code: true,
-          decisionType: true,
-          predictedDifficulty: true,
-          importance: true,
-          tags: true,
-          state: true,
-          stateHash: true,
-          sourceBatch: true,
-        },
-      });
-      const byCode = new Map(existing.map((scenario) => [scenario.code, scenario]));
-      const byHash = new Map(
-        existing.map((scenario) => [scenario.stateHash, scenario]),
-      );
-      const pending = scenarios.filter((scenario) => {
-        const codeMatch = byCode.get(scenario.code);
-        const hashMatch = byHash.get(scenario.stateHash);
-        if (!codeMatch && !hashMatch) return true;
-        if (
-          !codeMatch ||
-          !hashMatch ||
-          codeMatch.code !== hashMatch.code ||
-          !sameScenario(codeMatch, scenario, manifest.batchId)
-        ) {
-          throw new Error(
-            `annotation scenario identifier conflict for ${scenario.code}`,
-          );
-        }
-        return false;
-      });
-
-      if (options.apply && pending.length > 0) {
-        await tx.annotationScenario.createMany({
-          data: pending.map((scenario) => ({
-            code: scenario.code,
-            decisionType: scenario.decisionType,
-            predictedDifficulty: scenario.predictedDifficulty,
-            importance: scenario.importance,
-            tags: [...scenario.tags],
-            state: scenario.state as unknown as Prisma.InputJsonValue,
-            stateHash: scenario.stateHash,
-            sourceBatch: manifest.batchId,
-          })),
-        });
-      }
-      let deactivated = 0;
-      let wouldDeactivate = 0;
-      if (options.replaceActive) {
-        const incomingCodes = scenarios.map((scenario) => scenario.code);
-        wouldDeactivate = await tx.annotationScenario.count({
-          where: {
+    return await prisma.$transaction(
+      async (tx) => {
+        const catalog = await tx.annotationScenario.findMany({
+          select: {
+            id: true,
+            code: true,
+            decisionType: true,
+            predictedDifficulty: true,
+            importance: true,
+            tags: true,
+            state: true,
+            stateHash: true,
+            sourceBatch: true,
             active: true,
-            code: { notIn: incomingCodes },
           },
+          orderBy: { id: "asc" },
         });
-        if (options.apply) {
-          await tx.annotationScenario.updateMany({
-            where: { code: { in: incomingCodes }, active: false },
+        const incomingCodes = new Set(
+          scenarios.map((scenario) => scenario.code),
+        );
+        const incomingHashes = new Set(
+          scenarios.map((scenario) => scenario.stateHash),
+        );
+        const existing = catalog.filter(
+          (scenario) =>
+            incomingCodes.has(scenario.code) ||
+            incomingHashes.has(scenario.stateHash),
+        );
+        const byCode = new Map(
+          existing.map((scenario) => [scenario.code, scenario]),
+        );
+        const byHash = new Map(
+          existing.map((scenario) => [scenario.stateHash, scenario]),
+        );
+        const pending = scenarios.filter((scenario) => {
+          const codeMatch = byCode.get(scenario.code);
+          const hashMatch = byHash.get(scenario.stateHash);
+          if (!codeMatch && !hashMatch) return true;
+          if (
+            !codeMatch ||
+            !hashMatch ||
+            codeMatch.code !== hashMatch.code ||
+            !sameScenario(codeMatch, scenario, manifest.batchId)
+          ) {
+            throw new Error(
+              `annotation scenario identifier conflict for ${scenario.code}`,
+            );
+          }
+          return false;
+        });
+
+        let wouldActivate = 0;
+        let wouldDeactivate = 0;
+        if (options.replaceActive) {
+          wouldActivate = catalog.filter(
+            (scenario) => !scenario.active && incomingCodes.has(scenario.code),
+          ).length;
+          wouldDeactivate = catalog.filter(
+            (scenario) => scenario.active && !incomingCodes.has(scenario.code),
+          ).length;
+        }
+
+        const plan: AnnotationImportSummary = {
+          batchId: manifest.batchId,
+          catalogSha256: annotationCatalogSha256(catalog),
+          validated: scenarios.length,
+          wouldInsert: pending.length,
+          inserted: 0,
+          skipped: scenarios.length - pending.length,
+          wouldActivate,
+          activated: 0,
+          wouldDeactivate,
+          deactivated: 0,
+          applied: false,
+        };
+        if (!options.apply) return plan;
+
+        options.validatePlan?.(plan);
+        if (pending.length > 0) {
+          await tx.annotationScenario.createMany({
+            data: pending.map((scenario) => ({
+              code: scenario.code,
+              decisionType: scenario.decisionType,
+              predictedDifficulty: scenario.predictedDifficulty,
+              importance: scenario.importance,
+              tags: [...scenario.tags],
+              state: scenario.state as unknown as Prisma.InputJsonValue,
+              stateHash: scenario.stateHash,
+              sourceBatch: manifest.batchId,
+            })),
+          });
+        }
+
+        let activated = 0;
+        let deactivated = 0;
+        if (options.replaceActive) {
+          const incomingCodeList = [...incomingCodes];
+          const activatedResult = await tx.annotationScenario.updateMany({
+            where: { code: { in: incomingCodeList }, active: false },
             data: { active: true },
           });
-          const result = await tx.annotationScenario.updateMany({
+          activated = activatedResult.count;
+          const deactivatedResult = await tx.annotationScenario.updateMany({
             where: {
               active: true,
-              code: { notIn: incomingCodes },
+              code: { notIn: incomingCodeList },
             },
             data: { active: false },
           });
-          deactivated = result.count;
+          deactivated = deactivatedResult.count;
         }
-      }
-      return {
-        batchId: manifest.batchId,
-        validated: scenarios.length,
-        inserted: options.apply ? pending.length : 0,
-        skipped: scenarios.length - pending.length,
-        wouldDeactivate,
-        deactivated,
-        applied: options.apply,
-      };
-    });
+
+        return {
+          ...plan,
+          inserted: pending.length,
+          activated,
+          deactivated,
+          applied: true,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   } finally {
     if (!client) {
       await prisma.$disconnect();
@@ -206,30 +250,12 @@ export async function importAnnotationBatch(
   }
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  const apply = args.includes("--apply");
-  const replaceActive = args.includes("--replace-active");
-  const paths = args.filter(
-    (arg) => arg !== "--apply" && arg !== "--replace-active",
-  );
-  if (paths.length !== 2) {
-    throw new Error(
-      "Usage: importAnnotationScenarios <batch.json> <manifest.json> [--apply] [--replace-active]",
-    );
-  }
-  const summary = await importAnnotationBatch(
-    paths[0],
-    paths[1],
-    { apply, replaceActive },
-  );
-  process.stdout.write(`${JSON.stringify(summary)}\n`);
-}
-
-if (require.main === module) {
-  void main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`Annotation import failed: ${message}\n`);
-    process.exitCode = 1;
-  });
+export async function importAnnotationBatch(
+  batchPath: string,
+  manifestPath: string,
+  options: AnnotationImportOptions,
+  client?: PrismaClient,
+): Promise<AnnotationImportSummary> {
+  const batch = await readAnnotationBatch(batchPath, manifestPath);
+  return importLoadedAnnotationBatch(batch, options, client);
 }

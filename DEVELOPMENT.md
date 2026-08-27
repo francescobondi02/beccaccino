@@ -202,8 +202,9 @@ game rows while retaining the reusable bot `User` accounts.
 | `npm run db:test:prepare` | Apply the Prisma schema to the isolated `becca_test` database |
 | `npm start` | Run compiled `dist/index.js` (production) |
 | `npm run migrate` | Apply Prisma migrations |
-| `npm run annotations:import -- <batch> <manifest> [--apply] [--replace-active]` | Validate or import an offline scenario batch |
-| `npm run annotations:export` | Emit self-contained pseudonymous annotation rows as JSONL |
+| `scripts/annotations/status.sh` | Show catalog and response counts using an explicit environment file |
+| `scripts/annotations/import.sh` | Dry-run or apply a plan-token-confirmed scenario import |
+| `scripts/annotations/export.sh` | Atomically create a mode-`600` pseudonymous JSONL export |
 | `npm run practice:export` | Emit archived practice games as JSONL, one game per line |
 
 ## Expert Annotation Data
@@ -216,21 +217,29 @@ retries update the same row and keep the contribution count unchanged. Answers
 remain associated with the account so progress survives login on another
 browser. There is no response-history portal.
 
-The AI package creates deterministic scenario batches offline. Build the
-backend, validate a batch with a dry run, then import it explicitly:
+The AI package creates deterministic scenario batches offline. Use the guarded
+wrapper to inspect the target and validate a batch without writing:
 
 ```sh
-npm run build
-npm run annotations:import -- scenarios.json manifest.json
-npm run annotations:import -- scenarios.json manifest.json --apply
-npm run annotations:import -- scenarios.json manifest.json --apply --replace-active
+scripts/annotations/import.sh scenarios.json manifest.json \
+  --env-file "$ANNOTATION_ENV_FILE" \
+  --replace-active
 ```
+
+For routine database operations, prefer the guarded wrappers documented in
+[`scripts/annotations/README.md`](scripts/annotations/README.md). They require
+an explicit mode-`600` environment file, display only the database host and
+name, and keep import database-read-only by default. A dry run emits a plan
+token bound to the full connection configuration, compiled toolkit, batch hash,
+replacement mode, exact scenario catalog, and current write counts. Apply
+requires that exact token and aborts if any relevant input or catalog state
+changed.
 
 Imports require each scenario to declare `play_card` or `choose_briscola` and
 are transactional and idempotent. Existing scenario codes and state hashes
 cannot be changed. With `--replace-active`, scenarios outside the incoming
 batch are deactivated in the same transaction; their rows and responses remain
-stored. The command remains write-free unless `--apply` is present.
+stored. The command remains database-write-free unless `--apply` is present.
 
 The next-scenario query keeps each user's answers near the 20% easy, 40%
 medium, 40% hard mix, then ranks unanswered scenarios by
@@ -242,20 +251,26 @@ hard rating.
 For production, deploy the annotation migration and API before importing. Run
 the importer from a controlled environment with the production `DATABASE_URL`
 and `DIRECT_URL` injected, never pasted into shell history. The command without
-`--apply` validates and queries for conflicts but writes nothing. Confirm the
-database host and dry-run summary before adding `--apply`. The complete
-generation, import, launch, replenishment, and recovery runbook is
+`--apply` validates and queries for conflicts but writes nothing to the
+database. Confirm the database host and dry-run summary before adding `--apply`.
+The complete generation, import, launch, replenishment, and recovery runbook is
 `ai/docs/EXPERT_DATA_COLLECTION.md` in the parent BECCA checkout.
 
 Each export row includes the decision type, exact visible scenario, matching
 discriminated selected action or skip, and optional skip comment. It
-pseudonymizes the account ID and never selects the username or email. Set a
-private stable salt and redirect stdout to create a JSONL export:
+pseudonymizes the account ID and never selects the username or email. Put a
+private stable salt in the protected environment file and name a new output:
 
 ```sh
-ANNOTATION_EXPORT_SALT="<at-least-16-private-characters>" \
-npm run annotations:export > annotations.jsonl
+mkdir -p "$HOME/.becca/annotation-exports"
+chmod 700 "$HOME/.becca/annotation-exports"
+scripts/annotations/export.sh \
+  --env-file "$ANNOTATION_ENV_FILE" \
+  --output "$HOME/.becca/annotation-exports/annotations-$(date +%F).jsonl"
 ```
+
+The export validates every row before atomically creating a mode-`600` file and
+refuses to overwrite an existing path.
 
 ## Practice Game Data
 

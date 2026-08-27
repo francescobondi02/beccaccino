@@ -17,7 +17,9 @@ let temporaryDirectory: string;
 
 beforeEach(async () => {
   await clearDatabase();
-  temporaryDirectory = await mkdtemp(join(tmpdir(), "becca-annotation-import-"));
+  temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "becca-annotation-import-"),
+  );
 });
 
 afterEach(async () => {
@@ -136,6 +138,54 @@ describe("annotation scenario import", () => {
       ),
     ).rejects.toThrow(/must contain only/);
     expect(await prisma.annotationScenario.count()).toBe(0);
+  });
+
+  it("validates the confirmed plan before writing", async () => {
+    const paths = await writeBatch([annotationScenarioInput()]);
+
+    await expect(
+      importAnnotationBatch(
+        paths.batchPath,
+        paths.manifestPath,
+        {
+          apply: true,
+          validatePlan: () => {
+            throw new Error("plan changed");
+          },
+        },
+        prisma,
+      ),
+    ).rejects.toThrow(/plan changed/);
+    expect(await prisma.annotationScenario.count()).toBe(0);
+  });
+
+  it("fingerprints exact catalog changes even when plan counts stay equal", async () => {
+    const existing = await prisma.annotationScenario.create({
+      data: annotationScenarioCreateData({ code: "initial-v1-old" }),
+    });
+    const paths = await writeBatch([chooseBriscolaScenarioInput()]);
+
+    const first = await importAnnotationBatch(
+      paths.batchPath,
+      paths.manifestPath,
+      { apply: false, replaceActive: true },
+      prisma,
+    );
+    await prisma.annotationScenario.update({
+      where: { id: existing.id },
+      data: { importance: 3 },
+    });
+    const second = await importAnnotationBatch(
+      paths.batchPath,
+      paths.manifestPath,
+      { apply: false, replaceActive: true },
+      prisma,
+    );
+
+    expect(first.wouldInsert).toBe(second.wouldInsert);
+    expect(first.wouldDeactivate).toBe(second.wouldDeactivate);
+    expect(first.catalogSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(second.catalogSha256).not.toBe(first.catalogSha256);
   });
 
   it("replaces the active catalog transactionally without deleting responses", async () => {

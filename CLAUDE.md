@@ -47,6 +47,7 @@ src/
     games.ts            /api/games/*
     annotations.ts      /api/annotations/* (account auth + shared-code access gate)
   scripts/
+    annotationDatabase.ts Safe status/import/export operator CLI
     importAnnotationScenarios.ts Transactional offline-batch import
     exportAnnotations.ts Pseudonymous JSONL export
     exportPracticeMatches.ts JSONL export of archived practice games
@@ -104,6 +105,9 @@ tests/
   default to `play_card`. Existing identifiers and state hashes cannot be
   overwritten. `--replace-active` can make the incoming batch the active
   catalog without deleting older scenarios or responses.
+- `scripts/annotations/` provides guarded status, import, and export wrappers.
+  They require a mode-`600` environment file, print only a sanitized database
+  target, default imports to dry-run, and bind apply to the exact dry-run plan.
 - Selection keeps each user's answers near the 20/40/40 difficulty mix and
   ranks unanswered scenarios by importance divided by the square root of one
   plus its global response count.
@@ -113,9 +117,9 @@ tests/
   for that pair; no response-history portal exists.
 - The UI shows an open-ended contribution count. A null next scenario means
   only that the user has answered every currently active scenario.
-- `ANNOTATION_EXPORT_SALT=... npm run annotations:export` emits the exact
-  visible scenario with deterministic user pseudonyms and optional skip
-  comments; it never reads username or email.
+- `scripts/annotations/export.sh` emits the exact visible scenario with
+  deterministic user pseudonyms and optional skip comments; it never reads
+  username or email and atomically creates a mode-`600` output file.
 
 ### Practice Game Archive
 - `deleteRoomAndPlay` snapshots a practice game into one `PracticeMatch` row
