@@ -318,7 +318,27 @@ npm run practice:export > practice_matches.jsonl
 | GET | `/api/games/playable-cards/:roomCode` | Yes | Get legal cards for current turn |
 | GET | `/api/games/:roomCode/state` | Yes | Get full game state |
 | GET | `/health` | No | Health check |
+| GET | `/version` | No | Get the deployed backend commit |
 | GET | `/ready` | No | Database readiness check |
+
+## CI and production deployment
+
+GitHub Actions validates the complete Prisma migration history against a fresh
+PostgreSQL database, verifies that it matches `schema.prisma`, and runs the
+integration suite without the local-only `prisma db push` preparation. It also
+builds and starts the production Dockerfile, so a green `CI` workflow covers
+the same migration and runtime path used by Render.
+
+Production deployment runs only after the `CI` workflow succeeds on `main`.
+Configure the repository secret `RENDER_DEPLOY_HOOK_URL` with the backend
+service's Render deploy hook, then disable Render's direct auto-deploy for the
+service. A missing secret fails the deployment workflow.
+
+The workflow passes the tested GitHub commit as the deploy hook's `ref`, waits
+for `/version` to report that exact commit, and then requires `/ready` to
+confirm database connectivity. The version endpoint reads Render's
+`RENDER_GIT_COMMIT`; `GIT_COMMIT_SHA` is an explicit fallback for other
+deployment systems.
 
 ## Troubleshooting
 

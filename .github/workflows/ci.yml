@@ -5,9 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     # Jest instantiates PrismaClient from src/db.ts in globalTeardown (outside the
     # per-project setupFiles that normally supply the test DATABASE_URL), and the
@@ -36,6 +44,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -44,10 +54,84 @@ jobs:
 
       - run: npm ci
 
+      - name: Apply production migration history
+        run: npm run migrate
+
+      - name: Verify migrations match the Prisma schema
+        run: >-
+          npx prisma migrate diff
+          --from-url "$DATABASE_URL"
+          --to-schema-datamodel prisma/schema.prisma
+          --exit-code
+
       - run: npm run typecheck
 
       - run: npm run build
 
       - run: npm run test:unit
 
-      - run: npm run test:integration
+      # Bypass pretest:integration: it uses db push for local convenience and
+      # would hide a schema change that is missing a production migration.
+      - run: npx jest --selectProjects integration --runInBand
+
+  container:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/becca_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/becca_test
+      JWT_SECRET: ci-test-secret
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: becca_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build production image
+        run: docker build --tag becca-backend:${{ github.sha }} .
+
+      - name: Start production image
+        run: |
+          docker run --detach --name becca-backend \
+            --network host \
+            --env DATABASE_URL \
+            --env DIRECT_URL \
+            --env JWT_SECRET \
+            --env GIT_COMMIT_SHA=${{ github.sha }} \
+            becca-backend:${{ github.sha }}
+
+      - name: Verify production image
+        shell: bash
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/ready > /tmp/backend-ready.json; then
+              break
+            fi
+            sleep 2
+          done
+          jq --exit-status '.status == "ready"' \
+            /tmp/backend-ready.json > /dev/null
+          curl --fail --silent http://127.0.0.1:8000/version \
+            | jq --exit-status \
+              '.service == "backend" and .commit == "${{ github.sha }}"' > /dev/null
+
+      - name: Print container logs
+        if: failure()
+        run: docker logs becca-backend || true
+
+      - name: Stop production image
+        if: always()
+        run: docker rm --force becca-backend || true
