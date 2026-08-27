@@ -76,9 +76,10 @@ For example, `expert-2026-08-26-a`, then `expert-2026-08-26-b`. The ID becomes
 part of every scenario code and cannot be renamed after generation.
 
 Fifty scenarios is the recommended operational batch size, not a product
-limit. Each request must be a positive count. Larger batches take longer and
-can fail if the bounded 10,000-source-game search cannot fill every difficulty
-and corner-case quota.
+limit. Each request must be a positive count. The generator deterministically
+allocates any count as evenly as possible across the three V2 families.
+Generation fails clearly if the configured source-game pool cannot fill those
+family quotas while respecting the two-scenarios-per-source-game cap.
 
 ## Generate A Batch
 
@@ -91,6 +92,7 @@ BATCH_ID=expert-2026-08-26-a
   --master-seed-file .private/annotation-master.seed \
   --batch-id "$BATCH_ID" \
   --scenario-count 50 \
+  --source-game-count 120 \
   --model-artifact serving/models/run_d2_champion.pt \
   --output-batch "out/annotations/$BATCH_ID.json" \
   --manifest "out/annotations/$BATCH_ID.manifest.json" \
@@ -115,20 +117,24 @@ For a 50-scenario batch, verify:
 - `batchId` is the intended unique ID;
 - `generatorCommit` is the reviewed AI commit;
 - `parameters.scenarioCount` is `50`;
-- difficulty quotas and counts are `10` easy, `20` medium, and `20` hard;
-- `minimumCuratedCorners` is at least `3`;
+- `parameters.familyQuotas` is `17` borderline briscola, `17` lead, and
+  `16` risk scenarios;
+- `counts.family` matches those quotas;
+- `counts.sourceGameCoverage.maxSelectedPerGame` is at most `2`;
+- `counts.sourceGameCoverage.scanned` and `withCandidates` show broad source
+  coverage, and `counts.candidatePoolFamily` is larger than the selected set;
 - `modelSha256` matches the pinned model;
 - `batchSha256` is present.
 
 The generator already validates chronology, legality, privacy, unique codes,
-state hashes, objective tags, exact quotas, aggregate counts, and canonical
+state hashes, objective tags, family quotas, aggregate counts, and canonical
 JSON before writing. The backend importer independently validates its accepted
 scenario contract and the exact batch-file hash from the manifest.
 
 To prove deterministic reproduction, move neither output and rerun the exact
-command with the same seed, batch ID, count, model, and generator revision.
-The files remain byte-identical. If any input intentionally changes, use a new
-batch ID instead.
+command in the same Python/Torch environment with the same seed, batch ID,
+count, model, and generator revision. The files remain byte-identical. If any
+input intentionally changes, use a new batch ID instead.
 
 Each source-game seed is:
 
@@ -136,51 +142,57 @@ Each source-game seed is:
 HMAC-SHA256(private master seed, versioned domain + batch ID + game index)
 ```
 
-Changing the private seed, batch ID, count, model bytes, or generator method can
-change the selected scenarios. Reusing all inputs produces byte-identical
-canonical JSON files.
+Changing the private seed, batch ID, count, source-game count, model bytes, or
+generator method can change the selected scenarios. Reusing all inputs produces
+byte-identical canonical JSON files.
 
 ## Selection Rules
 
 The generator advances deterministic 41-point games with the existing heuristic
-agent. It excludes every position with only one legal card choice. A leader's
-four signal variants on one card still count as one card choice.
+agent. It scans every configured source game and retains a complete private
+candidate pool before selecting anything. It does not stop when the output row
+count is first reached. A selected batch contains at most two scenarios from
+any one source game.
 
-Every retained scenario receives objective public-state tags:
+Family quotas use deterministic near-equal allocation in this order:
+borderline briscola, lead, risk. For example, `50` becomes `17/17/16`.
 
-| Tag | Predicate |
-|---|---|
-| `lead` | Current trick is empty |
-| `must_follow` | Acting hand contains the led suit |
-| `void` | Acting hand does not contain the led suit |
-| `partner_winning` | Acting player's team currently leads the trick |
-| `high_value_trick` | Current trick contains at least 3 raw points |
-| `late_round` | At least seven tricks are complete |
-| `score_pressure` | A team is within 10 points of the 41-point target |
-| `signal_decision` | The leader has legal signal variants |
+- **Borderline briscola:** the caller's two strongest public hand-suit scores
+  are close. Suit strength is suit card count plus `0.05` times summed card
+  strength.
+- **Lead:** the trick leader chooses both a card and a signal. Positions with
+  only one distinct card choice are excluded.
+- **Risk:** public legal choices expose at least one concrete tradeoff: a
+  partner-winning trick with point and non-point choices, a void hand choosing
+  between briscola and discard, or legal cards that can leave the acting team
+  winning versus losing the current trick.
 
-Importance is rule-derived:
+Every retained scenario exposes exactly one tag matching its family:
+`borderline_briscola`, `lead`, or `risk`. More specific properties such as an
+opening lead, score pressure, or a high-value trick are derived directly from
+the public state when scoring and diversifying candidates; they are not a
+separate data contract. All selected V1 scenarios use importance `2` because
+the family rules already exclude routine decisions.
 
-- `1`: standard position.
-- `2`: useful or uncommon position, including score pressure, late high-value
-  play, high-value void/partner decisions, or late signal decisions.
-- `3`: curated corner-case combinations: void plus partner-winning plus
-  high-value; must-follow plus partner-winning plus high-value under score
-  pressure; or a late lead/signal decision under score pressure.
+Model scores are softmax-normalized and reduced to a top-two margin in `0..1`.
+For leaders, card probabilities and signal probabilities are aggregated
+separately, producing distinct card and signal margins. Briscola ambiguity is
+the average of model uncertainty and the closeness of the top two public
+hand-strength suit scores.
 
-Within each difficulty bucket, higher-importance candidates replace lower-
-importance candidates found earlier. Every batch reserves at least 5% of its
-rows for importance-3 corner cases, rounded up. This guarantees a fixed corner
-set for the backend's usefulness ranking instead of relying on seed luck.
+Strategic impact uses public state only. Briscola choices start high; leads
+reward more distinct card choices, suit breadth, opening leads, and score
+pressure; risk plays reward the concrete tradeoffs above, high-value tricks,
+and score pressure. Intrinsic candidate quality weights ambiguity at `0.6` and
+impact at `0.4`. `predictedDifficulty` is metadata derived from that quality,
+not a selection target, so there are no easy/medium/hard quotas.
 
-Difficulty is computed separately from tags. Structural complexity combines
-the number of distinct card choices, current-trick depth, completed history,
-public signals, and round depth. The pinned model contributes only the margin
-between its two highest legal-action logits. Scores, logits, observations, and
-hidden state are never emitted. The target mix is exactly 20% `easy`, 40%
-`medium`, and 40% `hard`, using deterministic largest-remainder rounding when
-the requested count is not divisible by five. Generation fails if the bounded
-search cannot fill every quota.
+Selection is one deterministic greedy loop. It subtracts `0.12` for each
+already-selected scenario with the same simple public feature signature, skips
+sources already represented twice, and uses discovery order plus state hash as
+stable tie-breakers. Per-scenario family labels, source-game identifiers, model
+scores, margins, impact, quality, and diversity signatures remain private and
+never appear in scenario JSON; the manifest exposes aggregate family counts.
 
 ## Batch Contract
 
@@ -189,9 +201,10 @@ The batch is a JSON array ready for database import:
 ```json
 {
   "code": "expert-2026-08-a-00001",
+  "decisionType": "play_card",
   "predictedDifficulty": "medium",
   "importance": 2,
-  "tags": ["void", "high_value_trick"],
+  "tags": ["risk"],
   "stateHash": "<SHA-256 of canonical state JSON>",
   "state": {
     "targetPoints": 41,
@@ -216,25 +229,36 @@ The batch is a JSON array ready for database import:
 ```
 
 Real `hand` and `legalActions` arrays are non-empty. `state` contains the
-complete current public-state fields from `targetPoints` through
-`legalActions`; it contains no database ID, version, category, deal seed,
-opponent hand, model score, or hidden state. Codes are stable and derive only
-from the batch ID and ordinal.
+complete current public state. For `choose_briscola`, the state contains
+`targetPoints`, `roundNumber`, `actingSeat`, `callerSeat`, `totalScores`,
+`hand`, and the four suit-string `legalActions`; briscola and trick fields do
+not exist yet. For `play_card`, it uses the shape shown above. `stateHash` is
+always the SHA-256 of canonical `state` only, excluding `decisionType`.
+
+Scenario JSON contains no database ID, version, category, deal seed, opponent
+hand, model score, margin, source-game identifier, or selection metric. Codes
+are stable and derive only from the batch ID and ordinal.
 
 The separate manifest records:
 
 - batch ID and non-secret seed fingerprint;
 - explicit generator commit/provenance and model-file SHA-256;
 - rules and method versions;
-- requested count, target mix, exact quotas, and search bound;
-- the minimum number of curated corner cases;
-- counts by difficulty, importance, and tag;
+- requested count, exact family quotas, source-game count, source cap, and
+  diversity penalty;
+- counts by difficulty metadata, importance, and selected family;
+- candidate-pool family counts and aggregate source-game coverage without
+  source-game identifiers;
 - SHA-256 of the exact canonical batch-file bytes.
 
 Before writing, the generator validates chronology, trick winners, card
-uniqueness, legal actions, privacy, fixed vocabularies, objective tags and
-importance, exact difficulty quotas, state hashes, unique codes and hashes, and
-the manifest/batch hash. Batch and manifest files are written atomically.
+uniqueness, legal actions, privacy, the family tag and importance, exact family
+quotas, state hashes, unique codes and hashes, and the
+manifest/batch hash. Batch and manifest files are written atomically.
+
+Annotation responses are not consumed by any training command in V2. Wiring
+expert labels into behavioral cloning or reinforcement learning is a separate,
+intentional future change.
 
 ## Import Into A Backend Database
 
@@ -276,6 +300,11 @@ npm run annotations:import -- \
 The JSON result must report the intended `batchId`, `validated: 50`, and
 `applied: false`. In dry-run output, the number that would be inserted is
 `validated - skipped`; `inserted` remains zero because no write occurred.
+
+To replace the active catalog, add `--replace-active` to both the dry run and
+the apply command. Review `wouldDeactivate` before applying; the dry run keeps
+`deactivated` at zero. Applying deactivates older scenarios without deleting
+their rows or expert responses.
 
 After independently verifying the database host is production and reviewing
 the dry run, apply the same files:

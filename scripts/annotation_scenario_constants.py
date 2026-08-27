@@ -2,16 +2,13 @@
 
 ANNOTATION_DIFFICULTIES = ("easy", "medium", "hard")
 
-ANNOTATION_TAGS = (
+ANNOTATION_FAMILIES = (
+    "borderline_briscola",
     "lead",
-    "must_follow",
-    "void",
-    "partner_winning",
-    "high_value_trick",
-    "late_round",
-    "score_pressure",
-    "signal_decision",
+    "risk",
 )
+
+ANNOTATION_TAGS = ANNOTATION_FAMILIES
 
 IMPORTANCE_STANDARD = 1
 IMPORTANCE_USEFUL_UNCOMMON = 2
@@ -22,13 +19,9 @@ ANNOTATION_IMPORTANCE_VALUES = (
     IMPORTANCE_CURATED_CORNER_CASE,
 )
 
-TARGET_DIFFICULTY_MIX = {
-    "easy": 0.2,
-    "medium": 0.4,
-    "hard": 0.4,
-}
+BRISCOLA_CLOSE_THRESHOLD = 0.8
+MAX_SCENARIOS_PER_SOURCE_GAME = 2
+DIVERSITY_PENALTY = 0.12
 
-MIN_CURATED_CORNER_SHARE = 0.05
-
-RULES_VERSION = "becca-annotation-rules-v1"
-METHOD_VERSION = "offline-hmac-priority-structural-margin-v1"
+RULES_VERSION = "becca-annotation-rules-v2"
+METHOD_VERSION = "offline-full-pool-public-impact-diversity-v2"
