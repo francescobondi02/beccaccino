@@ -40,6 +40,7 @@ Annotation scenarios are generated only by an explicit offline command:
   --master-seed-file .private/annotation-master.seed \
   --batch-id expert-2026-08-a \
   --scenario-count 50 \
+  --source-game-count 120 \
   --model-artifact serving/models/run_d2_champion.pt \
   --output-batch out/annotations/expert-2026-08-a.json \
   --manifest out/annotations/expert-2026-08-a.manifest.json \
@@ -52,6 +53,8 @@ Replenishment is another offline generation and backend import with a new batch
 ID, never generation during service startup or a request. See
 [docs/EXPERT_DATA_COLLECTION.md](docs/EXPERT_DATA_COLLECTION.md) for seed setup,
 batch verification, production import, replenishment, and recovery procedures.
+V2 batches balance close briscola choices, lead card/signal decisions, and
+publicly identifiable risk plays; they do not feed annotations into training.
 
 ## Train
 

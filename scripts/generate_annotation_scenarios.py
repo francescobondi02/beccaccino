@@ -10,49 +10,52 @@ import math
 import os
 import re
 import tempfile
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 
-from becca_env.deck import Card, Suit, Value, card_points
+from becca_env.deck import Card, Suit, Value, card_points, card_strength
 from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase, Signal
 from becca_env.observation import CARD_INDEX
 from becca_env.rules import determine_hand_winner, follow_suit_filter
 from evaluation.heuristic import HeuristicAgent
 from scripts.annotation_scenario_constants import (
     ANNOTATION_DIFFICULTIES,
+    ANNOTATION_FAMILIES,
     ANNOTATION_IMPORTANCE_VALUES,
     ANNOTATION_TAGS,
-    IMPORTANCE_CURATED_CORNER_CASE,
-    IMPORTANCE_STANDARD,
+    BRISCOLA_CLOSE_THRESHOLD,
+    DIVERSITY_PENALTY,
     IMPORTANCE_USEFUL_UNCOMMON,
+    MAX_SCENARIOS_PER_SOURCE_GAME,
     METHOD_VERSION,
-    MIN_CURATED_CORNER_SHARE,
     RULES_VERSION,
-    TARGET_DIFFICULTY_MIX,
 )
 
 DEFAULT_MODEL_ARTIFACT = Path("serving/models/run_d2_champion.pt")
 WIN_POINTS = 41
 SCORE_PRESSURE_RAW = (WIN_POINTS - 10) * 3
-MAX_SOURCE_GAMES = 10_000
+DEFAULT_SOURCE_GAME_COUNT = 120
 MAX_DECISIONS_PER_GAME = 600
 MIN_MASTER_SEED_BYTES = 32
 
-PolicyMarginScorer = Callable[[BeccaGame], float]
+PolicyScoreScorer = Callable[[BeccaGame], Sequence[float]]
 
 _SIGNALS = (None, Signal.STRISCIO, Signal.BUSSO, Signal.VOLO)
 _BATCH_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,72}$")
 _SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 _SCENARIO_KEYS = {
     "code",
+    "decisionType",
     "predictedDifficulty",
     "importance",
     "tags",
     "stateHash",
     "state",
 }
-_STATE_KEYS = (
+_PLAY_STATE_KEYS = (
     "targetPoints",
     "roundNumber",
     "actingSeat",
@@ -63,6 +66,15 @@ _STATE_KEYS = (
     "hand",
     "completedTricks",
     "currentTrick",
+    "legalActions",
+)
+_BRISCOLA_STATE_KEYS = (
+    "targetPoints",
+    "roundNumber",
+    "actingSeat",
+    "callerSeat",
+    "totalScores",
+    "hand",
     "legalActions",
 )
 _MANIFEST_KEYS = {
@@ -87,21 +99,58 @@ _FORBIDDEN_KEYS = {
     "player_hands",
     "modelScores",
     "policyMargin",
+    "modelMargin",
+    "cardMargin",
+    "signalMargin",
+    "suitScores",
+    "sourceGameId",
+    "sourceGameIndex",
+    "selectionScore",
+    "strategicImpact",
+    "ambiguity",
+    "quality",
+    "family",
+    "diversitySignature",
+    "selectionMetrics",
     "logits",
     "hiddenState",
 }
-_CORNER_CASE_COMBINATIONS = (
-    frozenset({"void", "partner_winning", "high_value_trick"}),
-    frozenset({"must_follow", "partner_winning", "high_value_trick", "score_pressure"}),
-    frozenset({"lead", "signal_decision", "late_round", "score_pressure"}),
-)
-_USEFUL_UNCOMMON_COMBINATIONS = (
-    frozenset({"score_pressure"}),
-    frozenset({"late_round", "high_value_trick"}),
-    frozenset({"void", "high_value_trick"}),
-    frozenset({"partner_winning", "high_value_trick"}),
-    frozenset({"signal_decision", "late_round"}),
-)
+
+
+@dataclass(frozen=True)
+class ModelMargins:
+    """Normalized model confidence margins for one public decision."""
+
+    action: float
+    card: float | None = None
+    signal: float | None = None
+
+
+@dataclass(frozen=True)
+class GenerationAudit:
+    """Aggregate-only generation metadata safe for the public manifest."""
+
+    source_games_scanned: int
+    source_games_with_candidates: int
+    candidate_pool_counts: Mapping[str, int]
+    selected_source_games: int
+    max_selected_per_source_game: int
+
+
+@dataclass(frozen=True)
+class GenerationResult:
+    scenarios: list[dict]
+    audit: GenerationAudit
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    scenario: dict
+    family: str
+    source_game_index: int
+    quality: float
+    feature_signature: tuple[object, ...]
+    discovery_index: int
 
 
 def canonical_json_bytes(value: object) -> bytes:
@@ -168,31 +217,25 @@ def seed_fingerprint(master_seed: bytes) -> str:
     ).hexdigest()
 
 
-def difficulty_quotas(scenario_count: int) -> dict[str, int]:
-    """Allocate the fixed mix with deterministic largest-remainder rounding."""
+def family_quotas(scenario_count: int) -> dict[str, int]:
+    """Allocate three near-equal family quotas with deterministic remainder order."""
     if not isinstance(scenario_count, int) or scenario_count <= 0:
         raise ValueError("scenario count must be a positive integer")
 
-    raw = {
-        difficulty: scenario_count * TARGET_DIFFICULTY_MIX[difficulty]
-        for difficulty in ANNOTATION_DIFFICULTIES
-    }
-    quotas = {difficulty: math.floor(count) for difficulty, count in raw.items()}
-    remaining = scenario_count - sum(quotas.values())
-    tie_order = {"medium": 0, "hard": 1, "easy": 2}
-    ranked = sorted(
-        ANNOTATION_DIFFICULTIES,
-        key=lambda difficulty: (-(raw[difficulty] - quotas[difficulty]), tie_order[difficulty]),
-    )
-    for difficulty in ranked[:remaining]:
-        quotas[difficulty] += 1
+    base, remainder = divmod(scenario_count, len(ANNOTATION_FAMILIES))
+    quotas = {family: base for family in ANNOTATION_FAMILIES}
+    for family in ANNOTATION_FAMILIES[:remainder]:
+        quotas[family] += 1
     return quotas
 
 
-def minimum_curated_corner_count(scenario_count: int) -> int:
-    if not isinstance(scenario_count, int) or scenario_count <= 0:
-        raise ValueError("scenario count must be a positive integer")
-    return max(1, math.ceil(scenario_count * MIN_CURATED_CORNER_SHARE))
+def _selection_family_order(quotas: Mapping[str, int]) -> list[str]:
+    return [
+        family
+        for ordinal in range(max(quotas.values(), default=0))
+        for family in ANNOTATION_FAMILIES
+        if quotas[family] > ordinal
+    ]
 
 
 def _card_payload(card: Card) -> dict[str, str]:
@@ -224,6 +267,8 @@ def _action_sort_key(action: dict) -> tuple[int, int]:
 
 
 def _legal_action_payloads(game: BeccaGame) -> list[dict]:
+    if game.phase != GamePhase.PLAY_CARD:
+        raise ValueError("card action payloads require a play-card decision")
     actions = []
     for action in game.legal_actions():
         if isinstance(action, Card):
@@ -246,8 +291,31 @@ def _signal_fields(signal: Signal | None, starter_seat: int) -> dict:
     }
 
 
-def public_state(game: BeccaGame) -> dict:
-    """Serialize the complete public state for the acting player."""
+def briscola_public_state(game: BeccaGame) -> dict:
+    """Serialize a public briscola-choice state for the caller."""
+    if game.win_points != WIN_POINTS or game.phase != GamePhase.CHOOSE_BRISCOLA:
+        raise ValueError("briscola scenarios must be live BeccaGame(win_points=41) choices")
+
+    round_state = game.round
+    return {
+        "targetPoints": game.win_points,
+        "roundNumber": round_state.number,
+        "actingSeat": game.current_seat,
+        "callerSeat": round_state.caller_seat,
+        "totalScores": {
+            "0": game.total_scores[0],
+            "1": game.total_scores[1],
+        },
+        "hand": [
+            _card_payload(card)
+            for card in sorted(game.get_hand(game.current_seat), key=CARD_INDEX.__getitem__)
+        ],
+        "legalActions": [suit.value for suit in Suit],
+    }
+
+
+def play_card_public_state(game: BeccaGame) -> dict:
+    """Serialize a public card-play state for the acting player."""
     if game.win_points != WIN_POINTS or game.phase != GamePhase.PLAY_CARD:
         raise ValueError("annotation scenarios must be live BeccaGame(win_points=41) plays")
 
@@ -300,6 +368,15 @@ def public_state(game: BeccaGame) -> dict:
     }
 
 
+def public_state(game: BeccaGame) -> dict:
+    """Serialize the complete public state for either supported decision."""
+    if game.phase == GamePhase.CHOOSE_BRISCOLA:
+        return briscola_public_state(game)
+    if game.phase == GamePhase.PLAY_CARD:
+        return play_card_public_state(game)
+    raise ValueError(f"unsupported annotation decision phase: {game.phase.value}")
+
+
 def _parse_card(value: Mapping[str, object]) -> Card:
     if set(value) != {"suit", "value"}:
         raise ValueError("card must contain only suit and value")
@@ -342,82 +419,203 @@ def _expected_actions(hand: list[Card], current_trick: list[tuple[int, Card]]) -
     return [_action_payload(card, None) for card in sorted(playable, key=CARD_INDEX.__getitem__)]
 
 
-def classify_tags(state: Mapping[str, object]) -> list[str]:
-    """Apply objective, public-state-only tag predicates in fixed order."""
+def _hand_suit_scores(state: Mapping[str, object]) -> dict[Suit, float]:
+    hand = [_parse_card(card) for card in state["hand"]]
+    scores = {}
+    for suit in Suit:
+        suited_cards = [card for card in hand if card.suit == suit]
+        scores[suit] = len(suited_cards) + 0.05 * sum(
+            card_strength[card.value] for card in suited_cards
+        )
+    return scores
+
+
+def briscola_strength_closeness(state: Mapping[str, object]) -> float:
+    """Return top-two public hand-strength closeness on a 0..1 scale."""
+    top, second = sorted(_hand_suit_scores(state).values(), reverse=True)[:2]
+    return 1.0 - min((top - second) / max(top, 1.0), 1.0)
+
+
+def risk_tradeoffs(state: Mapping[str, object]) -> dict[str, bool]:
+    """Identify concrete public card-play tradeoffs."""
     hand = [_parse_card(card) for card in state["hand"]]
     current = state["currentTrick"]
-    current_trick = [_parse_play(play, index) for index, play in enumerate(current["plays"])]
+    trick = [_parse_play(play, index) for index, play in enumerate(current["plays"])]
+    if not trick:
+        return {
+            "partner_points": False,
+            "trump_or_discard": False,
+            "win_or_lose": False,
+        }
+
     briscola = Suit(state["briscola"])
     acting_seat = state["actingSeat"]
-    scores = state["totalScores"]
-
-    matched: set[str] = set()
-    if not current_trick:
-        matched.add("lead")
-        if any(action["signal"] is not None for action in state["legalActions"]):
-            matched.add("signal_decision")
-    else:
-        lead_suit = current_trick[0][1].suit
-        matched.add("must_follow" if any(card.suit == lead_suit for card in hand) else "void")
-        winner = determine_hand_winner(current_trick, briscola)
-        if TEAM_OF_SEAT[winner] == TEAM_OF_SEAT[acting_seat]:
-            matched.add("partner_winning")
-        if sum(card_points[card.value] for _, card in current_trick) >= 3:
-            matched.add("high_value_trick")
-
-    if len(state["completedTricks"]) >= 7:
-        matched.add("late_round")
-    if max(scores.values()) >= SCORE_PRESSURE_RAW:
-        matched.add("score_pressure")
-    return [tag for tag in ANNOTATION_TAGS if tag in matched]
-
-
-def classify_importance(tags: Sequence[str]) -> int:
-    """Map explicit objective rule combinations to the three importance levels."""
-    tag_set = frozenset(tags)
-    if any(combination <= tag_set for combination in _CORNER_CASE_COMBINATIONS):
-        return IMPORTANCE_CURATED_CORNER_CASE
-    if any(combination <= tag_set for combination in _USEFUL_UNCOMMON_COMBINATIONS):
-        return IMPORTANCE_USEFUL_UNCOMMON
-    return IMPORTANCE_STANDARD
-
-
-def structural_complexity(state: Mapping[str, object]) -> float:
-    """Return normalized complexity without consulting tags or model outputs."""
-    legal_card_count = distinct_legal_card_count(state["legalActions"])
-    current_trick_size = len(state["currentTrick"]["plays"])
-    completed_count = len(state["completedTricks"])
-    declared_signals = sum(trick["signal"] is not None for trick in state["completedTricks"]) + int(
-        state["currentTrick"]["signal"] is not None
+    legal_cards = [
+        _parse_card({"suit": action["suit"], "value": action["value"]})
+        for action in state["legalActions"]
+    ]
+    current_winner = determine_hand_winner(trick, briscola)
+    partner_points = (
+        TEAM_OF_SEAT[current_winner] == TEAM_OF_SEAT[acting_seat]
+        and any(card_points[card.value] > 0 for card in legal_cards)
+        and any(card_points[card.value] == 0 for card in legal_cards)
     )
-    round_depth = min((state["roundNumber"] - 1) / 2, 1.0)
+    lead_suit = trick[0][1].suit
+    is_void = all(card.suit != lead_suit for card in hand)
+    trump_or_discard = (
+        is_void
+        and any(card.suit == briscola for card in legal_cards)
+        and any(card.suit != briscola for card in legal_cards)
+    )
+    resulting_team_wins = {
+        TEAM_OF_SEAT[determine_hand_winner([*trick, (acting_seat, card)], briscola)]
+        == TEAM_OF_SEAT[acting_seat]
+        for card in legal_cards
+    }
+    return {
+        "partner_points": partner_points,
+        "trump_or_discard": trump_or_discard,
+        "win_or_lose": resulting_team_wins == {False, True},
+    }
 
-    return (
-        0.35 * ((legal_card_count - 2) / 8)
-        + 0.20 * (current_trick_size / 3)
-        + 0.25 * (completed_count / 9)
-        + 0.10 * min(declared_signals / 3, 1.0)
-        + 0.10 * round_depth
+
+def _current_trick_points(state: Mapping[str, object]) -> int:
+    plays = state["currentTrick"]["plays"]
+    return sum(card_points[_parse_play(play, index)[1].value] for index, play in enumerate(plays))
+
+
+def _scenario_family(
+    state: Mapping[str, object],
+    decision_type: str,
+) -> str | None:
+    """Return the V1 expert-decision family selected by public state."""
+    if decision_type == GamePhase.CHOOSE_BRISCOLA.value:
+        return (
+            "borderline_briscola"
+            if briscola_strength_closeness(state) >= BRISCOLA_CLOSE_THRESHOLD
+            else None
+        )
+    if decision_type != GamePhase.PLAY_CARD.value:
+        raise ValueError(f"unsupported decision type: {decision_type}")
+    if not state["currentTrick"]["plays"]:
+        return "lead"
+    if any(risk_tradeoffs(state).values()):
+        return "risk"
+    return None
+
+
+def _top_two_probability_margin(probabilities: Sequence[float]) -> float:
+    top, second = sorted(probabilities, reverse=True)[:2]
+    return max(0.0, min(top - second, 1.0))
+
+
+def normalized_top_two_margin(scores: Sequence[float]) -> float:
+    """Convert finite model scores to a top-two softmax margin in 0..1."""
+    if len(scores) < 2 or any(not math.isfinite(score) for score in scores):
+        raise ValueError("policy scoring requires at least two finite legal-action scores")
+    maximum = max(scores)
+    exponentials = [math.exp(score - maximum) for score in scores]
+    total = sum(exponentials)
+    probabilities = [value / total for value in exponentials]
+    return _top_two_probability_margin(probabilities)
+
+
+def model_margins(game: BeccaGame, scores: Sequence[float]) -> ModelMargins:
+    """Compute normalized action margins, separating card and signal for leaders."""
+    legal_actions = game.legal_actions()
+    if len(scores) != len(legal_actions):
+        raise ValueError(
+            f"policy scorer returned {len(scores)} scores for {len(legal_actions)} legal actions"
+        )
+
+    action_margin = normalized_top_two_margin(scores)
+    if game.phase != GamePhase.PLAY_CARD or game.round.current_trick:
+        return ModelMargins(action=action_margin)
+
+    maximum = max(scores)
+    exponentials = [math.exp(score - maximum) for score in scores]
+    total = sum(exponentials)
+    probabilities = [value / total for value in exponentials]
+    card_probabilities: defaultdict[Card, float] = defaultdict(float)
+    signal_probabilities: defaultdict[Signal | None, float] = defaultdict(float)
+    for action, probability in zip(legal_actions, probabilities, strict=True):
+        card, signal = action
+        card_probabilities[card] += probability
+        signal_probabilities[signal] += probability
+
+    return ModelMargins(
+        action=action_margin,
+        card=_top_two_probability_margin(list(card_probabilities.values())),
+        signal=_top_two_probability_margin(list(signal_probabilities.values())),
     )
 
 
-def predict_difficulty(state: Mapping[str, object], legal_action_margin: float) -> str:
-    """Predict difficulty from structure and the model's legal-logit margin."""
-    if not math.isfinite(legal_action_margin) or legal_action_margin < 0:
-        raise ValueError("policy margin must be a finite non-negative number")
+def decision_ambiguity(
+    decision_type: str,
+    state: Mapping[str, object],
+    margins: ModelMargins,
+) -> float:
+    """Combine normalized model uncertainty with decision-specific public evidence."""
+    if decision_type == GamePhase.CHOOSE_BRISCOLA.value:
+        return 0.5 * (1.0 - margins.action) + 0.5 * briscola_strength_closeness(state)
+    if decision_type == GamePhase.PLAY_CARD.value and not state["currentTrick"]["plays"]:
+        if margins.card is None or margins.signal is None:
+            raise ValueError("leader ambiguity requires separate card and signal margins")
+        return 0.5 * (1.0 - margins.card) + 0.5 * (1.0 - margins.signal)
+    if decision_type == GamePhase.PLAY_CARD.value:
+        return 1.0 - margins.action
+    raise ValueError(f"unsupported decision type: {decision_type}")
 
-    stable_margin = round(legal_action_margin, 6)
-    confidence = min(math.log1p(stable_margin) / math.log(11), 1.0)
-    difficulty_score = 0.65 * structural_complexity(state) + 0.35 * (1.0 - confidence)
-    if difficulty_score < 0.33:
+
+def strategic_impact(decision_type: str, state: Mapping[str, object]) -> float:
+    """Score strategic impact from public state only, on a 0..1 scale."""
+    score_pressure = max(state["totalScores"].values()) >= SCORE_PRESSURE_RAW
+    if decision_type == GamePhase.CHOOSE_BRISCOLA.value:
+        return 0.85 + 0.15 * score_pressure
+
+    if not state["currentTrick"]["plays"]:
+        card_count = distinct_legal_card_count(state["legalActions"])
+        choice_factor = min(max(card_count - 2, 0) / 8, 1.0)
+        suit_count = len({action["suit"] for action in state["legalActions"]})
+        suit_factor = max(suit_count - 1, 0) / 3
+        return min(
+            0.15
+            + 0.35 * choice_factor
+            + 0.15 * suit_factor
+            + 0.20 * (not state["completedTricks"])
+            + 0.15 * score_pressure,
+            1.0,
+        )
+
+    tradeoff_count = sum(risk_tradeoffs(state).values())
+    return min(
+        0.35
+        + 0.15 * tradeoff_count
+        + 0.20 * (_current_trick_points(state) >= 3)
+        + 0.15 * score_pressure,
+        1.0,
+    )
+
+
+def candidate_quality(ambiguity: float, impact: float) -> float:
+    if not 0.0 <= ambiguity <= 1.0 or not 0.0 <= impact <= 1.0:
+        raise ValueError("candidate ambiguity and impact must be normalized to 0..1")
+    return round(0.6 * ambiguity + 0.4 * impact, 6)
+
+
+def predict_difficulty(quality: float) -> str:
+    """Derive display metadata from intrinsic selected-candidate quality."""
+    if not 0.0 <= quality <= 1.0:
+        raise ValueError("candidate quality must be normalized to 0..1")
+    if quality < 0.45:
         return "easy"
-    if difficulty_score < 0.62:
+    if quality < 0.70:
         return "medium"
     return "hard"
 
 
-def load_policy_margin_scorer(model_artifact: Path) -> tuple[PolicyMarginScorer, str]:
-    """Load the pinned inference artifact once and return its legal-logit scorer."""
+def load_policy_score_scorer(model_artifact: Path) -> tuple[PolicyScoreScorer, str]:
+    """Load the pinned inference artifact once and return legal scores in mask order."""
     import torch
 
     from becca_env.observation import encode_action_mask, encode_observation
@@ -429,18 +627,26 @@ def load_policy_margin_scorer(model_artifact: Path) -> tuple[PolicyMarginScorer,
     net = build_net(artifact, torch.device("cpu"))
     net.eval()
 
-    def score(game: BeccaGame) -> float:
+    def action_index(game: BeccaGame, action: object) -> int:
+        if game.phase == GamePhase.CHOOSE_BRISCOLA:
+            return list(Suit).index(action)
+        if isinstance(action, Card):
+            return CARD_INDEX[action] * 4
+        card, signal = action
+        signal_index = 0 if signal is None else list(Signal).index(signal) + 1
+        return CARD_INDEX[card] * 4 + signal_index
+
+    def score(game: BeccaGame) -> list[float]:
         observation = encode_observation(game, game.current_seat, obs_size=net.obs_size)
         action_mask = encode_action_mask(game, game.current_seat)
         observation_tensor = torch.from_numpy(observation).unsqueeze(0)
         mask_tensor = torch.from_numpy(action_mask).unsqueeze(0)
         with torch.inference_mode():
             logits, _ = net(observation_tensor, mask_tensor)
-        legal_logits = logits[0][mask_tensor[0].bool()]
-        if legal_logits.numel() < 2:
-            raise ValueError("policy margin requires at least two legal actions")
-        top_two = torch.topk(legal_logits, 2).values
-        return float(top_two[0] - top_two[1])
+        legal_actions = game.legal_actions()
+        if len(legal_actions) < 2:
+            raise ValueError("policy scoring requires at least two legal actions")
+        return [float(logits[0, action_index(game, action)]) for action in legal_actions]
 
     return score, model_sha256
 
@@ -449,44 +655,99 @@ def _scenario_code(batch_id: str, ordinal: int) -> str:
     return f"{batch_id}-{ordinal:05d}"
 
 
+def _public_feature_signature(
+    family: str,
+    state: Mapping[str, object],
+) -> tuple[object, ...]:
+    score_pressure = max(state["totalScores"].values()) >= SCORE_PRESSURE_RAW
+    if family == "borderline_briscola":
+        hand = [_parse_card(card) for card in state["hand"]]
+        suit_counts = tuple(
+            sorted(
+                (sum(card.suit == suit for card in hand) for suit in Suit),
+                reverse=True,
+            )
+        )
+        return (
+            family,
+            suit_counts,
+            score_pressure,
+        )
+    if family == "lead":
+        card_count = distinct_legal_card_count(state["legalActions"])
+        return (
+            family,
+            not state["completedTricks"],
+            min(card_count // 2, 5),
+            len({action["suit"] for action in state["legalActions"]}),
+            len(state["completedTricks"]) >= 7,
+            score_pressure,
+        )
+    if family != "risk":
+        raise ValueError(f"unsupported annotation family: {family}")
+    tradeoffs = risk_tradeoffs(state)
+    return (
+        family,
+        *(tradeoffs[name] for name in ("partner_points", "trump_or_discard", "win_or_lose")),
+        len(state["currentTrick"]["plays"]),
+        _current_trick_points(state) >= 3,
+        score_pressure,
+    )
+
+
 def _candidate_scenario(
     game: BeccaGame,
-    policy_margin_scorer: PolicyMarginScorer,
-) -> dict | None:
+    policy_score_scorer: PolicyScoreScorer,
+    *,
+    source_game_index: int,
+    discovery_index: int,
+) -> _Candidate | None:
     state = public_state(game)
-    if distinct_legal_card_count(state["legalActions"]) <= 1:
+    decision_type = game.phase.value
+    if (
+        decision_type == GamePhase.PLAY_CARD.value
+        and distinct_legal_card_count(state["legalActions"]) <= 1
+    ):
         return None
+    family = _scenario_family(state, decision_type)
+    if family is None:
+        return None
+
+    margins = model_margins(game, policy_score_scorer(game))
+    ambiguity = decision_ambiguity(decision_type, state, margins)
+    impact = strategic_impact(decision_type, state)
+    quality = candidate_quality(ambiguity, impact)
     state_hash = _sha256(state)
-    tags = classify_tags(state)
-    return {
-        "predictedDifficulty": predict_difficulty(state, policy_margin_scorer(game)),
-        "importance": classify_importance(tags),
-        "tags": tags,
+    scenario = {
+        "decisionType": decision_type,
+        "predictedDifficulty": predict_difficulty(quality),
+        "importance": IMPORTANCE_USEFUL_UNCOMMON,
+        "tags": [family],
         "stateHash": state_hash,
         "state": state,
     }
+    return _Candidate(
+        scenario=scenario,
+        family=family,
+        source_game_index=source_game_index,
+        quality=quality,
+        feature_signature=_public_feature_signature(family, state),
+        discovery_index=discovery_index,
+    )
 
 
-def generate_batch(
+def _collect_candidate_pool(
     *,
     master_seed: bytes,
     batch_id: str,
-    scenario_count: int,
-    policy_margin_scorer: PolicyMarginScorer,
-    max_source_games: int = MAX_SOURCE_GAMES,
-) -> list[dict]:
-    """Generate a deterministic batch with exact target difficulty counts."""
-    _require_master_seed(master_seed)
-    _require_batch_id(batch_id)
-    quotas = difficulty_quotas(scenario_count)
-    if not isinstance(max_source_games, int) or max_source_games <= 0:
-        raise ValueError("max source games must be a positive integer")
-
-    selected: list[dict] = []
-    selected_counts = Counter()
+    policy_score_scorer: PolicyScoreScorer,
+    source_game_count: int,
+) -> list[_Candidate]:
+    candidates: list[_Candidate] = []
     seen_hashes: set[str] = set()
+    discovery_index = 0
 
-    for game_index in range(max_source_games):
+    for game_index in range(source_game_count):
         game_seed = derive_game_seed(master_seed, batch_id, game_index)
         game = BeccaGame(seed=game_seed, win_points=WIN_POINTS)
         agent = HeuristicAgent(seed=game_seed, declare_signals=True)
@@ -494,62 +755,166 @@ def generate_batch(
         for _ in range(MAX_DECISIONS_PER_GAME):
             if game.phase == GamePhase.GAME_OVER:
                 break
-            if game.phase == GamePhase.CHOOSE_BRISCOLA:
-                game.step(agent.select_action(game, game.current_seat))
-                continue
-
-            candidate = _candidate_scenario(game, policy_margin_scorer)
-            if candidate is not None and candidate["stateHash"] not in seen_hashes:
-                difficulty = candidate["predictedDifficulty"]
-                if selected_counts[difficulty] < quotas[difficulty]:
-                    selected.append(candidate)
-                    selected_counts[difficulty] += 1
-                    seen_hashes.add(candidate["stateHash"])
-                else:
-                    replaceable = [
-                        (index, item)
-                        for index, item in enumerate(selected)
-                        if item["predictedDifficulty"] == difficulty
-                        and item["importance"] < candidate["importance"]
-                    ]
-                    if replaceable:
-                        replace_index, replaced = min(
-                            replaceable,
-                            key=lambda pair: (pair[1]["importance"], -pair[0]),
-                        )
-                        seen_hashes.remove(replaced["stateHash"])
-                        selected[replace_index] = candidate
-                        seen_hashes.add(candidate["stateHash"])
-
-                corner_count = sum(
-                    item["importance"] == IMPORTANCE_CURATED_CORNER_CASE for item in selected
-                )
-                if len(selected) == scenario_count and corner_count >= minimum_curated_corner_count(
-                    scenario_count
-                ):
-                    batch = [
-                        {"code": _scenario_code(batch_id, ordinal), **item}
-                        for ordinal, item in enumerate(selected, start=1)
-                    ]
-                    validate_batch(batch, batch_id=batch_id, expected_count=scenario_count)
-                    return batch
-
+            candidate = _candidate_scenario(
+                game,
+                policy_score_scorer,
+                source_game_index=game_index,
+                discovery_index=discovery_index,
+            )
+            discovery_index += 1
+            if candidate is not None and candidate.scenario["stateHash"] not in seen_hashes:
+                candidates.append(candidate)
+                seen_hashes.add(candidate.scenario["stateHash"])
             game.step(agent.select_action(game, game.current_seat))
         else:
             raise RuntimeError(
                 f"source game {game_index} exceeded {MAX_DECISIONS_PER_GAME} decisions"
             )
+    return candidates
 
-    missing = {
-        difficulty: quotas[difficulty] - selected_counts[difficulty]
-        for difficulty in ANNOTATION_DIFFICULTIES
-        if selected_counts[difficulty] < quotas[difficulty]
-    }
-    raise RuntimeError(
-        f"could not satisfy difficulty quotas after {max_source_games} source games; "
-        f"missing {missing}, curated corners "
-        f"{sum(item['importance'] == IMPORTANCE_CURATED_CORNER_CASE for item in selected)}"
-        f"/{minimum_curated_corner_count(scenario_count)}"
+
+def _select_candidates(
+    candidates: Sequence[_Candidate],
+    *,
+    batch_id: str,
+    scenario_count: int,
+    source_games_scanned: int,
+) -> GenerationResult:
+    quotas = family_quotas(scenario_count)
+    pool_counts = Counter(candidate.family for candidate in candidates)
+    selected: list[_Candidate] = []
+    selected_indexes: set[int] = set()
+    source_counts: Counter[int] = Counter()
+    signature_counts: Counter[tuple[object, ...]] = Counter()
+
+    def remaining_selection_is_feasible(
+        selected_indexes: set[int],
+        source_counts: Counter[int],
+        remaining: Mapping[str, int],
+    ) -> bool:
+        families = [family for family in ANNOTATION_FAMILIES if remaining[family] > 0]
+        for size in range(1, len(families) + 1):
+            for family_subset in combinations(families, size):
+                demand = sum(remaining[family] for family in family_subset)
+                available_by_source: Counter[int] = Counter(
+                    candidate.source_game_index
+                    for index, candidate in enumerate(candidates)
+                    if index not in selected_indexes
+                    and candidate.family in family_subset
+                    and source_counts[candidate.source_game_index] < MAX_SCENARIOS_PER_SOURCE_GAME
+                )
+                capacity = sum(
+                    min(
+                        count,
+                        MAX_SCENARIOS_PER_SOURCE_GAME - source_counts[source],
+                    )
+                    for source, count in available_by_source.items()
+                )
+                if capacity < demand:
+                    return False
+        return True
+
+    for family in _selection_family_order(quotas):
+        eligible = [
+            (index, candidate)
+            for index, candidate in enumerate(candidates)
+            if index not in selected_indexes
+            and candidate.family == family
+            and source_counts[candidate.source_game_index] < MAX_SCENARIOS_PER_SOURCE_GAME
+        ]
+        if not eligible:
+            selected_family_counts = Counter(candidate.family for candidate in selected)
+            missing = {
+                name: quotas[name] - selected_family_counts[name]
+                for name in ANNOTATION_FAMILIES
+                if selected_family_counts[name] < quotas[name]
+            }
+            raise RuntimeError(
+                f"could not satisfy family quotas after scanning {source_games_scanned} "
+                f"source games with a {MAX_SCENARIOS_PER_SOURCE_GAME}/source cap; "
+                f"missing {missing}, pool {dict(pool_counts)}"
+            )
+
+        ranked = sorted(
+            eligible,
+            key=lambda pair: (
+                -(
+                    pair[1].quality
+                    - DIVERSITY_PENALTY * signature_counts[pair[1].feature_signature]
+                ),
+                pair[1].discovery_index,
+            ),
+        )
+        chosen_pair: tuple[int, _Candidate] | None = None
+        for index, candidate in ranked:
+            selected_indexes.add(index)
+            source_counts[candidate.source_game_index] += 1
+            selected_family_counts = Counter(item.family for item in selected)
+            selected_family_counts[candidate.family] += 1
+            remaining = {
+                name: quotas[name] - selected_family_counts[name] for name in ANNOTATION_FAMILIES
+            }
+            if remaining_selection_is_feasible(
+                selected_indexes,
+                source_counts,
+                remaining,
+            ):
+                chosen_pair = (index, candidate)
+                break
+            selected_indexes.remove(index)
+            source_counts[candidate.source_game_index] -= 1
+            if source_counts[candidate.source_game_index] == 0:
+                del source_counts[candidate.source_game_index]
+
+        if chosen_pair is None:
+            raise RuntimeError(
+                f"could not satisfy family quotas after scanning {source_games_scanned} "
+                f"source games with a {MAX_SCENARIOS_PER_SOURCE_GAME}/source cap"
+            )
+        index, chosen = chosen_pair
+        selected.append(chosen)
+        signature_counts[chosen.feature_signature] += 1
+
+    batch = [
+        {"code": _scenario_code(batch_id, ordinal), **candidate.scenario}
+        for ordinal, candidate in enumerate(selected, start=1)
+    ]
+    audit = GenerationAudit(
+        source_games_scanned=source_games_scanned,
+        source_games_with_candidates=len({candidate.source_game_index for candidate in candidates}),
+        candidate_pool_counts={family: pool_counts[family] for family in ANNOTATION_FAMILIES},
+        selected_source_games=len(source_counts),
+        max_selected_per_source_game=max(source_counts.values(), default=0),
+    )
+    validate_batch(batch, batch_id=batch_id, expected_count=scenario_count)
+    return GenerationResult(scenarios=batch, audit=audit)
+
+
+def generate_batch_result(
+    *,
+    master_seed: bytes,
+    batch_id: str,
+    scenario_count: int,
+    policy_score_scorer: PolicyScoreScorer,
+    source_game_count: int = DEFAULT_SOURCE_GAME_COUNT,
+) -> GenerationResult:
+    """Collect a complete deterministic pool, then select the requested batch."""
+    _require_master_seed(master_seed)
+    _require_batch_id(batch_id)
+    family_quotas(scenario_count)
+    if not isinstance(source_game_count, int) or source_game_count <= 0:
+        raise ValueError("source game count must be a positive integer")
+    candidates = _collect_candidate_pool(
+        master_seed=master_seed,
+        batch_id=batch_id,
+        policy_score_scorer=policy_score_scorer,
+        source_game_count=source_game_count,
+    )
+    return _select_candidates(
+        candidates,
+        batch_id=batch_id,
+        scenario_count=scenario_count,
+        source_games_scanned=source_game_count,
     )
 
 
@@ -565,26 +930,49 @@ def _reject_hidden_fields(value: object) -> None:
             _reject_hidden_fields(child)
 
 
-def _validate_state(state: Mapping[str, object]) -> None:
-    if set(state) != set(_STATE_KEYS):
-        raise ValueError("scenario state has unexpected or missing fields")
+def _validate_common_state(state: Mapping[str, object]) -> None:
     if state["targetPoints"] != WIN_POINTS:
         raise ValueError("scenario must use BeccaGame(win_points=41)")
     if not isinstance(state["roundNumber"], int) or state["roundNumber"] < 1:
         raise ValueError("roundNumber must be a positive integer")
-    for key in ("actingSeat", "callerSeat", "trickStarter"):
+    for key in ("actingSeat", "callerSeat"):
         if not isinstance(state[key], int) or state[key] not in range(4):
             raise ValueError(f"{key} must be a seat")
+    scores = state["totalScores"]
+    if (
+        not isinstance(scores, dict)
+        or set(scores) != {"0", "1"}
+        or any(not isinstance(score, int) or score < 0 for score in scores.values())
+    ):
+        raise ValueError("totalScores must contain non-negative cumulative raw scores")
+
+
+def _validate_briscola_state(state: Mapping[str, object]) -> None:
+    if set(state) != set(_BRISCOLA_STATE_KEYS):
+        raise ValueError("choose_briscola state has unexpected or missing fields")
+    _validate_common_state(state)
+    if state["actingSeat"] != state["callerSeat"]:
+        raise ValueError("briscola actingSeat must be the callerSeat")
+
+    hand = [_parse_card(card) for card in state["hand"]]
+    if hand != sorted(hand, key=CARD_INDEX.__getitem__) or len(hand) != 10:
+        raise ValueError("briscola hand must contain ten cards in canonical order")
+    if len(hand) != len(set(hand)):
+        raise ValueError("briscola hand contains duplicate cards")
+    if state["legalActions"] != [suit.value for suit in Suit]:
+        raise ValueError("briscola legalActions must contain all suits in canonical order")
+
+
+def _validate_play_state(state: Mapping[str, object]) -> None:
+    if set(state) != set(_PLAY_STATE_KEYS):
+        raise ValueError("play_card state has unexpected or missing fields")
+    _validate_common_state(state)
+    if not isinstance(state["trickStarter"], int) or state["trickStarter"] not in range(4):
+        raise ValueError("trickStarter must be a seat")
     try:
         briscola = Suit(state["briscola"])
     except (TypeError, ValueError) as error:
         raise ValueError("invalid briscola") from error
-
-    scores = state["totalScores"]
-    if set(scores) != {"0", "1"} or any(
-        not isinstance(score, int) or score < 0 for score in scores.values()
-    ):
-        raise ValueError("totalScores must contain non-negative cumulative raw scores")
 
     completed = state["completedTricks"]
     if not isinstance(completed, list) or len(completed) > 9:
@@ -656,13 +1044,24 @@ def _validate_state(state: Mapping[str, object]) -> None:
         raise ValueError("scenario must offer more than one legal card decision")
 
 
+def _validate_state(decision_type: str, state: Mapping[str, object]) -> None:
+    if not isinstance(state, dict):
+        raise ValueError("scenario state must be an object")
+    if decision_type == GamePhase.CHOOSE_BRISCOLA.value:
+        _validate_briscola_state(state)
+    elif decision_type == GamePhase.PLAY_CARD.value:
+        _validate_play_state(state)
+    else:
+        raise ValueError("scenario decisionType is invalid")
+
+
 def validate_batch(
     batch: object,
     *,
     batch_id: str,
     expected_count: int,
 ) -> None:
-    """Validate shape, privacy, rules, tags, importance, quotas, and hashes."""
+    """Validate shape, privacy, rules, family balance, and hashes."""
     _require_batch_id(batch_id)
     if not isinstance(batch, list) or len(batch) != expected_count:
         raise ValueError(f"batch must contain exactly {expected_count} scenarios")
@@ -676,23 +1075,27 @@ def validate_batch(
         expected_code = _scenario_code(batch_id, ordinal)
         if scenario["code"] != expected_code or scenario["code"] in codes:
             raise ValueError("scenario code is invalid or duplicated")
+        if scenario["decisionType"] not in (
+            GamePhase.CHOOSE_BRISCOLA.value,
+            GamePhase.PLAY_CARD.value,
+        ):
+            raise ValueError("scenario decisionType is invalid")
         if scenario["predictedDifficulty"] not in ANNOTATION_DIFFICULTIES:
             raise ValueError("predicted difficulty is invalid")
         if scenario["importance"] not in ANNOTATION_IMPORTANCE_VALUES:
             raise ValueError("importance is invalid")
         if (
             not isinstance(scenario["tags"], list)
-            or not scenario["tags"]
-            or len(scenario["tags"]) != len(set(scenario["tags"]))
-            or any(tag not in ANNOTATION_TAGS for tag in scenario["tags"])
+            or len(scenario["tags"]) != 1
+            or scenario["tags"][0] not in ANNOTATION_TAGS
         ):
-            raise ValueError("tags must be unique fixed annotation tags")
-        _validate_state(scenario["state"])
-        expected_tags = classify_tags(scenario["state"])
-        if scenario["tags"] != expected_tags:
-            raise ValueError("scenario tags do not match objective predicates")
-        if scenario["importance"] != classify_importance(expected_tags):
-            raise ValueError("scenario importance does not match objective rule combinations")
+            raise ValueError("tags must contain exactly one annotation family")
+        _validate_state(scenario["decisionType"], scenario["state"])
+        expected_family = _scenario_family(scenario["state"], scenario["decisionType"])
+        if expected_family is None or scenario["tags"][0] != expected_family:
+            raise ValueError("scenario tags must contain exactly its public-state family")
+        if scenario["importance"] != IMPORTANCE_USEFUL_UNCOMMON:
+            raise ValueError("V1 scenarios must use useful importance")
         if scenario["stateHash"] != _sha256(scenario["state"]):
             raise ValueError("scenario stateHash is invalid")
         if scenario["stateHash"] in state_hashes:
@@ -700,21 +1103,16 @@ def validate_batch(
         codes.add(scenario["code"])
         state_hashes.add(scenario["stateHash"])
 
-    counts = Counter(scenario["predictedDifficulty"] for scenario in batch)
-    if counts != Counter(difficulty_quotas(expected_count)):
-        raise ValueError("batch does not satisfy exact difficulty quotas")
-    corner_count = sum(
-        scenario["importance"] == IMPORTANCE_CURATED_CORNER_CASE for scenario in batch
-    )
-    if corner_count < minimum_curated_corner_count(expected_count):
-        raise ValueError("batch does not satisfy the curated corner-case floor")
+    family_counts = Counter(scenario["tags"][0] for scenario in batch)
+    if family_counts != Counter(family_quotas(expected_count)):
+        raise ValueError("batch does not satisfy deterministic family quotas")
 
 
-def _batch_counts(batch: list[dict]) -> dict:
+def _batch_counts(batch: list[dict], audit: GenerationAudit | None = None) -> dict:
     difficulty_counts = Counter(scenario["predictedDifficulty"] for scenario in batch)
     importance_counts = Counter(str(scenario["importance"]) for scenario in batch)
-    tag_counts = Counter(tag for scenario in batch for tag in scenario["tags"])
-    return {
+    family_counts = Counter(scenario["tags"][0] for scenario in batch)
+    counts = {
         "difficulty": {
             difficulty: difficulty_counts[difficulty] for difficulty in ANNOTATION_DIFFICULTIES
         },
@@ -722,8 +1120,19 @@ def _batch_counts(batch: list[dict]) -> dict:
             str(importance): importance_counts[str(importance)]
             for importance in ANNOTATION_IMPORTANCE_VALUES
         },
-        "tag": {tag: tag_counts[tag] for tag in ANNOTATION_TAGS},
+        "family": {family: family_counts[family] for family in ANNOTATION_FAMILIES},
     }
+    if audit is not None:
+        counts["candidatePoolFamily"] = {
+            family: audit.candidate_pool_counts[family] for family in ANNOTATION_FAMILIES
+        }
+        counts["sourceGameCoverage"] = {
+            "scanned": audit.source_games_scanned,
+            "withCandidates": audit.source_games_with_candidates,
+            "selected": audit.selected_source_games,
+            "maxSelectedPerGame": audit.max_selected_per_source_game,
+        }
+    return counts
 
 
 def build_manifest(
@@ -734,7 +1143,7 @@ def build_manifest(
     master_seed: bytes,
     generator_commit: str,
     model_sha256: str,
-    max_source_games: int = MAX_SOURCE_GAMES,
+    audit: GenerationAudit,
 ) -> dict:
     """Build provenance for exact batch bytes without exposing the master seed."""
     if not generator_commit.strip():
@@ -751,12 +1160,12 @@ def build_manifest(
         "methodVersion": METHOD_VERSION,
         "parameters": {
             "scenarioCount": scenario_count,
-            "difficultyMix": dict(TARGET_DIFFICULTY_MIX),
-            "difficultyQuotas": difficulty_quotas(scenario_count),
-            "minimumCuratedCorners": minimum_curated_corner_count(scenario_count),
-            "maxSourceGames": max_source_games,
+            "familyQuotas": family_quotas(scenario_count),
+            "sourceGameCount": audit.source_games_scanned,
+            "maxScenariosPerSourceGame": MAX_SCENARIOS_PER_SOURCE_GAME,
+            "diversityPenalty": DIVERSITY_PENALTY,
         },
-        "counts": _batch_counts(batch),
+        "counts": _batch_counts(batch, audit),
         "batchSha256": hashlib.sha256(batch_bytes).hexdigest(),
     }
 
@@ -779,18 +1188,18 @@ def validate_manifest(manifest: object, batch: list[dict], batch_bytes: bytes) -
     parameters = manifest["parameters"]
     expected_parameters = {
         "scenarioCount": len(batch),
-        "difficultyMix": dict(TARGET_DIFFICULTY_MIX),
-        "difficultyQuotas": difficulty_quotas(len(batch)),
-        "minimumCuratedCorners": minimum_curated_corner_count(len(batch)),
-        "maxSourceGames": (
-            parameters.get("maxSourceGames") if isinstance(parameters, dict) else None
+        "familyQuotas": family_quotas(len(batch)),
+        "sourceGameCount": (
+            parameters.get("sourceGameCount") if isinstance(parameters, dict) else None
         ),
+        "maxScenariosPerSourceGame": MAX_SCENARIOS_PER_SOURCE_GAME,
+        "diversityPenalty": DIVERSITY_PENALTY,
     }
     if (
         not isinstance(parameters, dict)
         or set(parameters) != set(expected_parameters)
-        or not isinstance(parameters["maxSourceGames"], int)
-        or parameters["maxSourceGames"] <= 0
+        or not isinstance(parameters["sourceGameCount"], int)
+        or parameters["sourceGameCount"] <= 0
         or parameters != expected_parameters
     ):
         raise ValueError("manifest parameters are invalid")
@@ -800,8 +1209,44 @@ def validate_manifest(manifest: object, batch: list[dict], batch_bytes: bytes) -
         batch_id=manifest["batchId"],
         expected_count=parameters["scenarioCount"],
     )
-    if manifest["counts"] != _batch_counts(batch):
+    counts = manifest["counts"]
+    expected_batch_counts = _batch_counts(batch)
+    if (
+        not isinstance(counts, dict)
+        or set(counts) != {*expected_batch_counts, "candidatePoolFamily", "sourceGameCoverage"}
+        or any(counts[key] != value for key, value in expected_batch_counts.items())
+    ):
         raise ValueError("manifest counts do not match the batch")
+    candidate_pool = counts["candidatePoolFamily"]
+    if (
+        not isinstance(candidate_pool, dict)
+        or set(candidate_pool) != set(ANNOTATION_FAMILIES)
+        or any(
+            not isinstance(candidate_pool[family], int)
+            or candidate_pool[family] < counts["family"][family]
+            for family in ANNOTATION_FAMILIES
+        )
+    ):
+        raise ValueError("manifest candidate-pool counts are invalid")
+    coverage = counts["sourceGameCoverage"]
+    if not isinstance(coverage, dict) or set(coverage) != {
+        "scanned",
+        "withCandidates",
+        "selected",
+        "maxSelectedPerGame",
+    }:
+        raise ValueError("manifest source-game coverage is invalid")
+    if any(not isinstance(value, int) for value in coverage.values()):
+        raise ValueError("manifest source-game coverage is invalid")
+    if not (
+        coverage["scanned"] == parameters["sourceGameCount"]
+        and 1 <= coverage["selected"] <= coverage["withCandidates"] <= coverage["scanned"]
+        and coverage["selected"] <= len(batch)
+        and 1 <= coverage["maxSelectedPerGame"]
+        and coverage["maxSelectedPerGame"] <= MAX_SCENARIOS_PER_SOURCE_GAME
+        and coverage["selected"] * coverage["maxSelectedPerGame"] >= len(batch)
+    ):
+        raise ValueError("manifest source-game coverage is invalid")
     if manifest["batchSha256"] != hashlib.sha256(batch_bytes).hexdigest():
         raise ValueError("manifest batchSha256 does not match the exact batch bytes")
 
@@ -847,7 +1292,7 @@ def write_batch_outputs(
     model_sha256: str,
     output_batch_path: Path,
     manifest_path: Path,
-    max_source_games: int = MAX_SOURCE_GAMES,
+    audit: GenerationAudit,
 ) -> dict:
     """Validate and atomically write canonical batch and manifest files."""
     if output_batch_path.resolve() == manifest_path.resolve():
@@ -861,7 +1306,7 @@ def write_batch_outputs(
         master_seed=master_seed,
         generator_commit=generator_commit,
         model_sha256=model_sha256,
-        max_source_games=max_source_games,
+        audit=audit,
     )
     manifest_bytes = canonical_json_bytes(manifest)
     validate_output_bytes(batch_bytes, manifest_bytes)
@@ -876,12 +1321,17 @@ def write_batch_outputs(
 def main(
     argv: Sequence[str] | None = None,
     *,
-    scorer_loader: Callable[[Path], tuple[PolicyMarginScorer, str]] | None = None,
+    scorer_loader: Callable[[Path], tuple[PolicyScoreScorer, str]] | None = None,
 ) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--master-seed-file", required=True, type=Path)
     parser.add_argument("--batch-id", required=True)
     parser.add_argument("--scenario-count", required=True, type=int)
+    parser.add_argument(
+        "--source-game-count",
+        type=int,
+        default=DEFAULT_SOURCE_GAME_COUNT,
+    )
     parser.add_argument("--model-artifact", type=Path, default=DEFAULT_MODEL_ARTIFACT)
     parser.add_argument("--output-batch", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
@@ -889,25 +1339,27 @@ def main(
     args = parser.parse_args(argv)
 
     master_seed = args.master_seed_file.read_bytes()
-    loader = load_policy_margin_scorer if scorer_loader is None else scorer_loader
-    policy_margin_scorer, model_sha256 = loader(args.model_artifact)
-    batch = generate_batch(
+    loader = load_policy_score_scorer if scorer_loader is None else scorer_loader
+    policy_score_scorer, model_sha256 = loader(args.model_artifact)
+    generation = generate_batch_result(
         master_seed=master_seed,
         batch_id=args.batch_id,
         scenario_count=args.scenario_count,
-        policy_margin_scorer=policy_margin_scorer,
+        policy_score_scorer=policy_score_scorer,
+        source_game_count=args.source_game_count,
     )
     manifest = write_batch_outputs(
-        batch=batch,
+        batch=generation.scenarios,
         batch_id=args.batch_id,
         master_seed=master_seed,
         generator_commit=args.generator_commit,
         model_sha256=model_sha256,
         output_batch_path=args.output_batch,
         manifest_path=args.manifest,
+        audit=generation.audit,
     )
     print(
-        f"wrote {len(batch)} scenarios to {args.output_batch} "
+        f"wrote {len(generation.scenarios)} scenarios to {args.output_batch} "
         f"(batch sha256:{manifest['batchSha256']})"
     )
 

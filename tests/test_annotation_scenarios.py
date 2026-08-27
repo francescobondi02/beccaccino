@@ -1,50 +1,63 @@
-"""Focused contracts for deterministic offline annotation batches."""
+"""Focused contracts for deterministic V2 annotation batches."""
 
 from __future__ import annotations
 
 import copy
 import hashlib
 import json
+import math
 from collections import Counter
 from pathlib import Path
 
 import pytest
 
-from becca_env.deck import Card, Suit, Value, card_points
-from becca_env.rules import determine_hand_winner
+from becca_env.deck import Suit
+from becca_env.game import BeccaGame, GamePhase
 from scripts import generate_annotation_scenarios as generator
 from scripts.annotation_scenario_constants import (
     ANNOTATION_DIFFICULTIES,
+    ANNOTATION_FAMILIES,
     ANNOTATION_IMPORTANCE_VALUES,
     ANNOTATION_TAGS,
-    IMPORTANCE_CURATED_CORNER_CASE,
-    IMPORTANCE_STANDARD,
     IMPORTANCE_USEFUL_UNCOMMON,
-    MIN_CURATED_CORNER_SHARE,
-    TARGET_DIFFICULTY_MIX,
+    MAX_SCENARIOS_PER_SOURCE_GAME,
 )
 
 MASTER_SEED = b"private-test-master-seed-material-v1"
 BATCH_ID = "expert-2026-08"
-SCENARIO_COUNT = 50
+SCENARIO_COUNT = 18
+SOURCE_GAME_COUNT = 12
 MODEL_SHA256 = "ab" * 32
 
 
-def _fake_policy_margin(game) -> float:
-    state_bytes = generator.canonical_json_bytes(generator.public_state(game))
-    bucket = hashlib.sha256(state_bytes).digest()[0] % 3
-    return (0.05, 1.5, 12.0)[bucket]
+def _fake_policy_scores(game: BeccaGame) -> list[float]:
+    state_digest = hashlib.sha256(
+        generator.canonical_json_bytes(generator.public_state(game))
+    ).digest()
+    return [
+        int.from_bytes(
+            hashlib.sha256(state_digest + index.to_bytes(2, "big")).digest()[:2],
+            "big",
+        )
+        / 8192
+        for index in range(len(game.legal_actions()))
+    ]
 
 
 @pytest.fixture(scope="module")
-def batch() -> list[dict]:
-    return generator.generate_batch(
+def generation() -> generator.GenerationResult:
+    return generator.generate_batch_result(
         master_seed=MASTER_SEED,
         batch_id=BATCH_ID,
         scenario_count=SCENARIO_COUNT,
-        policy_margin_scorer=_fake_policy_margin,
-        max_source_games=20,
+        policy_score_scorer=_fake_policy_scores,
+        source_game_count=SOURCE_GAME_COUNT,
     )
+
+
+@pytest.fixture(scope="module")
+def batch(generation: generator.GenerationResult) -> list[dict]:
+    return generation.scenarios
 
 
 def _all_keys(value: object) -> set[str]:
@@ -55,25 +68,29 @@ def _all_keys(value: object) -> set[str]:
     return set()
 
 
-def _card(card: dict) -> Card:
-    return Card(Suit(card["suit"]), Value(card["value"]))
+def _scenario_family(scenario: dict) -> str:
+    return scenario["tags"][0]
 
 
-def test_fixed_annotation_constants():
+def test_v2_annotation_constants():
     assert ANNOTATION_DIFFICULTIES == ("easy", "medium", "hard")
-    assert ANNOTATION_TAGS == (
-        "lead",
-        "must_follow",
-        "void",
-        "partner_winning",
-        "high_value_trick",
-        "late_round",
-        "score_pressure",
-        "signal_decision",
-    )
+    assert ANNOTATION_FAMILIES == ("borderline_briscola", "lead", "risk")
     assert ANNOTATION_IMPORTANCE_VALUES == (1, 2, 3)
-    assert TARGET_DIFFICULTY_MIX == {"easy": 0.2, "medium": 0.4, "hard": 0.4}
-    assert MIN_CURATED_CORNER_SHARE == 0.05
+    assert ANNOTATION_TAGS == ANNOTATION_FAMILIES
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [
+        (1, {"borderline_briscola": 1, "lead": 0, "risk": 0}),
+        (2, {"borderline_briscola": 1, "lead": 1, "risk": 0}),
+        (3, {"borderline_briscola": 1, "lead": 1, "risk": 1}),
+        (4, {"borderline_briscola": 2, "lead": 1, "risk": 1}),
+        (8, {"borderline_briscola": 3, "lead": 3, "risk": 2}),
+    ],
+)
+def test_family_quotas_are_near_equal_for_arbitrary_counts(count, expected):
+    assert generator.family_quotas(count) == expected
 
 
 def test_hmac_game_seeds_are_deterministic_domain_separated_and_private():
@@ -87,105 +104,255 @@ def test_hmac_game_seeds_are_deterministic_domain_separated_and_private():
     assert generator.seed_fingerprint(MASTER_SEED) != hashlib.sha256(MASTER_SEED).hexdigest()
 
 
-def test_generation_is_deterministic_and_meets_exact_difficulty_quotas(batch):
-    regenerated = generator.generate_batch(
+def test_batch_contains_both_strict_state_shapes_and_hashes_state_only(batch):
+    decision_types = Counter(item["decisionType"] for item in batch)
+    assert (
+        decision_types["choose_briscola"]
+        == generator.family_quotas(SCENARIO_COUNT)["borderline_briscola"]
+    )
+    assert decision_types["play_card"] == SCENARIO_COUNT - decision_types["choose_briscola"]
+
+    for item in batch:
+        state = item["state"]
+        expected_keys = (
+            generator._BRISCOLA_STATE_KEYS
+            if item["decisionType"] == "choose_briscola"
+            else generator._PLAY_STATE_KEYS
+        )
+        assert set(state) == set(expected_keys)
+        assert item["stateHash"] == generator._sha256(state)
+        assert item["stateHash"] != generator._sha256(
+            {"decisionType": item["decisionType"], "state": state}
+        )
+
+
+def test_generation_is_deterministic_and_family_balanced(generation):
+    regenerated = generator.generate_batch_result(
         master_seed=MASTER_SEED,
         batch_id=BATCH_ID,
         scenario_count=SCENARIO_COUNT,
-        policy_margin_scorer=_fake_policy_margin,
-        max_source_games=20,
+        policy_score_scorer=_fake_policy_scores,
+        source_game_count=SOURCE_GAME_COUNT,
     )
 
-    assert generator.canonical_json_bytes(regenerated) == generator.canonical_json_bytes(batch)
-    assert Counter(item["predictedDifficulty"] for item in batch) == {
-        "easy": 10,
-        "medium": 20,
-        "hard": 20,
-    }
-    assert [item["code"] for item in batch] == [
+    assert generator.canonical_json_bytes(regenerated.scenarios) == generator.canonical_json_bytes(
+        generation.scenarios
+    )
+    assert regenerated.audit == generation.audit
+    assert Counter(map(_scenario_family, generation.scenarios)) == Counter(
+        generator.family_quotas(SCENARIO_COUNT)
+    )
+    assert [item["code"] for item in generation.scenarios] == [
         f"{BATCH_ID}-{ordinal:05d}" for ordinal in range(1, SCENARIO_COUNT + 1)
     ]
-    assert sum(
-        item["importance"] == IMPORTANCE_CURATED_CORNER_CASE for item in batch
-    ) >= generator.minimum_curated_corner_count(SCENARIO_COUNT)
 
 
-def test_forced_card_positions_are_excluded_even_for_signal_leaders(batch):
-    assert all(
-        generator.distinct_legal_card_count(item["state"]["legalActions"]) > 1 for item in batch
+def test_collection_scans_every_configured_source_game(monkeypatch):
+    original = generator.derive_game_seed
+    visited: list[int] = []
+
+    def tracking_seed(master_seed: bytes, batch_id: str, game_index: int) -> int:
+        visited.append(game_index)
+        return original(master_seed, batch_id, game_index)
+
+    monkeypatch.setattr(generator, "derive_game_seed", tracking_seed)
+    result = generator.generate_batch_result(
+        master_seed=MASTER_SEED,
+        batch_id="full-pool-test",
+        scenario_count=9,
+        policy_score_scorer=_fake_policy_scores,
+        source_game_count=8,
     )
 
-    leader = next(item for item in batch if "lead" in item["tags"])
-    state = leader["state"]
-    assert len(state["legalActions"]) == len(state["hand"]) * 4
-    assert generator.distinct_legal_card_count(state["legalActions"]) == len(state["hand"])
-    one_card_actions = [
-        {"suit": "denara", "value": "asso", "signal": signal}
-        for signal in (None, "striscio", "busso", "volo")
+    assert visited == list(range(8))
+    assert result.audit.source_games_scanned == 8
+    assert result.audit.source_games_with_candidates == 8
+    assert all(count > 9 for count in result.audit.candidate_pool_counts.values())
+
+
+def test_selected_scenarios_respect_the_private_source_cap(generation):
+    audit = generation.audit
+
+    assert audit.max_selected_per_source_game <= MAX_SCENARIOS_PER_SOURCE_GAME
+    assert audit.selected_source_games >= math.ceil(SCENARIO_COUNT / 2)
+
+
+def _candidate(
+    family: str,
+    source: int,
+    quality: float,
+    discovery: int,
+    signature: str,
+) -> generator._Candidate:
+    return generator._Candidate(
+        scenario={"stateHash": f"{family}-{source}-{discovery}"},
+        family=family,
+        source_game_index=source,
+        quality=quality,
+        feature_signature=(signature,),
+        discovery_index=discovery,
+    )
+
+
+def test_selection_preserves_capacity_for_later_families(monkeypatch):
+    monkeypatch.setattr(generator, "validate_batch", lambda *args, **kwargs: None)
+    candidates = [
+        _candidate("borderline_briscola", 0, 1.0, 0, "b0"),
+        _candidate("borderline_briscola", 1, 0.9, 1, "b1"),
+        _candidate("lead", 0, 1.0, 2, "lead"),
+        _candidate("risk", 0, 1.0, 3, "risk"),
     ]
-    assert generator.distinct_legal_card_count(one_card_actions) == 1
 
-
-def test_tags_are_objective_public_state_predicates(batch):
-    for item in batch:
-        state = item["state"]
-        tags = set(item["tags"])
-        current = state["currentTrick"]["plays"]
-        lead_suit = current[0]["suit"] if current else None
-        hand_suits = {card["suit"] for card in state["hand"]}
-
-        assert ("lead" in tags) is (not current)
-        assert ("signal_decision" in tags) is (not current)
-        assert ("must_follow" in tags) is bool(current and lead_suit in hand_suits)
-        assert ("void" in tags) is bool(current and lead_suit not in hand_suits)
-        assert ("late_round" in tags) is (len(state["completedTricks"]) >= 7)
-        assert ("score_pressure" in tags) is (max(state["totalScores"].values()) >= 93)
-
-        if current:
-            plays = [(play["seat"], _card(play)) for play in current]
-            winner = determine_hand_winner(plays, Suit(state["briscola"]))
-            assert ("partner_winning" in tags) is (winner % 2 == state["actingSeat"] % 2)
-            points = sum(card_points[card.value] for _, card in plays)
-            assert ("high_value_trick" in tags) is (points >= 3)
-
-    pressure_state = copy.deepcopy(batch[0]["state"])
-    pressure_state["totalScores"]["0"] = 93
-    assert "score_pressure" in generator.classify_tags(pressure_state)
-
-
-def test_importance_uses_explicit_rule_combinations():
-    assert (
-        generator.classify_importance(["void", "partner_winning", "high_value_trick"])
-        == IMPORTANCE_CURATED_CORNER_CASE
+    result = generator._select_candidates(
+        candidates,
+        batch_id="feasible-source-cap",
+        scenario_count=3,
+        source_games_scanned=2,
     )
-    assert (
-        generator.classify_importance(["late_round", "high_value_trick"])
-        == IMPORTANCE_USEFUL_UNCOMMON
+
+    assert [item["stateHash"] for item in result.scenarios] == [
+        "borderline_briscola-1-1",
+        "lead-0-2",
+        "risk-0-3",
+    ]
+
+
+def test_quality_uses_ambiguity_and_impact_and_diversity_changes_selection(
+    monkeypatch,
+):
+    assert generator.candidate_quality(0.8, 0.2) > generator.candidate_quality(0.2, 0.2)
+    assert generator.candidate_quality(0.2, 0.8) > generator.candidate_quality(0.2, 0.2)
+
+    monkeypatch.setattr(generator, "validate_batch", lambda *args, **kwargs: None)
+    candidates = [
+        _candidate("borderline_briscola", 0, 1.0, 0, "repeated"),
+        _candidate("borderline_briscola", 1, 0.99, 1, "repeated"),
+        _candidate("borderline_briscola", 2, 0.9, 2, "different"),
+        _candidate("lead", 3, 1.0, 3, "lead"),
+        _candidate("risk", 4, 1.0, 4, "risk"),
+    ]
+
+    result = generator._select_candidates(
+        candidates,
+        batch_id="diverse-selection",
+        scenario_count=4,
+        source_games_scanned=5,
     )
-    assert generator.classify_importance(["must_follow"]) == IMPORTANCE_STANDARD
+    briscola_hashes = [
+        item["stateHash"]
+        for item in result.scenarios
+        if item["stateHash"].startswith("borderline_briscola")
+    ]
+    assert briscola_hashes == [
+        "borderline_briscola-0-0",
+        "borderline_briscola-2-2",
+    ]
 
 
-def test_batch_exposes_only_db_import_fields_and_public_state(batch):
+def test_normalized_model_margin_and_briscola_ambiguity(batch):
+    assert generator.normalized_top_two_margin([0.0, 0.0]) == 0.0
+    assert 0.99 < generator.normalized_top_two_margin([100.0, 0.0]) <= 1.0
+
+    state = next(item["state"] for item in batch if item["decisionType"] == "choose_briscola")
+    closeness = generator.briscola_strength_closeness(state)
+    low_model_margin = generator.decision_ambiguity(
+        "choose_briscola",
+        state,
+        generator.ModelMargins(action=0.1),
+    )
+    high_model_margin = generator.decision_ambiguity(
+        "choose_briscola",
+        state,
+        generator.ModelMargins(action=0.9),
+    )
+
+    assert 0.0 <= closeness <= 1.0
+    assert low_model_margin == pytest.approx(0.5 * 0.9 + 0.5 * closeness)
+    assert high_model_margin == pytest.approx(0.5 * 0.1 + 0.5 * closeness)
+    assert low_model_margin > high_model_margin
+
+
+def test_leader_card_and_signal_margins_are_separate():
+    game = BeccaGame(seed=17, win_points=41)
+    game.step(Suit.DENARA)
+    assert game.phase == GamePhase.PLAY_CARD
+    assert not game.round.current_trick
+
+    actions = game.legal_actions()
+    first_card = actions[0][0]
+    card_dominant = [8.0 if card == first_card else 0.0 for card, _signal in actions]
+    card_margins = generator.model_margins(game, card_dominant)
+    assert card_margins.card > 0.9
+    assert card_margins.signal == pytest.approx(0.0)
+
+    signal_dominant = [8.0 if signal is None else 0.0 for _card, signal in actions]
+    signal_margins = generator.model_margins(game, signal_dominant)
+    assert signal_margins.card == pytest.approx(0.0)
+    assert signal_margins.signal > 0.9
+
+
+def test_each_scenario_exposes_only_its_public_state_family(batch):
+    briscola_items = [item for item in batch if item["decisionType"] == "choose_briscola"]
+    lead_items = [item for item in batch if item["tags"] == ["lead"]]
+    risk_items = [item for item in batch if item["tags"] == ["risk"]]
+
+    assert all(
+        item["tags"] == ["borderline_briscola"]
+        and generator.briscola_strength_closeness(item["state"])
+        >= generator.BRISCOLA_CLOSE_THRESHOLD
+        for item in briscola_items
+    )
+    assert all(not item["state"]["currentTrick"]["plays"] for item in lead_items)
+    assert all(any(generator.risk_tradeoffs(item["state"]).values()) for item in risk_items)
+    assert len(risk_items) == generator.family_quotas(SCENARIO_COUNT)["risk"]
+
+
+def test_strategic_impact_is_explicitly_public_and_high_for_briscola(batch):
+    briscola = next(item for item in batch if item["decisionType"] == "choose_briscola")
+    lead = next(item for item in batch if item["tags"] == ["lead"])
+    risk = next(item for item in batch if item["tags"] == ["risk"])
+
+    assert generator.strategic_impact("choose_briscola", briscola["state"]) >= 0.85
+    assert 0.0 <= generator.strategic_impact("play_card", lead["state"]) <= 1.0
+    assert 0.0 <= generator.strategic_impact("play_card", risk["state"]) <= 1.0
+
+
+def test_batch_exposes_no_private_selection_or_model_fields(batch):
     forbidden = {
-        "id",
-        "version",
-        "category",
         "seed",
+        "dealSeed",
         "masterSeed",
         "playerHands",
         "hiddenHands",
-        "policyMargin",
         "modelScores",
+        "policyMargin",
+        "modelMargin",
+        "cardMargin",
+        "signalMargin",
+        "suitScores",
+        "sourceGameId",
+        "sourceGameIndex",
+        "selectionScore",
+        "strategicImpact",
+        "ambiguity",
+        "quality",
+        "family",
+        "diversitySignature",
+        "selectionMetrics",
         "logits",
         "hiddenState",
     }
 
     assert all(set(item) == generator._SCENARIO_KEYS for item in batch)
-    assert all(set(item["state"]) == set(generator._STATE_KEYS) for item in batch)
     assert not forbidden.intersection(_all_keys(batch))
+    assert MASTER_SEED not in generator.canonical_json_bytes(batch)
 
 
-def test_validation_rejects_state_tag_importance_and_quota_tampering(batch):
+def test_selected_v1_scenarios_have_equal_useful_importance(batch):
+    assert {item["importance"] for item in batch} == {IMPORTANCE_USEFUL_UNCOMMON}
+
+
+def test_validation_rejects_state_tag_decision_and_private_field_tampering(batch):
     bad_state = copy.deepcopy(batch)
     bad_state[0]["state"]["totalScores"]["0"] += 1
     with pytest.raises(ValueError, match="stateHash"):
@@ -196,75 +363,80 @@ def test_validation_rejects_state_tag_importance_and_quota_tampering(batch):
         )
 
     bad_tags = copy.deepcopy(batch)
-    bad_tags[0]["tags"] = ["score_pressure"]
-    with pytest.raises(ValueError, match="objective predicates"):
+    bad_tags[0]["tags"] = ["lead"]
+    with pytest.raises(ValueError, match="public-state family"):
         generator.validate_batch(
             bad_tags,
             batch_id=BATCH_ID,
             expected_count=SCENARIO_COUNT,
         )
 
-    bad_importance = copy.deepcopy(batch)
-    bad_importance[0]["importance"] = 3 if bad_importance[0]["importance"] != 3 else 1
-    with pytest.raises(ValueError, match="objective rule combinations"):
+    bad_decision = copy.deepcopy(batch)
+    bad_decision[0]["decisionType"] = "play_card"
+    with pytest.raises(ValueError, match="play_card state"):
         generator.validate_batch(
-            bad_importance,
+            bad_decision,
             batch_id=BATCH_ID,
             expected_count=SCENARIO_COUNT,
         )
 
-    bad_quota = copy.deepcopy(batch)
-    easy = next(item for item in bad_quota if item["predictedDifficulty"] == "easy")
-    easy["predictedDifficulty"] = "hard"
-    with pytest.raises(ValueError, match="difficulty quotas"):
+    private_field = copy.deepcopy(batch)
+    private_field[0]["selectionMetrics"] = {"quality": 1.0}
+    with pytest.raises(ValueError, match="forbidden fields"):
         generator.validate_batch(
-            bad_quota,
+            private_field,
             batch_id=BATCH_ID,
             expected_count=SCENARIO_COUNT,
         )
 
 
-def test_manifest_hashes_exact_batch_bytes_and_rejects_tampering(tmp_path, batch):
+def test_manifest_has_family_and_source_coverage_without_source_ids(
+    tmp_path,
+    generation,
+):
     batch_path = tmp_path / "nested" / "scenarios.json"
     manifest_path = tmp_path / "nested" / "manifest.json"
     manifest = generator.write_batch_outputs(
-        batch=batch,
+        batch=generation.scenarios,
         batch_id=BATCH_ID,
         master_seed=MASTER_SEED,
         generator_commit="ai@852313d",
         model_sha256=MODEL_SHA256,
         output_batch_path=batch_path,
         manifest_path=manifest_path,
-        max_source_games=20,
+        audit=generation.audit,
     )
     batch_bytes = batch_path.read_bytes()
     manifest_bytes = manifest_path.read_bytes()
 
-    assert batch_bytes == generator.canonical_json_bytes(batch)
+    assert batch_bytes == generator.canonical_json_bytes(generation.scenarios)
     assert manifest["batchSha256"] == hashlib.sha256(batch_bytes).hexdigest()
+    assert manifest["parameters"]["familyQuotas"] == generator.family_quotas(SCENARIO_COUNT)
+    assert manifest["counts"]["family"] == generator.family_quotas(SCENARIO_COUNT)
+    assert "tag" not in manifest["counts"]
+    assert manifest["counts"]["sourceGameCoverage"]["scanned"] == SOURCE_GAME_COUNT
+    assert "sourceGameIds" not in _all_keys(manifest)
     assert MASTER_SEED not in batch_bytes
     assert MASTER_SEED not in manifest_bytes
     generator.validate_output_bytes(batch_bytes, manifest_bytes)
 
     tampered_manifest = copy.deepcopy(json.loads(manifest_bytes))
-    tampered_manifest["batchSha256"] = "0" * 64
-    with pytest.raises(ValueError, match="batchSha256"):
+    tampered_manifest["counts"]["sourceGameCoverage"]["maxSelectedPerGame"] = 3
+    with pytest.raises(ValueError, match="source-game coverage"):
         generator.validate_output_bytes(
             batch_bytes,
             generator.canonical_json_bytes(tampered_manifest),
         )
 
 
-def test_bounded_search_fails_clearly_when_a_quota_cannot_be_met(monkeypatch):
-    monkeypatch.setattr(generator, "predict_difficulty", lambda _state, _margin: "easy")
-
-    with pytest.raises(RuntimeError, match="could not satisfy difficulty quotas.*missing"):
-        generator.generate_batch(
+def test_bounded_search_fails_clearly_when_source_cap_blocks_quotas():
+    with pytest.raises(RuntimeError, match="family quotas.*2/source cap"):
+        generator.generate_batch_result(
             master_seed=MASTER_SEED,
             batch_id=BATCH_ID,
             scenario_count=5,
-            policy_margin_scorer=_fake_policy_margin,
-            max_source_games=1,
+            policy_score_scorer=_fake_policy_scores,
+            source_game_count=1,
         )
 
 
@@ -278,7 +450,7 @@ def test_cli_loads_the_model_once_and_writes_valid_outputs(tmp_path):
 
     def fake_loader(path: Path):
         loads.append(path)
-        return _fake_policy_margin, MODEL_SHA256
+        return _fake_policy_scores, MODEL_SHA256
 
     generator.main(
         [
@@ -287,7 +459,9 @@ def test_cli_loads_the_model_once_and_writes_valid_outputs(tmp_path):
             "--batch-id",
             "cli-batch",
             "--scenario-count",
-            "10",
+            "9",
+            "--source-game-count",
+            "8",
             "--model-artifact",
             str(model_path),
             "--output-batch",
@@ -305,7 +479,8 @@ def test_cli_loads_the_model_once_and_writes_valid_outputs(tmp_path):
         manifest_path.read_bytes(),
     )
     assert loads == [model_path]
-    assert len(written_batch) == 10
+    assert len(written_batch) == 9
     assert manifest["batchId"] == "cli-batch"
     assert manifest["modelSha256"] == MODEL_SHA256
     assert manifest["generatorCommit"] == "test-provenance"
+    assert manifest["counts"]["sourceGameCoverage"]["scanned"] == 8
