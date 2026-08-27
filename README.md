@@ -38,8 +38,8 @@ npm run dev            # http://localhost:8081
 | `VITE_SOCKET_URL` | Backend WebSocket URL, e.g. `http://localhost:8000` |
 | `VITE_SENTRY_DSN` | Optional — Sentry DSN for browser error tracking |
 
-Vite bakes these into the bundle at build time. After changing them in Vercel
-you must redeploy.
+Vite bakes these into the bundle at build time. GitHub Actions supplies the
+public production backend URLs explicitly; local development can override them.
 
 ## Deployment
 
@@ -51,10 +51,11 @@ resolves that project's IDs through the Vercel API under the
 are disabled in `vercel.json`, and a missing token fails the deployment workflow.
 
 Production builds require `VITE_API_URL` and `VITE_SOCKET_URL` to be valid HTTPS
-URLs and require a commit SHA from Vercel or GitHub Actions. The build writes
-that non-secret revision to `/version.json`. After deployment, GitHub Actions
-waits for the exact commit and then verifies the frontend document, backend
-database readiness, and AI model health.
+URLs; the deployment workflow sets them to the Render backend. Builds also
+require a commit SHA from Vercel or GitHub Actions and write that non-secret
+revision to `/version.json`. After deployment, GitHub Actions waits for the exact
+commit and then verifies the frontend document, backend database readiness, and
+AI model health.
 
 ## Expert annotation
 
