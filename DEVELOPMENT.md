@@ -137,6 +137,9 @@ cd backend
 npm run db:test:prepare
 ```
 
+This command refuses to run unless `NODE_ENV=test` and both Prisma URLs point
+exactly to `localhost/becca_test`.
+
 ### Commands
 
 ```sh
