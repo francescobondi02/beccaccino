@@ -82,6 +82,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/becca_test
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/becca_test
       JWT_SECRET: ci-test-secret
+      FRONTEND_URL: http://localhost:5173
     services:
       postgres:
         image: postgres:15
@@ -110,6 +111,7 @@ jobs:
             --env DATABASE_URL \
             --env DIRECT_URL \
             --env JWT_SECRET \
+            --env FRONTEND_URL \
             --env GIT_COMMIT_SHA=${{ github.sha }} \
             becca-backend:${{ github.sha }}
 
