@@ -98,6 +98,32 @@ def test_health_reports_loaded_model_without_authentication(client, monkeypatch)
     }
 
 
+def test_version_reports_render_commit_without_authentication(client, monkeypatch):
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "render-commit")
+    monkeypatch.setenv("GIT_COMMIT_SHA", "explicit-commit")
+
+    response = client.get("/version")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "ai",
+        "commit": "render-commit",
+    }
+
+
+def test_version_supports_explicit_commit_outside_render(client, monkeypatch):
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.setenv("GIT_COMMIT_SHA", "explicit-commit")
+
+    response = client.get("/version")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "ai",
+        "commit": "explicit-commit",
+    }
+
+
 def test_ready_requires_configured_bearer_token(client, monkeypatch):
     monkeypatch.setenv(BOT_SERVICE_TOKEN_ENV, "secret")
 

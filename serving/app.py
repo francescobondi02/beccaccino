@@ -192,6 +192,16 @@ def health():
     return _readiness_response(PROMOTED_TIER)
 
 
+@app.get("/version")
+def version():
+    return {
+        "service": "ai",
+        "commit": os.environ.get("RENDER_GIT_COMMIT")
+        or os.environ.get("GIT_COMMIT_SHA")
+        or "unknown",
+    }
+
+
 @app.get("/ready", dependencies=[Depends(_require_bot_token)])
 def ready(tier: str):
     return _readiness_response(tier)
