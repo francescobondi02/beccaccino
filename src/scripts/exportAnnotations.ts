@@ -7,8 +7,10 @@ import {
 } from "../annotations/constants";
 import { isCardSignal } from "../domain/cards";
 import {
-  AnnotationAction,
-  parseAnnotationScenarioState,
+  AnnotationPlayCardAction,
+  AnnotationSelectedAction,
+  isAnnotationActionLegal,
+  parseAnnotationScenario,
 } from "../annotations/scenario";
 
 type ExportableAnnotation = Pick<
@@ -19,6 +21,7 @@ type ExportableAnnotation = Pick<
   | "selectedSuit"
   | "selectedValue"
   | "selectedSignal"
+  | "selectedBriscola"
   | "skipped"
   | "comment"
   | "perceivedDifficulty"
@@ -28,6 +31,7 @@ type ExportableAnnotation = Pick<
 > & {
   scenario: {
     code: string;
+    decisionType: string;
     predictedDifficulty: string;
     importance: number;
     tags: string[];
@@ -50,24 +54,57 @@ function pseudonymFor(userId: number, salt: string): string {
 
 function selectedActionFor(
   annotation: ExportableAnnotation,
-): AnnotationAction | null {
-  const { selectedSuit, selectedValue, selectedSignal } = annotation;
+  decisionType: string,
+): AnnotationSelectedAction | null {
+  const {
+    selectedSuit,
+    selectedValue,
+    selectedSignal,
+    selectedBriscola,
+  } = annotation;
   if (annotation.skipped) {
-    if (selectedSuit || selectedValue || selectedSignal) {
+    if (
+      selectedSuit !== null ||
+      selectedValue !== null ||
+      selectedSignal !== null ||
+      selectedBriscola !== null
+    ) {
       throw new Error("skipped annotation selects an action");
     }
     return null;
   }
-  if (!selectedSuit || !selectedValue) {
-    throw new Error("non-skipped annotation is missing its selected card");
+  if (decisionType === "choose_briscola") {
+    if (
+      selectedBriscola === null ||
+      selectedSuit !== null ||
+      selectedValue !== null ||
+      selectedSignal !== null
+    ) {
+      throw new Error(
+        "briscola annotation contains mismatched selected action columns",
+      );
+    }
+    return {
+      decisionType: "choose_briscola",
+      suit: selectedBriscola,
+    };
+  }
+  if (
+    decisionType !== "play_card" ||
+    selectedSuit === null ||
+    selectedValue === null ||
+    selectedBriscola !== null
+  ) {
+    throw new Error("card annotation contains mismatched selected action columns");
   }
   if (selectedSignal !== null && !isCardSignal(selectedSignal)) {
     throw new Error("annotation contains an invalid selected signal");
   }
   return {
+    decisionType: "play_card",
     suit: selectedSuit,
     value: selectedValue,
-    signal: selectedSignal as AnnotationAction["signal"],
+    signal: selectedSignal as AnnotationPlayCardAction["signal"],
   };
 }
 
@@ -87,19 +124,18 @@ export function annotationExportRecord(
       `annotation references invalid scenario ${annotation.scenarioId}`,
     );
   }
-  const state = parseAnnotationScenarioState(
+  const parsedScenario = parseAnnotationScenario(
+    annotation.scenario.decisionType,
     annotation.scenario.state,
     annotation.scenario.stateHash,
   );
-  const selectedAction = selectedActionFor(annotation);
+  const selectedAction = selectedActionFor(
+    annotation,
+    parsedScenario.decisionType,
+  );
   if (
     selectedAction &&
-    !state.legalActions.some(
-      (legal) =>
-        legal.suit === selectedAction.suit &&
-        legal.value === selectedAction.value &&
-        legal.signal === selectedAction.signal,
-    )
+    !isAnnotationActionLegal(parsedScenario, selectedAction)
   ) {
     throw new Error("annotation contains an illegal selected action");
   }
@@ -109,6 +145,7 @@ export function annotationExportRecord(
     selectedSuit: _selectedSuit,
     selectedValue: _selectedValue,
     selectedSignal: _selectedSignal,
+    selectedBriscola: _selectedBriscola,
     scenario,
     ...response
   } = annotation;
@@ -118,12 +155,13 @@ export function annotationExportRecord(
     scenario: {
       id: annotation.scenarioId,
       code: scenario.code,
+      decisionType: parsedScenario.decisionType,
       stateHash: scenario.stateHash,
       predictedDifficulty: scenario.predictedDifficulty,
       importance: scenario.importance,
       tags: scenario.tags,
       sourceBatch: scenario.sourceBatch,
-      ...state,
+      ...parsedScenario.state,
     },
     selectedAction,
   };
@@ -142,6 +180,7 @@ async function main() {
         scenario: {
           select: {
             code: true,
+            decisionType: true,
             predictedDifficulty: true,
             importance: true,
             tags: true,

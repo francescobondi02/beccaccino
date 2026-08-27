@@ -16,7 +16,14 @@ export interface AnnotationImportSummary {
   validated: number;
   inserted: number;
   skipped: number;
+  wouldDeactivate: number;
+  deactivated: number;
   applied: boolean;
+}
+
+export interface AnnotationImportOptions {
+  apply: boolean;
+  replaceActive?: boolean;
 }
 
 function parseManifest(value: unknown): AnnotationBatchManifest {
@@ -64,6 +71,7 @@ export async function readAnnotationBatch(
 function sameScenario(
   existing: {
     code: string;
+    decisionType: string;
     predictedDifficulty: string;
     importance: number;
     tags: string[];
@@ -76,6 +84,7 @@ function sameScenario(
 ): boolean {
   return (
     existing.code === incoming.code &&
+    existing.decisionType === incoming.decisionType &&
     existing.predictedDifficulty === incoming.predictedDifficulty &&
     existing.importance === incoming.importance &&
     canonicalJson(existing.tags) === canonicalJson(incoming.tags) &&
@@ -88,7 +97,7 @@ function sameScenario(
 export async function importAnnotationBatch(
   batchPath: string,
   manifestPath: string,
-  apply: boolean,
+  options: AnnotationImportOptions,
   client?: PrismaClient,
 ): Promise<AnnotationImportSummary> {
   const prisma = client ?? new PrismaClient({ log: [] });
@@ -111,6 +120,7 @@ export async function importAnnotationBatch(
         },
         select: {
           code: true,
+          decisionType: true,
           predictedDifficulty: true,
           importance: true,
           tags: true,
@@ -140,10 +150,11 @@ export async function importAnnotationBatch(
         return false;
       });
 
-      if (apply && pending.length > 0) {
+      if (options.apply && pending.length > 0) {
         await tx.annotationScenario.createMany({
           data: pending.map((scenario) => ({
             code: scenario.code,
+            decisionType: scenario.decisionType,
             predictedDifficulty: scenario.predictedDifficulty,
             importance: scenario.importance,
             tags: [...scenario.tags],
@@ -153,12 +164,39 @@ export async function importAnnotationBatch(
           })),
         });
       }
+      let deactivated = 0;
+      let wouldDeactivate = 0;
+      if (options.replaceActive) {
+        const incomingCodes = scenarios.map((scenario) => scenario.code);
+        wouldDeactivate = await tx.annotationScenario.count({
+          where: {
+            active: true,
+            code: { notIn: incomingCodes },
+          },
+        });
+        if (options.apply) {
+          await tx.annotationScenario.updateMany({
+            where: { code: { in: incomingCodes }, active: false },
+            data: { active: true },
+          });
+          const result = await tx.annotationScenario.updateMany({
+            where: {
+              active: true,
+              code: { notIn: incomingCodes },
+            },
+            data: { active: false },
+          });
+          deactivated = result.count;
+        }
+      }
       return {
         batchId: manifest.batchId,
         validated: scenarios.length,
-        inserted: apply ? pending.length : 0,
+        inserted: options.apply ? pending.length : 0,
         skipped: scenarios.length - pending.length,
-        applied: apply,
+        wouldDeactivate,
+        deactivated,
+        applied: options.apply,
       };
     });
   } finally {
@@ -171,13 +209,20 @@ export async function importAnnotationBatch(
 async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes("--apply");
-  const paths = args.filter((arg) => arg !== "--apply");
+  const replaceActive = args.includes("--replace-active");
+  const paths = args.filter(
+    (arg) => arg !== "--apply" && arg !== "--replace-active",
+  );
   if (paths.length !== 2) {
     throw new Error(
-      "Usage: importAnnotationScenarios <batch.json> <manifest.json> [--apply]",
+      "Usage: importAnnotationScenarios <batch.json> <manifest.json> [--apply] [--replace-active]",
     );
   }
-  const summary = await importAnnotationBatch(paths[0], paths[1], apply);
+  const summary = await importAnnotationBatch(
+    paths[0],
+    paths[1],
+    { apply, replaceActive },
+  );
   process.stdout.write(`${JSON.stringify(summary)}\n`);
 }
 

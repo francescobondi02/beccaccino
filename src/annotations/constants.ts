@@ -10,6 +10,8 @@ export const ANNOTATION_TAGS = [
   "late_round",
   "score_pressure",
   "signal_decision",
+  "borderline_briscola",
+  "risk",
 ] as const;
 export type AnnotationTag = (typeof ANNOTATION_TAGS)[number];
 

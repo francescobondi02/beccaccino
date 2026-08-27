@@ -1,10 +1,11 @@
 import { createHash, timingSafeEqual } from "crypto";
 import { Request, Response } from "express";
 import { prisma } from "../db";
-import { isCardSignal, isSuit, isValue } from "../domain/cards";
 import {
-  AnnotationAction,
-  parseAnnotationScenarioState,
+  AnnotationSelectedAction,
+  isAnnotationActionLegal,
+  parseAnnotationScenario,
+  parseAnnotationSelectedAction,
 } from "../annotations/scenario";
 import { isAnnotationDifficulty } from "../annotations/constants";
 import { selectNextAnnotationScenario } from "../annotations/selection";
@@ -81,20 +82,6 @@ export const grantAnnotationAccess = async (req: Request, res: Response) => {
   });
 };
 
-function selectedActionFrom(value: unknown): AnnotationAction | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  const action = value as Record<string, unknown>;
-  if (!isSuit(action.suit) || !isValue(action.value)) return null;
-  if (action.signal !== null && !isCardSignal(action.signal)) return null;
-  return {
-    suit: action.suit,
-    value: action.value,
-    signal: action.signal,
-  };
-}
-
 function validatedComment(value: unknown):
   | { ok: true; comment: string | null }
   | { ok: false; error: string } {
@@ -117,14 +104,6 @@ function validatedComment(value: unknown):
   return { ok: true, comment };
 }
 
-function actionsEqual(left: AnnotationAction, right: AnnotationAction): boolean {
-  return (
-    left.suit === right.suit &&
-    left.value === right.value &&
-    left.signal === right.signal
-  );
-}
-
 export const getNextAnnotation = async (req: Request, res: Response) => {
   const userId = requireUserId(req, res);
   if (userId === null) return;
@@ -133,13 +112,18 @@ export const getNextAnnotation = async (req: Request, res: Response) => {
   if (!selected) {
     return res.status(200).json({ scenario: null, contributionCount: count });
   }
-  const state = parseAnnotationScenarioState(selected.state, selected.stateHash);
+  const scenario = parseAnnotationScenario(
+    selected.decisionType,
+    selected.state,
+    selected.stateHash,
+  );
   return res.status(200).json({
     scenario: {
       id: selected.id,
       code: selected.code,
       stateHash: selected.stateHash,
-      ...state,
+      decisionType: scenario.decisionType,
+      ...scenario.state,
     },
     contributionCount: count,
   });
@@ -188,14 +172,23 @@ export const upsertAnnotationResponse = async (
 
   const scenario = await prisma.annotationScenario.findUnique({
     where: { id: scenarioId },
-    select: { id: true, state: true, stateHash: true },
+    select: {
+      id: true,
+      decisionType: true,
+      state: true,
+      stateHash: true,
+    },
   });
   if (!scenario || scenario.stateHash !== scenarioHash) {
     return res.status(409).json({ error: "Scenario identity is stale" });
   }
-  const state = parseAnnotationScenarioState(scenario.state, scenario.stateHash);
+  const parsedScenario = parseAnnotationScenario(
+    scenario.decisionType,
+    scenario.state,
+    scenario.stateHash,
+  );
 
-  let action: AnnotationAction | null = null;
+  let action: AnnotationSelectedAction | null = null;
   if (skipped) {
     if (selectedAction !== null) {
       return res
@@ -203,11 +196,12 @@ export const upsertAnnotationResponse = async (
         .json({ error: "A skipped response cannot select an action" });
     }
   } else {
-    action = selectedActionFrom(selectedAction);
-    if (!action) {
+    try {
+      action = parseAnnotationSelectedAction(selectedAction);
+    } catch {
       return res.status(400).json({ error: "A selected action is required" });
     }
-    if (!state.legalActions.some((legal) => actionsEqual(legal, action!))) {
+    if (!isAnnotationActionLegal(parsedScenario, action)) {
       return res
         .status(400)
         .json({ error: "Selected action is not legal for this scenario" });
@@ -216,9 +210,12 @@ export const upsertAnnotationResponse = async (
 
   const data = {
     scenarioHash: scenario.stateHash,
-    selectedSuit: action?.suit ?? null,
-    selectedValue: action?.value ?? null,
-    selectedSignal: action?.signal ?? null,
+    selectedSuit: action?.decisionType === "play_card" ? action.suit : null,
+    selectedValue: action?.decisionType === "play_card" ? action.value : null,
+    selectedSignal:
+      action?.decisionType === "play_card" ? action.signal : null,
+    selectedBriscola:
+      action?.decisionType === "choose_briscola" ? action.suit : null,
     skipped,
     comment: commentResult.comment,
     perceivedDifficulty,

@@ -3,10 +3,13 @@ import jwt from "jsonwebtoken";
 import request from "supertest";
 import { prisma } from "../../src/db";
 import { annotationStateHash } from "../../src/annotations/scenario";
+import { CARD_SIGNALS } from "../../src/domain/cards";
 import { generateToken } from "../../src/utils/jwt";
 import {
   annotationScenarioCreateData,
   annotationScenarioState,
+  chooseBriscolaScenarioCreateData,
+  chooseBriscolaScenarioState,
 } from "../helpers/annotationScenario";
 import {
   apiAs,
@@ -65,6 +68,22 @@ async function createScenario(
   });
 }
 
+async function createBriscolaScenario(code: string, score = 0) {
+  const state = chooseBriscolaScenarioState({
+    totalScores: { 0: score, 1: 0 },
+  });
+  return prisma.annotationScenario.create({
+    data: {
+      ...chooseBriscolaScenarioCreateData({
+        code,
+        state,
+        stateHash: annotationStateHash(state),
+      }),
+      state: state as unknown as Prisma.InputJsonValue,
+    },
+  });
+}
+
 function authCookie(user: { id: number; username: string }) {
   return `authToken=${generateToken({
     userId: user.id,
@@ -80,9 +99,29 @@ function responseFor(
     scenarioId: scenario.id,
     scenarioHash: scenario.stateHash,
     selectedAction: {
+      decisionType: "play_card",
       suit: Suit.denara,
       value: Value.asso,
       signal: null,
+    },
+    skipped: false,
+    comment: null,
+    perceivedDifficulty: "medium",
+    responseTimeMs: 1234,
+    ...overrides,
+  };
+}
+
+function briscolaResponseFor(
+  scenario: Awaited<ReturnType<typeof createBriscolaScenario>>,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    scenarioId: scenario.id,
+    scenarioHash: scenario.stateHash,
+    selectedAction: {
+      decisionType: "choose_briscola",
+      suit: Suit.spade,
     },
     skipped: false,
     comment: null,
@@ -216,19 +255,47 @@ describe("expert annotation API", () => {
     expect(next.body.scenario.code).toBe("initial-v1-0001");
   });
 
+  it("reads a V1 database row through the play_card default", async () => {
+    const user = await createUser("legacy", true);
+    const state = annotationScenarioState();
+    const scenario = await prisma.annotationScenario.create({
+      data: {
+        code: "initial-v1-default",
+        predictedDifficulty: "medium",
+        importance: 2,
+        tags: ["must_follow"],
+        state: state as unknown as Prisma.InputJsonValue,
+        stateHash: annotationStateHash(state),
+        sourceBatch: "initial-v1",
+      },
+    });
+
+    expect(scenario.decisionType).toBe("play_card");
+    const next = await apiAs(user.id, user.username).get(
+      "/api/annotations/next",
+    );
+    expect(next.statusCode).toBe(200);
+    expect(next.body.scenario).toMatchObject({
+      id: scenario.id,
+      decisionType: "play_card",
+      hand: state.hand,
+      legalActions: state.legalActions,
+    });
+  });
+
   it("mixes difficulty per user and never exposes generated labels", async () => {
     const user = await createUser("balanced", true);
     const medium = await createScenario("initial-v1-medium", "medium", 0);
     const hard = await createScenario("initial-v1-hard", "hard", 3);
     const easy = await createScenario("initial-v1-easy", "easy", 6);
 
-    const expected = [medium, hard, easy];
-    for (const scenario of expected) {
+    for (const scenario of [medium, hard, easy]) {
       const next = await apiAs(user.id, user.username).get(
         "/api/annotations/next",
       );
       expect(next.statusCode).toBe(200);
       expect(next.body.scenario.id).toBe(scenario.id);
+      expect(next.body.scenario.decisionType).toBe("play_card");
       expect(next.body.scenario.predictedDifficulty).toBeUndefined();
       expect(next.body.scenario.importance).toBeUndefined();
       expect(next.body.scenario.tags).toBeUndefined();
@@ -278,6 +345,9 @@ describe("expert annotation API", () => {
   it("rejects stale identities, illegal actions, and invalid perceived difficulty", async () => {
     const user = await createUser("validator", true);
     const scenario = await createScenario("initial-v1-validation");
+    const briscolaScenario = await createBriscolaScenario(
+      "annotator-v2-validation",
+    );
 
     const stale = await apiAs(user.id, user.username)
       .post("/api/annotations/responses")
@@ -289,6 +359,7 @@ describe("expert annotation API", () => {
       .send(
         responseFor(scenario, {
           selectedAction: {
+            decisionType: "play_card",
             suit: Suit.coppe,
             value: Value.asso,
             signal: null,
@@ -301,6 +372,32 @@ describe("expert annotation API", () => {
       .post("/api/annotations/responses")
       .send(responseFor(scenario, { perceivedDifficulty: "expert" }));
     expect(invalidDifficulty.statusCode).toBe(400);
+
+    const wrongCardType = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(
+        responseFor(scenario, {
+          selectedAction: {
+            decisionType: "choose_briscola",
+            suit: Suit.denara,
+          },
+        }),
+      );
+    expect(wrongCardType.statusCode).toBe(400);
+
+    const wrongBriscolaType = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(
+        briscolaResponseFor(briscolaScenario, {
+          selectedAction: {
+            decisionType: "play_card",
+            suit: Suit.denara,
+            value: Value.asso,
+            signal: null,
+          },
+        }),
+      );
+    expect(wrongBriscolaType.statusCode).toBe(400);
     expect(await prisma.expertAnnotation.count()).toBe(0);
   });
 
@@ -320,9 +417,113 @@ describe("expert annotation API", () => {
     expect(second.statusCode).toBe(200);
     expect(second.body.contributionCount).toBe(1);
     expect(await prisma.expertAnnotation.count()).toBe(1);
+    expect(await prisma.expertAnnotation.findFirstOrThrow()).toMatchObject({
+      selectedSuit: Suit.denara,
+      selectedValue: Value.asso,
+      selectedSignal: null,
+      selectedBriscola: null,
+      perceivedDifficulty: "hard",
+    });
+  });
+
+  it("accepts and stores a positive play-card signal", async () => {
+    const user = await createUser("signal", true);
+    const base = annotationScenarioState();
+    const state = annotationScenarioState({
+      actingSeat: 0,
+      currentTrick: {
+        number: 1,
+        starterSeat: 0,
+        signal: null,
+        signalSeat: null,
+        plays: [],
+      },
+      legalActions: base.hand.flatMap((card) =>
+        [null, ...CARD_SIGNALS].map((signal) => ({ ...card, signal })),
+      ),
+    });
+    const scenario = await prisma.annotationScenario.create({
+      data: {
+        ...annotationScenarioCreateData({
+          code: "annotator-v2-signal",
+          state,
+          stateHash: annotationStateHash(state),
+        }),
+        state: state as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    const response = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(
+        responseFor(scenario, {
+          selectedAction: {
+            decisionType: "play_card",
+            suit: Suit.denara,
+            value: Value.asso,
+            signal: "busso",
+          },
+        }),
+      );
+
+    expect(response.statusCode).toBe(200);
     expect(
-      (await prisma.expertAnnotation.findFirstOrThrow()).perceivedDifficulty,
-    ).toBe("hard");
+      (await prisma.expertAnnotation.findFirstOrThrow()).selectedSignal,
+    ).toBe("busso");
+  });
+
+  it("stores only briscola columns and clears action columns on upsert", async () => {
+    const user = await createUser("briscola", true);
+    const scenario = await createBriscolaScenario("annotator-v2-briscola");
+    const next = await apiAs(user.id, user.username).get(
+      "/api/annotations/next",
+    );
+    expect(next.body.scenario).toMatchObject({
+      decisionType: "choose_briscola",
+      hand: chooseBriscolaScenarioState().hand,
+      legalActions: chooseBriscolaScenarioState().legalActions,
+    });
+
+    await prisma.expertAnnotation.create({
+      data: {
+        userId: user.id,
+        scenarioId: scenario.id,
+        scenarioHash: scenario.stateHash,
+        selectedSuit: Suit.denara,
+        selectedValue: Value.asso,
+        skipped: false,
+        perceivedDifficulty: "medium",
+        responseTimeMs: 1000,
+      },
+    });
+
+    const selected = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(briscolaResponseFor(scenario));
+    expect(selected.statusCode).toBe(200);
+    expect(await prisma.expertAnnotation.findFirstOrThrow()).toMatchObject({
+      selectedSuit: null,
+      selectedValue: null,
+      selectedSignal: null,
+      selectedBriscola: Suit.spade,
+    });
+
+    const skipped = await apiAs(user.id, user.username)
+      .post("/api/annotations/responses")
+      .send(
+        briscolaResponseFor(scenario, {
+          selectedAction: null,
+          skipped: true,
+        }),
+      );
+    expect(skipped.statusCode).toBe(200);
+    expect(await prisma.expertAnnotation.findFirstOrThrow()).toMatchObject({
+      selectedSuit: null,
+      selectedValue: null,
+      selectedSignal: null,
+      selectedBriscola: null,
+      skipped: true,
+    });
   });
 
   it("stores a trimmed optional skip comment with the difficulty rating", async () => {

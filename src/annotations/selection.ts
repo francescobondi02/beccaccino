@@ -12,6 +12,7 @@ export type DifficultyCounts = Record<AnnotationDifficulty, number>;
 export interface SelectedAnnotationScenario {
   id: number;
   code: string;
+  decisionType: string;
   state: Prisma.JsonValue;
   stateHash: string;
 }
@@ -58,6 +59,7 @@ async function bestUnansweredScenario(
     SELECT
       scenario."id",
       scenario."code",
+      scenario."decisionType",
       scenario."state",
       scenario."stateHash"
     FROM "AnnotationScenario" AS scenario
@@ -100,7 +102,13 @@ export async function selectNextAnnotationScenario(
       annotations: { none: { userId } },
     },
     orderBy: { id: "asc" },
-    select: { id: true, code: true, state: true, stateHash: true },
+    select: {
+      id: true,
+      code: true,
+      decisionType: true,
+      state: true,
+      stateHash: true,
+    },
   });
   return fallback;
 }

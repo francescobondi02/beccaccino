@@ -12,21 +12,37 @@ import {
   isCardSignal,
   isSuit,
   isValue,
+  SUITS,
   Suit,
   Value,
 } from "../domain/cards";
 import { determineHandWinner } from "../utils/determineHandWinner";
 
 export type AnnotationSeat = 0 | 1 | 2 | 3;
+export type AnnotationDecisionType = "play_card" | "choose_briscola";
 
 export interface AnnotationCard {
   readonly suit: Suit;
   readonly value: Value;
 }
 
-export interface AnnotationAction extends AnnotationCard {
+export interface AnnotationPlayCardLegalAction extends AnnotationCard {
   readonly signal: CardSignal | null;
 }
+
+export interface AnnotationPlayCardAction
+  extends AnnotationPlayCardLegalAction {
+  readonly decisionType: "play_card";
+}
+
+export interface AnnotationChooseBriscolaAction {
+  readonly decisionType: "choose_briscola";
+  readonly suit: Suit;
+}
+
+export type AnnotationSelectedAction =
+  | AnnotationPlayCardAction
+  | AnnotationChooseBriscolaAction;
 
 export interface AnnotationPlay extends AnnotationCard {
   readonly seat: AnnotationSeat;
@@ -45,30 +61,73 @@ export interface CompletedAnnotationTrick extends AnnotationTrick {
   readonly winnerSeat: AnnotationSeat;
 }
 
-export interface AnnotationScenarioState {
+interface AnnotationScenarioStateBase {
   readonly targetPoints: number;
   readonly roundNumber: number;
   readonly actingSeat: AnnotationSeat;
   readonly callerSeat: AnnotationSeat;
-  readonly trickStarter: AnnotationSeat;
-  readonly briscola: Suit;
   readonly totalScores: Readonly<{ 0: number; 1: number }>;
   readonly hand: readonly AnnotationCard[];
-  readonly completedTricks: readonly CompletedAnnotationTrick[];
-  readonly currentTrick: AnnotationTrick;
-  readonly legalActions: readonly AnnotationAction[];
 }
 
-export interface AnnotationScenarioInput {
+export interface AnnotationPlayCardScenarioState
+  extends AnnotationScenarioStateBase {
+  readonly trickStarter: AnnotationSeat;
+  readonly briscola: Suit;
+  readonly completedTricks: readonly CompletedAnnotationTrick[];
+  readonly currentTrick: AnnotationTrick;
+  readonly legalActions: readonly AnnotationPlayCardLegalAction[];
+}
+
+export interface AnnotationChooseBriscolaScenarioState
+  extends AnnotationScenarioStateBase {
+  readonly legalActions: readonly Suit[];
+}
+
+export type AnnotationScenarioState =
+  | AnnotationPlayCardScenarioState
+  | AnnotationChooseBriscolaScenarioState;
+
+interface AnnotationScenarioInputBase {
   readonly code: string;
   readonly predictedDifficulty: AnnotationDifficulty;
   readonly importance: AnnotationImportance;
   readonly tags: readonly AnnotationTag[];
   readonly stateHash: string;
-  readonly state: AnnotationScenarioState;
 }
 
+export type AnnotationPlayCardScenarioInput = AnnotationScenarioInputBase & {
+  readonly decisionType: "play_card";
+  readonly state: AnnotationPlayCardScenarioState;
+};
+
+export type AnnotationChooseBriscolaScenarioInput =
+  AnnotationScenarioInputBase & {
+    readonly decisionType: "choose_briscola";
+    readonly state: AnnotationChooseBriscolaScenarioState;
+  };
+
+export type AnnotationScenarioInput =
+  | AnnotationPlayCardScenarioInput
+  | AnnotationChooseBriscolaScenarioInput;
+
+export type ParsedAnnotationScenario =
+  | {
+      readonly decisionType: "play_card";
+      readonly state: AnnotationPlayCardScenarioState;
+    }
+  | {
+      readonly decisionType: "choose_briscola";
+      readonly state: AnnotationChooseBriscolaScenarioState;
+    };
+
 type JsonRecord = Record<string, unknown>;
+
+function isAnnotationDecisionType(
+  value: unknown,
+): value is AnnotationDecisionType {
+  return value === "play_card" || value === "choose_briscola";
+}
 
 function recordAt(value: unknown, path: string): JsonRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -132,7 +191,10 @@ function cardAt(value: unknown, path: string): AnnotationCard {
   return { suit: record.suit, value: record.value };
 }
 
-function actionAt(value: unknown, path: string): AnnotationAction {
+function playCardLegalActionAt(
+  value: unknown,
+  path: string,
+): AnnotationPlayCardLegalAction {
   const record = recordAt(value, path);
   exactKeys(record, ["suit", "value", "signal"], path);
   if (!isSuit(record.suit)) throw new Error(`${path}.suit is invalid`);
@@ -244,7 +306,7 @@ function cardKey(card: AnnotationCard): string {
   return `${card.suit}:${card.value}`;
 }
 
-function actionKey(action: AnnotationAction): string {
+function actionKey(action: AnnotationPlayCardLegalAction): string {
   return `${cardKey(action)}:${action.signal ?? "none"}`;
 }
 
@@ -285,10 +347,9 @@ function expectedActionKeys(
   return new Set(playable.map((card) => actionKey({ ...card, signal: null })));
 }
 
-export function parseAnnotationScenarioState(
+function parsePlayCardScenarioState(
   value: unknown,
-  expectedHash?: string,
-): AnnotationScenarioState {
+): AnnotationPlayCardScenarioState {
   const path = "annotation scenario state";
   const record = recordAt(value, path);
   exactKeys(
@@ -378,7 +439,7 @@ export function parseAnnotationScenarioState(
     throw new Error(`${path}.legalActions must be a non-empty array`);
   }
   const legalActions = record.legalActions.map((action, index) =>
-    actionAt(action, `${path}.legalActions[${index}]`),
+    playCardLegalActionAt(action, `${path}.legalActions[${index}]`),
   );
   const actualActions = new Set(legalActions.map(actionKey));
   const expectedActions = expectedActionKeys(hand, currentTrick);
@@ -390,7 +451,7 @@ export function parseAnnotationScenarioState(
     throw new Error(`${path}.legalActions do not match the public state`);
   }
 
-  const state: AnnotationScenarioState = {
+  return {
     targetPoints: integerAt(record.targetPoints, `${path}.targetPoints`, 1),
     roundNumber: integerAt(record.roundNumber, `${path}.roundNumber`, 1),
     actingSeat,
@@ -406,10 +467,155 @@ export function parseAnnotationScenarioState(
     currentTrick,
     legalActions,
   };
-  if (expectedHash && annotationStateHash(state) !== expectedHash) {
-    throw new Error(`${path} hash does not match stateHash`);
+}
+
+function parseChooseBriscolaScenarioState(
+  value: unknown,
+): AnnotationChooseBriscolaScenarioState {
+  const path = "annotation scenario state";
+  const record = recordAt(value, path);
+  exactKeys(
+    record,
+    [
+      "targetPoints",
+      "roundNumber",
+      "actingSeat",
+      "callerSeat",
+      "totalScores",
+      "hand",
+      "legalActions",
+    ],
+    path,
+  );
+  const actingSeat = seatAt(record.actingSeat, `${path}.actingSeat`);
+  const callerSeat = seatAt(record.callerSeat, `${path}.callerSeat`);
+  if (actingSeat !== callerSeat) {
+    throw new Error(`${path}.actingSeat must be the caller`);
   }
-  return state;
+
+  const scores = recordAt(record.totalScores, `${path}.totalScores`);
+  exactKeys(scores, ["0", "1"], `${path}.totalScores`);
+
+  if (!Array.isArray(record.hand) || record.hand.length !== 10) {
+    throw new Error(`${path}.hand must contain exactly ten cards`);
+  }
+  const hand = record.hand.map((card, index) =>
+    cardAt(card, `${path}.hand[${index}]`),
+  );
+  if (new Set(hand.map(cardKey)).size !== hand.length) {
+    throw new Error(`${path}.hand contains a duplicate card`);
+  }
+
+  if (
+    !Array.isArray(record.legalActions) ||
+    record.legalActions.length !== SUITS.length
+  ) {
+    throw new Error(`${path}.legalActions must contain all four suits`);
+  }
+  if (record.legalActions.some((suit) => !isSuit(suit))) {
+    throw new Error(`${path}.legalActions must contain all four suits`);
+  }
+  const legalActions = record.legalActions as Suit[];
+  if (new Set(legalActions).size !== SUITS.length) {
+    throw new Error(`${path}.legalActions must contain all four suits`);
+  }
+
+  return {
+    targetPoints: integerAt(record.targetPoints, `${path}.targetPoints`, 1),
+    roundNumber: integerAt(record.roundNumber, `${path}.roundNumber`, 1),
+    actingSeat,
+    callerSeat,
+    totalScores: {
+      0: integerAt(scores["0"], `${path}.totalScores.0`, 0),
+      1: integerAt(scores["1"], `${path}.totalScores.1`, 0),
+    },
+    hand,
+    legalActions,
+  };
+}
+
+export function parseAnnotationScenario(
+  decisionType: unknown,
+  value: unknown,
+  expectedHash?: string,
+): ParsedAnnotationScenario {
+  if (!isAnnotationDecisionType(decisionType)) {
+    throw new Error("annotation scenario decisionType is invalid");
+  }
+  const parsed: ParsedAnnotationScenario =
+    decisionType === "play_card"
+      ? {
+          decisionType,
+          state: parsePlayCardScenarioState(value),
+        }
+      : {
+          decisionType,
+          state: parseChooseBriscolaScenarioState(value),
+        };
+  if (expectedHash && annotationStateHash(parsed.state) !== expectedHash) {
+    throw new Error("annotation scenario state hash does not match stateHash");
+  }
+  return parsed;
+}
+
+export function parseAnnotationSelectedAction(
+  value: unknown,
+): AnnotationSelectedAction {
+  const path = "selectedAction";
+  const record = recordAt(value, path);
+  if (
+    record.decisionType === "play_card" ||
+    record.decisionType === undefined
+  ) {
+    exactKeys(
+      record,
+      record.decisionType === undefined
+        ? ["suit", "value", "signal"]
+        : ["decisionType", "suit", "value", "signal"],
+      path,
+    );
+    if (!isSuit(record.suit)) throw new Error(`${path}.suit is invalid`);
+    if (!isValue(record.value)) throw new Error(`${path}.value is invalid`);
+    return {
+      decisionType: "play_card",
+      suit: record.suit,
+      value: record.value,
+      signal: signalAt(record.signal, `${path}.signal`),
+    };
+  }
+  if (record.decisionType === "choose_briscola") {
+    exactKeys(record, ["decisionType", "suit"], path);
+    if (!isSuit(record.suit)) throw new Error(`${path}.suit is invalid`);
+    return {
+      decisionType: "choose_briscola",
+      suit: record.suit,
+    };
+  }
+  throw new Error(`${path}.decisionType is invalid`);
+}
+
+export function isAnnotationActionLegal(
+  scenario: ParsedAnnotationScenario,
+  action: AnnotationSelectedAction,
+): boolean {
+  if (
+    scenario.decisionType === "play_card" &&
+    action.decisionType === "play_card"
+  ) {
+    return scenario.state.legalActions.some(
+      (legal) =>
+        legal.suit === action.suit &&
+        legal.value === action.value &&
+        legal.signal === action.signal,
+    );
+  }
+  if (
+    scenario.decisionType === "choose_briscola" &&
+    action.decisionType === "choose_briscola"
+  ) {
+    return scenario.state.legalActions.includes(action.suit);
+  }
+  return false;
 }
 
 export function parseAnnotationScenarioBatch(
@@ -427,6 +633,7 @@ export function parseAnnotationScenarioBatch(
       record,
       [
         "code",
+        "decisionType",
         "predictedDifficulty",
         "importance",
         "tags",
@@ -462,13 +669,18 @@ export function parseAnnotationScenarioBatch(
     }
     codes.add(code);
     hashes.add(stateHash);
+    const parsed = parseAnnotationScenario(
+      record.decisionType,
+      record.state,
+      stateHash,
+    );
     return {
       code,
       predictedDifficulty: record.predictedDifficulty,
       importance: record.importance,
       tags: record.tags,
       stateHash,
-      state: parseAnnotationScenarioState(record.state, stateHash),
+      ...parsed,
     };
   });
 }
