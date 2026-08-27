@@ -62,6 +62,7 @@ model User {
 model AnnotationScenario {
   id                  Int      @id @default(autoincrement())
   code                String   @unique
+  decisionType        String   @default("play_card")
   predictedDifficulty String
   importance          Int
   tags                String[]
@@ -84,6 +85,7 @@ model ExpertAnnotation {
   selectedSuit        Suit?
   selectedValue       Value?
   selectedSignal      String?
+  selectedBriscola    Suit?
   skipped             Boolean  @default(false)
   comment             String?
   perceivedDifficulty String

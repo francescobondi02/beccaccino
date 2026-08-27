@@ -6,8 +6,10 @@ import { prisma } from "../../src/db";
 import { annotationStateHash } from "../../src/annotations/scenario";
 import { importAnnotationBatch } from "../../src/scripts/importAnnotationScenarios";
 import {
+  annotationScenarioCreateData,
   annotationScenarioInput,
   annotationScenarioState,
+  chooseBriscolaScenarioInput,
 } from "../helpers/annotationScenario";
 import { clearDatabase } from "../helpers/gameHelpers";
 
@@ -44,7 +46,7 @@ describe("annotation scenario import", () => {
     const dryRun = await importAnnotationBatch(
       paths.batchPath,
       paths.manifestPath,
-      false,
+      { apply: false },
       prisma,
     );
     expect(dryRun).toMatchObject({
@@ -58,18 +60,22 @@ describe("annotation scenario import", () => {
     const applied = await importAnnotationBatch(
       paths.batchPath,
       paths.manifestPath,
-      true,
+      { apply: true },
       prisma,
     );
     const repeated = await importAnnotationBatch(
       paths.batchPath,
       paths.manifestPath,
-      true,
+      { apply: true },
       prisma,
     );
     expect(applied.inserted).toBe(1);
     expect(repeated).toMatchObject({ inserted: 0, skipped: 1 });
-    expect(await prisma.annotationScenario.count()).toBe(1);
+    expect(
+      await prisma.annotationScenario.findFirstOrThrow({
+        select: { decisionType: true },
+      }),
+    ).toEqual({ decisionType: "play_card" });
   });
 
   it("fails on identifier conflicts without partially writing the batch", async () => {
@@ -78,7 +84,7 @@ describe("annotation scenario import", () => {
     await importAnnotationBatch(
       originalPaths.batchPath,
       originalPaths.manifestPath,
-      true,
+      { apply: true },
       prisma,
     );
 
@@ -102,7 +108,7 @@ describe("annotation scenario import", () => {
       importAnnotationBatch(
         paths.batchPath,
         paths.manifestPath,
-        true,
+        { apply: true },
         prisma,
       ),
     ).rejects.toThrow(/identifier conflict/);
@@ -125,10 +131,73 @@ describe("annotation scenario import", () => {
       importAnnotationBatch(
         paths.batchPath,
         paths.manifestPath,
-        true,
+        { apply: true },
         prisma,
       ),
     ).rejects.toThrow(/must contain only/);
     expect(await prisma.annotationScenario.count()).toBe(0);
+  });
+
+  it("replaces the active catalog transactionally without deleting responses", async () => {
+    const oldScenario = await prisma.annotationScenario.create({
+      data: annotationScenarioCreateData({ code: "initial-v1-old" }),
+    });
+    const user = await prisma.user.create({ data: { username: "annotator" } });
+    await prisma.expertAnnotation.create({
+      data: {
+        userId: user.id,
+        scenarioId: oldScenario.id,
+        scenarioHash: oldScenario.stateHash,
+        skipped: true,
+        perceivedDifficulty: "medium",
+        responseTimeMs: 1000,
+      },
+    });
+    const incoming = chooseBriscolaScenarioInput();
+    const paths = await writeBatch([incoming]);
+
+    const dryRun = await importAnnotationBatch(
+      paths.batchPath,
+      paths.manifestPath,
+      { apply: false, replaceActive: true },
+      prisma,
+    );
+    expect(dryRun).toMatchObject({
+      wouldDeactivate: 1,
+      deactivated: 0,
+    });
+    expect(
+      await prisma.annotationScenario.findUniqueOrThrow({
+        where: { id: oldScenario.id },
+        select: { active: true },
+      }),
+    ).toEqual({ active: true });
+    expect(await prisma.annotationScenario.count()).toBe(1);
+
+    const summary = await importAnnotationBatch(
+      paths.batchPath,
+      paths.manifestPath,
+      { apply: true, replaceActive: true },
+      prisma,
+    );
+
+    expect(summary).toMatchObject({
+      inserted: 1,
+      wouldDeactivate: 1,
+      deactivated: 1,
+    });
+    expect(
+      await prisma.annotationScenario.findUniqueOrThrow({
+        where: { id: oldScenario.id },
+        select: { active: true },
+      }),
+    ).toEqual({ active: false });
+    expect(
+      await prisma.annotationScenario.findUniqueOrThrow({
+        where: { code: incoming.code },
+        select: { active: true, decisionType: true },
+      }),
+    ).toEqual({ active: true, decisionType: "choose_briscola" });
+    expect(await prisma.expertAnnotation.count()).toBe(1);
   });
 });

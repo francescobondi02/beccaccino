@@ -14,8 +14,8 @@ src/
   socketInstance.ts     Global io getter/setter (used by services to emit events)
   annotations/
     constants.ts        Fixed difficulty, tag, and importance vocabulary
-    scenario.ts         Generated scenario parser and public-state validation
-    selection.ts        Per-user difficulty balancing and usefulness ranking
+    scenario.ts         Discriminated scenario/action parsing and public-state validation
+    selection.ts        Unanswered-scenario usefulness ranking
   domain/
     cards.ts            Prisma-backed card enums, signal types, and parsers
     publicPlayer.ts     Public player projection for room payloads
@@ -99,15 +99,18 @@ tests/
   The access endpoint verifies `ANNOTATION_ACCESS_CODE` and records expert
   access on the account.
 - Deterministic scenario batches are generated offline by the AI package,
-  validated again by the backend, and imported transactionally into SQL.
-  Existing scenario identifiers and state hashes cannot be overwritten.
+  validated again by the backend, and imported transactionally into SQL. Each
+  imported scenario declares `play_card` or `choose_briscola`; historical rows
+  default to `play_card`. Existing identifiers and state hashes cannot be
+  overwritten. `--replace-active` can make the incoming batch the active
+  catalog without deleting older scenarios or responses.
 - Selection keeps each user's answers near the 20/40/40 difficulty mix and
-  ranks unanswered scenarios by importance and global response count without a
-  response cap.
-- Scenario hash, the complete suit/value/signal legal action, perceived
-  difficulty, and an optional 500-character skip comment are verified
-  server-side before an idempotent per-account/per-scenario upsert. One current
-  response row is stored for that pair; no response-history portal exists.
+  ranks unanswered scenarios by importance divided by the square root of one
+  plus its global response count.
+- Scenario hash, the matching discriminated action, perceived difficulty, and
+  an optional 500-character skip comment are verified server-side before an
+  idempotent per-account/per-scenario upsert. One current response row is stored
+  for that pair; no response-history portal exists.
 - The UI shows an open-ended contribution count. A null next scenario means
   only that the user has answered every currently active scenario.
 - `ANNOTATION_EXPORT_SALT=... npm run annotations:export` emits the exact
@@ -135,7 +138,9 @@ tests/
 ### Database Notes
 - Player has unique constraints on `[gameRoomId, seat]` and `[gameRoomId, userId]`
 - AnnotationScenario has unique `code` and `stateHash` fields; ExpertAnnotation
-  is unique on `[userId, scenarioId]`
+  is unique on `[userId, scenarioId]`. `decisionType` defaults to `play_card`;
+  briscola choices use `selectedBriscola` while card choices retain the
+  existing selected card and signal columns.
 - PlayedCard.signal: nullable string ("striscio"|"busso"|"volo"|null), only set for trick leader (position 0)
 - Indexes on all foreign keys (added in migration 20260517190703)
 - `binaryTargets` includes `linux-musl-arm64-openssl-3.0.x` for Docker Alpine
@@ -148,7 +153,9 @@ npm start               # node dist/index.js
 ```
 
 Dockerfile: multi-stage Node 24 Alpine build; the runtime applies migrations before starting.
-Render auto-deploys from `backend/` root directory on push.
+GitHub Actions builds and starts the Dockerfile, then triggers the Render deploy
+hook for the exact tested commit only after all CI jobs pass on `main`. Render's
+direct Git auto-deploy stays disabled.
 
 Practice games require `BOT_SERVICE_URL` and `BOT_SERVICE_TOKEN`. Creation
 checks the AI service's authenticated, tier-specific `/ready` endpoint before

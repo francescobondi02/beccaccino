@@ -78,6 +78,16 @@ app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
 
+app.get("/version", (_req, res) => {
+  res.status(200).json({
+    service: "backend",
+    commit:
+      process.env.RENDER_GIT_COMMIT ||
+      process.env.GIT_COMMIT_SHA ||
+      "unknown",
+  });
+});
+
 app.get("/ready", async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;

@@ -199,7 +199,7 @@ game rows while retaining the reusable bot `User` accounts.
 | `npm run db:test:prepare` | Apply the Prisma schema to the isolated `becca_test` database |
 | `npm start` | Run compiled `dist/index.js` (production) |
 | `npm run migrate` | Apply Prisma migrations |
-| `npm run annotations:import -- <batch> <manifest> [--apply]` | Validate or import an offline scenario batch |
+| `npm run annotations:import -- <batch> <manifest> [--apply] [--replace-active]` | Validate or import an offline scenario batch |
 | `npm run annotations:export` | Emit self-contained pseudonymous annotation rows as JSONL |
 | `npm run practice:export` | Emit archived practice games as JSONL, one game per line |
 
@@ -220,14 +220,20 @@ backend, validate a batch with a dry run, then import it explicitly:
 npm run build
 npm run annotations:import -- scenarios.json manifest.json
 npm run annotations:import -- scenarios.json manifest.json --apply
+npm run annotations:import -- scenarios.json manifest.json --apply --replace-active
 ```
 
-Imports are transactional and idempotent. Existing scenario codes and state
-hashes cannot be changed. The next-scenario query keeps each user's answers
-close to a 20% easy, 40% medium, 40% hard mix, then ranks unanswered scenarios
-by `importance / sqrt(1 + response count)`. There is no response cap. Skips
-retain null selected-card fields and may include a trimmed optional comment of
-at most 500 characters. Every response also records the user's easy, medium, or
+Imports require each scenario to declare `play_card` or `choose_briscola` and
+are transactional and idempotent. Existing scenario codes and state hashes
+cannot be changed. With `--replace-active`, scenarios outside the incoming
+batch are deactivated in the same transaction; their rows and responses remain
+stored. The command remains write-free unless `--apply` is present.
+
+The next-scenario query keeps each user's answers near the 20% easy, 40%
+medium, 40% hard mix, then ranks unanswered scenarios by
+`importance / sqrt(1 + response count)`. There is no response cap. Skips clear
+all selected-action fields and may include a trimmed optional comment of at
+most 500 characters. Every response also records the user's easy, medium, or
 hard rating.
 
 For production, deploy the annotation migration and API before importing. Run
@@ -238,10 +244,10 @@ database host and dry-run summary before adding `--apply`. The complete
 generation, import, launch, replenishment, and recovery runbook is
 `ai/docs/EXPERT_DATA_COLLECTION.md` in the parent BECCA checkout.
 
-Each export row includes the exact visible scenario, the selected action or
-skip, and the optional skip comment. It pseudonymizes the account ID and never
-selects the username or email. Set a private stable salt and redirect stdout to
-create a JSONL export:
+Each export row includes the decision type, exact visible scenario, matching
+discriminated selected action or skip, and optional skip comment. It
+pseudonymizes the account ID and never selects the username or email. Set a
+private stable salt and redirect stdout to create a JSONL export:
 
 ```sh
 ANNOTATION_EXPORT_SALT="<at-least-16-private-characters>" \
@@ -312,7 +318,27 @@ npm run practice:export > practice_matches.jsonl
 | GET | `/api/games/playable-cards/:roomCode` | Yes | Get legal cards for current turn |
 | GET | `/api/games/:roomCode/state` | Yes | Get full game state |
 | GET | `/health` | No | Health check |
+| GET | `/version` | No | Get the deployed backend commit |
 | GET | `/ready` | No | Database readiness check |
+
+## CI and production deployment
+
+GitHub Actions validates the complete Prisma migration history against a fresh
+PostgreSQL database, verifies that it matches `schema.prisma`, and runs the
+integration suite without the local-only `prisma db push` preparation. It also
+builds and starts the production Dockerfile, so a green `CI` workflow covers
+the same migration and runtime path used by Render.
+
+Production deployment runs only after the `CI` workflow succeeds on `main`.
+Configure the repository secret `RENDER_DEPLOY_HOOK_URL` with the backend
+service's Render deploy hook, then disable Render's direct auto-deploy for the
+service. A missing secret fails the deployment workflow.
+
+The workflow passes the tested GitHub commit as the deploy hook's `ref`, waits
+for `/version` to report that exact commit, and then requires `/ready` to
+confirm database connectivity. The version endpoint reads Render's
+`RENDER_GIT_COMMIT`; `GIT_COMMIT_SHA` is an explicit fallback for other
+deployment systems.
 
 ## Troubleshooting
 
