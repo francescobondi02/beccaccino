@@ -80,19 +80,3 @@ export async function getRoomForUser(roomCode: string, userId: number) {
   }
   return room;
 }
-
-export async function listExitedRooms(userId: number) {
-  const rooms = await prisma.gameRoom.findMany({
-    where: {
-      players: { some: { userId } },
-      finished: false,
-    },
-    include: { players: true },
-  });
-  return rooms.map((room) => ({
-    id: room.id,
-    code: room.code,
-    currentPlayers: room.players.length,
-    maxPlayers: 4,
-  }));
-}

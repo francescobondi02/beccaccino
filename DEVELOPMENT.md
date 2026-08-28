@@ -60,45 +60,53 @@ backend/
 │   ├── app.ts              # Express app, routes, health/readiness probes
 │   ├── gameConfig.ts       # Environment-backed game rules
 │   ├── db.ts               # Prisma client singleton
-│   ├── socketInstance.ts    # Socket.IO singleton (get/set)
-│   ├── annotations/         # Annotation scenario validation and selection
-│   ├── domain/              # Card types and public DTO projections
-│   ├── controllers/        # Request handlers
-│   │   ├── userController.ts    # register, login, logout, getCurrentUser
-│   │   ├── annotationController.ts # annotation status, access, next scenario, responses
-│   │   ├── roomController.ts    # createRoom, joinRoom, setPlayerReady, leaveRoom
-│   │   ├── chooseTeam.ts        # Team selection
-│   │   └── gameController.ts    # chooseBriscola, playCard, getGameState
-│   ├── services/           # Business logic
-│   │   ├── gameService.ts       # Atomic transitions and timer directives
-│   │   ├── gameState.ts         # Browser state loading and timer recovery
-│   │   ├── turnCoordinator.ts   # Controller-facing transition coordinator
-│   │   ├── turnTimer.ts         # Timers, bots, autoplay, timeout state
-│   │   ├── roomCommands.ts      # Shared room lifecycle, team, and ready commands
-│   │   ├── practiceRoomSweeper.ts # Periodic abandoned-practice cleanup
-│   │   └── cardService.ts       # playableCards (follow-suit rules)
-│   ├── sockets/            # WebSocket event handlers
-│   │   └── room.ts             # join_lobby, join_room, choose_team, set_ready
-│   ├── routes/             # Express route definitions
-│   ├── scripts/            # Operational CLIs, including JSONL annotation export
-│   ├── middleware/          # auth.ts (JWT cookie verification)
-│   └── utils/              # Pure functions
-│       ├── computePoints.ts
-│       ├── determineHandWinner.ts
-│       ├── generateRoomCode.ts
-│       ├── jwt.ts
-│       └── password.ts
+│   ├── annotations/        # Scenario contracts, parsers, legality, selection, response codec
+│   ├── auth/               # Shared active-session verification and isolated test bypass
+│   ├── controllers/        # HTTP adapters grouped by account, auth, stats, rooms, and games
+│   ├── domain/game/        # Pure caller, turn, card, trick, and scoring rules
+│   ├── game/
+│   │   ├── snapshots/      # Side-effect-free persisted turn reads
+│   │   └── transitions/    # Atomic round and card-play database mutations
+│   ├── http/               # Input parsers, typed errors, and global error mapping
+│   ├── practice/           # Versioned practice-match payload contract and parser
+│   ├── routes/             # Visible REST API map
+│   ├── runtime/            # Timers, bot execution, timeout policy, recovery, event publication
+│   ├── scripts/            # Annotation operators and practice/annotation exports
+│   ├── services/           # Coordinators, room commands/queries, snapshots, account and stats
+│   └── sockets/room.ts     # Socket presence and chat; room mutations remain REST-only
 ├── prisma/
 │   └── schema.prisma       # Database schema
 ├── tests/
 │   ├── unit/               # Pure logic tests (no DB)
 │   ├── integration/        # API tests (real DB)
-│   ├── helpers/            # Shared test utilities
+│   ├── helpers/
+│   │   ├── database.ts     # Shared complete database reset
+│   │   ├── serverHarness.ts # Shared ephemeral HTTP test server
+│   │   └── gameDriver.ts   # Game setup and deterministic play helpers
 │   ├── setup.ts            # Mock socket, set NODE_ENV=test
 │   ├── loadTestEnv.ts      # Override DATABASE_URL for tests
 │   └── teardown.ts         # Disconnect Prisma after tests
 └── Dockerfile              # Production build
 ```
+
+## Module Ownership and Call Flow
+
+- Routes are the API map. Controllers parse request data, call one operation,
+  and return its result. `src/http/errorHandler.ts` is the only HTTP error
+  mapping and sanitization boundary.
+- `roomCoordinator.ts` and `turnCoordinator.ts` sequence committed database
+  work, runtime changes, and best-effort event publication.
+- Room command modules and `game/transitions/` own writes. Game transitions
+  commit atomically and return runtime directives and events; they never
+  publish directly.
+- `domain/game/` owns pure caller, seat, turn, legality, trick, and scoring
+  rules. Snapshots, transitions, bots, annotations, and archives consume those
+  rules instead of reimplementing them.
+- `game/snapshots/` and `services/gameState.ts` are reads. Loading
+  `GET /api/games/:roomCode/state` never schedules a timer or starts a bot.
+- Runtime directives are applied before events are published. Publication
+  failures are logged and reported to Sentry but do not turn a committed
+  request into an HTTP failure.
 
 ## Database Management (Prisma)
 
@@ -120,6 +128,12 @@ npx prisma migrate reset
 # Open Prisma Studio (visual DB editor)
 npx prisma studio
 ```
+
+Never run `prisma migrate reset` against a shared or production database. Test
+setup uses `npm run db:test:prepare`, which refuses any host/database other than
+the explicit local `becca_test` target. Annotation status/import/export uses
+the guarded scripts under `scripts/annotations/`; see
+[`scripts/annotations/README.md`](scripts/annotations/README.md).
 
 ## Testing
 
@@ -186,6 +200,16 @@ recovery, and fences bot responses that started before a pause/resume cycle.
 Resuming starts a fresh full turn timer. Paused rooms remain subject to the same
 24-hour inactivity cleanup.
 
+### Runtime Recovery
+
+After the HTTP server starts, `recoverActiveRuntime()` scans started,
+unfinished, unpaused rooms. Each room is locked, its persisted caller/current
+turn is read, bot seats are restored, and one runtime directive is scheduled
+only when an equivalent timer is not already present. Practice resume commits
+the unpause first and then calls the same `recoverRoomRuntime()` path. Game-state
+reads never recover runtime, so repeated snapshots cannot create timers or bot
+moves.
+
 ### Test Architecture
 
 | Project | Runs | DB Required | Files |
@@ -197,7 +221,8 @@ Resuming starts a fresh full turn timer. Paused rooms remain subject to the same
 - The annotation scenario unit suite enforces the exact public-state contract,
   chronological plays, hand-bound legal actions, and hidden-field rejection.
 - **Integration tests** use Supertest and real Socket.IO clients against the Express/server factory with PostgreSQL. Auth bypass is available only when explicitly enabled in test mode.
-- Each integration test calls `clearDatabase()` in `beforeEach` for isolation.
+- Each integration test calls the shared `tests/helpers/database.ts`
+  `clearDatabase()` in `beforeEach` for isolation.
 - Shared teardown closes HTTP servers, sockets, Prisma, and all turn timers.
 
 ## Scripts Reference
@@ -288,9 +313,9 @@ refuses to overwrite an existing path.
 
 Practice games are training data. A practice room is deleted as soon as the
 human leaves it, and the sweeper deletes finished or day-old ones, so
-`deleteRoomAndPlay` snapshots the game into one `PracticeMatch` row on its way
-out — in the same transaction, so a failed snapshot keeps the game for the next
-attempt instead of losing it.
+`retirePracticeRoom` snapshots the game into one `PracticeMatch` row on its way
+out, in the same transaction, so a failed snapshot keeps the game and runtime
+for the next attempt instead of losing either.
 
 The row holds the cards each seat was dealt plus every card played in order,
 which is enough to rebuild the complete game. Bot cards remain in that history
@@ -337,11 +362,12 @@ npm run practice:export > practice_matches.jsonl
 | POST | `/api/rooms/` | Yes | Create a new room |
 | POST | `/api/rooms/practice` | Yes | Start a practice game against bots |
 | GET | `/api/rooms/available` | Yes | List joinable rooms + active games |
-| GET | `/api/rooms/getExitedRooms` | Yes | List unfinished rooms for compatibility clients |
 | GET | `/api/rooms/:roomCode` | Yes | Get room details |
 | POST | `/api/rooms/join` | Yes | Join a room by code |
 | POST | `/api/rooms/:roomCode/choose-team` | Yes | Choose team 0 or 1 |
 | POST | `/api/rooms/:roomCode/ready` | Yes | Toggle ready state |
+| POST | `/api/rooms/:roomCode/pause` | Yes | Pause an active practice room |
+| POST | `/api/rooms/:roomCode/resume` | Yes | Resume an active practice room and recover its turn |
 | POST | `/api/rooms/:roomCode/leave` | Yes | Leave an open lobby; practice rooms are deleted, active multiplayer returns 409, and finished multiplayer history is preserved |
 | POST | `/api/games/choose-briscola` | Yes | Choose trump suit |
 | POST | `/api/games/play-card` | Yes | Play a card |
@@ -350,6 +376,10 @@ npm run practice:export > practice_matches.jsonl
 | GET | `/health` | No | Health check |
 | GET | `/version` | No | Get the deployed backend commit |
 | GET | `/ready` | No | Database readiness check |
+
+Team selection and ready-state changes are REST-only mutations. Socket.IO
+continues to deliver `team_chosen`, `ready_changed`, and `game_started` events,
+plus presence and chat events.
 
 ## CI and production deployment
 

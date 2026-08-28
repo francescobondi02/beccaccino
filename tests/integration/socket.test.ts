@@ -358,24 +358,18 @@ describe("Socket.IO real WebSocket integration", () => {
     it("should stop receiving room events after leaving", async () => {
       const u1 = await createUser("Alice");
       const u2 = await createUser("Bob");
-      const u3 = await createUser("Carol");
       const roomCode = await createRoom(u1);
       await joinRoom(roomCode, u2);
-      await joinRoom(roomCode, u3);
 
       const client1 = createClient();
       const client2 = createClient();
-      const client3 = createClient();
       await Promise.all([
         waitForConnect(client1),
         waitForConnect(client2),
-        waitForConnect(client3),
       ]);
 
       client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
       client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
-      await delay(100);
-      client3.emit("join_room", { roomCode, userId: u3.id, username: u3.username });
       await delay(100);
 
       // Client1 leaves
@@ -392,256 +386,10 @@ describe("Socket.IO real WebSocket integration", () => {
       // Set team for u2 via REST (authenticated)
       await chooseTeamRest(roomCode, u2, 0);
 
-      // Use choose_team via socket for u3
-      client3.emit("choose_team", { roomCode, userId: u3.id, team: 1 });
       await client2TeamPromise;
       await delay(200);
 
       expect(client1Received).toBe(false);
-    });
-  });
-
-  // =========================================================================
-  // choose_team
-  // =========================================================================
-  describe("choose_team", () => {
-    it("should broadcast team_chosen to all clients in the room", async () => {
-      const u1 = await createUser("Alice");
-      const u2 = await createUser("Bob");
-      const roomCode = await createRoom(u1);
-      await joinRoom(roomCode, u2);
-
-      const client1 = createClient();
-      const client2 = createClient();
-      await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
-
-      client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
-      await delay(100);
-
-      const teamPromise1 = waitForEvent<{
-        userId: number;
-        playerId: number;
-        team: number;
-      }>(client1, "team_chosen");
-      const teamPromise2 = waitForEvent<{
-        userId: number;
-        playerId: number;
-        team: number;
-      }>(client2, "team_chosen");
-
-      client1.emit("choose_team", { roomCode, userId: u1.id, team: 0 });
-
-      const [ev1, ev2] = await Promise.all([teamPromise1, teamPromise2]);
-      expect(ev1.userId).toBe(u1.id);
-      expect(ev1.playerId).toEqual(expect.any(Number));
-      expect(ev1.team).toBe(0);
-      expect(ev2.userId).toBe(u1.id);
-      expect(ev2.playerId).toBe(ev1.playerId);
-      expect(ev2.team).toBe(0);
-    });
-
-    it("should emit error for invalid team value", async () => {
-      const u1 = await createUser("Alice");
-      const roomCode = await createRoom(u1);
-
-      const client = createClient();
-      await waitForConnect(client);
-      client.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
-
-      const errorPromise = waitForEvent<{ message: string }>(client, "error");
-      client.emit("choose_team", { roomCode, userId: u1.id, team: 5 });
-
-      const err = await errorPromise;
-      expect(err.message).toBe("Invalid team selection");
-    });
-
-    it("should emit error when team is full", async () => {
-      const u1 = await createUser("Alice");
-      const u2 = await createUser("Bob");
-      const u3 = await createUser("Carol");
-      const roomCode = await createRoom(u1);
-      await joinRoom(roomCode, u2);
-      await joinRoom(roomCode, u3);
-
-      const client1 = createClient();
-      const client2 = createClient();
-      const client3 = createClient();
-      await Promise.all([
-        waitForConnect(client1),
-        waitForConnect(client2),
-        waitForConnect(client3),
-      ]);
-
-      client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
-      client3.emit("join_room", { roomCode, userId: u3.id, username: u3.username });
-      await delay(100);
-
-      // Fill team 0
-      client1.emit("choose_team", { roomCode, userId: u1.id, team: 0 });
-      await delay(100);
-      client2.emit("choose_team", { roomCode, userId: u2.id, team: 0 });
-      await delay(100);
-
-      // Third player tries to join full team
-      const errorPromise = waitForEvent<{ message: string }>(client3, "error");
-      client3.emit("choose_team", { roomCode, userId: u3.id, team: 0 });
-
-      const err = await errorPromise;
-      expect(err.message).toBe("Team is already full");
-    });
-
-    it("serializes REST and socket choices for the last team slot", async () => {
-      const u1 = await createUser("Alice");
-      const u2 = await createUser("Bob");
-      const u3 = await createUser("Carol");
-      const roomCode = await createRoom(u1);
-      await joinRoom(roomCode, u2);
-      await joinRoom(roomCode, u3);
-      await chooseTeamRest(roomCode, u1, 0);
-
-      const client2 = createClient();
-      await waitForConnect(client2);
-      client2.emit("join_room", {
-        roomCode,
-        userId: u2.id,
-        username: u2.username,
-      });
-      await delay(100);
-
-      let chosenEvents = 0;
-      client2.on("team_chosen", () => chosenEvents++);
-      client2.emit("choose_team", { roomCode, userId: u2.id, team: 0 });
-      const restResponse = await request(httpServer)
-        .post(`/api/rooms/${roomCode}/choose-team`)
-        .set(authHeaders(u3))
-        .send({ team: 0 });
-      await delay(200);
-
-      expect([200, 400]).toContain(restResponse.statusCode);
-      const team = await prisma.player.findMany({
-        where: { gameRoom: { code: roomCode }, team: 0 },
-      });
-      expect(team).toHaveLength(2);
-      expect(chosenEvents).toBe(1);
-      expect(
-        team.filter((player) => [u2.id, u3.id].includes(player.userId)),
-      ).toHaveLength(1);
-    });
-  });
-
-  // =========================================================================
-  // set_ready
-  // =========================================================================
-  describe("set_ready", () => {
-    it("should broadcast ready_changed to all clients in the room", async () => {
-      const u1 = await createUser("Alice");
-      const u2 = await createUser("Bob");
-      const roomCode = await createRoom(u1);
-      await joinRoom(roomCode, u2);
-
-      // Assign teams via REST first (authenticated)
-      await chooseTeamRest(roomCode, u1, 0);
-      await chooseTeamRest(roomCode, u2, 1);
-
-      const client1 = createClient();
-      const client2 = createClient();
-      await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
-
-      client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
-      await delay(100);
-
-      const readyPromise1 = waitForEvent<{
-        userId: number;
-        playerId: number;
-        isReady: boolean;
-      }>(
-        client1,
-        "ready_changed"
-      );
-      const readyPromise2 = waitForEvent<{
-        userId: number;
-        playerId: number;
-        isReady: boolean;
-      }>(
-        client2,
-        "ready_changed"
-      );
-
-      client1.emit("set_ready", { roomCode, userId: u1.id, isReady: true });
-
-      const [ev1, ev2] = await Promise.all([readyPromise1, readyPromise2]);
-      expect(ev1.userId).toBe(u1.id);
-      expect(ev1.playerId).toEqual(expect.any(Number));
-      expect(ev1.isReady).toBe(true);
-      expect(ev2.userId).toBe(u1.id);
-      expect(ev2.playerId).toBe(ev1.playerId);
-      expect(ev2.isReady).toBe(true);
-    });
-
-    it("should emit error if player has not chosen a team", async () => {
-      const u1 = await createUser("Alice");
-      const roomCode = await createRoom(u1);
-
-      const client = createClient();
-      await waitForConnect(client);
-      client.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
-
-      const errorPromise = waitForEvent<{ message: string }>(client, "error");
-      client.emit("set_ready", { roomCode, userId: u1.id, isReady: true });
-
-      const err = await errorPromise;
-      expect(err.message).toBe(
-        "Player must choose a team before readying up",
-      );
-    });
-
-    it("starts one game when the fourth player readies through the socket", async () => {
-      const users = await Promise.all(
-        ["readyA", "readyB", "readyC", "readyD"].map(createUser),
-      );
-      const roomCode = await createRoom(users[0]);
-      for (let index = 1; index < users.length; index++) {
-        await joinRoom(roomCode, users[index]);
-      }
-      for (let index = 0; index < users.length; index++) {
-        await chooseTeamRest(roomCode, users[index], index % 2);
-      }
-      for (let index = 0; index < users.length - 1; index++) {
-        const response = await request(httpServer)
-          .post(`/api/rooms/${roomCode}/ready`)
-          .set(authHeaders(users[index]))
-          .send({ isReady: true });
-        expect(response.statusCode).toBe(200);
-      }
-
-      const client = createClient();
-      await waitForConnect(client);
-      client.emit("join_room", {
-        roomCode,
-        userId: users[3].id,
-        username: users[3].username,
-      });
-      await delay(100);
-      const started = waitForEvent(client, "game_started");
-
-      client.emit("set_ready", {
-        roomCode,
-        userId: users[3].id,
-        isReady: true,
-      });
-      await started;
-
-      const room = await prisma.gameRoom.findUniqueOrThrow({
-        where: { code: roomCode },
-        include: { rounds: true },
-      });
-      expect(room.started).toBe(true);
-      expect(room.rounds).toHaveLength(1);
     });
   });
 

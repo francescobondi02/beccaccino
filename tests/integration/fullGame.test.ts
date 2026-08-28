@@ -9,7 +9,7 @@ import {
 } from "../helpers/gameDriver";
 import { apiAs } from "../helpers/serverHarness";
 
-// Game service ends the game at 5 points (see gameService.ts).
+// tests/loadTestEnv.ts sets the winning score to 5.
 const WINNING_SCORE = 5;
 
 beforeEach(async () => {

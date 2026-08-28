@@ -1,19 +1,11 @@
 // src/sockets/room.ts
-/**
- * Gestisce gli eventi socket relativi alla room (lobby) prima dell'inizio della partita.
- * Include: join room, leave room, choose team, ready state
- */
+/** Socket presence and chat handlers. Room mutations use the REST API. */
 
 import { Server, Socket } from "socket.io";
 import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { logger } from "../logger";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
-import {
-  chooseTeamCommand,
-  setReadyCommand,
-} from "../services/multiplayerRoomCommands";
-import { GameError } from "../utils/gameError";
 import { sanitizeChatMessage } from "../utils/sanitizeChatMessage";
 
 interface JoinRoomData {
@@ -25,18 +17,6 @@ interface JoinRoomData {
 interface JoinRoomResult {
   ok: boolean;
   error?: string;
-}
-
-interface ChooseTeamData {
-  roomCode: string;
-  userId: number;
-  team: number;
-}
-
-interface ReadyData {
-  roomCode: string;
-  userId: number;
-  isReady: boolean;
 }
 
 export function registerRoomSocket(socket: Socket, io: Server) {
@@ -145,88 +125,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
       }
     },
   );
-
-  /**
-   * CHOOSE_TEAM — Deprecated socket handler.
-   * The authoritative path is POST /api/rooms/:roomCode/choose-team; the real
-   * frontend only uses REST. Both adapters call the same serialized command;
-   * this handler remains only for compatibility with older clients.
-   */
-  socket.on("choose_team", async (data: ChooseTeamData) => {
-    const { roomCode, team } = data;
-
-    const userId = socket.data.user?.userId ?? data.userId;
-
-    if (!userId) {
-      socket.emit("error", { message: "Not authenticated" });
-      return;
-    }
-
-    try {
-      const result = await chooseTeamCommand({ roomCode, userId, team });
-      if (result.changed) {
-        io.to(roomCode).emit("team_chosen", {
-          userId,
-          playerId: result.player.id,
-          team,
-        });
-      }
-    } catch (error) {
-      if (error instanceof GameError) {
-        socket.emit("error", { message: error.message });
-        return;
-      }
-      Sentry.captureException(error, {
-        extra: { event: "choose_team", roomCode, userId, team },
-      });
-      logger.error(
-        { err: error, roomCode, userId, team },
-        "choose_team_failed",
-      );
-      socket.emit("error", { message: "Failed to choose team" });
-    }
-  });
-
-  /**
-   * SET_READY — Deprecated socket handler.
-   * The authoritative path is POST /api/rooms/:roomCode/ready which
-   * calls the same serialized command. This handler remains only for
-   * compatibility with older clients.
-   */
-  socket.on("set_ready", async (data: ReadyData) => {
-    const { roomCode, isReady } = data;
-
-    const userId = socket.data.user?.userId ?? data.userId;
-
-    if (!userId) {
-      socket.emit("error", { message: "Not authenticated" });
-      return;
-    }
-
-    try {
-      await setReadyCommand({
-        roomCode,
-        userId,
-        isReady,
-        onReadyChanged: (event) => {
-          io.to(roomCode).emit("ready_changed", event);
-        },
-      });
-    } catch (error) {
-      if (error instanceof GameError) {
-        socket.emit("error", { message: error.message });
-        return;
-      }
-      Sentry.captureException(error, {
-        extra: { event: "set_ready", roomCode, userId, isReady },
-      });
-      logger.error(
-        { err: error, roomCode, userId, isReady },
-        "set_ready_failed",
-      );
-      socket.emit("error", { message: "Failed to set ready" });
-    }
-  });
 
   // Chat rate limiting: max 5 messages per 3 seconds per socket
   const chatRateLimit = { count: 0, resetTime: Date.now() };
