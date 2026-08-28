@@ -405,7 +405,7 @@ async function setBriscolaUnlocked({
     where: { gameRoomId },
     orderBy: { number: "desc" },
   });
-  if (!currentRound) throw new GameError("No active round found", 500);
+  if (!currentRound) throw new Error("No active round found");
   if (currentRound.briscola !== null)
     throw new GameError("Briscola already set for this round", 400);
 

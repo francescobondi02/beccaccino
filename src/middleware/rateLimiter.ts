@@ -6,6 +6,7 @@
  */
 
 import { Request, Response, NextFunction } from "express";
+import { ClientError } from "../http/errors";
 
 interface RateLimitEntry {
   count: number;
@@ -62,7 +63,7 @@ export function rateLimiter(options: RateLimiterOptions) {
     res.setHeader("X-RateLimit-Reset", Math.ceil(entry.resetTime / 1000).toString());
 
     if (entry.count > maxRequests) {
-      return res.status(429).json({ error: message });
+      return next(new ClientError(429, message));
     }
 
     next();

@@ -3,7 +3,6 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
-import * as Sentry from "@sentry/node";
 import dotenv from "dotenv";
 import pinoHttp from "pino-http";
 import { randomUUID } from "crypto";
@@ -14,6 +13,7 @@ import gameRouter from "./routes/games";
 import annotationRouter from "./routes/annotations";
 import { logger } from "./logger";
 import { prisma } from "./db";
+import { errorHandler } from "./http/errorHandler";
 
 dotenv.config();
 
@@ -99,18 +99,6 @@ app.get("/ready", async (_req, res) => {
   }
 });
 
-// Global error handler — catches unhandled errors from async routes (Express 5)
-app.use(
-  (
-    err: Error,
-    req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction,
-  ) => {
-    Sentry.captureException(err);
-    (req.log ?? logger).error({ err }, "unhandled_error");
-    res.status(500).json({ error: "Internal server error" });
-  },
-);
+app.use(errorHandler);
 
 export default app;

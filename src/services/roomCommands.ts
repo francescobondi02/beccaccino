@@ -15,7 +15,7 @@ import {
 
 export class ActiveGameConflict extends GameError {
   constructor(readonly activeRoomCode: string) {
-    super("Sei già in una partita attiva", 409);
+    super("Sei già in una partita attiva", 409, { activeRoomCode });
   }
 }
 

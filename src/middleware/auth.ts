@@ -6,6 +6,7 @@ import {
   isTestAuthBypassEnabled,
   testRequestIdentity,
 } from "../auth/testAuthBypass";
+import { unauthorized } from "../http/errors";
 
 // Estende Request per includere user
 declare global {
@@ -18,7 +19,7 @@ declare global {
 
 export const authenticateToken = async (
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction,
 ) => {
   const token = req.cookies?.authToken;
@@ -27,13 +28,13 @@ export const authenticateToken = async (
   // masking invalid or expired login state.
   if (token !== undefined) {
     if (typeof token !== "string" || token.length === 0) {
-      return res.status(401).json({ error: "Invalid or expired token" });
+      return next(unauthorized("Invalid or expired token"));
     }
 
     try {
       const session = await verifyActiveSession(token);
       if (!session) {
-        return res.status(401).json({ error: "Invalid or expired token" });
+        return next(unauthorized("Invalid or expired token"));
       }
 
       req.user = session;
@@ -48,5 +49,5 @@ export const authenticateToken = async (
     return next();
   }
 
-  return res.status(401).json({ error: "Authentication required" });
+  return next(unauthorized());
 };

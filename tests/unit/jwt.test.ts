@@ -67,11 +67,14 @@ describe("account JWTs", () => {
       );
 
       expect(process.env.ALLOW_TEST_AUTH_BYPASS).toBe("true");
-      expect(response.status).toHaveBeenCalledWith(401);
-      expect(response.json).toHaveBeenCalledWith({
-        error: "Invalid or expired token",
-      });
-      expect(next).not.toHaveBeenCalled();
+      expect(response.status).not.toHaveBeenCalled();
+      expect(response.json).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 401,
+          message: "Invalid or expired token",
+        }),
+      );
     },
   );
 });
