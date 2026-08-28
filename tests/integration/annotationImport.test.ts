@@ -1,16 +1,13 @@
-import { createHash } from "crypto";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { prisma } from "../../src/db";
-import { annotationStateHash } from "../../src/annotations/state";
 import { importAnnotationBatch } from "../../src/scripts/importAnnotationScenarios";
 import {
   annotationScenarioCreateData,
-  annotationScenarioInput,
-  annotationScenarioState,
   chooseBriscolaScenarioInput,
 } from "../helpers/annotationScenario";
+import { writeAnnotationBatchFiles } from "../helpers/annotationBatch";
 import { clearDatabase } from "../helpers/database";
 
 let temporaryDirectory: string;
@@ -27,23 +24,18 @@ afterEach(async () => {
 });
 
 async function writeBatch(scenarios: unknown[]) {
-  const batchPath = join(temporaryDirectory, "batch.json");
-  const manifestPath = join(temporaryDirectory, "manifest.json");
-  const batch = `${JSON.stringify(scenarios, null, 2)}\n`;
-  await writeFile(batchPath, batch);
-  await writeFile(
-    manifestPath,
-    `${JSON.stringify({
-      batchId: "initial-v1",
-      batchSha256: createHash("sha256").update(batch).digest("hex"),
-    })}\n`,
+  return writeAnnotationBatchFiles(
+    temporaryDirectory,
+    scenarios as ReturnType<typeof chooseBriscolaScenarioInput>[],
+    "initial-v1",
   );
-  return { batchPath, manifestPath };
 }
 
 describe("annotation scenario import", () => {
   it("validates in dry-run mode and applies an identical batch idempotently", async () => {
-    const paths = await writeBatch([annotationScenarioInput()]);
+    const paths = await writeBatch([
+      chooseBriscolaScenarioInput({ code: "initial-v1-00001" }),
+    ]);
 
     const dryRun = await importAnnotationBatch(
       paths.batchPath,
@@ -77,11 +69,13 @@ describe("annotation scenario import", () => {
       await prisma.annotationScenario.findFirstOrThrow({
         select: { decisionType: true },
       }),
-    ).toEqual({ decisionType: "play_card" });
+    ).toEqual({ decisionType: "choose_briscola" });
   });
 
   it("fails on identifier conflicts without partially writing the batch", async () => {
-    const original = annotationScenarioInput();
+    const original = chooseBriscolaScenarioInput({
+      code: "initial-v1-00001",
+    });
     const originalPaths = await writeBatch([original]);
     await importAnnotationBatch(
       originalPaths.batchPath,
@@ -94,17 +88,7 @@ describe("annotation scenario import", () => {
       ...original,
       predictedDifficulty: "hard",
     };
-    const newState = annotationScenarioState({
-      totalScores: { 0: 3, 1: 0 },
-    });
-    const paths = await writeBatch([
-      annotationScenarioInput({
-        code: "initial-v1-0002",
-        state: newState,
-        stateHash: annotationStateHash(newState),
-      }),
-      conflict,
-    ]);
+    const paths = await writeBatch([conflict]);
 
     await expect(
       importAnnotationBatch(
@@ -118,12 +102,12 @@ describe("annotation scenario import", () => {
   });
 
   it("rejects a tampered batch before opening a write transaction", async () => {
-    const scenario = annotationScenarioInput();
+    const scenario = chooseBriscolaScenarioInput({
+      code: "initial-v1-00001",
+    });
     const paths = await writeBatch([
-      scenario,
       {
         ...scenario,
-        code: "initial-v1-0002",
         stateHash: "0".repeat(64),
         state: { ...scenario.state, hiddenHands: [] },
       },
@@ -141,7 +125,9 @@ describe("annotation scenario import", () => {
   });
 
   it("validates the confirmed plan before writing", async () => {
-    const paths = await writeBatch([annotationScenarioInput()]);
+    const paths = await writeBatch([
+      chooseBriscolaScenarioInput({ code: "initial-v1-00001" }),
+    ]);
 
     await expect(
       importAnnotationBatch(
@@ -163,7 +149,9 @@ describe("annotation scenario import", () => {
     const existing = await prisma.annotationScenario.create({
       data: annotationScenarioCreateData({ code: "initial-v1-old" }),
     });
-    const paths = await writeBatch([chooseBriscolaScenarioInput()]);
+    const paths = await writeBatch([
+      chooseBriscolaScenarioInput({ code: "initial-v1-00001" }),
+    ]);
 
     const first = await importAnnotationBatch(
       paths.batchPath,
@@ -203,7 +191,9 @@ describe("annotation scenario import", () => {
         responseTimeMs: 1000,
       },
     });
-    const incoming = chooseBriscolaScenarioInput();
+    const incoming = chooseBriscolaScenarioInput({
+      code: "initial-v1-00001",
+    });
     const paths = await writeBatch([incoming]);
 
     const dryRun = await importAnnotationBatch(

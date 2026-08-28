@@ -8,6 +8,7 @@ import { playCard } from "../game/transitions/cardPlay";
 import { playableCards } from "../services/cardService";
 import { publishEvents } from "./eventPublisher";
 import { applyRuntimeDirective } from "./turnRuntime";
+import { TurnIdentity } from "../game/transitions/types";
 
 const dependencies = {
   applyRuntime: applyRuntimeDirective,
@@ -18,9 +19,12 @@ export async function autoPlayCard(
   roomCode: string,
   userId: number,
   expectedPauseEpoch?: number,
+  expectedTurn?: TurnIdentity,
 ): Promise<void> {
   const cards = await playableCards({ roomCode, userId });
-  if (cards.length === 0) return;
+  if (cards.length === 0) {
+    throw new Error("No playable card found for the current runtime turn");
+  }
   const card = cards[0];
   await coordinateOutcome(
     await playCard({
@@ -30,6 +34,7 @@ export async function autoPlayCard(
       value: card.value,
       autoPlayed: true,
       expectedPauseEpoch,
+      expectedTurn,
     }),
     dependencies,
   );
@@ -39,6 +44,7 @@ export async function autoChooseBriscola(
   roomCode: string,
   userId: number,
   expectedPauseEpoch?: number,
+  expectedTurn?: TurnIdentity,
 ): Promise<void> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -47,9 +53,13 @@ export async function autoChooseBriscola(
       rounds: { orderBy: { number: "desc" }, take: 1 },
     },
   });
-  if (!room || room.rounds.length === 0) return;
+  if (!room || room.rounds.length === 0) {
+    throw new Error("No active round found for the current runtime turn");
+  }
   const player = room.players.find((candidate) => candidate.userId === userId);
-  if (!player || room.rounds[0].briscola !== null) return;
+  if (!player || room.rounds[0].briscola !== null) {
+    throw new Error("No briscola choice found for the current runtime turn");
+  }
 
   const cards = await prisma.playerCard.findMany({
     where: { playerId: player.id, roundId: room.rounds[0].id },
@@ -73,6 +83,7 @@ export async function autoChooseBriscola(
       suit,
       autoChosen: true,
       expectedPauseEpoch,
+      expectedTurn,
     }),
     dependencies,
   );

@@ -1,8 +1,14 @@
 import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
-import { TurnPhase } from "../game/transitions/types";
+import {
+  TurnIdentity,
+  TurnPhase,
+} from "../game/transitions/types";
 import { logger } from "../logger";
-import { PracticeTurnCancelledError } from "../game/transitions/round";
+import {
+  PracticeTurnCancelledError,
+  RuntimeTurnCancelledError,
+} from "../game/transitions/round";
 import { autoChooseBriscola, autoPlayCard } from "./autoPlay";
 import { publishEvent } from "./eventPublisher";
 import { recordTimeout } from "./timeoutPolicy";
@@ -12,6 +18,7 @@ export async function executeTimedOutTurn(args: {
   userId: number;
   phase: TurnPhase;
   expectedPauseEpoch: number;
+  expectedTurn: TurnIdentity;
 }): Promise<void> {
   try {
     if (args.phase === "choose_briscola") {
@@ -19,12 +26,14 @@ export async function executeTimedOutTurn(args: {
         args.roomCode,
         args.userId,
         args.expectedPauseEpoch,
+        args.expectedTurn,
       );
     } else {
       await autoPlayCard(
         args.roomCode,
         args.userId,
         args.expectedPauseEpoch,
+        args.expectedTurn,
       );
     }
     publishEvent(args.roomCode, "auto_played", {
@@ -47,7 +56,10 @@ export async function executeTimedOutTurn(args: {
       });
     }
   } catch (error) {
-    if (error instanceof PracticeTurnCancelledError) {
+    if (
+      error instanceof PracticeTurnCancelledError ||
+      error instanceof RuntimeTurnCancelledError
+    ) {
       logger.debug(args, "auto_play_cancelled_by_pause");
       return;
     }
@@ -56,5 +68,6 @@ export async function executeTimedOutTurn(args: {
       extra: args,
     });
     logger.warn({ err: error, ...args }, "auto_play_failed");
+    throw error;
   }
 }

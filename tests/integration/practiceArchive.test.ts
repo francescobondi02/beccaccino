@@ -117,6 +117,11 @@ async function seedFinishedGame(
     roomCode: room.code,
     humanUserId: users[0].id,
     humanUsername: users[0].username,
+    turnIdentity: {
+      roundId: round.id,
+      handId: hand.id,
+      playedCardCount: room.players.length,
+    },
   };
 }
 
@@ -195,14 +200,53 @@ describe("practice game archiving", () => {
     expect(await prisma.gameRoom.count()).toBe(1);
   });
 
+  it("keeps the room and runtime when its snapshot is malformed", async () => {
+    const { roomCode, humanUserId, humanUsername, turnIdentity } =
+      await seedFinishedGame("ARC005", true);
+    const card = await prisma.playerCard.findFirstOrThrow({
+      where: { player: { gameRoom: { code: roomCode } } },
+      select: { id: true },
+    });
+    await prisma.playerCard.delete({ where: { id: card.id } });
+    scheduleTurnTimer({
+      roomCode,
+      userId: humanUserId,
+      phase: "play_card",
+      pauseEpoch: 0,
+      identity: turnIdentity,
+      durationMs: 100_000,
+      isBot: false,
+      onElapsed: jest.fn(),
+    });
+    const timerBefore = getTurnTimerState(roomCode)!;
+
+    const response = await apiAs(humanUserId, humanUsername)
+      .post(`/api/rooms/${roomCode}/leave`)
+      .send({});
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toEqual({ error: "Internal server error" });
+    expect(
+      await prisma.gameRoom.findUnique({ where: { code: roomCode } }),
+    ).not.toBeNull();
+    expect(await prisma.round.count()).toBe(1);
+    expect(await prisma.practiceMatch.count()).toBe(0);
+    expect(getTurnTimerState(roomCode)).toMatchObject({
+      turnUserId: timerBefore.turnUserId,
+      phase: timerBefore.phase,
+      totalMs: timerBefore.totalMs,
+    });
+  });
+
   it("keeps the room and runtime when archival fails during leave", async () => {
-    const { roomCode, humanUserId, humanUsername } =
+    const { roomCode, humanUserId, humanUsername, turnIdentity } =
       await seedFinishedGame("ARC004", true);
     scheduleTurnTimer({
       roomCode,
       userId: humanUserId,
       phase: "play_card",
       pauseEpoch: 0,
+      identity: turnIdentity,
       durationMs: 100_000,
       isBot: false,
       onElapsed: jest.fn(),

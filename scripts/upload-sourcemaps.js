@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Upload backend source maps to Sentry. Skips silently if any required env
-// var is missing — useful for local builds and PRs without Sentry secrets.
+// Upload backend source maps to Sentry. Skips if any required environment
+// variable is missing so local and secret-free CI builds remain usable.
 //
 // Required env at upload time:
 //   SENTRY_AUTH_TOKEN  — auth token with `project:releases` scope
@@ -14,7 +14,7 @@ const { spawnSync } = require("child_process");
 const path = require("path");
 
 const required = ["SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT"];
-const missing = required.filter((k) => !process.env[k]);
+const missing = required.filter((name) => !process.env[name]);
 
 const release =
   process.env.SENTRY_RELEASE || process.env.RENDER_GIT_COMMIT || "";

@@ -215,7 +215,6 @@ export async function pausePracticeRoomCommand(
     roomCode: string;
     userId: number;
   },
-  onCommitted?: (room: { code: string; pausedAt: Date | null }) => void,
 ) {
   return withRoomLock(args.roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
@@ -225,6 +224,7 @@ export async function pausePracticeRoomCommand(
     if (!room) throw new GameError("Room not found", 404);
     assertPausablePracticeRoom(room, args.userId);
 
+    let paused = false;
     if (!room.pausedAt) {
       const update = await prisma.gameRoom.updateMany({
         where: {
@@ -248,6 +248,8 @@ export async function pausePracticeRoomCommand(
         if (!current?.pausedAt) {
           throw new GameError("Practice game state changed; retry", 409);
         }
+      } else {
+        paused = true;
       }
     }
     clearTurnTimer(args.roomCode);
@@ -256,8 +258,7 @@ export async function pausePracticeRoomCommand(
       where: { id: room.id },
       select: { code: true, pausedAt: true },
     });
-    onCommitted?.(pausedRoom);
-    return pausedRoom;
+    return { ...pausedRoom, paused };
   });
 }
 
@@ -266,7 +267,6 @@ export async function resumePracticeRoomCommand(
     roomCode: string;
     userId: number;
   },
-  onCommitted?: (room: { code: string; resumed: boolean }) => void,
 ) {
   return withRoomLock(args.roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
@@ -304,7 +304,6 @@ export async function resumePracticeRoomCommand(
     }
 
     const resumedRoom = { code: room.code, resumed: room.pausedAt !== null };
-    onCommitted?.(resumedRoom);
     return resumedRoom;
   });
 }

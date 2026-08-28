@@ -11,7 +11,11 @@ import {
   startPracticeRoomSweeper,
   stopPracticeRoomSweeper,
 } from "./services/practiceRoomSweeper";
-import { recoverActiveRuntime } from "./runtime/recovery";
+import { reconcileActiveRuntime } from "./runtime/recovery";
+import {
+  startRuntimeReconciler,
+  stopRuntimeReconciler,
+} from "./runtime/reconciler";
 
 const REQUIRED_ENV = ["DATABASE_URL", "JWT_SECRET"] as const;
 for (const key of REQUIRED_ENV) {
@@ -28,18 +32,34 @@ if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
 
 const { httpServer, close } = createServer();
 const port = process.env.PORT ? Number(process.env.PORT) : 8000;
-httpServer.listen(port, async () => {
-  logger.info({ port }, "server_started");
+
+async function start(): Promise<void> {
   if (process.env.NODE_ENV !== "test") {
+    const recovery = await reconcileActiveRuntime();
+    logger.info(recovery, "active_runtime_recovery_complete");
+    startRuntimeReconciler();
     startMetrics();
     startPracticeRoomSweeper();
-    try {
-      const recoveredRooms = await recoverActiveRuntime();
-      logger.info({ recoveredRooms }, "active_runtime_recovery_complete");
-    } catch (error) {
-      logger.error({ err: error }, "active_runtime_recovery_failed");
-    }
   }
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    httpServer.once("error", onError);
+    httpServer.listen(port, () => {
+      httpServer.off("error", onError);
+      resolve();
+    });
+  });
+  logger.info({ port }, "server_started");
+}
+
+void start().catch(async (error) => {
+  logger.fatal({ err: error }, "server_start_failed");
+  stopMetrics();
+  await stopRuntimeReconciler();
+  await stopPracticeRoomSweeper();
+  if (httpServer.listening) await close();
+  await prisma.$disconnect();
+  process.exit(1);
 });
 
 let isShuttingDown = false;
@@ -49,6 +69,7 @@ const shutdown = async (signal: string) => {
   logger.info({ signal }, "shutdown_initiated");
 
   stopMetrics();
+  await stopRuntimeReconciler();
   await stopPracticeRoomSweeper();
   let exitCode = 0;
   try {

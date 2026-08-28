@@ -216,10 +216,16 @@ function parsePlayCardScenarioState(
   if (!Array.isArray(record.completedTricks)) {
     throw new Error(`${path}.completedTricks must be an array`);
   }
+  let expectedStarter = callerSeat;
   const completedTricks = record.completedTricks.map((trick, index) => {
     const parsed = completedTrickAt(trick, `${path}.completedTricks[${index}]`);
-    if (parsed.number !== index + 1) {
-      throw new Error(`${path}.completedTricks must be chronological`);
+    if (
+      parsed.number !== index + 1 ||
+      parsed.starterSeat !== expectedStarter
+    ) {
+      throw new Error(
+        `${path}.completedTricks must follow the caller and previous winners`,
+      );
     }
     const winner = determineHandWinner(
       parsed.plays.map((play) => ({
@@ -232,11 +238,10 @@ function parsePlayCardScenarioState(
     if (winner !== parsed.winnerSeat) {
       throw new Error(`${path}.completedTricks[${index}] has an invalid winner`);
     }
+    expectedStarter = parsed.winnerSeat;
     return parsed;
   });
 
-  const expectedStarter =
-    completedTricks[completedTricks.length - 1]?.winnerSeat ?? callerSeat;
   const currentTrick = currentTrickAt(
     record.currentTrick,
     `${path}.currentTrick`,

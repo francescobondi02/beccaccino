@@ -5,8 +5,10 @@ import { PrismaClient } from "@prisma/client";
 import { annotationExportRecords } from "./exportAnnotations";
 import {
   AnnotationImportSummary,
+  AnnotationRestoreSummary,
   importLoadedAnnotationBatch,
   readAnnotationBatch,
+  restoreActiveAnnotationBatch,
 } from "./importAnnotationScenarios";
 import {
   ANNOTATION_DATABASE_USAGE,
@@ -25,25 +27,50 @@ interface ImportPlanTokenInput {
   readonly targets: AnnotationDatabaseTargets;
   readonly connectionSha256: string;
   readonly toolSha256: string;
-  readonly batchId: string;
-  readonly batchSha256: string;
+  readonly manifestSha256: string;
   readonly replaceActive: boolean;
   readonly summary: AnnotationImportSummary;
 }
 
 export function annotationImportPlanToken(input: ImportPlanTokenInput): string {
   const payload = {
-    version: 2,
+    version: 3,
+    operation: "import",
     targets: input.targets,
     connectionSha256: input.connectionSha256,
     toolSha256: input.toolSha256,
-    batchId: input.batchId,
-    batchSha256: input.batchSha256,
+    manifestSha256: input.manifestSha256,
+    batchId: input.summary.batchId,
     replaceActive: input.replaceActive,
     catalogSha256: input.summary.catalogSha256,
     validated: input.summary.validated,
     wouldInsert: input.summary.wouldInsert,
     skipped: input.summary.skipped,
+    wouldActivate: input.summary.wouldActivate,
+    wouldDeactivate: input.summary.wouldDeactivate,
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+interface RestorePlanTokenInput {
+  readonly targets: AnnotationDatabaseTargets;
+  readonly connectionSha256: string;
+  readonly toolSha256: string;
+  readonly summary: AnnotationRestoreSummary;
+}
+
+export function annotationRestorePlanToken(
+  input: RestorePlanTokenInput,
+): string {
+  const payload = {
+    version: 1,
+    operation: "restore-active",
+    targets: input.targets,
+    connectionSha256: input.connectionSha256,
+    toolSha256: input.toolSha256,
+    sourceBatch: input.summary.sourceBatch,
+    catalogSha256: input.summary.catalogSha256,
+    retained: input.summary.retained,
     wouldActivate: input.summary.wouldActivate,
     wouldDeactivate: input.summary.wouldDeactivate,
   };
@@ -129,8 +156,7 @@ async function main() {
         targets,
         connectionSha256: environment.connectionSha256,
         toolSha256,
-        batchId: batch.manifest.batchId,
-        batchSha256: batch.manifest.batchSha256,
+        manifestSha256: batch.manifestSha256,
         replaceActive: command.replaceActive,
         summary,
       });
@@ -153,6 +179,41 @@ async function main() {
         planToken: tokenFor({
           ...summary,
           inserted: 0,
+          activated: 0,
+          deactivated: 0,
+          applied: false,
+        }),
+      })}\n`,
+    );
+    return;
+  }
+
+  if (command.command === "restore-active") {
+    const toolSha256 = await annotationDatabaseToolSha256();
+    const tokenFor = (summary: AnnotationRestoreSummary) =>
+      annotationRestorePlanToken({
+        targets,
+        connectionSha256: environment.connectionSha256,
+        toolSha256,
+        summary,
+      });
+    const summary = await restoreActiveAnnotationBatch(command.sourceBatch, {
+      apply: command.apply,
+      validatePlan: command.apply
+        ? (plan) => {
+            if (tokenFor(plan) !== command.confirmPlan) {
+              throw new Error(
+                "database state or restore inputs differ from the confirmed dry-run plan",
+              );
+            }
+          }
+        : undefined,
+    });
+    process.stdout.write(
+      `${JSON.stringify({
+        ...summary,
+        planToken: tokenFor({
+          ...summary,
           activated: 0,
           deactivated: 0,
           applied: false,

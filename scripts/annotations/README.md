@@ -37,11 +37,16 @@ scripts/annotations/import.sh \
   --replace-active
 ```
 
+Validation covers the canonical batch and manifest bytes, exact batch hash,
+rules and method versions, generator and model provenance, generation
+parameters, family quotas, and every published aggregate count.
+
 Apply only after checking the printed database target and dry-run summary. The
 dry run emits a plan token bound to the database target, complete connection
-settings, compiled toolkit, batch hash, replacement mode, exact scenario
-catalog, and current insert/activation/deactivation counts. Apply requires that
-exact token and fails if any relevant input or catalog state changed:
+settings, compiled toolkit, complete manifest bytes, replacement mode, exact
+scenario catalog, and current insert/activation/deactivation counts. Apply
+requires that exact token and fails if any relevant input or catalog state
+changed:
 
 ```sh
 scripts/annotations/import.sh \
@@ -52,6 +57,29 @@ scripts/annotations/import.sh \
   --apply \
   --confirm-plan <token-from-dry-run>
 ```
+
+Restore a previously imported and retained source batch by its `sourceBatch`.
+The dry run confirms that the batch exists and reports the exact activation
+and deactivation counts:
+
+```sh
+scripts/annotations/_run.sh restore-active expert-2026-08-26-a \
+  --env-file "$ANNOTATION_ENV_FILE"
+```
+
+After reviewing the target, retained row count, and plan token, apply the same
+restore plan:
+
+```sh
+scripts/annotations/_run.sh restore-active expert-2026-08-26-a \
+  --env-file "$ANNOTATION_ENV_FILE" \
+  --apply \
+  --confirm-plan <token-from-dry-run>
+```
+
+Restore only changes `active` flags in one serializable transaction. It does
+not delete scenario rows or expert responses, and apply fails if the catalog
+changed after the dry run.
 
 Export pseudonymous, self-contained JSONL to a new mode-`600` file at an
 absolute path outside the checkout:

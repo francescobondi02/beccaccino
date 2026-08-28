@@ -19,6 +19,11 @@ import {
 import { logger } from "../../src/logger";
 import * as cardService from "../../src/services/cardService";
 import { recoverRoomRuntime } from "../../src/runtime/recovery";
+import * as runtimeRecovery from "../../src/runtime/recovery";
+import {
+  getSocketInstance,
+  setSocketInstance,
+} from "../../src/socketInstance";
 
 describe("Practice pause and resume", () => {
   const TOKEN = "practice-pause-token";
@@ -137,31 +142,127 @@ describe("Practice pause and resume", () => {
       }),
     ]);
 
-    const resumed = await apiAs(userId, "pause-human")
-      .post(`/api/rooms/${roomCode}/resume`)
-      .send({});
-    expect(resumed.statusCode).toBe(200);
-    expect(resumed.body).toEqual({ success: true, paused: false });
-    const resumedTimer = getTurnTimerState(roomCode);
-    expect(resumedTimer).not.toBeNull();
-    expect(
-      (
-        await prisma.gameRoom.findUniqueOrThrow({
-          where: { code: roomCode },
-        })
-      ).pauseEpoch,
-    ).toBe(2);
+    const originalIo = getSocketInstance();
+    const resumedEvents: { target: string; event: string }[] = [];
+    setSocketInstance({
+      to: (target: string) => ({
+        emit: (event: string) => resumedEvents.push({ target, event }),
+      }),
+    } as any);
+    try {
+      const resumed = await apiAs(userId, "pause-human")
+        .post(`/api/rooms/${roomCode}/resume`)
+        .send({});
+      expect(resumed.statusCode).toBe(200);
+      expect(resumed.body).toEqual({ success: true, paused: false });
+      const resumedTimer = getTurnTimerState(roomCode);
+      expect(resumedTimer).not.toBeNull();
+      expect(
+        (
+          await prisma.gameRoom.findUniqueOrThrow({
+            where: { code: roomCode },
+          })
+        ).pauseEpoch,
+      ).toBe(2);
+      expect(
+        resumedEvents.filter((event) => event.event === "practice_resumed"),
+      ).toEqual([
+        { target: roomCode, event: "practice_resumed" },
+        { target: "lobby", event: "practice_resumed" },
+      ]);
 
-    const duplicate = await apiAs(userId, "pause-human")
-      .post(`/api/rooms/${roomCode}/resume`)
-      .send({});
-    expect(duplicate.statusCode).toBe(200);
+      const duplicate = await apiAs(userId, "pause-human")
+        .post(`/api/rooms/${roomCode}/resume`)
+        .send({});
+      expect(duplicate.statusCode).toBe(200);
+      expect(
+        resumedEvents.filter((event) => event.event === "practice_resumed"),
+      ).toHaveLength(2);
+    } finally {
+      setSocketInstance(originalIo);
+    }
 
     const resumedRoom = await prisma.gameRoom.findUniqueOrThrow({
       where: { code: roomCode },
     });
     expect(resumedRoom.pausedAt).toBeNull();
     expect(resumedRoom.pauseEpoch).toBe(2);
+  });
+
+  it("publishes pause lifecycle events only when state changes", async () => {
+    const roomCode = await startPractice();
+    const originalIo = getSocketInstance();
+    const pausedEvents: { target: string; event: string }[] = [];
+    setSocketInstance({
+      to: (target: string) => ({
+        emit: (event: string) => pausedEvents.push({ target, event }),
+      }),
+    } as any);
+
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect(
+          (
+            await apiAs(userId, "pause-human")
+              .post(`/api/rooms/${roomCode}/pause`)
+              .send({})
+          ).statusCode,
+        ).toBe(200);
+      }
+
+      expect(
+        pausedEvents.filter((event) => event.event === "practice_paused"),
+      ).toEqual([
+        { target: roomCode, event: "practice_paused" },
+        { target: "lobby", event: "practice_paused" },
+      ]);
+    } finally {
+      setSocketInstance(originalIo);
+    }
+  });
+
+  it("does not report resume success until current runtime is active", async () => {
+    const roomCode = await startPractice();
+    expect(
+      (
+        await apiAs(userId, "pause-human")
+          .post(`/api/rooms/${roomCode}/pause`)
+          .send({})
+      ).statusCode,
+    ).toBe(200);
+
+    const ensureRuntime = jest
+      .spyOn(runtimeRecovery, "ensureRoomRuntime")
+      .mockResolvedValueOnce(false);
+    const originalIo = getSocketInstance();
+    const resumedEvents: string[] = [];
+    setSocketInstance({
+      to: () => ({
+        emit: (event: string) => resumedEvents.push(event),
+      }),
+    } as any);
+    try {
+      const failed = await apiAs(userId, "pause-human")
+        .post(`/api/rooms/${roomCode}/resume`)
+        .send({});
+
+      expect(failed.statusCode).toBe(503);
+      expect(failed.body).toEqual({
+        error: "Practice game runtime unavailable; retry",
+      });
+      expect(getTurnTimerState(roomCode)).toBeNull();
+      expect(resumedEvents).not.toContain("practice_resumed");
+
+      ensureRuntime.mockRestore();
+      const retry = await apiAs(userId, "pause-human")
+        .post(`/api/rooms/${roomCode}/resume`)
+        .send({});
+      expect(retry.statusCode).toBe(200);
+      expect(getTurnTimerState(roomCode)).not.toBeNull();
+      expect(resumedEvents).not.toContain("practice_resumed");
+    } finally {
+      setSocketInstance(originalIo);
+    }
   });
 
   it("keeps state reads side-effect free and recovers one runtime turn explicitly", async () => {
@@ -270,22 +371,87 @@ describe("Practice pause and resume", () => {
   });
 
   it("lets the sweeper expire a paused room after 24 hours", async () => {
+    const roomCode = await startPractice();
     const now = new Date();
-    const room = await prisma.gameRoom.create({
-      data: {
-        code: "PAUEXP",
-        started: true,
-        isPractice: true,
-        pausedAt: new Date(now.getTime() - 24 * 60 * 60 * 1000),
-        lastActivityAt: new Date(now.getTime() - 24 * 60 * 60 * 1000),
-        players: { create: { userId, seat: 0 } },
-      },
+    const paused = await apiAs(userId, "pause-human")
+      .post(`/api/rooms/${roomCode}/pause`)
+      .send({});
+    expect(paused.statusCode).toBe(200);
+
+    const staleAt = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const room = await prisma.gameRoom.update({
+      where: { code: roomCode },
+      data: { pausedAt: staleAt, lastActivityAt: staleAt },
     });
 
     await expect(sweepPracticeRooms(now)).resolves.toBe(1);
     expect(
       await prisma.gameRoom.findUnique({ where: { id: room.id } }),
     ).toBeNull();
+  });
+
+  it("rearms the persisted turn after timed execution fails", async () => {
+    process.env.BOT_THINK_DELAY_MS = "20";
+    const roomCode = await startPractice();
+    await waitFor(() => {
+      const timer = getTurnTimerState(roomCode);
+      return Boolean(timer && !timer.isBot && timer.turnUserId === userId);
+    });
+
+    if (getTurnTimerState(roomCode)?.phase === "choose_briscola") {
+      const player = await prisma.player.findFirstOrThrow({
+        where: { gameRoom: { code: roomCode }, userId },
+      });
+      const card = await prisma.playerCard.findFirstOrThrow({
+        where: { playerId: player.id },
+      });
+      const room = await prisma.gameRoom.findUniqueOrThrow({
+        where: { code: roomCode },
+      });
+      expect(
+        (
+          await apiAs(userId, "pause-human")
+            .post("/api/games/choose-briscola")
+            .send({ gameRoomId: room.id, suit: card.suit })
+        ).statusCode,
+      ).toBe(200);
+    }
+
+    const room = await prisma.gameRoom.findUniqueOrThrow({
+      where: { code: roomCode },
+    });
+    const round = await prisma.round.findFirstOrThrow({
+      where: { gameRoomId: room.id },
+      orderBy: { number: "desc" },
+    });
+    const hand = await prisma.hand.findFirstOrThrow({
+      where: { roundId: round.id },
+      orderBy: { number: "desc" },
+      include: { cards: true },
+    });
+    const playableSpy = jest
+      .spyOn(cardService, "playableCards")
+      .mockRejectedValueOnce(new Error("injected card lookup failure"));
+
+    clearTurnTimer(roomCode);
+    process.env.TURN_TIMEOUT_SECONDS = "0";
+    startRuntimeTurn(roomCode, userId, "play_card", room.pauseEpoch, {
+      roundId: round.id,
+      handId: hand.id,
+      playedCardCount: hand.cards.length,
+    });
+    process.env.TURN_TIMEOUT_SECONDS = "100000";
+
+    await waitFor(() => playableSpy.mock.calls.length === 1);
+    await waitFor(() => {
+      const timer = getTurnTimerState(roomCode);
+      return Boolean(
+        timer &&
+          timer.turnUserId === userId &&
+          timer.phase === "play_card" &&
+          timer.totalMs === 100_000_000,
+      );
+    });
   });
 
   it("discards a bot response from before pause even after the room resumes", async () => {
@@ -408,6 +574,15 @@ describe("Practice pause and resume", () => {
     const room = await prisma.gameRoom.findUniqueOrThrow({
       where: { code: roomCode },
     });
+    const round = await prisma.round.findFirstOrThrow({
+      where: { gameRoomId: room.id },
+      orderBy: { number: "desc" },
+    });
+    const hand = await prisma.hand.findFirstOrThrow({
+      where: { roundId: round.id },
+      orderBy: { number: "desc" },
+      include: { cards: true },
+    });
     let releaseCards!: (cards: typeof legalCards) => void;
     const heldCards = new Promise<typeof legalCards>((resolve) => {
       releaseCards = resolve;
@@ -419,8 +594,15 @@ describe("Practice pause and resume", () => {
 
     clearTurnTimer(roomCode);
     process.env.TURN_TIMEOUT_SECONDS = "0";
-    startRuntimeTurn(roomCode, userId, "play_card", room.pauseEpoch);
+    startRuntimeTurn(roomCode, userId, "play_card", room.pauseEpoch, {
+      roundId: round.id,
+      handId: hand.id,
+      playedCardCount: hand.cards.length,
+    });
     await waitFor(() => playableSpy.mock.calls.length === 1);
+    await expect(recoverRoomRuntime(roomCode)).resolves.toBe(false);
+    expect(getTurnTimerState(roomCode)).not.toBeNull();
+    expect(playableSpy).toHaveBeenCalledTimes(1);
 
     const playedBefore = await prisma.playedCard.count({
       where: { player: { gameRoom: { code: roomCode } } },

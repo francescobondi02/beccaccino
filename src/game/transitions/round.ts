@@ -17,8 +17,10 @@ import {
   seatAfter,
 } from "../../domain/game/turnOrder";
 import {
+  isSameTurn,
   RuntimeDirective,
   TransitionOutcome,
+  TurnIdentity,
 } from "./types";
 import { readCallerPlayerId } from "../snapshots/turnState";
 
@@ -26,6 +28,13 @@ export class PracticeTurnCancelledError extends GameError {
   constructor() {
     super("Practice game is paused", 409);
     this.name = "PracticeTurnCancelledError";
+  }
+}
+
+export class RuntimeTurnCancelledError extends GameError {
+  constructor() {
+    super("Runtime turn is no longer current", 409);
+    this.name = "RuntimeTurnCancelledError";
   }
 }
 
@@ -231,32 +240,33 @@ export async function startFirstRound(
   gameRoomId: number,
   roomCode: string,
 ): Promise<TransitionOutcome<void>> {
-  const { callerUserId, pauseEpoch, roundSetup } = await prisma.$transaction(async (tx) => {
-    const claim = await tx.gameRoom.updateMany({
-      where: { id: gameRoomId, started: false },
-      data: { started: true },
-    });
-    if (claim.count !== 1) {
-      throw new GameError("Game has already started", 409);
-    }
+  const { callerUserId, pauseEpoch, roundSetup } =
+    await prisma.$transaction(async (tx) => {
+      const claim = await tx.gameRoom.updateMany({
+        where: { id: gameRoomId, started: false },
+        data: { started: true },
+      });
+      if (claim.count !== 1) {
+        throw new GameError("Game has already started", 409);
+      }
 
-    const roundSetup = await setupRound(gameRoomId, 1, tx);
-    const room = await tx.gameRoom.findUniqueOrThrow({
-      where: { id: gameRoomId },
-      select: { pauseEpoch: true },
-    });
-    const caller = await tx.player.findUnique({
-      where: { id: roundSetup.callerPlayerId },
-      select: { userId: true },
-    });
-    if (!caller) throw new Error("Briscola caller not found");
+      const roundSetup = await setupRound(gameRoomId, 1, tx);
+      const room = await tx.gameRoom.findUniqueOrThrow({
+        where: { id: gameRoomId },
+        select: { pauseEpoch: true },
+      });
+      const caller = await tx.player.findUnique({
+        where: { id: roundSetup.callerPlayerId },
+        select: { userId: true },
+      });
+      if (!caller) throw new Error("Briscola caller not found");
 
-    return {
-      callerUserId: caller.userId,
-      pauseEpoch: room.pauseEpoch,
-      roundSetup,
-    };
-  });
+      return {
+        callerUserId: caller.userId,
+        pauseEpoch: room.pauseEpoch,
+        roundSetup,
+      };
+    });
 
   logRoundSetup(roundSetup);
   return {
@@ -267,6 +277,11 @@ export async function startFirstRound(
       userId: callerUserId,
       phase: "choose_briscola",
       pauseEpoch,
+      identity: {
+        roundId: roundSetup.roundId,
+        handId: null,
+        playedCardCount: 0,
+      },
     },
     events: [{ target: roomCode, event: "game_started", payload: {} }],
   };
@@ -288,6 +303,7 @@ export async function setBriscola(args: {
   autoChosen?: boolean;
   /** Bot moves must belong to the same pause/resume generation they started in. */
   expectedPauseEpoch?: number;
+  expectedTurn?: TurnIdentity;
 }) {
   // We need the roomCode to key the lock. Look it up once; the inner function
   // will re-fetch the full room with players for correctness.
@@ -305,12 +321,14 @@ async function setBriscolaUnlocked({
   suit,
   autoChosen = false,
   expectedPauseEpoch,
+  expectedTurn,
 }: {
   gameRoomId: number;
   playerId: number;
   suit: Suit;
   autoChosen?: boolean;
   expectedPauseEpoch?: number;
+  expectedTurn?: TurnIdentity;
 }) {
   const gameRoom = await prisma.gameRoom.findUnique({
     where: { id: gameRoomId },
@@ -329,6 +347,16 @@ async function setBriscolaUnlocked({
   if (!currentRound) throw new Error("No active round found");
   if (currentRound.briscola !== null)
     throw new GameError("Briscola already set for this round", 400);
+  if (
+    expectedTurn &&
+    !isSameTurn(expectedTurn, {
+      roundId: currentRound.id,
+      handId: null,
+      playedCardCount: 0,
+    })
+  ) {
+    throw new RuntimeTurnCancelledError();
+  }
 
   // Verify it's the correct player's turn to choose
   const callerPlayerId = await readCallerPlayerId(
@@ -395,6 +423,11 @@ async function setBriscolaUnlocked({
       userId: callerPlayer.userId,
       phase: "play_card",
       pauseEpoch: gameRoom.pauseEpoch,
+      identity: {
+        roundId: currentRound.id,
+        handId: firstHand.id,
+        playedCardCount: 0,
+      },
     } satisfies RuntimeDirective,
     events: [
       {

@@ -14,9 +14,15 @@ import {
   claimPracticeTransition,
   logRoundSetup,
   PracticeTurnCancelledError,
+  RuntimeTurnCancelledError,
   setupRound,
 } from "./round";
-import { GameEvent, TransitionOutcome } from "./types";
+import {
+  GameEvent,
+  isSameTurn,
+  TransitionOutcome,
+  TurnIdentity,
+} from "./types";
 
 type PlayedCardInput = {
   handId: number;
@@ -71,6 +77,7 @@ export async function playCard(args: {
   signal?: CardSignal | null;
   autoPlayed?: boolean;
   expectedPauseEpoch?: number;
+  expectedTurn?: TurnIdentity;
 }) {
   return withRoomLock(args.roomCode, () => playCardUnlocked(args));
 }
@@ -83,6 +90,7 @@ async function playCardUnlocked({
   signal,
   autoPlayed = false,
   expectedPauseEpoch,
+  expectedTurn,
 }: {
   roomCode: string;
   userId: number;
@@ -91,6 +99,7 @@ async function playCardUnlocked({
   signal?: CardSignal | null;
   autoPlayed?: boolean;
   expectedPauseEpoch?: number;
+  expectedTurn?: TurnIdentity;
 }): Promise<TransitionOutcome<void>> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -128,6 +137,16 @@ async function playCardUnlocked({
   const playedCards = currentHand.cards;
   if (playedCards.length >= 4) {
     throw new GameError("Hand is already full", 400);
+  }
+  if (
+    expectedTurn &&
+    !isSameTurn(expectedTurn, {
+      roundId: currentRound.id,
+      handId: currentHand.id,
+      playedCardCount: playedCards.length,
+    })
+  ) {
+    throw new RuntimeTurnCancelledError();
   }
 
   const starterSeat =
@@ -220,6 +239,11 @@ async function playCardUnlocked({
             userId: nextPlayer.userId,
             phase: "play_card",
             pauseEpoch: room.pauseEpoch,
+            identity: {
+              roundId: currentRound.id,
+              handId: currentHand.id,
+              playedCardCount: position + 1,
+            },
           }
         : null,
       events: [cardEvent],
@@ -232,14 +256,14 @@ async function playCardUnlocked({
   );
 
   if (currentHand.number < 10) {
-    await prisma.$transaction(async (tx) => {
+    const nextHand = await prisma.$transaction(async (tx) => {
       await claimPracticeTransition(tx, room, expectedPauseEpoch);
       await persistPlayedCard(tx, playerCard.id, playedCardData);
       await tx.hand.update({
         where: { id: currentHand.id },
         data: { winnerId: winnerPlayerId },
       });
-      await tx.hand.create({
+      return tx.hand.create({
         data: {
           roundId: currentRound.id,
           number: currentHand.number + 1,
@@ -261,6 +285,11 @@ async function playCardUnlocked({
             userId: winnerPlayer.userId,
             phase: "play_card",
             pauseEpoch: room.pauseEpoch,
+            identity: {
+              roundId: currentRound.id,
+              handId: nextHand.id,
+              playedCardCount: 0,
+            },
           }
         : null,
       events: [cardEvent],
@@ -464,6 +493,11 @@ async function playCardUnlocked({
           userId: newCaller.userId,
           phase: "choose_briscola",
           pauseEpoch: room.pauseEpoch,
+          identity: {
+            roundId: nextRound!.roundId,
+            handId: null,
+            playedCardCount: 0,
+          },
         }
       : null,
     events,

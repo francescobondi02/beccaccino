@@ -1,3 +1,4 @@
+import { Suit, Value } from "@prisma/client";
 import { prisma } from "../../src/db";
 import { sweepPracticeRooms } from "../../src/services/practiceRoomSweeper";
 import { withRoomLock } from "../../src/utils/roomLock";
@@ -9,6 +10,19 @@ import {
 
 const NOW = new Date("2026-08-25T12:00:00.000Z");
 const HOUR_MS = 60 * 60 * 1000;
+const SUITS: Suit[] = ["denara", "coppe", "spade", "bastoni"];
+const VALUES: Value[] = [
+  "asso",
+  "due",
+  "tre",
+  "quattro",
+  "cinque",
+  "sei",
+  "sette",
+  "fante",
+  "cavallo",
+  "re",
+];
 
 beforeEach(async () => {
   await clearDatabase();
@@ -66,6 +80,7 @@ describe("practice room sweeper", () => {
         gameRoomId: room.id,
         number: 1,
         briscola: "coppe",
+        briscolaAutoChosen: true,
         winnerTeam: 0,
       },
     });
@@ -77,28 +92,39 @@ describe("practice room sweeper", () => {
         winnerId: room.players[0].id,
       },
     });
-    await prisma.playerCard.create({
-      data: {
-        playerId: room.players[0].id,
-        roundId: round.id,
-        suit: "coppe",
-        value: "asso",
-      },
+    await prisma.playerCard.createMany({
+      data: room.players.flatMap((player, seat) =>
+        VALUES.slice(1).map((value) => ({
+          playerId: player.id,
+          roundId: round.id,
+          suit: SUITS[seat],
+          value,
+        })),
+      ),
     });
-    const playedCard = await prisma.playedCard.create({
-      data: {
-        playerId: room.players[0].id,
+    await prisma.playedCard.createMany({
+      data: room.players.map((player, seat) => ({
+        playerId: player.id,
         handId: hand.id,
-        suit: "coppe",
-        value: "asso",
-        position: 0,
-      },
+        suit: SUITS[seat],
+        value: VALUES[0],
+        position: seat,
+        autoPlayed: true,
+      })),
+    });
+    const playedCard = await prisma.playedCard.findFirstOrThrow({
+      where: { handId: hand.id },
     });
     scheduleTurnTimer({
       roomCode: room.code,
       userId: users[0].id,
       phase: "play_card",
       pauseEpoch: 0,
+      identity: {
+        roundId: round.id,
+        handId: hand.id,
+        playedCardCount: 4,
+      },
       durationMs: 100_000,
       isBot: false,
       onElapsed: jest.fn(),

@@ -34,6 +34,7 @@ function practiceRoom(
   const playOrder = [0, 1, 2, 3].map((offset) => (callerSeat + offset) % 4);
   return {
     isPractice: true,
+    started: true,
     finished: true,
     createdAt: new Date("2026-08-26T10:00:00.000Z"),
     lastActivityAt: new Date("2026-08-26T10:30:00.000Z"),
@@ -167,6 +168,39 @@ describe("practice match snapshots", () => {
     expect(match!.payload.rounds[1].dealtHands["0"]).toHaveLength(10);
   });
 
+  it("rejects a malformed round instead of omitting it", () => {
+    const room = practiceRoom();
+    const malformedRound = {
+      ...room.rounds[0],
+      number: 2,
+      briscola: null,
+      briscolaAutoChosen: null,
+      hands: [],
+      playerCards: [0, 1, 2, 3]
+        .flatMap((seat) =>
+          dealOf(seat).map((card) => ({
+            playerId: PLAYER_IDS[seat],
+            ...card,
+          })),
+        )
+        .slice(1),
+    };
+
+    expect(() =>
+      buildPracticeMatch({
+        ...room,
+        rounds: [room.rounds[0], malformedRound],
+      }),
+    ).toThrow(/round 2.*seat 0.*expected 10/i);
+  });
+
+  it("validates the completed payload with the shared parser", () => {
+    const room = practiceRoom();
+    room.rounds[0].briscola = "invalid";
+
+    expect(() => buildPracticeMatch(room)).toThrow(/briscola is invalid/i);
+  });
+
   it("does not archive a game with only automatic human choices", () => {
     expect(
       buildPracticeMatch(
@@ -190,6 +224,7 @@ describe("practice match snapshots", () => {
 
   it("skips rooms with nothing to learn from", () => {
     expect(buildPracticeMatch({ ...practiceRoom(), isPractice: false })).toBeNull();
+    expect(buildPracticeMatch({ ...practiceRoom(), started: false })).toBeNull();
 
     const room = practiceRoom();
     const preBriscolaRound = {

@@ -1,4 +1,8 @@
-import { TurnPhase } from "../game/transitions/types";
+import {
+  isSameTurn,
+  TurnIdentity,
+  TurnPhase,
+} from "../game/transitions/types";
 
 type TimerState = {
   timeout: NodeJS.Timeout;
@@ -9,6 +13,7 @@ type TimerState = {
   durationMs: number;
   isBot: boolean;
   pauseEpoch: number;
+  identity: TurnIdentity;
 };
 
 const activeTimers = new Map<string, TimerState>();
@@ -18,17 +23,16 @@ export function scheduleTurnTimer(args: {
   userId: number;
   phase: TurnPhase;
   pauseEpoch: number;
+  identity: TurnIdentity;
   durationMs: number;
   isBot: boolean;
   onElapsed: () => void | Promise<void>;
+  onFailed?: (error: unknown) => void | Promise<void>;
 }): void {
   clearTurnTimer(args.roomCode);
   const startedAt = Date.now();
   const timeout = setTimeout(() => {
-    const current = activeTimers.get(args.roomCode);
-    if (current?.timeout !== timeout) return;
-    activeTimers.delete(args.roomCode);
-    void args.onElapsed();
+    void executeTurn(args.roomCode, timeout, args.onElapsed, args.onFailed);
   }, args.durationMs);
   timeout.unref();
   activeTimers.set(args.roomCode, {
@@ -40,7 +44,39 @@ export function scheduleTurnTimer(args: {
     durationMs: args.durationMs,
     isBot: args.isBot,
     pauseEpoch: args.pauseEpoch,
+    identity: args.identity,
   });
+}
+
+async function executeTurn(
+  roomCode: string,
+  timeout: NodeJS.Timeout,
+  onElapsed: () => void | Promise<void>,
+  onFailed?: (error: unknown) => void | Promise<void>,
+): Promise<void> {
+  const current = activeTimers.get(roomCode);
+  if (current?.timeout !== timeout) return;
+
+  let failed = false;
+  let failure: unknown;
+  try {
+    await onElapsed();
+  } catch (error) {
+    failed = true;
+    failure = error;
+  } finally {
+    if (activeTimers.get(roomCode)?.timeout === timeout) {
+      activeTimers.delete(roomCode);
+    }
+  }
+
+  if (failed && onFailed) {
+    try {
+      await onFailed(failure);
+    } catch {
+      // The periodic runtime reconciler remains the retry backstop.
+    }
+  }
 }
 
 export function clearTurnTimer(roomCode: string): void {
@@ -68,18 +104,20 @@ export function getTurnTimerState(roomCode: string): {
   };
 }
 
-export function hasScheduledTurn(
+export function hasTurnRuntime(
   roomCode: string,
   userId: number,
   phase: TurnPhase,
   pauseEpoch: number,
+  identity: TurnIdentity,
 ): boolean {
   const timer = activeTimers.get(roomCode);
   return Boolean(
     timer &&
       timer.currentTurnUserId === userId &&
       timer.phase === phase &&
-      timer.pauseEpoch === pauseEpoch,
+      timer.pauseEpoch === pauseEpoch &&
+      isSameTurn(timer.identity, identity),
   );
 }
 

@@ -1,4 +1,9 @@
-import { RuntimeDirective, TurnPhase } from "../game/transitions/types";
+import {
+  RuntimeDirective,
+  TurnIdentity,
+  TurnPhase,
+} from "../game/transitions/types";
+import { logger } from "../logger";
 import { publishEvent } from "./eventPublisher";
 import {
   botRoomCodes,
@@ -26,6 +31,7 @@ export function startRuntimeTurn(
   userId: number,
   phase: TurnPhase,
   pauseEpoch: number,
+  identity: TurnIdentity,
 ): void {
   const botTier = botTierForTurn(roomCode, userId);
   const isBot = botTier !== null;
@@ -40,6 +46,7 @@ export function startRuntimeTurn(
     userId,
     phase,
     pauseEpoch,
+    identity,
     durationMs,
     isBot,
     onElapsed: async () => {
@@ -51,6 +58,7 @@ export function startRuntimeTurn(
           tier: botTier,
           phase,
           expectedPauseEpoch: pauseEpoch,
+          expectedTurn: identity,
         });
       } else {
         const { executeTimedOutTurn } = await import("./timeoutExecutor");
@@ -59,7 +67,23 @@ export function startRuntimeTurn(
           userId,
           phase,
           expectedPauseEpoch: pauseEpoch,
+          expectedTurn: identity,
         });
+      }
+    },
+    onFailed: async (error) => {
+      logger.warn(
+        { err: error, roomCode, userId, phase, identity },
+        "turn_execution_failed",
+      );
+      try {
+        const { recoverRoomRuntime } = await import("./recovery");
+        await recoverRoomRuntime(roomCode);
+      } catch (recoveryError) {
+        logger.warn(
+          { err: recoveryError, roomCode },
+          "turn_execution_recovery_failed",
+        );
       }
     },
   });
@@ -86,6 +110,7 @@ export function applyRuntimeDirective(
     directive.userId,
     directive.phase,
     directive.pauseEpoch,
+    directive.identity,
   );
 }
 

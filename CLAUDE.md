@@ -71,24 +71,28 @@ presence, leave, and chat.
 
 ## Runtime Recovery
 
-`index.ts` calls `recoverActiveRuntime()` after the HTTP server starts.
-Recovery scans started, unfinished, unpaused rooms and locks each room before
-deriving the persisted caller and current turn. It restores bot-seat metadata
-and schedules one directive only when the same room/user/phase/pause epoch is
-not already scheduled.
+`index.ts` completes the initial `reconcileActiveRuntime()` pass before the HTTP
+server listens. Recovery scans started, unfinished, unpaused rooms and locks
+each room before deriving the persisted caller and exact turn identity. It
+restores bot-seat metadata and schedules only when that turn has no scheduled
+or executing runtime. `/ready` remains unavailable while any room recovery
+fails, and the non-overlapping periodic reconciler retries failed or missing
+runtime.
 
 Practice resume commits `pausedAt = null` and a new pause epoch before calling
-`recoverRoomRuntime()` for that room. Paused rooms are excluded from startup
-recovery. Snapshot reads remain side-effect free.
+the same recovery path for that room. It returns success only after current
+runtime exists. Paused rooms are excluded from recovery. Snapshot reads remain
+side-effect free.
 
 Runtime responsibilities are separate:
 
-- `turnTimer.ts`: timer registry, scheduling, cancellation, timer reads
+- `turnTimer.ts`: scheduled/executing turn ownership, cancellation, timer reads
 - `turnRuntime.ts`: apply schedule/clear directives
 - `botExecutor.ts`: bot move execution
 - `timeoutPolicy.ts` and `timeoutExecutor.ts`: penalties and elapsed-turn policy
 - `autoPlay.ts`: fallback legal autoplay
 - `recovery.ts`: explicit startup/resume restoration
+- `reconciler.ts`: periodic, non-overlapping runtime repair
 - `eventPublisher.ts`: best-effort Socket.IO publication
 
 The backend assumes one active runtime instance. Distributed timer ownership is
@@ -143,9 +147,11 @@ The database operator is also split:
 - `atomicAnnotationExport.ts`: mode-600, no-overwrite atomic export
 - `annotationDatabase.ts`: import plan confirmation and orchestration
 
-Use the wrappers documented in `scripts/annotations/README.md`. Imports are dry
-run by default; apply requires the exact plan token. Do not pass database
-credentials on the command line or store them in the repository.
+Use the wrappers documented in `scripts/annotations/README.md`. Imports and
+active-catalog restores are dry run by default; apply requires the exact plan
+token. Restore changes only retained rows' `active` flags and never deletes
+scenarios or responses. Do not pass database credentials on the command line or
+store them in the repository.
 
 ## Verification
 

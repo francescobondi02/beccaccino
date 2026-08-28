@@ -195,13 +195,15 @@ Resuming starts a fresh full turn timer. Paused rooms remain subject to the same
 
 ### Runtime Recovery
 
-After the HTTP server starts, `recoverActiveRuntime()` scans started,
-unfinished, unpaused rooms. Each room is locked, its persisted caller/current
-turn is read, bot seats are restored, and one runtime directive is scheduled
-only when an equivalent timer is not already present. Practice resume commits
-the unpause first and then calls the same `recoverRoomRuntime()` path. Game-state
-reads never recover runtime, so repeated snapshots cannot create timers or bot
-moves.
+Before the HTTP server listens, `reconcileActiveRuntime()` scans started,
+unfinished, unpaused rooms. Each room is locked, its persisted caller and exact
+turn identity are read, bot seats are restored, and one runtime directive is
+scheduled only when that turn has no scheduled or executing owner. Failures are
+isolated per room, keep `/ready` unavailable, and are retried by a
+non-overlapping periodic reconciler. Practice resume commits the unpause first
+and returns success only after the same recovery path confirms current runtime.
+Game-state reads never recover runtime, so repeated snapshots cannot create
+timers or bot moves.
 
 ### Backend and AI Contract
 
@@ -247,6 +249,7 @@ explicit message in a standalone backend checkout.
 | `npm run migrate` | Apply Prisma migrations |
 | `scripts/annotations/status.sh` | Show catalog and response counts using an explicit environment file |
 | `scripts/annotations/import.sh` | Dry-run or apply a plan-token-confirmed scenario import |
+| `scripts/annotations/_run.sh restore-active ...` | Dry-run or apply a plan-token-confirmed retained-catalog restore |
 | `scripts/annotations/export.sh` | Atomically create a mode-`600` pseudonymous JSONL export |
 | `npm run practice:export` | Emit archived practice games as JSONL, one game per line |
 
@@ -273,16 +276,18 @@ For routine database operations, prefer the guarded wrappers documented in
 [`scripts/annotations/README.md`](scripts/annotations/README.md). They require
 an explicit mode-`600` environment file, display only the database host and
 name, and keep import database-read-only by default. A dry run emits a plan
-token bound to the full connection configuration, compiled toolkit, batch hash,
-replacement mode, exact scenario catalog, and current write counts. Apply
-requires that exact token and aborts if any relevant input or catalog state
-changed.
+token bound to the full connection configuration, compiled toolkit, complete
+manifest, replacement mode, exact scenario catalog, and current write counts.
+Apply requires that exact token and aborts if any relevant input or catalog
+state changed.
 
 Imports require each scenario to declare `play_card` or `choose_briscola` and
 are transactional and idempotent. Existing scenario codes and state hashes
 cannot be changed. With `--replace-active`, scenarios outside the incoming
 batch are deactivated in the same transaction; their rows and responses remain
 stored. The command remains database-write-free unless `--apply` is present.
+`restore-active` can reactivate one retained `sourceBatch` and deactivate the
+current catalog in another serializable, plan-confirmed transaction.
 
 The next-scenario query keeps each user's answers near the 20% easy, 40%
 medium, 40% hard mix, then ranks unanswered scenarios by
@@ -322,6 +327,11 @@ human leaves it, and the sweeper deletes finished or day-old ones, so
 `retirePracticeRoom` snapshots the game into one `PracticeMatch` row on its way
 out, in the same transaction, so a failed snapshot keeps the game and runtime
 for the next attempt instead of losing either.
+
+A valid game with no genuine human action is intentionally retired without an
+archive. Malformed player or round state is different: snapshot construction or
+payload validation throws, rolling back both the archive and live-row deletion
+while leaving runtime available for retry.
 
 The row holds the cards each seat was dealt plus every card played in order,
 which is enough to rebuild the complete game. Bot cards remain in that history

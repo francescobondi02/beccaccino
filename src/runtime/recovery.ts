@@ -2,16 +2,37 @@ import { prisma } from "../db";
 import { logger } from "../logger";
 import {
   readCallerPlayerId,
-  readCurrentTurnUserId,
+  readCurrentTurn,
 } from "../game/snapshots/turnState";
-import {
-  restoreBotSeats,
-} from "./botRegistry";
+import { restoreBotSeats } from "./botRegistry";
 import { applyRuntimeDirective } from "./turnRuntime";
-import { hasScheduledTurn } from "./turnTimer";
+import { hasTurnRuntime } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 
-export async function recoverRoomRuntime(roomCode: string): Promise<boolean> {
+type RoomRuntimeState = {
+  active: boolean;
+  recovered: boolean;
+};
+
+export type RuntimeRecoverySummary = {
+  activeRooms: number;
+  recoveredRooms: number;
+  failedRoomCodes: string[];
+};
+
+let runtimeRecoveryReady = process.env.NODE_ENV === "test";
+
+export function isRuntimeRecoveryReady(): boolean {
+  return runtimeRecoveryReady;
+}
+
+export function setRuntimeRecoveryReady(ready: boolean): void {
+  runtimeRecoveryReady = ready;
+}
+
+async function reconcileRoomRuntime(
+  roomCode: string,
+): Promise<RoomRuntimeState> {
   return withRoomLock(roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
       where: { code: roomCode },
@@ -26,55 +47,100 @@ export async function recoverRoomRuntime(roomCode: string): Promise<boolean> {
     const round = room?.rounds[0];
     if (
       !room ||
-      !round ||
       !room.started ||
       room.finished ||
       room.pausedAt
     ) {
-      return false;
+      return { active: false, recovered: false };
+    }
+    if (!round) {
+      throw new Error("Active room has no current round");
     }
 
     const callerPlayerId = await readCallerPlayerId(round, room.players);
-    const userId = await readCurrentTurnUserId(
+    const turn = await readCurrentTurn(
       round,
       room.players,
       callerPlayerId,
     );
-    if (userId === null) return false;
+    if (!turn) {
+      throw new Error("Active room has no current turn");
+    }
 
-    const phase =
-      round.briscola === null ? "choose_briscola" : "play_card";
-    if (hasScheduledTurn(roomCode, userId, phase, room.pauseEpoch)) {
-      return false;
+    if (
+      hasTurnRuntime(
+        roomCode,
+        turn.userId,
+        turn.phase,
+        room.pauseEpoch,
+        turn.identity,
+      )
+    ) {
+      return { active: true, recovered: false };
     }
 
     restoreBotSeats(roomCode, room.players);
     applyRuntimeDirective({
       kind: "schedule",
       roomCode,
-      userId,
-      phase,
+      userId: turn.userId,
+      phase: turn.phase,
       pauseEpoch: room.pauseEpoch,
+      identity: turn.identity,
     });
-    logger.info({ roomCode, userId, phase }, "turn_runtime_recovered");
-    return true;
+    logger.info(
+      { roomCode, userId: turn.userId, phase: turn.phase },
+      "turn_runtime_recovered",
+    );
+    return { active: true, recovered: true };
   });
 }
 
-export async function recoverActiveRuntime(): Promise<number> {
-  const rooms = await prisma.gameRoom.findMany({
-    where: {
-      started: true,
-      finished: false,
-      pausedAt: null,
-    },
-    select: { code: true },
-    orderBy: { id: "asc" },
-  });
+export async function recoverRoomRuntime(roomCode: string): Promise<boolean> {
+  return (await reconcileRoomRuntime(roomCode)).recovered;
+}
 
-  let recovered = 0;
-  for (const room of rooms) {
-    if (await recoverRoomRuntime(room.code)) recovered++;
+export async function ensureRoomRuntime(roomCode: string): Promise<boolean> {
+  return (await reconcileRoomRuntime(roomCode)).active;
+}
+
+export async function recoverRooms(
+  roomCodes: readonly string[],
+  recover: (roomCode: string) => Promise<boolean> = recoverRoomRuntime,
+): Promise<RuntimeRecoverySummary> {
+  let recoveredRooms = 0;
+  const failedRoomCodes: string[] = [];
+  for (const roomCode of roomCodes) {
+    try {
+      if (await recover(roomCode)) recoveredRooms++;
+    } catch (error) {
+      failedRoomCodes.push(roomCode);
+      logger.error({ err: error, roomCode }, "room_runtime_recovery_failed");
+    }
   }
-  return recovered;
+  return {
+    activeRooms: roomCodes.length,
+    recoveredRooms,
+    failedRoomCodes,
+  };
+}
+
+export async function reconcileActiveRuntime(): Promise<RuntimeRecoverySummary> {
+  try {
+    const rooms = await prisma.gameRoom.findMany({
+      where: {
+        started: true,
+        finished: false,
+        pausedAt: null,
+      },
+      select: { code: true },
+      orderBy: { id: "asc" },
+    });
+    const summary = await recoverRooms(rooms.map((room) => room.code));
+    setRuntimeRecoveryReady(summary.failedRoomCodes.length === 0);
+    return summary;
+  } catch (error) {
+    setRuntimeRecoveryReady(false);
+    throw error;
+  }
 }

@@ -9,6 +9,7 @@ const outcome: TransitionOutcome<string> = {
     userId: 7,
     phase: "play_card",
     pauseEpoch: 2,
+    identity: { roundId: 3, handId: 4, playedCardCount: 1 },
   },
   events: [
     { target: "ROOM01", event: "card_played", payload: { position: 1 } },

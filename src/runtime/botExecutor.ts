@@ -1,7 +1,10 @@
 import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { coordinateOutcome } from "../game/coordinateOutcome";
-import { TurnPhase } from "../game/transitions/types";
+import {
+  TurnIdentity,
+  TurnPhase,
+} from "../game/transitions/types";
 import { logger } from "../logger";
 import {
   BotServiceError,
@@ -12,6 +15,7 @@ import { buildBotTurn } from "../services/botState";
 import { playableCards } from "../services/cardService";
 import {
   PracticeTurnCancelledError,
+  RuntimeTurnCancelledError,
   setBriscola,
 } from "../game/transitions/round";
 import { playCard } from "../game/transitions/cardPlay";
@@ -53,6 +57,7 @@ export async function executeBotTurn(args: {
   tier: BotTier;
   phase: TurnPhase;
   expectedPauseEpoch: number;
+  expectedTurn: TurnIdentity;
 }): Promise<void> {
   if (!hasBotSeat(args.roomCode, args.userId)) return;
 
@@ -100,6 +105,7 @@ export async function executeBotTurn(args: {
           playerId,
           suit: move.suit,
           expectedPauseEpoch: args.expectedPauseEpoch,
+          expectedTurn: args.expectedTurn,
         }),
         {
           applyRuntime: applyRuntimeDirective,
@@ -115,6 +121,7 @@ export async function executeBotTurn(args: {
           value: move.value,
           signal: move.signal,
           expectedPauseEpoch: args.expectedPauseEpoch,
+          expectedTurn: args.expectedTurn,
         }),
         {
           applyRuntime: applyRuntimeDirective,
@@ -123,7 +130,10 @@ export async function executeBotTurn(args: {
       );
     }
   } catch (error) {
-    if (error instanceof PracticeTurnCancelledError) {
+    if (
+      error instanceof PracticeTurnCancelledError ||
+      error instanceof RuntimeTurnCancelledError
+    ) {
       logger.debug(args, "bot_move_cancelled_by_pause");
       return;
     }
@@ -152,16 +162,21 @@ export async function executeBotTurn(args: {
           args.roomCode,
           args.userId,
           args.expectedPauseEpoch,
+          args.expectedTurn,
         );
       } else {
         await autoPlayCard(
           args.roomCode,
           args.userId,
           args.expectedPauseEpoch,
+          args.expectedTurn,
         );
       }
     } catch (fallbackError) {
-      if (fallbackError instanceof PracticeTurnCancelledError) {
+      if (
+        fallbackError instanceof PracticeTurnCancelledError ||
+        fallbackError instanceof RuntimeTurnCancelledError
+      ) {
         logger.debug(args, "bot_fallback_cancelled_by_pause");
         return;
       }
@@ -169,6 +184,7 @@ export async function executeBotTurn(args: {
         { err: fallbackError, ...args },
         "bot_autoplay_fallback_failed",
       );
+      throw fallbackError;
     }
   }
 }

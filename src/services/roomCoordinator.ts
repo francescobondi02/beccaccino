@@ -1,7 +1,8 @@
 import { BotTier } from "./botService";
 import { logger } from "../logger";
-import { publishEvent, runBestEffort } from "../runtime/eventPublisher";
-import { recoverRoomRuntime } from "../runtime/recovery";
+import { publishEvent } from "../runtime/eventPublisher";
+import { ensureRoomRuntime } from "../runtime/recovery";
+import { GameError } from "../utils/gameError";
 import {
   chooseTeamCommand,
   createRoomCommand,
@@ -134,14 +135,15 @@ export async function pausePracticeRoom(args: {
   roomCode: string;
   userId: number;
 }) {
-  const room = await pausePracticeRoomCommand(args, (pausedRoom) => {
+  const room = await pausePracticeRoomCommand(args);
+  if (room.paused) {
     const payload = {
       roomCode: args.roomCode,
-      pausedAt: pausedRoom.pausedAt,
+      pausedAt: room.pausedAt,
     };
     publishEvent(args.roomCode, "practice_paused", payload);
     publishEvent("lobby", "practice_paused", payload);
-  });
+  }
 
   logger.info(args, "practice_game_paused");
   return {
@@ -155,18 +157,16 @@ export async function resumePracticeRoom(args: {
   roomCode: string;
   userId: number;
 }) {
-  await resumePracticeRoomCommand(args, () => {
+  const room = await resumePracticeRoomCommand(args);
+  if (!(await ensureRoomRuntime(args.roomCode))) {
+    throw new GameError("Practice game runtime unavailable; retry", 503);
+  }
+
+  if (room.resumed) {
     const payload = { roomCode: args.roomCode };
     publishEvent(args.roomCode, "practice_resumed", payload);
     publishEvent("lobby", "practice_resumed", payload);
-  });
-  await runBestEffort(
-    async () => {
-      await recoverRoomRuntime(args.roomCode);
-    },
-    "resume_practice_runtime",
-    args,
-  );
+  }
 
   logger.info(args, "practice_game_resumed");
   return { success: true, paused: false };

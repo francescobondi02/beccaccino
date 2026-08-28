@@ -24,6 +24,7 @@ import {
 import { CardSignal, Suit } from "../domain/game/cards";
 import { GAME_WIN_POINTS } from "../gameConfig";
 import {
+  parsePracticeMatchPayload,
   PRACTICE_MATCH_PAYLOAD_VERSION,
   PracticeCardCode,
   PracticeCardEntry,
@@ -38,6 +39,7 @@ const SEATS = [0, 1, 2, 3] as const;
 /** Only what the snapshot reads, so the builder stays a pure function. */
 type ArchivableRoom = {
   isPractice: boolean;
+  started: boolean;
   finished: boolean;
   createdAt: Date;
   lastActivityAt: Date;
@@ -82,46 +84,67 @@ function cardCode(card: { suit: string; value: string }): PracticeCardCode {
 }
 
 /**
- * Build the snapshot, or null when there is nothing worth keeping: a room that
- * is not practice, has no seated human, or died before any briscola was chosen.
+ * Build the snapshot, or null when there is intentionally nothing to archive:
+ * a non-practice room or a game with no genuine human action.
  */
 export function buildPracticeMatch(
   room: ArchivableRoom,
 ): PracticeMatchRecord | null {
   if (!room.isPractice) return null;
+  if (!room.started) return null;
 
-  const human = room.players.find((player) => player.botModel === null);
-  const bot = room.players.find((player) => player.botModel !== null);
-  // Every seat is filled before a practice game starts, so an unseated player
-  // means a half-built room: nothing we could map onto a board.
-  if (!human || !bot?.botModel) return null;
-  if (room.players.some((player) => player.seat === null)) return null;
+  const humans = room.players.filter((player) => player.botModel === null);
+  const bots = room.players.filter((player) => player.botModel !== null);
+  if (humans.length !== 1 || bots.length !== 3) {
+    throw new Error("Practice snapshot must contain one human and three bots");
+  }
+  if (
+    room.players.some(
+      (player) =>
+        player.seat === null ||
+        !SEATS.includes(player.seat as PracticeSeat),
+    ) ||
+    new Set(room.players.map((player) => player.seat)).size !== SEATS.length
+  ) {
+    throw new Error("Practice snapshot must contain seats 0 through 3");
+  }
 
+  const human = humans[0];
+  const botTier = bots[0].botModel!;
+  if (!botTier || bots.some((bot) => bot.botModel !== botTier)) {
+    throw new Error("Practice snapshot bots must use one tier");
+  }
   const seatOf = new Map(
     room.players.map((player) => [player.id, player.seat as PracticeSeat]),
   );
   const rounds: PracticeRoundPayload[] = [];
   for (const round of room.rounds) {
-    const archived = buildRound(
-      round,
-      seatOf,
-      human.seat as PracticeSeat,
-      rounds[rounds.length - 1]?.callerSeat,
+    rounds.push(
+      buildRound(
+        round,
+        seatOf,
+        human.seat as PracticeSeat,
+        rounds[rounds.length - 1]?.callerSeat,
+      ),
     );
-    if (archived) rounds.push(archived);
   }
-  if (!rounds.some((round) => round.humanActions.length > 0)) return null;
+  if (rounds.length === 0) return null;
+
+  const payload = parsePracticeMatchPayload({
+    winPoints: GAME_WIN_POINTS,
+    rounds,
+  });
+  if (!payload.rounds.some((round) => round.humanActions.length > 0)) {
+    return null;
+  }
 
   return {
     humanSeat: human.seat as PracticeSeat,
-    botTier: bot.botModel,
+    botTier,
     completed: room.finished,
     startedAt: room.createdAt,
     endedAt: room.lastActivityAt,
-    payload: {
-      winPoints: GAME_WIN_POINTS,
-      rounds,
-    },
+    payload,
   };
 }
 
@@ -130,8 +153,16 @@ function buildRound(
   seatOf: Map<number, PracticeSeat>,
   humanSeat: PracticeSeat,
   previousCallerSeat: PracticeSeat | undefined,
-): PracticeRoundPayload | null {
-  const seat = (playerId: number): PracticeSeat => seatOf.get(playerId)!;
+): PracticeRoundPayload {
+  const seat = (playerId: number): PracticeSeat => {
+    const playerSeat = seatOf.get(playerId);
+    if (playerSeat === undefined) {
+      throw new Error(
+        `Practice round ${round.number} references unknown player ${playerId}`,
+      );
+    }
+    return playerSeat;
+  };
   const tricks = round.hands.filter((hand) => hand.cards.length > 0);
 
   const dealtHands: Record<string, PracticeCardCode[]> = {};
@@ -147,8 +178,13 @@ function buildRound(
     dealtHands[String(seat(card.playerId))].push(cardCode(card));
   }
   for (const cards of Object.values(dealtHands)) cards.sort();
-  if (Object.values(dealtHands).some((cards) => cards.length !== 10)) {
-    return null;
+  const invalidDeal = Object.entries(dealtHands).find(
+    ([, cards]) => cards.length !== 10,
+  );
+  if (invalidDeal) {
+    throw new Error(
+      `Practice round ${round.number} seat ${invalidDeal[0]} has ${invalidDeal[1].length} cards; expected 10`,
+    );
   }
 
   const quattro = round.playerCards.find(
@@ -162,7 +198,9 @@ function buildRound(
     previousCaller: previousCallerSeat,
     nextCaller: (caller) => seatAfter(caller) as PracticeSeat,
   });
-  if (callerSeat === null) return null;
+  if (callerSeat === null) {
+    throw new Error(`Practice round ${round.number} has no resolvable caller`);
+  }
 
   const humanActions: PracticeHumanAction[] = [];
   if (
@@ -226,6 +264,7 @@ export async function archivePracticeMatch(
     where: { id: gameRoomId },
     select: {
       isPractice: true,
+      started: true,
       finished: true,
       createdAt: true,
       lastActivityAt: true,

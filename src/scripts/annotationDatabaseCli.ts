@@ -6,6 +6,13 @@ export type AnnotationDatabaseCommand =
   | { command: "status"; envFile: string }
   | { command: "export"; envFile: string; outputPath: string }
   | {
+      command: "restore-active";
+      envFile: string;
+      sourceBatch: string;
+      apply: boolean;
+      confirmPlan?: string;
+    }
+  | {
       command: "import";
       envFile: string;
       batchPath: string;
@@ -19,12 +26,14 @@ export const ANNOTATION_DATABASE_USAGE = `Usage:
   annotationDatabase status --env-file <path>
   annotationDatabase import <batch.json> <manifest.json> --env-file <path> [--replace-active]
   annotationDatabase import <batch.json> <manifest.json> --env-file <path> --apply --confirm-plan <token> [--replace-active]
+  annotationDatabase restore-active <source-batch> --env-file <path>
+  annotationDatabase restore-active <source-batch> --env-file <path> --apply --confirm-plan <token>
   annotationDatabase export --env-file <path> --output </absolute/path/annotations.jsonl>
 
-Database commands do not write to the database unless import includes --apply.
-A dry run emits the plan token required by apply. Export requires
-ANNOTATION_EXPORT_SALT and atomically creates a new mode-600 JSONL file without
-overwriting an existing path.
+Database commands do not write to the database unless import or restore-active
+includes --apply. A dry run emits the plan token required by apply. Export
+requires ANNOTATION_EXPORT_SALT and atomically creates a new mode-600 JSONL file
+without overwriting an existing path.
 `;
 
 function takeOption(
@@ -113,16 +122,12 @@ export function parseAnnotationDatabaseArgs(
     };
   }
 
-  if (command !== "import") {
+  if (command !== "import" && command !== "restore-active") {
     throw new Error(`unknown command: ${command}`);
   }
 
   const applyFlag = takeFlag(envOption.remaining, "--apply");
-  const replaceFlag = takeFlag(applyFlag.remaining, "--replace-active");
-  const confirmation = takeOption(replaceFlag.remaining, "--confirm-plan");
-  if (confirmation.remaining.length !== 2) {
-    throw new Error("import requires a batch path and manifest path");
-  }
+  const confirmation = takeOption(applyFlag.remaining, "--confirm-plan");
   if (applyFlag.present && !confirmation.value) {
     throw new Error("--apply requires --confirm-plan <token>");
   }
@@ -130,11 +135,29 @@ export function parseAnnotationDatabaseArgs(
     throw new Error("--confirm-plan is valid only with --apply");
   }
 
+  if (command === "restore-active") {
+    if (confirmation.remaining.length !== 1) {
+      throw new Error("restore-active requires one source batch");
+    }
+    return {
+      command,
+      envFile: envOption.value,
+      sourceBatch: confirmation.remaining[0],
+      apply: applyFlag.present,
+      confirmPlan: confirmation.value,
+    };
+  }
+
+  const replaceFlag = takeFlag(confirmation.remaining, "--replace-active");
+  if (replaceFlag.remaining.length !== 2) {
+    throw new Error("import requires a batch path and manifest path");
+  }
+
   return {
     command: "import",
     envFile: envOption.value,
-    batchPath: confirmation.remaining[0],
-    manifestPath: confirmation.remaining[1],
+    batchPath: replaceFlag.remaining[0],
+    manifestPath: replaceFlag.remaining[1],
     apply: applyFlag.present,
     replaceActive: replaceFlag.present,
     confirmPlan: confirmation.value,

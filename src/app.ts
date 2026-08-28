@@ -14,6 +14,7 @@ import annotationRouter from "./routes/annotations";
 import { logger } from "./logger";
 import { prisma } from "./db";
 import { errorHandler } from "./http/errorHandler";
+import { isRuntimeRecoveryReady } from "./runtime/recovery";
 
 dotenv.config();
 
@@ -89,6 +90,12 @@ app.get("/version", (_req, res) => {
 });
 
 app.get("/ready", async (_req, res) => {
+  if (!isRuntimeRecoveryReady()) {
+    res
+      .status(503)
+      .json({ status: "not_ready", reason: "runtime recovery incomplete" });
+    return;
+  }
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({ status: "ready" });

@@ -5,6 +5,10 @@ import {
   resolveTurnSeat,
   seatAfter,
 } from "../../domain/game/turnOrder";
+import {
+  TurnIdentity,
+  TurnPhase,
+} from "../transitions/types";
 
 type GameReadClient = Pick<
   Prisma.TransactionClient,
@@ -68,6 +72,21 @@ export async function readCurrentTurnUserId(
   callerPlayerId: number | null,
   client: GameReadClient = prisma,
 ): Promise<number | null> {
+  return (
+    await readCurrentTurn(round, players, callerPlayerId, client)
+  )?.userId ?? null;
+}
+
+export async function readCurrentTurn(
+  round: { id: number; briscola: string | null },
+  players: { id: number; userId: number; seat: number | null }[],
+  callerPlayerId: number | null,
+  client: GameReadClient = prisma,
+): Promise<{
+  userId: number;
+  phase: TurnPhase;
+  identity: TurnIdentity;
+} | null> {
   const lastHand = await client.hand.findFirst({
     where: { roundId: round.id },
     orderBy: { number: "desc" },
@@ -91,5 +110,21 @@ export async function readCurrentTurnUserId(
           }
         : null,
   });
-  return players.find((player) => player.seat === turnSeat)?.userId ?? null;
+  const userId =
+    players.find((player) => player.seat === turnSeat)?.userId ?? null;
+  if (userId === null) return null;
+
+  const phase = round.briscola === null ? "choose_briscola" : "play_card";
+  return {
+    userId,
+    phase,
+    identity:
+      phase === "choose_briscola"
+        ? { roundId: round.id, handId: null, playedCardCount: 0 }
+        : {
+            roundId: round.id,
+            handId: lastHand?.id ?? null,
+            playedCardCount: lastHand?.cards.length ?? 0,
+          },
+  };
 }
