@@ -1,5 +1,6 @@
 import { prisma } from "../../src/db";
-import { clearDatabase, api, apiAs } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { api, apiAs } from "../helpers/serverHarness";
 import { ensureBotUsers } from "../../src/services/botService";
 import {
   BotServiceStub,

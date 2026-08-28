@@ -9,7 +9,8 @@ import {
   setSocketInstance,
 } from "../../src/socketInstance";
 import { setRng } from "../../src/utils/random";
-import { apiAs, clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { apiAs } from "../helpers/serverHarness";
 
 const roomCodes = new Set<string>();
 

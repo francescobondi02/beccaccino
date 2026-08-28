@@ -11,7 +11,7 @@ import {
   annotationScenarioState,
   chooseBriscolaScenarioInput,
 } from "../helpers/annotationScenario";
-import { clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
 
 let temporaryDirectory: string;
 

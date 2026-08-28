@@ -1,7 +1,7 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
-
-import { clearDatabase, getServer } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { getServer } from "../helpers/serverHarness";
 
 beforeEach(async () => {
   await clearDatabase();

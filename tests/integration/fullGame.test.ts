@@ -1,13 +1,13 @@
 import { prisma } from "../../src/db";
+import { clearDatabase } from "../helpers/database";
 import {
-  clearDatabase,
   setupGame,
   chooseBriscola,
   oneRound,
   computeRoundPoints,
   prepareNextRound,
-  apiAs,
-} from "../helpers/gameHelpers";
+} from "../helpers/gameDriver";
+import { apiAs } from "../helpers/serverHarness";
 
 // Game service ends the game at 5 points (see gameService.ts).
 const WINNING_SCORE = 5;

@@ -1,4 +1,4 @@
-import { api } from "../helpers/gameHelpers";
+import { api } from "../helpers/serverHarness";
 
 describe("Service probes", () => {
   const originalRenderCommit = process.env.RENDER_GIT_COMMIT;

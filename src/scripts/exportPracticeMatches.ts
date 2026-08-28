@@ -8,25 +8,20 @@
  */
 
 import { PracticeMatch, PrismaClient } from "@prisma/client";
-
-const SUPPORTED_SCHEMA_VERSION = 1;
-type ArchivedRound = {
-  humanActions?: unknown[];
-};
+import {
+  parsePracticeMatchPayload,
+  PRACTICE_MATCH_PAYLOAD_VERSION,
+} from "../practice/matchPayload";
 
 export function practiceExportRecord(match: PracticeMatch) {
-  if (match.schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
+  if (match.schemaVersion !== PRACTICE_MATCH_PAYLOAD_VERSION) {
     throw new Error(
       `match ${match.id} uses unsupported schema version ${match.schemaVersion}`,
     );
   }
-  const rounds = (match.payload as { rounds?: ArchivedRound[] } | null)?.rounds;
-  if (!rounds?.length) throw new Error(`match ${match.id} has no rounds`);
+  const payload = parsePracticeMatchPayload(match.payload);
   if (
-    !rounds.some(
-      (round) =>
-        Array.isArray(round.humanActions) && round.humanActions.length > 0,
-    )
+    !payload.rounds.some((round) => round.humanActions.length > 0)
   ) {
     throw new Error(`match ${match.id} has no human actions`);
   }
@@ -37,7 +32,7 @@ export function practiceExportRecord(match: PracticeMatch) {
     botTier: match.botTier,
     completed: match.completed,
     schemaVersion: match.schemaVersion,
-    payload: match.payload,
+    payload,
     startedAt: match.startedAt,
     endedAt: match.endedAt,
   };

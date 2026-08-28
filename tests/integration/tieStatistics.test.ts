@@ -1,5 +1,6 @@
 import { prisma } from "../../src/db";
-import { apiAs, clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { apiAs } from "../helpers/serverHarness";
 
 beforeEach(async () => {
   await clearDatabase();

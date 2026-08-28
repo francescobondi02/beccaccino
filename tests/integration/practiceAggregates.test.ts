@@ -1,14 +1,12 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
+import { clearDatabase } from "../helpers/database";
 import {
-  clearDatabase,
   setupGame,
   chooseBriscola,
   oneRound,
-  getServer,
-  api,
-  apiAs,
-} from "../helpers/gameHelpers";
+} from "../helpers/gameDriver";
+import { api, apiAs, getServer } from "../helpers/serverHarness";
 
 /**
  * Practice games (human vs bots) must stay out of every public aggregate.

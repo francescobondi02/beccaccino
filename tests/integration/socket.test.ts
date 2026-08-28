@@ -13,6 +13,7 @@ import {
   createServer,
   CreatedServer,
 } from "../../src/server";
+import { clearDatabase } from "../helpers/database";
 
 // ---------------------------------------------------------------------------
 // Test server setup
@@ -136,20 +137,6 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 // Helpers: clear DB and create users + room via REST API (auth-aware)
 // ---------------------------------------------------------------------------
-
-async function clearDatabase() {
-  await prisma.$transaction([
-    prisma.expertAnnotation.deleteMany(),
-    prisma.annotationScenario.deleteMany(),
-    prisma.playedCard.deleteMany(),
-    prisma.playerCard.deleteMany(),
-    prisma.hand.deleteMany(),
-    prisma.round.deleteMany(),
-    prisma.player.deleteMany(),
-    prisma.gameRoom.deleteMany(),
-    prisma.user.deleteMany(),
-  ]);
-}
 
 interface TestUser {
   id: number;

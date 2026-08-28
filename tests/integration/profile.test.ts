@@ -1,12 +1,12 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
+import { clearDatabase } from "../helpers/database";
 import {
-  clearDatabase,
   setupGame,
   chooseBriscola,
   oneRound,
-  getServer,
-} from "../helpers/gameHelpers";
+} from "../helpers/gameDriver";
+import { getServer } from "../helpers/serverHarness";
 
 beforeEach(async () => {
   await clearDatabase();

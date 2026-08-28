@@ -3,8 +3,9 @@ import {
   getTurnTimerState,
 } from "../../src/runtime/turnTimer";
 import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
-
-import { clearDatabase, setupGame, chooseBriscola, api, apiAs } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { chooseBriscola, setupGame } from "../helpers/gameDriver";
+import { api, apiAs } from "../helpers/serverHarness";
 
 beforeEach(async () => {
   await clearDatabase();

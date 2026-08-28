@@ -1,7 +1,7 @@
 import { prisma } from "../../src/db";
 import { sweepPracticeRooms } from "../../src/services/practiceRoomSweeper";
 import { withRoomLock } from "../../src/utils/roomLock";
-import { clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
 import {
   getTurnTimerState,
   scheduleTurnTimer,

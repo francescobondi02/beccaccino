@@ -1,13 +1,12 @@
 import { prisma } from "../../src/db";
 import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
+import { clearDatabase } from "../helpers/database";
 import {
-  api,
-  apiAs,
   chooseBriscola,
-  clearDatabase,
   oneRound,
   setupGame,
-} from "../helpers/gameHelpers";
+} from "../helpers/gameDriver";
+import { api, apiAs } from "../helpers/serverHarness";
 
 beforeEach(async () => {
   await clearDatabase();

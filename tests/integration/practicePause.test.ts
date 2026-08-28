@@ -8,7 +8,8 @@ import {
   startRuntimeTurn,
 } from "../../src/runtime/turnRuntime";
 import { sweepPracticeRooms } from "../../src/services/practiceRoomSweeper";
-import { api, apiAs, clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { api, apiAs } from "../helpers/serverHarness";
 import {
   ActRequest,
   BotServiceStub,

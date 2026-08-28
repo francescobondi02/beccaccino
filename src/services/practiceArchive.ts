@@ -21,53 +21,19 @@ import {
   resolveCaller,
   seatAfter,
 } from "../domain/game/turnOrder";
+import { CardSignal, Suit } from "../domain/game/cards";
 import { GAME_WIN_POINTS } from "../gameConfig";
-
-/** Bump when the payload shape or replay rules change. */
-const PAYLOAD_VERSION = 1;
+import {
+  PRACTICE_MATCH_PAYLOAD_VERSION,
+  PracticeCardCode,
+  PracticeCardEntry,
+  PracticeHumanAction,
+  PracticeMatchPayload,
+  PracticeRoundPayload,
+  PracticeSeat,
+} from "../practice/matchPayload";
 
 const SEATS = [0, 1, 2, 3] as const;
-
-/** `[seat, "suit:value"]`. These cards rebuild context; they are not labels. */
-type CardEntry = [number, string];
-
-type HumanAction =
-  | {
-      kind: "choose_briscola";
-      suit: string;
-    }
-  | {
-      kind: "play_card";
-      trick: number;
-      position: number;
-      card: string;
-      signal: string | null;
-    };
-
-type TrickPayload = {
-  number: number;
-  starterSeat: number;
-  winnerSeat: number | null;
-  signal: string | null;
-  cards: CardEntry[];
-};
-
-type RoundPayload = {
-  number: number;
-  briscola: string | null;
-  callerSeat: number;
-  cricca: boolean;
-  /** The 10 cards each seat held at the start of the round; order is not meaningful. */
-  dealtHands: Record<string, string[]>;
-  tricks: TrickPayload[];
-  /** The only training labels: choices made directly by the human. */
-  humanActions: HumanAction[];
-};
-
-type MatchPayload = {
-  winPoints: number;
-  rounds: RoundPayload[];
-};
 
 /** Only what the snapshot reads, so the builder stays a pure function. */
 type ArchivableRoom = {
@@ -103,16 +69,16 @@ type ArchivableRoom = {
 };
 
 export type PracticeMatchRecord = {
-  humanSeat: number;
+  humanSeat: PracticeSeat;
   botTier: string;
   completed: boolean;
   startedAt: Date;
   endedAt: Date;
-  payload: MatchPayload;
+  payload: PracticeMatchPayload;
 };
 
-function cardCode(card: { suit: string; value: string }): string {
-  return `${card.suit}:${card.value}`;
+function cardCode(card: { suit: string; value: string }): PracticeCardCode {
+  return `${card.suit}:${card.value}` as PracticeCardCode;
 }
 
 /**
@@ -131,13 +97,15 @@ export function buildPracticeMatch(
   if (!human || !bot?.botModel) return null;
   if (room.players.some((player) => player.seat === null)) return null;
 
-  const seatOf = new Map(room.players.map((player) => [player.id, player.seat!]));
-  const rounds: RoundPayload[] = [];
+  const seatOf = new Map(
+    room.players.map((player) => [player.id, player.seat as PracticeSeat]),
+  );
+  const rounds: PracticeRoundPayload[] = [];
   for (const round of room.rounds) {
     const archived = buildRound(
       round,
       seatOf,
-      human.seat!,
+      human.seat as PracticeSeat,
       rounds[rounds.length - 1]?.callerSeat,
     );
     if (archived) rounds.push(archived);
@@ -145,7 +113,7 @@ export function buildPracticeMatch(
   if (!rounds.some((round) => round.humanActions.length > 0)) return null;
 
   return {
-    humanSeat: human.seat!,
+    humanSeat: human.seat as PracticeSeat,
     botTier: bot.botModel,
     completed: room.finished,
     startedAt: room.createdAt,
@@ -159,14 +127,14 @@ export function buildPracticeMatch(
 
 function buildRound(
   round: ArchivableRoom["rounds"][number],
-  seatOf: Map<number, number>,
-  humanSeat: number,
-  previousCallerSeat: number | undefined,
-): RoundPayload | null {
-  const seat = (playerId: number): number => seatOf.get(playerId)!;
+  seatOf: Map<number, PracticeSeat>,
+  humanSeat: PracticeSeat,
+  previousCallerSeat: PracticeSeat | undefined,
+): PracticeRoundPayload | null {
+  const seat = (playerId: number): PracticeSeat => seatOf.get(playerId)!;
   const tricks = round.hands.filter((hand) => hand.cards.length > 0);
 
-  const dealtHands: Record<string, string[]> = {};
+  const dealtHands: Record<string, PracticeCardCode[]> = {};
   for (const seatNumber of SEATS) dealtHands[String(seatNumber)] = [];
   for (const trick of tricks) {
     for (const card of trick.cards) {
@@ -192,11 +160,11 @@ function buildRound(
       round.hands.length > 0 ? seat(round.hands[0].starterId) : null,
     quattroDenaraHolder: quattro ? seat(quattro.playerId) : null,
     previousCaller: previousCallerSeat,
-    nextCaller: (caller) => seatAfter(caller),
+    nextCaller: (caller) => seatAfter(caller) as PracticeSeat,
   });
   if (callerSeat === null) return null;
 
-  const humanActions: HumanAction[] = [];
+  const humanActions: PracticeHumanAction[] = [];
   if (
     round.briscola !== null &&
     callerSeat === humanSeat &&
@@ -204,7 +172,7 @@ function buildRound(
   ) {
     humanActions.push({
       kind: "choose_briscola",
-      suit: round.briscola!,
+      suit: round.briscola as Suit,
     });
   }
   for (const trick of tricks) {
@@ -217,14 +185,14 @@ function buildRound(
         trick: trick.number,
         position: card.position,
         card: cardCode(card),
-        signal: card.signal,
+        signal: card.signal as CardSignal | null,
       });
     }
   }
 
   return {
     number: round.number,
-    briscola: round.briscola,
+    briscola: round.briscola as Suit | null,
     callerSeat,
     cricca: round.cricca,
     dealtHands,
@@ -232,9 +200,13 @@ function buildRound(
       number: trick.number,
       starterSeat: seat(trick.starterId),
       winnerSeat: trick.winnerId === null ? null : seat(trick.winnerId),
-      signal: trick.cards.find((card) => card.position === 0)?.signal ?? null,
+      signal:
+        (trick.cards.find((card) => card.position === 0)?.signal as
+          | CardSignal
+          | null
+          | undefined) ?? null,
       cards: trick.cards.map(
-        (card): CardEntry => [seat(card.playerId), cardCode(card)],
+        (card): PracticeCardEntry => [seat(card.playerId), cardCode(card)],
       ),
     })),
     humanActions,
@@ -297,6 +269,6 @@ export async function archivePracticeMatch(
   if (!match) return;
 
   await tx.practiceMatch.create({
-    data: { ...match, schemaVersion: PAYLOAD_VERSION },
+    data: { ...match, schemaVersion: PRACTICE_MATCH_PAYLOAD_VERSION },
   });
 }

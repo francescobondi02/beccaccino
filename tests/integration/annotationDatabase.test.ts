@@ -1,10 +1,10 @@
 import { prisma } from "../../src/db";
-import { annotationDatabaseStatus } from "../../src/scripts/annotationDatabase";
+import { annotationDatabaseStatus } from "../../src/scripts/annotationDatabaseStatus";
 import {
   annotationScenarioCreateData,
   chooseBriscolaScenarioCreateData,
 } from "../helpers/annotationScenario";
-import { clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
 
 beforeEach(async () => {
   await clearDatabase();

@@ -11,12 +11,14 @@ import {
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import {
-  annotationImportPlanToken,
+  parseAnnotationDatabaseArgs,
+} from "../../src/scripts/annotationDatabaseCli";
+import {
   describeDatabaseUrl,
   loadEnvironmentFile,
-  parseAnnotationDatabaseArgs,
-  writeAnnotationExportFile,
-} from "../../src/scripts/annotationDatabase";
+} from "../../src/scripts/annotationEnvironment";
+import { annotationImportPlanToken } from "../../src/scripts/annotationDatabase";
+import { writeAnnotationExportFile } from "../../src/scripts/atomicAnnotationExport";
 
 describe("annotation database operator arguments", () => {
   it("parses status and dry-run imports from explicit environment files", () => {

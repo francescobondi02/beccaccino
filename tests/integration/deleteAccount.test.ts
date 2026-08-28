@@ -1,13 +1,12 @@
 import request from "supertest";
 import { prisma } from "../../src/db";
+import { clearDatabase } from "../helpers/database";
 import {
-  clearDatabase,
   setupGame,
   chooseBriscola,
   oneRound,
-  getServer,
-  apiAs,
-} from "../helpers/gameHelpers";
+} from "../helpers/gameDriver";
+import { apiAs, getServer } from "../helpers/serverHarness";
 
 // setupGame registers players userA–userD with this password.
 const PLAYER_PASSWORD = "test123";

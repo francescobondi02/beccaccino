@@ -3,7 +3,7 @@ import { io as createClient, Socket as ClientSocket } from "socket.io-client";
 import { prisma } from "../../src/db";
 import { createServer, CreatedServer } from "../../src/server";
 import { generateToken } from "../../src/utils/jwt";
-import { clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
 
 let runtime: CreatedServer | null;
 let clients: ClientSocket[];

@@ -1,7 +1,7 @@
 import { setSocketInstance } from "../src/socketInstance";
 import { prisma } from "../src/db";
 import { setRng, createSeededRng } from "../src/utils/random";
-import { closeServer } from "./helpers/gameHelpers";
+import { closeServer } from "./helpers/serverHarness";
 import { clearAllRuntime } from "../src/runtime/turnRuntime";
 
 // Set environment to test

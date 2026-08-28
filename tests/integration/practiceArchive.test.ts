@@ -6,7 +6,8 @@ import {
   getTurnTimerState,
   scheduleTurnTimer,
 } from "../../src/runtime/turnTimer";
-import { apiAs, clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { apiAs } from "../helpers/serverHarness";
 
 const SUITS: Suit[] = ["denara", "coppe", "spade", "bastoni"];
 const VALUES: Value[] = [
