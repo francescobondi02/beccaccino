@@ -16,17 +16,10 @@ cp .env.example .env
 The database defaults work with Finch Compose out of the box. Replace both
 `JWT_SECRET` and `ANNOTATION_ACCESS_CODE` before sharing the annotation page.
 
-For integration tests, a separate `.env.test` is already provided:
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
-DIRECT_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
-JWT_SECRET="test-secret"
-ANNOTATION_ACCESS_CODE="test-access-code"
-NODE_ENV="test"
-PORT=8000
-FRONTEND_URL="http://localhost:8081"
-```
+Tests do not load `.env.test`. Jest runs `tests/loadTestEnv.ts` before Prisma
+imports; it uses `TEST_DATABASE_URL` when supplied and otherwise selects the
+guarded local `becca_test` database. Initialize that database with
+`npm run db:test:prepare` before running integration tests.
 
 ## Starting the Backend
 
@@ -44,7 +37,7 @@ This starts PostgreSQL + Adminer + the backend with hot-reload. The backend runs
 
 ```sh
 cd backend
-npm install
+npm ci
 npx prisma generate
 npx prisma migrate deploy
 npm run dev
@@ -209,6 +202,19 @@ only when an equivalent timer is not already present. Practice resume commits
 the unpause first and then calls the same `recoverRoomRuntime()` path. Game-state
 reads never recover runtime, so repeated snapshots cannot create timers or bot
 moves.
+
+### Backend and AI Contract
+
+The TypeScript backend is authoritative for persisted online games, turn
+validation, and accepted moves. The Python package owns training, simulation,
+state adaptation, and model inference; its rules mirror the backend for those
+workflows.
+
+`tests/integration/botStateFixtures.test.ts` consumes
+`../ai/serving/fixtures/bot_states.json` to verify the real TypeScript
+serializer against Python-generated states. That suite requires the full
+parent checkout with both submodules initialized and is skipped with an
+explicit message in a standalone backend checkout.
 
 ### Test Architecture
 

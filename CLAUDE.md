@@ -94,6 +94,18 @@ Runtime responsibilities are separate:
 The backend assumes one active runtime instance. Distributed timer ownership is
 not implemented.
 
+## Backend and AI Boundary
+
+The backend is the online source of truth: it owns persisted game state,
+current-turn validation, and move acceptance. Python owns AI training,
+simulation, state adaptation, and inference. Keep the implementations aligned
+through shared rule vectors, the Python-generated bot fixture consumed by the
+backend integration suite, and the runtime legal-card agreement check.
+
+The cross-language fixture test needs the full parent checkout because the
+fixture lives in the sibling `ai/` submodule. A standalone backend checkout
+skips that suite with an explicit message.
+
 ## Database Operations
 
 Schema and migrations live under `prisma/`.
