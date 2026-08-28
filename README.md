@@ -13,7 +13,7 @@ count.
 
 ```bash
 cp .env.example .env   # fill in VITE_API_URL and VITE_SOCKET_URL
-npm install
+npm ci
 npm run dev            # http://localhost:8081
 ```
 

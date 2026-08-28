@@ -36,6 +36,7 @@ src/
     GameFinishedDialog.tsx  Game over with final scores
     ui/                 shadcn/ui components (don't edit manually — use CLI to add new ones)
   sockets/
+    events.ts           Typed client/server event contract
     socketClient.ts     Singleton Socket.IO client, reconnection logic, status tracking
     lobbyHandlers.ts    Lobby socket events: room_created, room_updated, room_full, room_deleted
     roomHandlers.ts     Room socket events: join, leave, team, ready, game start
@@ -44,12 +45,16 @@ src/
     useConnectionStatus.ts Socket status and reconnect refresh
     useGameTable.ts     Game table state and socket coordination
     useLobbyRooms.ts    Lobby room hydration and socket coordination
+    useTurnCountdown.ts Server-authoritative timer presentation
     useWaitingRoom.ts   Waiting-room hydration and socket coordination
   game/                 Game DTOs, reducer state, and presentation selectors
   annotations/          Expert annotation API model types
   rooms/                Room DTOs, normalization, and pure state reducers
   v2/                   Unrouted V2 design foundation
   lib/
+    api.ts              Typed REST helpers and ApiError
+    roomRedirect.ts     Active-room conflict navigation
+    sentryUser.ts       Browser error-reporting identity
     utils.ts            cn() utility for Tailwind class merging
   assets/               Static images used in components
   __tests__/            Vitest unit tests for components and socket handlers
@@ -60,6 +65,7 @@ e2e/
   lobby-to-game.spec.ts  4 players: register → room → teams → ready → game starts
   first-trick.spec.ts    Briscola selection and the first 4-card trick
   annotation.spec.ts     Account-linked expert answer and skip workflow
+  practice-pause-resume.spec.ts Practice pause, resume, direct links, and abandon
 public/
   images/cards/         40 card PNGs (format: {value}_{suit}.png, e.g., asso_denari.png)
   images/semi/          4 suit icon PNGs
@@ -82,8 +88,10 @@ public/
 - Lobby handlers auto-rejoin on reconnect
 
 ### GameTable.tsx (main game page)
-- Fetches initial state via REST `GET /api/games/:roomCode/state` on mount
-- Subscribes to socket events for real-time updates: card_played, hand_complete, round_ended, etc.
+- Composes the active table from `useGameTable`, pure selectors, and focused
+  game components
+- `useGameTable` fetches `GET /api/games/:roomCode/state` and reconciles
+  card, hand, round, timer, and practice lifecycle events
 - Player positions mapped to CSS positions: bottom (me), top (partner), left/right (opponents)
 - Signal flow: click card → if trick leader, show SignalDialog → then send play-card with signal
 - Pending card stored in ref while signal dialog is open
@@ -122,12 +130,14 @@ public/
 ## Build
 
 ```bash
-npm run build       # vite build → dist/ (static files)
+npm run typecheck   # TypeScript project checks
+npm run build       # vite build -> dist/ (static files)
 npm run dev         # vite dev server on :8081
 ```
 
-Vercel auto-detects Vite framework. Set root directory to `frontend/`.
-SPA routing handled automatically (all paths → index.html).
+GitHub Actions deploys the exact successful `main` commit with the pinned
+Vercel CLI and then verifies `/version.json`. Direct Vercel Git deployments
+are disabled. SPA routing is handled by `vercel.json`.
 
 ## Testing
 

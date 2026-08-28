@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Node.js** 18+
+- **Node.js** 24+ (matches CI)
 - Backend running at `http://localhost:8000` (via Finch Compose from project root)
 
 ## Environment Setup
@@ -23,7 +23,7 @@ VITE_SOCKET_URL=http://localhost:8000
 
 ```sh
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -61,14 +61,16 @@ frontend/
 │   │   ├── LastTrickDialog.tsx # View last trick
 │   │   └── ui/                 # shadcn/ui primitives (do not edit manually)
 │   ├── sockets/
+│   │   ├── events.ts           # Typed client/server event contract
 │   │   ├── socketClient.ts     # Singleton socket connection
 │   │   ├── lobbyHandlers.ts    # Lobby events (room_created, room_updated, etc.)
 │   │   └── roomHandlers.ts     # Room events (player_joined, team_chosen, etc.)
 │   ├── hooks/
 │   │   ├── useAuth.ts          # Shared authentication state and actions
 │   │   ├── useConnectionStatus.ts # Socket status and reconnect refresh
-│   │   └── useGameTable.ts     # Game table loading and socket coordination
+│   │   ├── useGameTable.ts     # Game table loading and socket coordination
 │   │   ├── useLobbyRooms.ts    # Lobby fetch and socket reconciliation
+│   │   ├── useTurnCountdown.ts # Server-authoritative timer presentation
 │   │   └── useWaitingRoom.ts   # Waiting-room fetch and socket reconciliation
 │   ├── game/                   # Game DTOs, reducer state, and view selectors
 │   ├── annotations/            # Expert annotation API model types
@@ -76,6 +78,8 @@ frontend/
 │   ├── v2/                     # Unrouted V2 design foundation
 │   └── lib/
 │       ├── api.ts              # Typed REST request helpers
+│       ├── roomRedirect.ts     # Active-room conflict navigation
+│       ├── sentryUser.ts       # Browser error-reporting identity
 │       └── utils.ts            # cn() utility (clsx + tailwind-merge)
 ├── public/
 │   ├── images/cards/           # Italian card images ({value}_{suit}.png)
@@ -276,6 +280,8 @@ npx playwright test first-trick --headed --timeout=120000
 | `/room/:roomCode` | GameRoom | Waiting room — team pick, ready |
 | `/game/:gameRoomCode` | GameTable | Active game |
 | `/profile` | Profile | User stats and account settings |
+| `/leaderboard` | Leaderboard | Global player rankings |
+| `/practice` | Practice | Practice tier selection |
 | `/annotate` | Annotation | Shared-code gate and expert scenario labeling |
 | `*` | NotFound | 404 |
 
