@@ -16,11 +16,13 @@ Quick reference for diagnosing and fixing production issues during beta. When so
 
 1. Open Sentry — is there a fresh error spike? Filter by `environment:production` and the last 30 minutes.
 2. Open Render → backend → Logs — search for `level:error` (or `"err"` in JSON logs).
-3. Open Vercel → frontend → Logs (or check Sentry replay if a session was captured).
+3. Open Vercel → frontend → Logs and inspect the matching Sentry issue and
+   breadcrumbs.
 4. Check Neon → Monitoring — connection count, slow queries, CPU.
-5. Confirm backend liveness with `/health`, then database readiness with
-   `/ready`. A healthy process with a failing `/ready` points to Neon or its
-   connection configuration.
+5. Confirm backend liveness with `/health`, then service readiness with
+   `/ready`. Readiness requires both Neon connectivity and successful runtime
+   recovery for active games; use the response reason and backend logs to
+   distinguish them.
 
 ## Logs — what to look for
 
@@ -43,8 +45,8 @@ Every HTTP request gets a `req.id` (also returned in the `x-request-id` response
 ## Sentry — finding what a user saw
 
 1. Sentry → Issues → search by user: `user.id:42` or `user.username:"alice"`.
-2. Click the issue → Replays tab → watch the session leading up to the error.
-3. Cross-reference the timestamp + `req.id` with Render logs.
+2. Inspect the issue breadcrumbs and request details around the failure.
+3. Cross-reference the timestamp and `req.id` with Render logs.
 
 User context is set on:
 - Login / register (`AuthDialog`)
@@ -68,9 +70,11 @@ If a Sentry event is missing `user`, the user wasn't logged in or the page hadn'
 
 ### "I can't log in"
 
-1. Sentry → look for `login_failed` or `register_user_failed`.
-2. Render logs → look for that user's `req.id`.
-3. Common causes: wrong cookie domain (cross-origin deploy needs `sameSite:'none'` + `secure:true`), DB unreachable.
+1. Reproduce the request in the browser network panel and record its
+   `x-request-id` response header.
+2. Render logs → search for the matching request ID and HTTP status.
+3. Common causes: invalid credentials, an expired cookie, wrong cookie policy,
+   or an unavailable database.
 
 ### Annotation page is unavailable or has no scenarios
 
@@ -100,10 +104,35 @@ with `--apply` writes scenario rows.
 ### Backend down / health check failing
 
 1. Render → backend → Events tab. Was there a deploy? Did the container OOM?
-2. `/health` only checks process liveness. `/ready` probes the database and
-   returns 503 when Neon is unavailable.
+2. `/health` only checks process liveness. `/ready` checks the database and
+   active-game runtime recovery. Its response identifies which dependency is
+   not ready.
 3. Neon → Monitoring → connections. If at the pooler limit, restart Render service or temporarily raise `DATABASE_URL` `connection_limit`.
-4. The Dockerfile runs `prisma migrate deploy` on startup. A migration failure crashes the container — check the very first log lines after a restart.
+4. The Dockerfile runs `prisma migrate deploy` on startup. A migration failure
+   crashes the container. Check the first startup logs, then follow
+   **Migration failure** below rather than repeatedly redeploying.
+
+### Migration failure
+
+1. Stop the release. Do not mark a failed migration as applied just to make
+   startup continue.
+2. From a protected operator environment, run `npx prisma migrate status`
+   against the direct Neon URL and identify the failed migration in both the
+   output and `_prisma_migrations`.
+3. Determine whether the SQL committed any changes. Compare the database schema
+   with that migration before choosing a recovery action.
+4. If it failed before making changes, fix the migration in a new commit and
+   use `prisma migrate resolve --rolled-back <migration>` only after confirming
+   the database is still at the previous schema.
+5. If it made partial or destructive changes, stop application writes and
+   restore or repair the database first. Never use `migrate resolve` to hide a
+   schema that does not match the application.
+6. Deploy the corrected backend and verify `/version`, `/ready`, migration
+   status, and one representative read/write flow.
+
+Production migrations must use expand/contract changes so the current and
+previous backend can both run during a rollback window. A database restore is a
+separate incident action, not an automatic consequence of rolling back code.
 
 ### Deployment did not reach production
 
@@ -133,10 +162,16 @@ Symptoms: requests time out, `prisma client error: too many connections`.
 ### Sentry stack traces are minified
 
 Source maps are uploaded by:
-- **Frontend (Vercel)**: `vite build` runs `@sentry/vite-plugin` if `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` are set as Vercel env vars. The release tag comes from `VERCEL_GIT_COMMIT_SHA` (also set on `Sentry.init` via `VITE_SENTRY_RELEASE`).
-- **Backend (Render)**: Dockerfile runs `npm run sentry:sourcemaps` after `tsc`. Pass the same three secrets as build args, and `RENDER_GIT_COMMIT` for the release tag. Verify in Sentry → Releases that the SHA appears with attached source maps.
+- **Frontend (Vercel)**: `vite build` creates hidden maps only when
+  `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, and the release are all
+  configured. The Sentry plugin uploads and removes them before publication.
+- **Backend (GitHub Actions)**: the deployment workflow uploads maps after
+  `tsc` when the Sentry repository secrets are configured. Docker builds never
+  receive the Sentry token, and maps are excluded from the runtime image.
 
-Common gotcha: the release in `Sentry.init` must match the release passed to the upload step. Both default to the git commit, so they should agree as long as both are set.
+The release in `Sentry.init` must match the release used during upload. Verify
+the deployed SHA in `/version` or `/version.json`, then find that exact release
+in Sentry.
 
 ## Known caveats
 
@@ -158,11 +193,35 @@ Common gotcha: the release in `Sentry.init` must match the release passed to the
 | Tune turn timeout                   | `TURN_TIMEOUT_SECONDS`   | Default 60 s                         |
 | Tune briscola choice timeout        | `BRISCOLA_TIMEOUT_SECONDS` | Default 90 s                       |
 
-## When things are really on fire
+## Production rollback
 
-- **Roll back**: Render → backend → Manual Deploy → previous successful commit. Vercel → frontend → Deployments → previous → Promote to Production.
-- **Database point-in-time restore**: Neon → Branches → restore to a timestamp before the incident.
-- **Drop traffic**: Vercel → frontend → set environment to `paused`, or scale Render service to 0 instances.
+Before every release, record the exact backend, AI, and frontend SHAs being
+replaced. A rollback target is the last **compatible three-service set**, not
+simply the previous deployment shown by each platform.
+
+1. Stabilize traffic. For a data-corruption risk, pause the frontend or scale
+   the backend to zero before changing deployments.
+2. Record the incident time, currently deployed SHAs from `/version` and
+   `/version.json`, and the intended rollback SHAs.
+3. Check migrations made since the target backend. Code rollback does not undo
+   schema or data changes. Continue only when those changes are backward
+   compatible; otherwise repair or restore the database first.
+4. Never roll the backend below `79381c1` while a room can contain `pausedAt`
+   or `pauseEpoch` state. Older code does not understand the pause lifecycle.
+5. Roll back in dependency order:
+   - Render AI → deploy the recorded AI SHA; verify `/version`, `/health`, and
+     `/tiers`.
+   - Render backend → deploy the recorded backend SHA; verify `/version`,
+     `/health`, and `/ready`.
+   - Vercel frontend → promote the recorded frontend deployment; verify
+     `/version.json` and load the main user workflow.
+6. Verify one login, room listing, and practice-game flow. Confirm logs show no
+   runtime-recovery or AI fallback spike.
+7. Record the restored SHA set and database state in the incident notes.
+
+Use Neon point-in-time restore only when the database itself must be reverted.
+It can remove valid writes made after the restore timestamp, including expert
+annotations, so capture or export recoverable data first.
 
 ## Add to this runbook
 
