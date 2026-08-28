@@ -45,7 +45,7 @@ describe("account JWTs", () => {
     ],
   ])(
     "returns 401 for an %s real cookie even when test bypass headers exist",
-    (_kind, token) => {
+    async (_kind, token) => {
       const req = {
         cookies: { authToken: token },
         headers: {
@@ -60,7 +60,7 @@ describe("account JWTs", () => {
       response.status.mockReturnValue(response);
       const next = jest.fn();
 
-      authenticateToken(
+      await authenticateToken(
         req,
         response as unknown as Parameters<typeof authenticateToken>[1],
         next,

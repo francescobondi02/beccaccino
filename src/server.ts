@@ -4,7 +4,11 @@ import app from "./app";
 import { logger } from "./logger";
 import { registerRoomSocket } from "./sockets/room";
 import { setSocketInstance } from "./socketInstance";
-import { verifyToken } from "./utils/jwt";
+import {
+  authTokenFromCookieHeader,
+  verifyActiveSession,
+} from "./auth/activeSession";
+import { isTestAuthBypassEnabled } from "./auth/testAuthBypass";
 
 type SocketHandshake = {
   address: string;
@@ -38,10 +42,9 @@ export function createServer(
     options.corsOrigin ??
     process.env.FRONTEND_URL ??
     "http://localhost:8081";
-  const allowTestAuthBypass =
-    process.env.NODE_ENV === "test" &&
-    (options.allowTestAuthBypass ??
-      process.env.ALLOW_TEST_AUTH_BYPASS === "true");
+  const allowTestAuthBypass = isTestAuthBypassEnabled(
+    options.allowTestAuthBypass,
+  );
   const maxSocketsPerIp =
     options.maxSocketsPerIp ??
     parseInt(process.env.MAX_SOCKETS_PER_IP || "10", 10);
@@ -57,18 +60,22 @@ export function createServer(
   });
   setSocketInstance(io);
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     if (allowTestAuthBypass) return next();
 
-    const cookieHeader = socket.handshake.headers.cookie;
-    const match = cookieHeader?.match(/authToken=([^;]+)/);
-    if (!match) return next(new Error("Authentication required"));
+    const token = authTokenFromCookieHeader(socket.handshake.headers.cookie);
+    if (!token) return next(new Error("Authentication required"));
 
-    const decoded = verifyToken(match[1]);
-    if (!decoded) return next(new Error("Invalid or expired token"));
+    try {
+      const session = await verifyActiveSession(token);
+      if (!session) return next(new Error("Invalid or expired token"));
 
-    socket.data.user = decoded;
-    next();
+      socket.data.user = session;
+      next();
+    } catch (error) {
+      logger.error({ err: error }, "socket_authentication_failed");
+      next(new Error("Authentication unavailable"));
+    }
   });
 
   const ipConnectionCounts = new Map<string, number>();

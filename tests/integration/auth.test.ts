@@ -1,5 +1,6 @@
 import request from "supertest";
 
+import { prisma } from "../../src/db";
 import { clearDatabase, getServer } from "../helpers/gameHelpers";
 
 beforeEach(async () => {
@@ -136,6 +137,29 @@ describe("Auth Lifecycle", () => {
       const res = await request(getServer()).get("/api/users/me");
       // Without req.user, should return 401
       expect(res.statusCode).toBe(401);
+    });
+
+    it("rejects a valid cookie after its user is deleted", async () => {
+      const registerRes = await request(getServer())
+        .post("/api/users/register")
+        .send(credentials);
+      const cookie = registerRes.headers["set-cookie"][0].split(";")[0];
+
+      await prisma.user.update({
+        where: { id: registerRes.body.id },
+        data: {
+          deletedAt: new Date(),
+          username: `deleted_${registerRes.body.id}`,
+          password: null,
+        },
+      });
+
+      const res = await request(getServer())
+        .get("/api/users/me")
+        .set("Cookie", cookie);
+
+      expect(res.statusCode).toBe(401);
+      expect(res.body).toEqual({ error: "Invalid or expired token" });
     });
   });
 
