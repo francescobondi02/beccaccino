@@ -5,7 +5,10 @@ type LobbyEventName =
   | "room_created"
   | "room_updated"
   | "room_full"
-  | "room_deleted";
+  | "room_deleted"
+  | "practice_paused"
+  | "practice_resumed"
+  | "practice_abandoned";
 
 type LobbyEventListener<Event extends LobbyEventName> =
   ServerToClientEvents[Event];
@@ -21,7 +24,10 @@ interface LobbyEventSocket {
   ): void;
 }
 
-export function registerLobbyHandlers(userId: number): () => void {
+export function registerLobbyHandlers(
+  userId: number,
+  onReconnect?: () => void,
+): () => void {
   const socket = getSocket();
   if (!isSocketConnected()) {
     socket.connect();
@@ -32,10 +38,14 @@ export function registerLobbyHandlers(userId: number): () => void {
   };
 
   joinLobby();
-  socket.on("connect", joinLobby);
+  const rejoinLobby = () => {
+    joinLobby();
+    onReconnect?.();
+  };
+  socket.on("connect", rejoinLobby);
 
   return () => {
-    socket.off("connect", joinLobby);
+    socket.off("connect", rejoinLobby);
   };
 }
 

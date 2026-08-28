@@ -18,6 +18,7 @@ import type {
 describe("gameTableReducer", () => {
   const stateResponse: GameStateResponse = {
     status: "playing",
+    pausedAt: null,
     round: { id: 7, number: 2, briscola: "coppe" },
     currentHandNumber: 3,
     callerUserId: 11,
@@ -73,6 +74,25 @@ describe("gameTableReducer", () => {
     expect(state.playedCards).toHaveLength(1);
     expect(state.totalPoints.team0Points).toBe(4);
     expect(state.isPractice).toBe(true);
+    expect(state.gameStatus).toBe("playing");
+    expect(state.pausedAt).toBeNull();
+    expect(state.turnTimer).toBeNull();
+  });
+
+  it("state_fetched stores a paused game without an active timer", () => {
+    const state = gameTableReducer(initialGameTableState, {
+      type: "state_fetched",
+      data: {
+        ...stateResponse,
+        status: "paused",
+        pausedAt: "2026-08-27T18:00:00.000Z",
+        turnTimer: null,
+      },
+      now: 1000,
+    });
+
+    expect(state.gameStatus).toBe("paused");
+    expect(state.pausedAt).toBe("2026-08-27T18:00:00.000Z");
     expect(state.turnTimer).toBeNull();
   });
 

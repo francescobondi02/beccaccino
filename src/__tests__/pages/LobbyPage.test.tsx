@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
@@ -19,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   unregisterLobby: vi.fn(),
   leaveLobby: vi.fn(),
+  reconnectLobby: null as (() => void) | null,
+  lobbySubscriptions: new Map<string, (...args: unknown[]) => void>(),
   toast: {
     error: vi.fn(),
     success: vi.fn(),
@@ -47,9 +56,18 @@ vi.mock("@/components/AuthDialog", () => ({
     open ? <div data-testid="auth-dialog" /> : null,
 }));
 vi.mock("@/sockets/lobbyHandlers", () => ({
-  registerLobbyHandlers: () => mocks.unregisterLobby,
+  registerLobbyHandlers: (_userId: number, onReconnect: () => void) => {
+    mocks.reconnectLobby = onReconnect;
+    return mocks.unregisterLobby;
+  },
   leaveLobby: mocks.leaveLobby,
-  subscribeToLobbyEvent: () => vi.fn(),
+  subscribeToLobbyEvent: (
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ) => {
+    mocks.lobbySubscriptions.set(event, listener);
+    return vi.fn();
+  },
 }));
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>(
@@ -72,11 +90,23 @@ function renderLobby() {
   );
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("LobbyPage room commands", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
+    mocks.reconnectLobby = null;
+    mocks.lobbySubscriptions.clear();
     mocks.auth.user = { id: 1, username: "alice" };
     mocks.auth.loading = false;
     mocks.auth.error = null;
@@ -157,5 +187,339 @@ describe("LobbyPage room commands", () => {
       "Inserisci un codice stanza",
     );
     expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("separates paused practice games and resumes before navigating", async () => {
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [{ id: 10, code: "LIST01", players: [] }],
+      activeGames: [
+        {
+          id: 20,
+          code: "PAUSE1",
+          players: [],
+          isPractice: true,
+          pausedAt: "2026-08-27T18:00:00.000Z",
+        },
+        {
+          id: 21,
+          code: "ACTIVE",
+          players: [],
+          isPractice: true,
+          pausedAt: null,
+        },
+      ],
+    });
+    let resolveResume: (() => void) | undefined;
+    mocks.apiPost.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveResume = () => resolve({ success: true, paused: false });
+        }),
+    );
+
+    renderLobby();
+
+    const pausedSection = (
+      await screen.findByRole("heading", {
+        name: "Allenamenti in pausa",
+      })
+    ).parentElement;
+    const activeSection = screen.getByRole("heading", {
+      name: "Partite in corso",
+    }).parentElement;
+
+    expect(pausedSection).not.toBeNull();
+    expect(activeSection).not.toBeNull();
+    expect(within(pausedSection!).getByText("PAUSE1")).toBeInTheDocument();
+    expect(within(activeSection!).queryByText("PAUSE1")).not.toBeInTheDocument();
+    expect(within(activeSection!).getByText("ACTIVE")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Stanze disponibili" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      within(pausedSection!).getByRole("button", { name: "Riprendi" }),
+    );
+
+    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/PAUSE1/resume", {});
+    expect(mocks.navigate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveResume?.();
+    });
+
+    await waitFor(() =>
+      expect(mocks.navigate).toHaveBeenCalledWith("/game/PAUSE1"),
+    );
+  });
+
+  it("reconciles paused practice games from other tabs", async () => {
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        {
+          id: 20,
+          code: "PRACT1",
+          players: [],
+          isPractice: true,
+          pausedAt: null,
+        },
+      ],
+    });
+    renderLobby();
+    await screen.findByText("PRACT1");
+
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        {
+          id: 20,
+          code: "PRACT1",
+          players: [],
+          isPractice: true,
+          pausedAt: "2026-08-27T18:00:00.000Z",
+        },
+      ],
+    });
+    await act(async () => {
+      mocks.lobbySubscriptions.get("practice_paused")?.({
+        roomCode: "PRACT1",
+        pausedAt: "2026-08-27T18:00:00.000Z",
+      });
+    });
+    expect(
+      screen.getByRole("heading", { name: "Allenamenti in pausa" }),
+    ).toBeInTheDocument();
+
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        {
+          id: 20,
+          code: "PRACT1",
+          players: [],
+          isPractice: true,
+          pausedAt: null,
+        },
+      ],
+    });
+    await act(async () => {
+      mocks.lobbySubscriptions.get("practice_resumed")?.({
+        roomCode: "PRACT1",
+      });
+    });
+    expect(
+      screen.queryByRole("heading", { name: "Allenamenti in pausa" }),
+    ).not.toBeInTheDocument();
+
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [],
+    });
+    await act(async () => {
+      mocks.lobbySubscriptions.get("practice_abandoned")?.({
+        roomCode: "PRACT1",
+      });
+    });
+    expect(screen.queryByText("PRACT1")).not.toBeInTheDocument();
+
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        {
+          id: 21,
+          code: "MISSED",
+          players: [],
+          isPractice: true,
+          pausedAt: "2026-08-27T19:00:00.000Z",
+        },
+      ],
+    });
+    await act(async () => mocks.reconnectLobby?.());
+
+    expect(await screen.findByText("MISSED")).toBeInTheDocument();
+  });
+
+  it("loads a paused practice game first seen through a lifecycle event", async () => {
+    renderLobby();
+    await screen.findByText("LIST01");
+
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        {
+          id: 22,
+          code: "NEWTAB",
+          players: [],
+          isPractice: true,
+          pausedAt: "2026-08-27T20:00:00.000Z",
+        },
+      ],
+    });
+
+    act(() => {
+      mocks.lobbySubscriptions.get("practice_paused")?.({
+        roomCode: "NEWTAB",
+        pausedAt: "2026-08-27T20:00:00.000Z",
+      });
+    });
+
+    expect(await screen.findByText("NEWTAB")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Allenamenti in pausa" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps rooms visible while lifecycle reconciliation is pending", async () => {
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        {
+          id: 25,
+          code: "VISIBLE",
+          players: [],
+          isPractice: true,
+          pausedAt: null,
+        },
+      ],
+    });
+    renderLobby();
+    await screen.findByText("VISIBLE");
+
+    const lifecycleFetch = deferred<unknown>();
+    mocks.apiGet.mockReturnValueOnce(lifecycleFetch.promise);
+    act(() => {
+      mocks.lobbySubscriptions.get("practice_paused")?.({
+        roomCode: "VISIBLE",
+        pausedAt: "2026-08-27T22:00:00.000Z",
+      });
+    });
+
+    expect(screen.getByText("VISIBLE")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Allenamenti in pausa" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Caricamento stanze...")).not.toBeInTheDocument();
+
+    await act(async () => {
+      lifecycleFetch.resolve({
+        availableRooms: [],
+        activeGames: [
+          {
+            id: 25,
+            code: "VISIBLE",
+            players: [],
+            isPractice: true,
+            pausedAt: "2026-08-27T22:00:00.000Z",
+          },
+        ],
+      });
+    });
+  });
+
+  it("keeps rooms visible while reconnect reconciliation is pending", async () => {
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        {
+          id: 26,
+          code: "RECON1",
+          players: [],
+          isPractice: true,
+          pausedAt: "2026-08-27T23:00:00.000Z",
+        },
+      ],
+    });
+    renderLobby();
+    await screen.findByText("RECON1");
+
+    const reconnectFetch = deferred<unknown>();
+    mocks.apiGet.mockReturnValueOnce(reconnectFetch.promise);
+    act(() => mocks.reconnectLobby?.());
+
+    expect(screen.getByText("RECON1")).toBeInTheDocument();
+    expect(screen.queryByText("Caricamento stanze...")).not.toBeInTheDocument();
+
+    await act(async () => {
+      reconnectFetch.resolve({
+        availableRooms: [],
+        activeGames: [
+          {
+            id: 26,
+            code: "RECON1",
+            players: [],
+            isPractice: true,
+            pausedAt: "2026-08-27T23:00:00.000Z",
+          },
+        ],
+      });
+    });
+  });
+
+  it("ignores a room fetch failure after unmount", async () => {
+    const roomFetch = deferred<unknown>();
+    mocks.apiGet.mockReturnValueOnce(roomFetch.promise);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const { unmount } = renderLobby();
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledTimes(1));
+    unmount();
+
+    await act(async () => {
+      roomFetch.reject(new Error("late room failure"));
+    });
+
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("ignores an older room response that finishes after a newer refresh", async () => {
+    const initialFetch = deferred<unknown>();
+    const reconnectFetch = deferred<unknown>();
+    mocks.apiGet
+      .mockReturnValueOnce(initialFetch.promise)
+      .mockReturnValueOnce(reconnectFetch.promise);
+
+    renderLobby();
+    await waitFor(() => expect(mocks.reconnectLobby).not.toBeNull());
+
+    act(() => mocks.reconnectLobby?.());
+
+    await act(async () => {
+      reconnectFetch.resolve({
+        availableRooms: [],
+        activeGames: [
+          {
+            id: 23,
+            code: "CURRENT",
+            players: [],
+            isPractice: true,
+            pausedAt: "2026-08-27T21:00:00.000Z",
+          },
+        ],
+      });
+    });
+    expect(await screen.findByText("CURRENT")).toBeInTheDocument();
+
+    await act(async () => {
+      initialFetch.resolve({
+        availableRooms: [],
+        activeGames: [
+          {
+            id: 24,
+            code: "STALE",
+            players: [],
+            isPractice: true,
+            pausedAt: null,
+          },
+        ],
+      });
+    });
+
+    expect(screen.getByText("CURRENT")).toBeInTheDocument();
+    expect(screen.queryByText("STALE")).not.toBeInTheDocument();
   });
 });

@@ -15,7 +15,7 @@ type TrumpSuitDialogProps = {
   onOpenChange: (open: boolean) => void;
   onSelectSuit: (suit: string) => void;
   myCards: PlayerCard[];
-  practiceLeaveAction?: ReactNode;
+  practiceActions?: ReactNode;
 };
 
 const italianSuits = [
@@ -29,7 +29,7 @@ const TrumpSuitDialog = ({
   open,
   onSelectSuit,
   myCards,
-  practiceLeaveAction,
+  practiceActions,
 }: Omit<TrumpSuitDialogProps, "onOpenChange">) => {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
@@ -93,8 +93,8 @@ const TrumpSuitDialog = ({
           </div>
         </div>
 
-        {practiceLeaveAction && (
-          <div className="flex justify-end">{practiceLeaveAction}</div>
+        {practiceActions && (
+          <div className="border-t border-border pt-4">{practiceActions}</div>
         )}
       </DialogContent>
     </Dialog>

@@ -7,6 +7,7 @@ import { test, expect } from "./helpers/fixtures";
 const execFileAsync = promisify(execFile);
 const backendRoot = resolve(process.cwd(), "../backend");
 const testDatabaseUrl =
+  process.env.E2E_DATABASE_URL ??
   "postgresql://postgres:postgres@localhost:5432/becca_test";
 
 test.beforeAll(async () => {

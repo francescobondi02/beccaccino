@@ -59,7 +59,8 @@ export interface RevealedHand {
 
 // Response from GET /games/:code/state.
 export interface GameStateResponse {
-  status: "choosing_briscola" | "playing" | "finished";
+  status: "choosing_briscola" | "playing" | "paused" | "finished";
+  pausedAt: string | null;
   round: {
     id: number;
     number: number;

@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Users, Plus, Hash, Loader2, Bot } from "lucide-react";
+import { Users, Plus, Hash, Loader2, Bot, Pause, Play } from "lucide-react";
 import Header from "@/components/Header";
 import AuthDialog from "@/components/AuthDialog";
 
@@ -79,6 +79,8 @@ interface Room {
   code: string;
   currentPlayers: number;
   maxPlayers: number;
+  isPractice?: boolean;
+  pausedAt?: string | null;
   players?: Array<{
     id: number;
     userId: number;
@@ -104,19 +106,32 @@ const LobbyPage = () => {
   const [availableRooms, setAvailableRooms] = useState<Room[]>([]);
   const [activeGames, setActiveGames] = useState<Room[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState(false);
+  const [resumingRoomCode, setResumingRoomCode] = useState<string | null>(null);
+  const roomFetchGenerationRef = useRef(0);
   const isConnected = useConnectionStatus() === "connected";
+  const pausedPracticeGames = activeGames.filter(
+    (game) => game.isPractice && game.pausedAt,
+  );
+  const ordinaryActiveGames = activeGames.filter(
+    (game) => !(game.isPractice && game.pausedAt),
+  );
 
   // Carte casuali per le animazioni (generate una sola volta)
   const [leftCards] = useState(() => getRandomCards(20));
   const [rightCards] = useState(() => getRandomCards(20));
 
-  const fetchAvailableRooms = useCallback(async () => {
-    setIsLoadingRooms(true);
+  const fetchAvailableRooms = useCallback(async (showLoading = true) => {
+    const fetchGeneration = ++roomFetchGenerationRef.current;
+    if (showLoading) setIsLoadingRooms(true);
     try {
       type ApiRoom = Pick<Room, "id" | "code" | "players">;
+      type ApiActiveGame = ApiRoom & {
+        isPractice: boolean;
+        pausedAt: string | null;
+      };
       const data = await apiGet<{
         availableRooms: ApiRoom[];
-        activeGames: ApiRoom[];
+        activeGames: ApiActiveGame[];
       }>("/rooms/available");
 
       const toRoom = (room: ApiRoom): Room => ({
@@ -129,31 +144,45 @@ const LobbyPage = () => {
 
       // Stanze disponibili (non iniziate) e giochi attivi in cui sono dentro
       const mappedAvailableRooms = data.availableRooms.map(toRoom);
-      const mappedActiveGames = data.activeGames.map(toRoom);
+      const mappedActiveGames = data.activeGames.map((room) => ({
+        ...toRoom(room),
+        isPractice: room.isPractice,
+        pausedAt: room.pausedAt,
+      }));
 
+      if (fetchGeneration !== roomFetchGenerationRef.current) return;
       setAvailableRooms(mappedAvailableRooms);
       setActiveGames(mappedActiveGames);
     } catch (error) {
+      if (fetchGeneration !== roomFetchGenerationRef.current) return;
       console.error("Error fetching rooms:", error);
       toast.error("Impossibile caricare le stanze disponibili");
     } finally {
-      setIsLoadingRooms(false);
+      if (fetchGeneration === roomFetchGenerationRef.current) {
+        setIsLoadingRooms(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     if (userId) {
       void fetchAvailableRooms();
-      return;
+    } else {
+      setAvailableRooms([]);
+      setActiveGames([]);
     }
-    setAvailableRooms([]);
-    setActiveGames([]);
+
+    return () => {
+      roomFetchGenerationRef.current += 1;
+    };
   }, [fetchAvailableRooms, userId]);
 
   useEffect(() => {
     if (!userId || !isAuthenticated) return;
 
-    const unregisterLobby = registerLobbyHandlers(userId);
+    const unregisterLobby = registerLobbyHandlers(userId, () => {
+      void fetchAvailableRooms(false);
+    });
     const unsubscribeRoomCreated = subscribeToLobbyEvent(
       "room_created",
       ({ room }) => {
@@ -183,16 +212,50 @@ const LobbyPage = () => {
       "room_deleted",
       removeRoom,
     );
+    const unsubscribePracticePaused = subscribeToLobbyEvent(
+      "practice_paused",
+      ({ roomCode, pausedAt }) => {
+        setActiveGames((prev) =>
+          prev.map((room) =>
+            room.code === roomCode ? { ...room, pausedAt } : room,
+          ),
+        );
+        void fetchAvailableRooms(false);
+      },
+    );
+    const unsubscribePracticeResumed = subscribeToLobbyEvent(
+      "practice_resumed",
+      ({ roomCode }) => {
+        setActiveGames((prev) =>
+          prev.map((room) =>
+            room.code === roomCode ? { ...room, pausedAt: null } : room,
+          ),
+        );
+        void fetchAvailableRooms(false);
+      },
+    );
+    const unsubscribePracticeAbandoned = subscribeToLobbyEvent(
+      "practice_abandoned",
+      ({ roomCode }) => {
+        setActiveGames((prev) =>
+          prev.filter((room) => room.code !== roomCode),
+        );
+        void fetchAvailableRooms(false);
+      },
+    );
 
     return () => {
       unsubscribeRoomCreated();
       unsubscribeRoomUpdated();
       unsubscribeRoomFull();
       unsubscribeRoomDeleted();
+      unsubscribePracticePaused();
+      unsubscribePracticeResumed();
+      unsubscribePracticeAbandoned();
       unregisterLobby();
       leaveLobby();
     };
-  }, [userId, isAuthenticated]);
+  }, [fetchAvailableRooms, userId, isAuthenticated]);
 
   const handlePractice = () => {
     if (!isAuthenticated) {
@@ -200,6 +263,21 @@ const LobbyPage = () => {
       return;
     }
     navigate("/practice");
+  };
+
+  const handleResumePractice = async (code: string) => {
+    setResumingRoomCode(code);
+    try {
+      await apiPost<{ success: boolean; paused: boolean }>(
+        `/rooms/${code}/resume`,
+        {},
+      );
+      navigate(`/game/${code}`);
+    } catch (error) {
+      console.error("Error resuming practice room:", error);
+      toast.error("Impossibile riprendere l'allenamento");
+      setResumingRoomCode(null);
+    }
   };
 
   const handleCreateRoom = async () => {
@@ -494,14 +572,65 @@ const LobbyPage = () => {
                   </Card>
                 ) : (
                   <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                    {pausedPracticeGames.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
+                          <Pause className="h-4 w-4" />
+                          Allenamenti in pausa
+                        </h3>
+                        {pausedPracticeGames.map((game) => (
+                          <Card
+                            key={game.id}
+                            className="bg-gradient-card border-primary/30 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
+                          >
+                            <CardContent className="p-5">
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <Hash className="h-4 w-4 text-primary" />
+                                    <span className="font-bold text-lg tracking-wider text-foreground">
+                                      {game.code}
+                                    </span>
+                                    <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full font-semibold">
+                                      IN PAUSA
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                    <Bot className="h-3.5 w-3.5" />
+                                    <span>Partita contro i bot</span>
+                                  </div>
+                                </div>
+
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() =>
+                                    void handleResumePractice(game.code)
+                                  }
+                                  disabled={resumingRoomCode !== null}
+                                >
+                                  {resumingRoomCode === game.code ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Play className="mr-2 h-4 w-4" />
+                                  )}
+                                  Riprendi
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Giochi attivi - Partite in corso */}
-                    {activeGames.length > 0 && (
+                    {ordinaryActiveGames.length > 0 && (
                       <div className="space-y-3">
                         <h3 className="text-sm font-semibold text-amber-500 flex items-center gap-2">
                           <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse"></span>
                           Partite in corso
                         </h3>
-                        {activeGames.map((game) => (
+                        {ordinaryActiveGames.map((game) => (
                           <Card
                             key={game.id}
                             className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-amber-500/30 hover:border-amber-500/50 transition-all duration-300 hover:scale-[1.02]"

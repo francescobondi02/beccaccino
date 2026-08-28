@@ -29,6 +29,9 @@ import {
   AlertCircle,
   History,
   Loader2,
+  LogOut,
+  Pause,
+  Play,
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -83,6 +86,7 @@ const GameTable = () => {
     moveLog,
     roundEndData,
     gameFinishedData,
+    gameStatus,
     gameStateStatus,
     refetchGameState,
     dismissRoundEnd,
@@ -96,6 +100,9 @@ const GameTable = () => {
   const [roundEndDialogOpen, setRoundEndDialogOpen] = useState(false);
   const [gameFinishedDialogOpen, setGameFinishedDialogOpen] = useState(false);
   const [isReturningHome, setIsReturningHome] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
+  const [confirmPausedAbandon, setConfirmPausedAbandon] = useState(false);
 
   // Signal dialog state (pending card waiting for signal choice)
   const [pendingCard, setPendingCard] = useState<PlayerCard | null>(null);
@@ -174,11 +181,23 @@ const GameTable = () => {
     });
   }, []);
 
+  useEffect(() => {
+    return subscribeToRoomEvent(
+      "practice_abandoned",
+      ({ roomCode: abandonedRoomCode }) => {
+        if (abandonedRoomCode !== gameRoomCode) return;
+        toast.info("L'allenamento è stato abbandonato");
+        navigate("/");
+      },
+    );
+  }, [gameRoomCode, navigate]);
+
   // Il caller vede il dialog briscola finché non sceglie (il dialog non è
   // chiudibile in altro modo, quindi ri-aprirlo a ogni cambio di stato è
   // equivalente al vecchio open-on-fetch).
   useEffect(() => {
     setTrumpDialogOpen(
+      gameStatus !== "paused" &&
       currentRound?.briscola === null &&
         callerUserId === userId &&
         !roundEndData &&
@@ -188,9 +207,20 @@ const GameTable = () => {
     currentRound?.briscola,
     callerUserId,
     userId,
+    gameStatus,
     roundEndData,
     gameFinishedData,
   ]);
+
+  useEffect(() => {
+    if (gameStatus === "paused") {
+      setTrumpDialogOpen(false);
+      setSignalDialogOpen(false);
+      setPendingCard(null);
+      return;
+    }
+    setConfirmPausedAbandon(false);
+  }, [gameStatus]);
 
   useEffect(() => {
     setRoundEndDialogOpen(Boolean(roundEndData));
@@ -273,6 +303,7 @@ const GameTable = () => {
       : totalPoints.team0Points;
   const showPracticeHistory = import.meta.env.DEV && isPractice;
   const practiceHistoryBlocked =
+    gameStatus === "paused" ||
     trumpDialogOpen ||
     signalDialogOpen ||
     roundEndDialogOpen ||
@@ -383,37 +414,90 @@ const GameTable = () => {
     }
   };
 
-  const practiceLeaveAction = isPractice && !gameFinishedData && (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
+  const handlePause = async () => {
+    if (!gameRoomCode) return;
+
+    setIsPausing(true);
+    try {
+      await apiPost<{ success: boolean; paused: boolean }>(
+        `/rooms/${gameRoomCode}/pause`,
+        {},
+      );
+      navigate("/");
+    } catch (error) {
+      console.error("Error pausing practice room:", error);
+      toast.error("Impossibile mettere in pausa l'allenamento. Riprova.");
+      setIsPausing(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!gameRoomCode) return;
+
+    setIsResuming(true);
+    try {
+      await apiPost<{ success: boolean; paused: boolean }>(
+        `/rooms/${gameRoomCode}/resume`,
+        {},
+      );
+      await refetchGameState();
+    } catch (error) {
+      console.error("Error resuming practice room:", error);
+      toast.error("Impossibile riprendere l'allenamento. Riprova.");
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const practiceActions =
+    isPractice && !gameFinishedData && gameStatus !== "paused" ? (
+      <div className="flex flex-wrap justify-end gap-2">
         <Button
-          variant="destructive"
+          variant="outline"
           size="sm"
-          disabled={isReturningHome}
-          data-testid="abandon-practice-button"
+          onClick={() => void handlePause()}
+          disabled={isPausing || isReturningHome}
+          data-testid="pause-practice-button"
         >
-          Abbandona
+          {isPausing ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Pause className="mr-2 h-4 w-4" />
+          )}
+          Pausa e torna alla home
         </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent className="bg-card">
-        <AlertDialogHeader>
-          <AlertDialogTitle>Abbandonare l'allenamento?</AlertDialogTitle>
-          <AlertDialogDescription>
-            La partita verrà chiusa e non potrai riprenderla.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Annulla</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleReturnHome}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            Abbandona
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isPausing || isReturningHome}
+              data-testid="abandon-practice-button"
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Abbandona
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent className="bg-card">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Abbandonare l'allenamento?</AlertDialogTitle>
+              <AlertDialogDescription>
+                La partita verrà chiusa e non potrai riprenderla.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Annulla</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleReturnHome}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Abbandona
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    ) : null;
 
   if (authError) {
     return <AuthErrorState onRetry={retryAuth} />;
@@ -722,20 +806,85 @@ const GameTable = () => {
             Scegli Briscola
           </Button>
         )}
-        {!trumpDialogOpen && practiceLeaveAction}
+        {!trumpDialogOpen && !signalDialogOpen && practiceActions}
       </div>
 
       {/* Dialogs */}
       <SignalDialog
         open={signalDialogOpen}
         onSelect={handleSignalSelect}
+        practiceActions={practiceActions}
       />
       <TrumpSuitDialog
         open={trumpDialogOpen}
         onSelectSuit={handleTrumpSelect}
         myCards={myCards}
-        practiceLeaveAction={practiceLeaveAction}
+        practiceActions={practiceActions}
       />
+      <AlertDialog open={gameStatus === "paused"} onOpenChange={() => {}}>
+        <AlertDialogContent
+          className="bg-card"
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmPausedAbandon
+                ? "Abbandonare l'allenamento?"
+                : "Allenamento in pausa"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmPausedAbandon
+                ? "La partita verrà chiusa e non potrai riprenderla."
+                : "Riprendi la partita oppure abbandonala definitivamente."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {confirmPausedAbandon ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmPausedAbandon(false)}
+                  disabled={isReturningHome}
+                >
+                  Annulla
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => void handleReturnHome()}
+                  disabled={isReturningHome}
+                >
+                  {isReturningHome && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Abbandona definitivamente
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="destructive"
+                  onClick={() => setConfirmPausedAbandon(true)}
+                  disabled={isResuming}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Abbandona
+                </Button>
+                <Button
+                  onClick={() => void handleResume()}
+                  disabled={isResuming}
+                >
+                  {isResuming ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="mr-2 h-4 w-4" />
+                  )}
+                  Riprendi
+                </Button>
+              </>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <LastTrickDialog
         open={lastTrickDialogOpen}
         onOpenChange={setLastTrickDialogOpen}

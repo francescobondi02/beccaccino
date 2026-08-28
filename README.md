@@ -29,6 +29,10 @@ npm run dev            # http://localhost:8081
 | `npm test` | Vitest unit tests |
 | `npm run test:coverage` | Vitest unit tests with coverage |
 | `npm run test:e2e` | Playwright end-to-end (auto-starts backend and frontend) |
+| `../scripts/pre-push.sh` | Full backend, frontend, migration, and Playwright gate |
+
+Run `../scripts/pre-push.sh --keep-open` to leave the verified isolated stack
+available at `http://localhost:18081` for manual testing until Ctrl-C.
 
 ## Environment variables
 

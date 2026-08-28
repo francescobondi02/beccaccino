@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,7 @@ import type { Signal } from "@/game/model";
 interface SignalDialogProps {
   open: boolean;
   onSelect: (signal: Signal | null) => void;
+  practiceActions?: ReactNode;
 }
 
 const signals = [
@@ -35,7 +37,11 @@ const signals = [
   },
 ];
 
-const SignalDialog = ({ open, onSelect }: SignalDialogProps) => {
+const SignalDialog = ({
+  open,
+  onSelect,
+  practiceActions,
+}: SignalDialogProps) => {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
@@ -78,6 +84,12 @@ const SignalDialog = ({ open, onSelect }: SignalDialogProps) => {
           >
             Niente
           </Button>
+
+          {practiceActions && (
+            <div className="mt-2 border-t border-border pt-3">
+              {practiceActions}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -112,6 +112,9 @@ export interface PlayerKickedTimeoutPayload {
   userId: number;
   username: string;
 }
+export interface PracticePausedPayload extends RoomCodePayload {
+  pausedAt: string;
+}
 export interface ChatMessagePayload {
   userId: number;
   username: string;
@@ -145,6 +148,8 @@ export interface ServerToClientEvents {
   turn_timer_started: (payload: TurnTimerStartedPayload) => void;
   auto_played: (payload: AutoPlayedPayload) => void;
   player_kicked_timeout: (payload: PlayerKickedTimeoutPayload) => void;
+  practice_paused: (payload: PracticePausedPayload) => void;
+  practice_resumed: (payload: RoomCodePayload) => void;
   practice_abandoned: (payload: RoomCodePayload) => void;
   chat_message: (payload: ChatMessagePayload) => void;
   error: (payload: ErrorPayload) => void;

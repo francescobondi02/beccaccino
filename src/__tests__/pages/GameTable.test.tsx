@@ -18,7 +18,11 @@ const mocks = vi.hoisted(() => ({
   apiPost: vi.fn(),
   navigate: vi.fn(),
   toastError: vi.fn(),
+  toastInfo: vi.fn(),
   playerLeft: null as ((payload: { userId: number }) => void) | null,
+  practiceAbandoned: null as
+    | ((payload: { roomCode: string }) => void)
+    | null,
   gameHook: {
     currentRound: {
       id: 30,
@@ -69,6 +73,11 @@ const mocks = vi.hoisted(() => ({
     moveLog: [],
     roundEndData: null as RoundEndData | null,
     gameFinishedData: null as GameFinishedPayload | null,
+    gameStatus: "playing" as
+      | "choosing_briscola"
+      | "playing"
+      | "paused"
+      | "finished",
     gameStateStatus: "ready" as "loading" | "ready" | "error",
     refetchGameState: vi.fn<() => Promise<void>>(),
     dismissRoundEnd: vi.fn(),
@@ -101,10 +110,15 @@ vi.mock("@/hooks/useConnectionStatus", () => ({
 vi.mock("@/sockets/roomHandlers", () => ({
   subscribeToRoomEvent: (
     event: string,
-    callback: (payload: { userId: number }) => void,
+    callback: (...args: unknown[]) => void,
   ) => {
     if (event === "player_left") {
-      mocks.playerLeft = callback;
+      mocks.playerLeft = callback as (payload: { userId: number }) => void;
+    }
+    if (event === "practice_abandoned") {
+      mocks.practiceAbandoned = callback as (payload: {
+        roomCode: string;
+      }) => void;
     }
     return vi.fn();
   },
@@ -121,6 +135,7 @@ vi.mock("react-router-dom", async () => {
 vi.mock("sonner", () => ({
   toast: {
     error: mocks.toastError,
+    info: mocks.toastInfo,
     success: vi.fn(),
     warning: vi.fn(),
   },
@@ -144,14 +159,19 @@ vi.mock("@/components/SignalDialog", () => ({
   default: ({
     open,
     onSelect,
+    practiceActions,
   }: {
     open: boolean;
     onSelect: (signal: null) => void;
+    practiceActions?: ReactNode;
   }) =>
     open ? (
-      <button type="button" onClick={() => onSelect(null)}>
-        Nessun segnale
-      </button>
+      <div data-testid="signal-dialog">
+        <button type="button" onClick={() => onSelect(null)}>
+          Nessun segnale
+        </button>
+        {practiceActions}
+      </div>
     ) : null,
 }));
 vi.mock("@/components/PlayerSeat", () => ({
@@ -172,13 +192,13 @@ vi.mock("@/components/GameChat", () => ({
 vi.mock("@/components/TrumpSuitDialog", () => ({
   default: ({
     open,
-    practiceLeaveAction,
+    practiceActions,
   }: {
     open: boolean;
-    practiceLeaveAction?: ReactNode;
+    practiceActions?: ReactNode;
   }) =>
     open ? (
-      <div data-testid="trump-suit-dialog">{practiceLeaveAction}</div>
+      <div data-testid="trump-suit-dialog">{practiceActions}</div>
     ) : null,
 }));
 vi.mock("@/components/LastTrickDialog", () => ({
@@ -312,6 +332,7 @@ describe("GameTable page behavior", () => {
     mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
     mocks.playerLeft = null;
+    mocks.practiceAbandoned = null;
     mocks.gameHook.currentRound = {
       id: 30,
       number: 1,
@@ -325,6 +346,7 @@ describe("GameTable page behavior", () => {
     mocks.gameHook.moveLog = [];
     mocks.gameHook.roundEndData = null;
     mocks.gameHook.gameFinishedData = null;
+    mocks.gameHook.gameStatus = "playing";
     mocks.gameHook.gameStateStatus = "ready";
     mocks.gameHook.refetchGameState.mockResolvedValue(undefined);
     mocks.apiGet.mockResolvedValue(room);
@@ -515,6 +537,93 @@ describe("GameTable page behavior", () => {
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
   });
 
+  it("waits for a manual pause before returning home", async () => {
+    usePracticeRoom();
+    let resolvePause: (() => void) | undefined;
+    mocks.apiPost.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePause = () => resolve({ success: true, paused: true });
+        }),
+    );
+
+    renderGameTable();
+    fireEvent.click(await screen.findByTestId("pause-practice-button"));
+
+    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/pause", {});
+    expect(mocks.navigate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePause?.();
+    });
+
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+  });
+
+  it("reaches manual pause from the signal dialog", async () => {
+    usePracticeRoom();
+    renderGameTable();
+
+    fireEvent.click(await screen.findByTestId("hand-card-coppe-asso"));
+    const signalDialog = await screen.findByTestId("signal-dialog");
+    fireEvent.click(
+      within(signalDialog).getByTestId("pause-practice-button"),
+    );
+
+    await waitFor(() =>
+      expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/pause", {}),
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/");
+  });
+
+  it("blocks a direct paused game until it is resumed", async () => {
+    usePracticeRoom();
+    mocks.gameHook.gameStatus = "paused";
+    renderGameTable();
+
+    const pausedDialog = within(await screen.findByRole("alertdialog"));
+    expect(
+      pausedDialog.getByRole("button", { name: "Riprendi" }),
+    ).toBeInTheDocument();
+    expect(
+      pausedDialog.getByRole("button", { name: "Abbandona" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(pausedDialog.getByRole("button", { name: "Riprendi" }));
+
+    await waitFor(() =>
+      expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/resume", {}),
+    );
+    await waitFor(() =>
+      expect(mocks.gameHook.refetchGameState).toHaveBeenCalledOnce(),
+    );
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("abandons a paused direct game through destructive cleanup", async () => {
+    usePracticeRoom();
+    mocks.gameHook.gameStatus = "paused";
+    renderGameTable();
+
+    fireEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Abbandona",
+      }),
+    );
+    expect(mocks.apiPost).not.toHaveBeenCalledWith("/rooms/ROOM/leave", {});
+
+    fireEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Abbandona definitivamente",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {}),
+    );
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+  });
+
   it("does not abandon a practice game when confirmation is cancelled", async () => {
     usePracticeRoom();
     renderGameTable();
@@ -529,6 +638,21 @@ describe("GameTable page behavior", () => {
     );
     expect(mocks.apiPost).not.toHaveBeenCalled();
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("returns home when another tab abandons the practice game", async () => {
+    usePracticeRoom();
+    renderGameTable();
+    await screen.findByTestId("game-table-page");
+
+    act(() => {
+      mocks.practiceAbandoned?.({ roomCode: "ROOM" });
+    });
+
+    expect(mocks.toastInfo).toHaveBeenCalledWith(
+      "L'allenamento è stato abbandonato",
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/");
   });
 
   it("reaches confirmed practice leave from the briscola dialog", async () => {

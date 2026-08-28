@@ -87,6 +87,7 @@ frontend/
 - **State management**: Local React state + React Query. No global store.
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
 - **Practice history**: When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
+- **Practice pause**: The explicit pause action stops server-side bot and timer activity before returning home. Paused games appear under `Allenamenti in pausa`; resume completes before navigation, while direct paused-game links show blocking resume and confirmed-abandon controls. Disconnects never pause a game automatically.
 - **Expert annotations**: REST-only workflow. The backend supplies immutable
   scenario identity and legal actions; the client returns the selected action
   or an explicit skip plus perceived difficulty without exposing model
@@ -147,9 +148,15 @@ End-to-end tests use **Playwright** to simulate 4 real browser sessions playing 
 - Backend dependencies and environment configured
 - Frontend dependencies installed
 
-Playwright auto-starts the backend and frontend through `playwright.config.ts`,
-or reuses servers already listening on ports 8000 and 8081. The auto-started
-backend uses the isolated `becca_test` database.
+Playwright auto-starts the backend and frontend through `playwright.config.ts`.
+It does not reuse servers already listening on ports 8000 and 8081 unless
+`E2E_REUSE_SERVERS=true` is set explicitly. The auto-started backend uses the
+isolated `becca_test` database.
+
+For the release-quality local gate, run `./scripts/pre-push.sh` from the project
+root. It uses a unique PostgreSQL schema, dedicated ports, and a deterministic
+local bot stub. `./scripts/pre-push.sh --keep-open` leaves that verified stack
+at `http://localhost:18081` for manual review until Ctrl-C.
 
 #### Commands
 
@@ -175,7 +182,8 @@ frontend/e2e/
 │   └── fixtures.ts         # Playwright fixtures with createBot factory
 ├── annotation.spec.ts      # Account login, expert code, answer, skip, and ratings
 ├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
-└── first-trick.spec.ts     # Briscola selection and the first 4-card trick
+├── first-trick.spec.ts     # Briscola selection and the first 4-card trick
+└── practice-pause-resume.spec.ts # Pause, resume, direct overlay, mobile, abandon
 ```
 
 The annotation E2E test seeds two valid SQL scenarios through
@@ -213,7 +221,7 @@ Key patterns:
 
 `playwright.config.ts` configures:
 - **webServer**: Auto-starts backend (port 8000) and frontend (port 8081)
-- **reuseExistingServer**: Skips auto-start if servers are already running
+- **reuseExistingServer**: Disabled unless `E2E_REUSE_SERVERS=true`
 - **trace/video**: Recorded on first retry for debugging failures
 - **timeout**: 60s by default; the first-trick scenario raises its budget to 90s
 
