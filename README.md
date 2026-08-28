@@ -41,18 +41,24 @@ available at `http://localhost:18081` for manual testing until Ctrl-C.
 | `VITE_API_URL` | Backend REST base URL, e.g. `http://localhost:8000/api` |
 | `VITE_SOCKET_URL` | Backend WebSocket URL, e.g. `http://localhost:8000` |
 | `VITE_SENTRY_DSN` | Optional — Sentry DSN for browser error tracking |
+| `VITE_SENTRY_RELEASE` | Sentry release identifier supplied by the deployment workflow |
 
 Vite bakes these into the bundle at build time. GitHub Actions supplies the
 public production backend URLs explicitly; local development can override them.
+Source maps are disabled unless `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`,
+`SENTRY_PROJECT`, and a release identifier are all present. Configured builds
+generate hidden maps, upload them to Sentry, and delete them after upload.
 
 ## Deployment
 
 GitHub Actions validates `main`, checks out the exact successful commit, and
 uses the pinned Vercel CLI to build and deploy it. Configure repository secrets
-with a `VERCEL_TOKEN` scoped to the `beccaccino-client` project. The workflow
-resolves that project's IDs through the Vercel API under the
-`francesco-bondi-s-projects` scope before building. Direct Vercel Git deployments
-are disabled in `vercel.json`, and a missing token fails the deployment workflow.
+with a `VERCEL_TOKEN` scoped to the `beccaccino-client` project. Optional
+`SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` secrets enable source map
+upload during the trusted deployment build. The workflow resolves the Vercel
+project IDs through the API under the `francesco-bondi-s-projects` scope before
+building. Direct Vercel Git deployments are disabled in `vercel.json`, and a
+missing Vercel token fails the deployment workflow.
 
 Production builds require `VITE_API_URL` and `VITE_SOCKET_URL` to be valid HTTPS
 URLs; the deployment workflow sets them to the Render backend. Builds also

@@ -2,52 +2,55 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react-swc";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
+import {
+  BuildEnvironment,
+  resolveSentryUpload,
+} from "./sentryBuildConfig";
 
-// Sentry source map upload runs only when all required env vars are present.
-// On local dev (or PRs without Sentry secrets) it's a no-op, so the build
-// still succeeds.
-const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
-const sentryOrg = process.env.SENTRY_ORG;
-const sentryProject = process.env.SENTRY_PROJECT;
-const release =
-  process.env.VITE_SENTRY_RELEASE ||
-  process.env.VERCEL_GIT_COMMIT_SHA ||
-  process.env.GIT_COMMIT_SHA ||
-  process.env.RENDER_GIT_COMMIT;
+function createViteConfig(env: BuildEnvironment) {
+  const sentryUpload = resolveSentryUpload(env);
 
-export default defineConfig(() => ({
-  server: {
-    host: "::",
-    port: 8081,
-  },
-  plugins: [
-    react(),
-    sentryAuthToken && sentryOrg && sentryProject
-      ? sentryVitePlugin({
-          authToken: sentryAuthToken,
-          org: sentryOrg,
-          project: sentryProject,
-          release: release ? { name: release } : undefined,
-          telemetry: false,
-        })
-      : null,
-  ].filter(Boolean),
-  // Required for the plugin to upload meaningful sources.
-  build: {
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ["react", "react-dom", "react-router-dom"],
-          ui: ["@radix-ui/react-dialog"],
-          socket: ["socket.io-client"],
+  return {
+    server: {
+      host: "::",
+      port: 8081,
+    },
+    plugins: [
+      react(),
+      ...(sentryUpload
+        ? [
+            sentryVitePlugin({
+              authToken: sentryUpload.authToken,
+              org: sentryUpload.org,
+              project: sentryUpload.project,
+              release: { name: sentryUpload.release },
+              sourcemaps: {
+                filesToDeleteAfterUpload:
+                  sentryUpload.filesToDeleteAfterUpload,
+              },
+              telemetry: false,
+            }),
+          ]
+        : []),
+    ],
+    build: {
+      sourcemap: sentryUpload?.sourceMap ?? false,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ["react", "react-dom", "react-router-dom"],
+            ui: ["@radix-ui/react-dialog"],
+            socket: ["socket.io-client"],
+          },
         },
       },
     },
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+      },
     },
-  },
-}));
+  };
+}
+
+export default defineConfig(() => createViteConfig(process.env));
