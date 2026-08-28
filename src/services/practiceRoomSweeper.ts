@@ -2,7 +2,7 @@ import { prisma } from "../db";
 import { logger } from "../logger";
 import { withRoomLock } from "../utils/roomLock";
 import { deleteRoomAndPlay } from "./roomCommands";
-import { clearRoomTimerData } from "./turnTimer";
+import { clearRuntimeRoom } from "../runtime/turnRuntime";
 
 const PRACTICE_ROOM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
@@ -54,7 +54,7 @@ async function runPracticeRoomSweep(now: Date): Promise<number> {
         });
         if (!room || !isEligibleForDeletion(room, staleBefore)) return;
 
-        clearRoomTimerData(room.code);
+        clearRuntimeRoom(room.code);
         await deleteRoomAndPlay(room.id);
         deletedRooms += 1;
       });

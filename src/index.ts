@@ -11,6 +11,7 @@ import {
   startPracticeRoomSweeper,
   stopPracticeRoomSweeper,
 } from "./services/practiceRoomSweeper";
+import { recoverActiveRuntime } from "./runtime/recovery";
 
 const REQUIRED_ENV = ["DATABASE_URL", "JWT_SECRET"] as const;
 for (const key of REQUIRED_ENV) {
@@ -27,11 +28,17 @@ if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
 
 const { httpServer, close } = createServer();
 const port = process.env.PORT ? Number(process.env.PORT) : 8000;
-httpServer.listen(port, () => {
+httpServer.listen(port, async () => {
   logger.info({ port }, "server_started");
   if (process.env.NODE_ENV !== "test") {
     startMetrics();
     startPracticeRoomSweeper();
+    try {
+      const recoveredRooms = await recoverActiveRuntime();
+      logger.info({ recoveredRooms }, "active_runtime_recovery_complete");
+    } catch (error) {
+      logger.error({ err: error }, "active_runtime_recovery_failed");
+    }
   }
 });
 

@@ -5,7 +5,8 @@ import {
   ActHandler,
   BotServiceStub,
 } from "../helpers/botServiceStub";
-import { getTimeoutState, getTurnTimerState } from "../../src/services/turnTimer";
+import { getTurnTimerState } from "../../src/runtime/turnTimer";
+import { getTimeoutState } from "../../src/runtime/timeoutPolicy";
 import { playableCards } from "../../src/services/cardService";
 import { logger } from "../../src/logger";
 

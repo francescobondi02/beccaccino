@@ -1,6 +1,5 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
-import { logger } from "../logger";
 import { GameError } from "../utils/gameError";
 import {
   cumulativeScore,
@@ -11,13 +10,8 @@ import { GAME_WIN_POINTS } from "../gameConfig";
 import {
   readCallerPlayerId,
   readCurrentTurnUserId,
-} from "./gameService";
-import {
-  getTurnTimerState,
-  clearTurnTimer,
-  restoreBotSeats,
-  startTurnTimer,
-} from "./turnTimer";
+} from "../game/snapshots/turnState";
+import { getTurnTimerState } from "../runtime/turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 
 async function revealAllHands(
@@ -232,26 +226,9 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
     allHands,
   } = snapshot;
 
-  let timerState = getTurnTimerState(roomCode);
-  if (gameRoom.pausedAt) {
-    clearTurnTimer(roomCode);
-    timerState = null;
-  } else if (!timerState && !gameRoom.finished && currentTurnUserId !== null) {
-    const phase =
-      currentRound.briscola === null ? "choose_briscola" : "play_card";
-    logger.info(
-      { roomCode, currentTurnUserId, phase },
-      "turn_timer_recovered_after_restart",
-    );
-    restoreBotSeats(roomCode, gameRoom.players);
-    startTurnTimer(
-      roomCode,
-      currentTurnUserId,
-      phase,
-      gameRoom.pauseEpoch,
-    );
-    timerState = getTurnTimerState(roomCode);
-  }
+  const timerState = gameRoom.pausedAt
+    ? null
+    : getTurnTimerState(roomCode);
 
   return {
     status: gameRoom.finished

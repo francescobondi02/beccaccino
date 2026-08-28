@@ -1,6 +1,6 @@
 import { prisma } from "../../src/db";
 import { clearDatabase, api, apiAs } from "../helpers/gameHelpers";
-import { getTurnTimerState } from "../../src/services/turnTimer";
+import { getTurnTimerState } from "../../src/runtime/turnTimer";
 import { playableCards } from "../../src/services/cardService";
 import { ensureBotServiceReady } from "../../src/services/botClient";
 import { isBotTier } from "../../src/services/botService";

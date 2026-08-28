@@ -4,7 +4,7 @@ import { Request, Response } from "express";
 import { prisma } from "../db";
 import { playCard, setBriscola } from "../services/turnCoordinator";
 import { playableCards } from "../services/cardService";
-import { resetTimeoutCount } from "../services/turnTimer";
+import { resetTimeoutCount } from "../runtime/timeoutPolicy";
 import { loadGameState } from "../services/gameState";
 import { forbidden } from "../http/errors";
 import { requireUser } from "../http/request";

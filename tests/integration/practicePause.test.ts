@@ -1,10 +1,12 @@
 import { prisma } from "../../src/db";
 import {
   clearTurnTimer,
-  clearRoomTimerData,
   getTurnTimerState,
-  startTurnTimer,
-} from "../../src/services/turnTimer";
+} from "../../src/runtime/turnTimer";
+import {
+  clearRuntimeRoom,
+  startRuntimeTurn,
+} from "../../src/runtime/turnRuntime";
 import { sweepPracticeRooms } from "../../src/services/practiceRoomSweeper";
 import { api, apiAs, clearDatabase } from "../helpers/gameHelpers";
 import {
@@ -15,6 +17,7 @@ import {
 } from "../helpers/botServiceStub";
 import { logger } from "../../src/logger";
 import * as cardService from "../../src/services/cardService";
+import { recoverRoomRuntime } from "../../src/runtime/recovery";
 
 describe("Practice pause and resume", () => {
   const TOKEN = "practice-pause-token";
@@ -54,7 +57,7 @@ describe("Practice pause and resume", () => {
 
   afterEach(async () => {
     const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-    rooms.forEach((room) => clearRoomTimerData(room.code));
+    rooms.forEach((room) => clearRuntimeRoom(room.code));
     await stub?.close();
     delete process.env.BOT_SERVICE_URL;
     delete process.env.BOT_SERVICE_TOKEN;
@@ -99,7 +102,7 @@ describe("Practice pause and resume", () => {
     expect(room.pausedAt).not.toBeNull();
     expect(room.pauseEpoch).toBe(1);
 
-    clearRoomTimerData(roomCode);
+    clearRuntimeRoom(roomCode);
     const state = await apiAs(userId, "pause-human").get(
       `/api/games/${roomCode}/state`,
     );
@@ -158,6 +161,38 @@ describe("Practice pause and resume", () => {
     });
     expect(resumedRoom.pausedAt).toBeNull();
     expect(resumedRoom.pauseEpoch).toBe(2);
+  });
+
+  it("keeps state reads side-effect free and recovers one runtime turn explicitly", async () => {
+    const roomCode = await startPractice();
+    const requestsBefore = stub.requests.length;
+    clearRuntimeRoom(roomCode);
+
+    const state = await apiAs(userId, "pause-human").get(
+      `/api/games/${roomCode}/state`,
+    );
+
+    expect(state.statusCode).toBe(200);
+    expect(state.body.turnTimer).toBeNull();
+    expect(getTurnTimerState(roomCode)).toBeNull();
+    expect(stub.requests).toHaveLength(requestsBefore);
+
+    await expect(recoverRoomRuntime(roomCode)).resolves.toBe(true);
+    const recovered = getTurnTimerState(roomCode);
+    expect(recovered).toMatchObject({
+      turnUserId: state.body.currentTurnUserId,
+      phase:
+        state.body.round.briscola === null
+          ? "choose_briscola"
+          : "play_card",
+    });
+
+    await expect(recoverRoomRuntime(roomCode)).resolves.toBe(false);
+    expect(getTurnTimerState(roomCode)).toMatchObject({
+      turnUserId: recovered!.turnUserId,
+      phase: recovered!.phase,
+      totalMs: recovered!.totalMs,
+    });
   });
 
   it("rejects unauthenticated, nonmember, and multiplayer pause requests", async () => {
@@ -383,7 +418,7 @@ describe("Practice pause and resume", () => {
 
     clearTurnTimer(roomCode);
     process.env.TURN_TIMEOUT_SECONDS = "0";
-    startTurnTimer(roomCode, userId, "play_card", room.pauseEpoch);
+    startRuntimeTurn(roomCode, userId, "play_card", room.pauseEpoch);
     await waitFor(() => playableSpy.mock.calls.length === 1);
 
     const playedBefore = await prisma.playedCard.count({

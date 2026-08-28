@@ -1,8 +1,8 @@
 import { prisma } from "../../src/db";
 import {
-  clearRoomTimerData,
   getTurnTimerState,
-} from "../../src/services/turnTimer";
+} from "../../src/runtime/turnTimer";
+import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 
 import { clearDatabase, setupGame, chooseBriscola, api, apiAs } from "../helpers/gameHelpers";
 
@@ -12,7 +12,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-  for (const room of rooms) clearRoomTimerData(room.code);
+  for (const room of rooms) clearRuntimeRoom(room.code);
 });
 
 type TurnTimerState = NonNullable<ReturnType<typeof getTurnTimerState>>;

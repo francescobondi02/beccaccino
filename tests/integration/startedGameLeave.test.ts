@@ -1,5 +1,5 @@
 import { prisma } from "../../src/db";
-import { clearRoomTimerData } from "../../src/services/turnTimer";
+import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 import {
   api,
   apiAs,
@@ -15,7 +15,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-  for (const room of rooms) clearRoomTimerData(room.code);
+  for (const room of rooms) clearRuntimeRoom(room.code);
 });
 
 async function expectStartedLeaveRejected(roomCode: string) {

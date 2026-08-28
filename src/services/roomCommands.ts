@@ -8,10 +8,10 @@ import { BotTier, ensureBotUsers } from "./botService";
 import { ensureBotServiceReady } from "./botClient";
 import { archivePracticeMatch } from "./practiceArchive";
 import {
-  clearRoomTimerData,
-  clearTurnTimer,
   registerBotSeats,
-} from "./turnTimer";
+} from "../runtime/botRegistry";
+import { clearTurnTimer } from "../runtime/turnTimer";
+import { clearRuntimeRoom } from "../runtime/turnRuntime";
 
 export class ActiveGameConflict extends GameError {
   constructor(readonly activeRoomCode: string) {
@@ -166,7 +166,7 @@ export async function createPracticeRoomCommand(args: {
       try {
         await withRoomLock(code, async () => {
           await deleteRoomAndPlay(room.id);
-          clearRoomTimerData(code);
+          clearRuntimeRoom(code);
         });
       } catch (cleanupError) {
         throw new PracticeRoomCleanupError(creationError, cleanupError);
@@ -362,7 +362,7 @@ export async function leaveRoomCommand(args: {
 
     if (room.isPractice) {
       await deleteRoomAndPlay(room.id);
-      clearRoomTimerData(args.roomCode);
+      clearRuntimeRoom(args.roomCode);
       return { kind: "practice_deleted" };
     }
     if (room.started && !room.finished) {

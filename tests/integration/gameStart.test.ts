@@ -1,9 +1,9 @@
 import { prisma } from "../../src/db";
 import { startFirstRound } from "../../src/services/turnCoordinator";
 import {
-  clearRoomTimerData,
   getTurnTimerState,
-} from "../../src/services/turnTimer";
+} from "../../src/runtime/turnTimer";
+import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 import {
   getSocketInstance,
   setSocketInstance,
@@ -18,7 +18,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  for (const roomCode of roomCodes) clearRoomTimerData(roomCode);
+  for (const roomCode of roomCodes) clearRuntimeRoom(roomCode);
   roomCodes.clear();
 });
 
@@ -144,5 +144,31 @@ describe("first-round startup", () => {
     expect(events).toContain("ready_changed");
     expect(events).not.toContain("game_started");
     expect(getTurnTimerState(code)).toBeNull();
+  });
+
+  it("keeps a committed game and runtime when event publication fails", async () => {
+    const code = "START3";
+    const { room } = await createReadyRoom([0, 1, 0, 1], code);
+    const originalIo = getSocketInstance();
+    setSocketInstance({
+      to: () => ({
+        emit: () => {
+          throw new Error("socket unavailable");
+        },
+      }),
+    } as any);
+
+    try {
+      await expect(startFirstRound(room.id, code)).resolves.toBeUndefined();
+    } finally {
+      setSocketInstance(originalIo);
+    }
+
+    expect(
+      await prisma.gameRoom.findUniqueOrThrow({ where: { id: room.id } }),
+    ).toMatchObject({ started: true });
+    expect(getTurnTimerState(code)).toMatchObject({
+      phase: "choose_briscola",
+    });
   });
 });

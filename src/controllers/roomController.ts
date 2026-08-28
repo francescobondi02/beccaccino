@@ -10,8 +10,8 @@ import {
 import { requireUser } from "../http/request";
 import { logger } from "../logger";
 import { publishEvent, runBestEffort } from "../runtime/eventPublisher";
+import { recoverRoomRuntime } from "../runtime/recovery";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
-import { loadGameState } from "../services/gameState";
 import {
   createPracticeRoomCommand,
   createRoomCommand,
@@ -191,7 +191,7 @@ export const resumePracticeRoom = async (req: Request, res: Response) => {
   });
   await runBestEffort(
     async () => {
-      await loadGameState(roomCode, userId);
+      await recoverRoomRuntime(roomCode);
     },
     "resume_practice_runtime",
     { roomCode, userId },
