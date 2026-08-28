@@ -2,7 +2,7 @@ import {
   cumulativeScore,
   decideGameWinner,
   decideScoreWinner,
-} from "../../src/utils/score";
+} from "../../src/domain/game/score";
 
 const row = (
   team0Points: number,

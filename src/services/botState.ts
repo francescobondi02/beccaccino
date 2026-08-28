@@ -20,6 +20,11 @@
  */
 
 import { prisma } from "../db";
+import {
+  resolveCaller,
+  resolveTurnSeat,
+  seatAfter,
+} from "../domain/game/turnOrder";
 import { GAME_WIN_POINTS } from "../gameConfig";
 
 /** Real points per raw point — the divisor behind the points/figures split. */
@@ -53,6 +58,7 @@ export interface BotState {
 export interface BotTurn {
   state: BotState;
   seat: number;
+  turnSeat: number | null;
   /** setBriscola is keyed on playerId, unlike playCard which takes userId. */
   playerId: number;
   gameRoomId: number;
@@ -129,11 +135,53 @@ export async function buildBotTurn(
     });
   }
 
-  // The caller is whoever led trick 1. Deriving it from the quattro di denara
-  // (as the briscola-choice path must) stops working the moment that card is
-  // played, since playing a card deletes the PlayerCard row.
-  const callerSeat = tricks.length > 0 ? requireSeat(tricks[0].starterId) : player.seat;
+  let previousCallerSeat: number | null = null;
+  if (tricks.length === 0 && round.number > 1) {
+    const previousRound = await prisma.round.findFirst({
+      where: { gameRoomId: room.id, number: round.number - 1 },
+      select: {
+        hands: {
+          orderBy: { number: "asc" },
+          take: 1,
+          select: { starterId: true },
+        },
+      },
+    });
+    const previousCallerId = previousRound?.hands[0]?.starterId;
+    previousCallerSeat =
+      previousCallerId === undefined ? null : requireSeat(previousCallerId);
+  }
+  const quattroDenara = heldCards.find(
+    (card) => card.suit === "denara" && card.value === "quattro",
+  );
+  const callerSeat = resolveCaller({
+    roundNumber: round.number,
+    firstTrickStarter:
+      tricks.length > 0 ? requireSeat(tricks[0].starterId) : null,
+    quattroDenaraHolder: quattroDenara
+      ? requireSeat(quattroDenara.playerId)
+      : null,
+    previousCaller: previousCallerSeat,
+    nextCaller: (caller) => seatAfter(caller),
+  });
+  if (callerSeat === null) {
+    throw new BotStateError(`room ${roomCode} has no briscola caller`);
+  }
 
+  const turnSeat = resolveTurnSeat({
+    briscolaChosen: round.briscola !== null,
+    callerSeat,
+    hand: openTrick
+      ? {
+          starterSeat: requireSeat(openTrick.starterId),
+          playedCardCount: openTrick.cards.length,
+          winnerSeat:
+            openTrick.winnerId === null
+              ? null
+              : requireSeat(openTrick.winnerId),
+        }
+      : null,
+  });
   const currentTrick = (openTrick?.cards ?? []).map((c) => ({
     seat: requireSeat(c.playerId),
     suit: c.suit,
@@ -173,7 +221,13 @@ export async function buildBotTurn(
     win_points: GAME_WIN_POINTS,
   };
 
-  return { state, seat: player.seat, playerId: player.id, gameRoomId: room.id };
+  return {
+    state,
+    seat: player.seat,
+    turnSeat,
+    playerId: player.id,
+    gameRoomId: room.id,
+  };
 }
 
 /** Cumulative raw points per team over finished rounds, current round excluded. */

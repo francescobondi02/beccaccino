@@ -15,8 +15,10 @@ import {
   SUITS,
   Suit,
   Value,
-} from "../domain/cards";
-import { determineHandWinner } from "../utils/determineHandWinner";
+} from "../domain/game/cards";
+import { determineHandWinner } from "../domain/game/determineHandWinner";
+import { selectLegalCards } from "../domain/game/legalCards";
+import { seatAfter } from "../domain/game/turnOrder";
 
 export type AnnotationSeat = 0 | 1 | 2 | 3;
 export type AnnotationDecisionType = "play_card" | "choose_briscola";
@@ -235,7 +237,7 @@ function playsAt(
     const play = playAt(rawPlay, `${path}[${index}]`);
     if (
       play.position !== index ||
-      play.seat !== ((starterSeat + index) % 4)
+      play.seat !== seatAfter(starterSeat, index)
     ) {
       throw new Error(`${path} must follow the starter in position order`);
     }
@@ -341,9 +343,7 @@ function expectedActionKeys(
       ),
     );
   }
-  const leadSuit = currentTrick.plays[0].suit;
-  const matching = hand.filter((card) => card.suit === leadSuit);
-  const playable = matching.length > 0 ? matching : hand;
+  const playable = selectLegalCards(hand, currentTrick.plays[0].suit);
   return new Set(playable.map((card) => actionKey({ ...card, signal: null })));
 }
 
@@ -412,7 +412,7 @@ function parsePlayCardScenarioState(
   ) {
     throw new Error(`${path}.currentTrick does not follow completed history`);
   }
-  if (actingSeat !== ((trickStarter + currentTrick.plays.length) % 4)) {
+  if (actingSeat !== seatAfter(trickStarter, currentTrick.plays.length)) {
     throw new Error(`${path}.actingSeat does not follow current trick`);
   }
 

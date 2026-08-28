@@ -1,4 +1,4 @@
-import { Suit, Value } from "../domain/cards";
+import { Suit, Value } from "./cards";
 import { determineHandWinner } from "./determineHandWinner";
 
 // Punti moltiplicati * 3 per evitare float:

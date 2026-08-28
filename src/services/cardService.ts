@@ -1,6 +1,7 @@
 // src/services/cardService.ts
 
 import { prisma } from "../db";
+import { selectLegalCards } from "../domain/game/legalCards";
 import { GameError } from "../utils/gameError";
 
 export async function playableCards({
@@ -51,16 +52,7 @@ export async function playableCards({
       roundId: currentRound.id,
     },
   });
-  const alreadyPlayed = currentHand.cards;
-
-  if (alreadyPlayed.length === 0) {
-    return cardsInHand; //^ Posso giocare qualsiasi carta, sono il primo giocatore
-  }
-
-  const seedToFollow = alreadyPlayed[0].suit;
-  const matchingCards = cardsInHand.filter(
-    (card) => card.suit === seedToFollow
-  );
-
-  return matchingCards.length > 0 ? matchingCards : cardsInHand; //^ Se ho carte del seme da seguire, le gioco, altrimenti posso giocare qualsiasi carta
+  const leadSuit =
+    currentHand.cards.find((card) => card.position === 0)?.suit ?? null;
+  return selectLegalCards(cardsInHand, leadSuit);
 }

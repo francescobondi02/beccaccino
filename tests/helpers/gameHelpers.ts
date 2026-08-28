@@ -2,7 +2,7 @@ import request from "supertest";
 import http from "http";
 import { prisma } from "../../src/db";
 import app from "../../src/app";
-import { computePoints } from "../../src/utils/computePoints";
+import { computePoints } from "../../src/domain/game/computePoints";
 import { Suit } from "@prisma/client";
 import { PlayerCard, Round } from "@prisma/client";
 

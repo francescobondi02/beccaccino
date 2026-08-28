@@ -1,4 +1,4 @@
-import { determineHandWinner } from "../../src/utils/determineHandWinner";
+import { determineHandWinner } from "../../src/domain/game/determineHandWinner";
 import { Suit, Value } from "@prisma/client";
 
 describe("determineHandWinner", () => {

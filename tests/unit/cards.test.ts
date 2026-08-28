@@ -5,7 +5,7 @@ import {
   isValue,
   SUITS,
   VALUES,
-} from "../../src/domain/cards";
+} from "../../src/domain/game/cards";
 
 describe("card domain values", () => {
   it("accepts every Prisma suit and value", () => {

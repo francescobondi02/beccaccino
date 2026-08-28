@@ -3,7 +3,7 @@ import {
   decideScoreWinner,
   RoundScoreRow,
   Team,
-} from "./score";
+} from "../domain/game/score";
 
 type StatsRound = RoundScoreRow & {
   hands: { starterId: number }[];

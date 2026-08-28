@@ -12,7 +12,7 @@ import {
   isValue,
   SUITS,
   VALUES,
-} from "../domain/cards";
+} from "../domain/game/cards";
 import { badRequest } from "../http/errors";
 
 /**

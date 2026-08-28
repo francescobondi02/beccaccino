@@ -2,11 +2,15 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { logger } from "../logger";
 import { GameError } from "../utils/gameError";
-import { cumulativeScore, decideGameWinner, Team } from "../utils/score";
+import {
+  cumulativeScore,
+  decideGameWinner,
+  Team,
+} from "../domain/game/score";
 import { GAME_WIN_POINTS } from "../gameConfig";
 import {
-  resolveCaller,
-  resolveCurrentTurnUserId,
+  readCallerPlayerId,
+  readCurrentTurnUserId,
 } from "./gameService";
 import {
   getTurnTimerState,
@@ -63,21 +67,11 @@ async function readGameStateSnapshot(
     throw new GameError("No active round found", 404);
   }
 
-  let callerPlayerId = await resolveCaller(
+  const callerPlayerId = await readCallerPlayerId(
     currentRound,
     gameRoom.players,
     client,
   );
-  if (callerPlayerId === null) {
-    callerPlayerId =
-      (
-        await client.hand.findFirst({
-          where: { roundId: currentRound.id },
-          orderBy: { number: "asc" },
-          select: { starterId: true },
-        })
-      )?.starterId ?? null;
-  }
   const callerUserId =
     gameRoom.players.find((player) => player.id === callerPlayerId)?.userId ??
     null;
@@ -91,10 +85,10 @@ async function readGameStateSnapshot(
     },
     orderBy: [{ suit: "asc" }, { value: "asc" }],
   });
-  const currentTurnUserId = await resolveCurrentTurnUserId(
+  const currentTurnUserId = await readCurrentTurnUserId(
     currentRound,
     gameRoom.players,
-    callerUserId,
+    callerPlayerId,
     client,
   );
 

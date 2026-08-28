@@ -1,4 +1,4 @@
-import { Suit, Value } from "../domain/cards";
+import { Suit, Value } from "./cards";
 
 /**
  * Detect "Cricca": the briscola caller holds Tre + Due + Asso

@@ -1,5 +1,5 @@
-import { computePoints } from "../../src/utils/computePoints";
-import { determineHandWinner } from "../../src/utils/determineHandWinner";
+import { computePoints } from "../../src/domain/game/computePoints";
+import { determineHandWinner } from "../../src/domain/game/determineHandWinner";
 import { Suit, Value } from "@prisma/client";
 
 const SUITS: Suit[] = ["coppe", "denara", "spade", "bastoni"];

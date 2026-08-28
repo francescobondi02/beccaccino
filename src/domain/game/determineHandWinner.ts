@@ -1,4 +1,4 @@
-import { Suit, Value } from "../domain/cards";
+import { Suit, Value } from "./cards";
 
 const cardStrength: Record<Value, number> = {
   [Value.tre]: 10,

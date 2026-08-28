@@ -1,4 +1,4 @@
-// src/utils/score.ts
+// src/domain/game/score.ts
 //
 // Per-round scores are stored as real points + a figures remainder in separate
 // columns (raw = points * RAW_PER_POINT + figures). Cumulative totals therefore

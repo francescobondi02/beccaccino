@@ -17,6 +17,10 @@
  */
 
 import { Prisma } from "@prisma/client";
+import {
+  resolveCaller,
+  seatAfter,
+} from "../domain/game/turnOrder";
 import { GAME_WIN_POINTS } from "../gameConfig";
 
 /** Bump when the payload shape or replay rules change. */
@@ -179,18 +183,18 @@ function buildRound(
     return null;
   }
 
-  let callerSeat: number | undefined;
-  if (round.hands.length > 0) {
-    callerSeat = seat(round.hands[0].starterId);
-  } else if (round.number === 1) {
-    const quattro = round.playerCards.find(
-      (card) => card.suit === "denara" && card.value === "quattro",
-    );
-    callerSeat = quattro ? seat(quattro.playerId) : undefined;
-  } else if (previousCallerSeat !== undefined) {
-    callerSeat = (previousCallerSeat + 1) % SEATS.length;
-  }
-  if (callerSeat === undefined) return null;
+  const quattro = round.playerCards.find(
+    (card) => card.suit === "denara" && card.value === "quattro",
+  );
+  const callerSeat = resolveCaller({
+    roundNumber: round.number,
+    firstTrickStarter:
+      round.hands.length > 0 ? seat(round.hands[0].starterId) : null,
+    quattroDenaraHolder: quattro ? seat(quattro.playerId) : null,
+    previousCaller: previousCallerSeat,
+    nextCaller: (caller) => seatAfter(caller),
+  });
+  if (callerSeat === null) return null;
 
   const humanActions: HumanAction[] = [];
   if (

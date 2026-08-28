@@ -5,7 +5,7 @@ import {
   isAnnotationImportance,
   isAnnotationTag,
 } from "../annotations/constants";
-import { isCardSignal } from "../domain/cards";
+import { isCardSignal } from "../domain/game/cards";
 import {
   AnnotationPlayCardAction,
   AnnotationSelectedAction,

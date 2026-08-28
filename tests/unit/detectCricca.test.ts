@@ -1,4 +1,4 @@
-import { detectCricca } from "../../src/utils/detectCricca";
+import { detectCricca } from "../../src/domain/game/detectCricca";
 import { Suit, Value } from "@prisma/client";
 
 describe("detectCricca", () => {

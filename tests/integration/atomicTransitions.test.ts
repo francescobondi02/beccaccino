@@ -1,4 +1,4 @@
-import * as score from "../../src/utils/score";
+import * as score from "../../src/domain/game/score";
 import { prisma } from "../../src/db";
 import {
   getSocketInstance,

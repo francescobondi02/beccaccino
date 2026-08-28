@@ -12,7 +12,7 @@ import { logger } from "../logger";
 import { BotTier, isBotTier } from "./botService";
 import { buildBotTurn } from "./botState";
 import { BotServiceError, requestBotMove } from "./botClient";
-import { Suit, SUITS } from "../domain/cards";
+import { Suit, SUITS } from "../domain/game/cards";
 
 const turnTimeoutSeconds = () =>
   parseInt(process.env.TURN_TIMEOUT_SECONDS || "60", 10);
@@ -421,7 +421,13 @@ async function chooseBotMove(
   tier: BotTier,
   phase: Phase,
 ) {
-  const { state, seat, playerId, gameRoomId } = await buildBotTurn(roomCode, userId);
+  const { state, seat, turnSeat, playerId, gameRoomId } =
+    await buildBotTurn(roomCode, userId);
+  if (turnSeat !== seat) {
+    throw new BotServiceError(
+      `bot seat ${seat} does not own turn ${String(turnSeat)}`,
+    );
+  }
 
   // Send the cards we think are legal so the service can 409 if its rules engine
   // disagrees. Only meaningful mid-trick, and only for card plays.
