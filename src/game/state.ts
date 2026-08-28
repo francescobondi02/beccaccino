@@ -10,6 +10,7 @@ import type {
   PlayerCard,
   RevealedHand,
   RoundEndData,
+  Signal,
   TotalPoints,
   TurnTimer,
 } from "@/game/model";
@@ -28,7 +29,7 @@ export interface GameTableState {
   currentHandNumber: number | null;
   totalPoints: TotalPoints;
   turnTimer: TurnTimer | null;
-  currentSignal: { userId: number; signal: string } | null;
+  currentSignal: { userId: number; signal: Signal } | null;
   isPractice: boolean;
   allHands: RevealedHand[] | null;
   moveLog: MoveLogEntry[];
