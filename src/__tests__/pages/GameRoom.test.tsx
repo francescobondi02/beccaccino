@@ -145,8 +145,12 @@ describe("GameRoom state synchronization", () => {
     expect(screen.getByTestId("ready-button")).toBeEnabled();
 
     act(() => {
-      mocks.callbacks.teamChosen?.({ userId: 2, team: 1 });
-      mocks.callbacks.readyChanged?.({ userId: 2, isReady: true });
+      mocks.callbacks.teamChosen?.({ userId: 2, playerId: 11, team: 1 });
+      mocks.callbacks.readyChanged?.({
+        userId: 2,
+        playerId: 11,
+        isReady: true,
+      });
     });
 
     expect(screen.getByText("Team 2")).toBeInTheDocument();
@@ -191,14 +195,18 @@ describe("GameRoom state synchronization", () => {
     expect(screen.getByTestId("ready-button")).toBeDisabled();
 
     act(() => {
-      mocks.callbacks.teamChosen?.({ userId: 1, team: 1 });
+      mocks.callbacks.teamChosen?.({ userId: 1, playerId: 10, team: 1 });
     });
 
     expect(screen.queryByTestId("team-0-button")).not.toBeInTheDocument();
     expect(screen.getByTestId("ready-button")).toBeEnabled();
 
     act(() => {
-      mocks.callbacks.readyChanged?.({ userId: 1, isReady: true });
+      mocks.callbacks.readyChanged?.({
+        userId: 1,
+        playerId: 10,
+        isReady: true,
+      });
     });
 
     expect(screen.getByTestId("ready-button")).toHaveTextContent("Non pronto");

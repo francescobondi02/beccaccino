@@ -51,17 +51,15 @@ export interface PlayerDisconnectedPayload {
   userId: number;
   username: string;
 }
-// playerId is only present on the deprecated socket path; the authoritative
-// REST path omits it.
 export interface TeamChosenPayload {
   userId: number;
   team: number;
-  playerId?: number;
+  playerId: number;
 }
 export interface ReadyChangedPayload {
   userId: number;
   isReady: boolean;
-  playerId?: number;
+  playerId: number;
 }
 export interface BriscolaChosenPayload {
   briscola: string;
@@ -169,15 +167,5 @@ export interface ClientToServerEvents {
     acknowledge: (result: JoinRoomResult) => void,
   ) => void;
   leave_room: (payload: { roomCode: string }) => void;
-  choose_team: (payload: {
-    roomCode: string;
-    userId: number;
-    team: number;
-  }) => void;
-  set_ready: (payload: {
-    roomCode: string;
-    userId: number;
-    isReady: boolean;
-  }) => void;
   send_chat_message: (payload: { roomCode?: string; message: string }) => void;
 }

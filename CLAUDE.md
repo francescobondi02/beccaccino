@@ -19,6 +19,10 @@ src/
     NotFound.tsx        404 page
   components/
     AnnotationScenario.tsx Shared scenario context with card/signal or briscola decisions
+    annotation/          Annotation summary, trick, selection, and response views
+    game/                Table board, score header, and practice controls
+    lobby/               Lobby actions, room lists, and decorative background
+    rooms/               Waiting-room player presentation
     AuthDialog.tsx      Login/register modal
     Header.tsx          Nav bar with auth state
     PlayingCard.tsx     Single card renderer (suit + value → image)
@@ -39,9 +43,12 @@ src/
     useAuth.ts          Shared authentication state and actions
     useConnectionStatus.ts Socket status and reconnect refresh
     useGameTable.ts     Game table state and socket coordination
-  game/                 Game DTOs and reducer state
+    useLobbyRooms.ts    Lobby room hydration and socket coordination
+    useWaitingRoom.ts   Waiting-room hydration and socket coordination
+  game/                 Game DTOs, reducer state, and presentation selectors
   annotations/          Expert annotation API model types
-  rooms/                Room DTOs and response normalization
+  rooms/                Room DTOs, normalization, and pure state reducers
+  v2/                   Unrouted V2 design foundation
   lib/
     utils.ts            cn() utility for Tailwind class merging
   assets/               Static images used in components
@@ -59,6 +66,13 @@ public/
 ```
 
 ## Key Patterns
+
+### Responsibility boundaries
+- Pages adapt routes and authentication, execute user commands, and compose views.
+- Hooks coordinate REST, Socket.IO, and reconnect behavior.
+- Reducers and selectors are pure and independently tested.
+- Feature view components receive data and callbacks; they do not fetch or subscribe.
+- V2 is not part of the active router. Keep it isolated until product migration is explicit.
 
 ### Socket.IO Client (socketClient.ts)
 - Singleton pattern: `getSocket()` creates once, returns same instance

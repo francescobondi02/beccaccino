@@ -80,3 +80,15 @@ briscola suit selection, according to the scenario decision type. Every answer
 or skip includes an easy, medium, or hard rating. `Non sono sicuro` also
 accepts an optional short comment. The UI does not render the backend's
 predicted difficulty, importance, tags, or model suggestions.
+
+## Architecture
+
+- Pages adapt routes and authentication, invoke named commands, and compose views.
+- Hooks coordinate REST hydration, Socket.IO reconciliation, and reconnect recovery.
+- Feature reducers under `src/game/` and `src/rooms/` contain pure state transitions.
+- Components under `components/game`, `components/lobby`, `components/rooms`, and
+  `components/annotation` render focused views and receive explicit callbacks.
+- `src/lib/api.ts` and the typed socket modules are the transport boundaries.
+
+The active application remains V1. `src/v2/` is an unrouted design foundation and
+must stay isolated until V2 product ownership and migration are explicitly decided.
