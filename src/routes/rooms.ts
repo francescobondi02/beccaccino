@@ -8,6 +8,8 @@ import {
   getRoomByCode,
   leaveRoom,
   getExitedRooms,
+  pausePracticeRoom,
+  resumePracticeRoom,
 } from "../controllers/roomController";
 import { chooseTeam } from "../controllers/chooseTeam";
 import { authenticateToken } from "../middleware/auth";
@@ -23,6 +25,8 @@ router.get("/:roomCode", authenticateToken, generalRateLimiter, getRoomByCode);
 router.post("/:roomCode/choose-team", authenticateToken, generalRateLimiter, chooseTeam);
 router.post("/join", authenticateToken, generalRateLimiter, joinRoom);
 router.post("/:roomCode/ready", authenticateToken, generalRateLimiter, setPlayerReady);
+router.post("/:roomCode/pause", authenticateToken, generalRateLimiter, pausePracticeRoom);
+router.post("/:roomCode/resume", authenticateToken, generalRateLimiter, resumePracticeRoom);
 router.post("/:roomCode/leave", authenticateToken, generalRateLimiter, leaveRoom);
 
 export default router;

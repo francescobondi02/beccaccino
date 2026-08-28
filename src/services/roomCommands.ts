@@ -9,6 +9,7 @@ import { ensureBotServiceReady } from "./botClient";
 import { archivePracticeMatch } from "./practiceArchive";
 import {
   clearRoomTimerData,
+  clearTurnTimer,
   registerBotSeats,
 } from "./turnTimer";
 
@@ -172,6 +173,126 @@ export async function createPracticeRoomCommand(args: {
       }
       throw creationError;
     }
+  });
+}
+
+function assertPausablePracticeRoom(
+  room: {
+    isPractice: boolean;
+    started: boolean;
+    finished: boolean;
+    players: { userId: number; botModel: string | null }[];
+  },
+  userId: number,
+): void {
+  const player = room.players.find((candidate) => candidate.userId === userId);
+  if (!player || player.botModel !== null) {
+    throw new GameError("You are not the human player in this room", 403);
+  }
+  if (!room.isPractice) {
+    throw new GameError("Only practice games can be paused", 409);
+  }
+  if (!room.started || room.finished) {
+    throw new GameError("Only active practice games can be paused", 409);
+  }
+}
+
+export async function pausePracticeRoomCommand(
+  args: {
+    roomCode: string;
+    userId: number;
+  },
+  onCommitted?: (room: { code: string; pausedAt: Date | null }) => void,
+) {
+  return withRoomLock(args.roomCode, async () => {
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: args.roomCode },
+      include: { players: true },
+    });
+    if (!room) throw new GameError("Room not found", 404);
+    assertPausablePracticeRoom(room, args.userId);
+
+    if (!room.pausedAt) {
+      const update = await prisma.gameRoom.updateMany({
+        where: {
+          id: room.id,
+          isPractice: true,
+          started: true,
+          finished: false,
+          pausedAt: null,
+        },
+        data: {
+          pausedAt: new Date(),
+          pauseEpoch: { increment: 1 },
+          lastActivityAt: new Date(),
+        },
+      });
+      if (update.count === 0) {
+        const current = await prisma.gameRoom.findUnique({
+          where: { id: room.id },
+          select: { pausedAt: true },
+        });
+        if (!current?.pausedAt) {
+          throw new GameError("Practice game state changed; retry", 409);
+        }
+      }
+    }
+    clearTurnTimer(args.roomCode);
+
+    const pausedRoom = await prisma.gameRoom.findUniqueOrThrow({
+      where: { id: room.id },
+      select: { code: true, pausedAt: true },
+    });
+    onCommitted?.(pausedRoom);
+    return pausedRoom;
+  });
+}
+
+export async function resumePracticeRoomCommand(
+  args: {
+    roomCode: string;
+    userId: number;
+  },
+  onCommitted?: (room: { code: string; resumed: boolean }) => void,
+) {
+  return withRoomLock(args.roomCode, async () => {
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: args.roomCode },
+      include: { players: true },
+    });
+    if (!room) throw new GameError("Room not found", 404);
+    assertPausablePracticeRoom(room, args.userId);
+
+    if (room.pausedAt) {
+      clearTurnTimer(args.roomCode);
+      const update = await prisma.gameRoom.updateMany({
+        where: {
+          id: room.id,
+          isPractice: true,
+          started: true,
+          finished: false,
+          pausedAt: { not: null },
+        },
+        data: {
+          pausedAt: null,
+          pauseEpoch: { increment: 1 },
+          lastActivityAt: new Date(),
+        },
+      });
+      if (update.count === 0) {
+        const current = await prisma.gameRoom.findUnique({
+          where: { id: room.id },
+          select: { pausedAt: true },
+        });
+        if (current?.pausedAt) {
+          throw new GameError("Practice game state changed; retry", 409);
+        }
+      }
+    }
+
+    const resumedRoom = { code: room.code, resumed: room.pausedAt !== null };
+    onCommitted?.(resumedRoom);
+    return resumedRoom;
   });
 }
 

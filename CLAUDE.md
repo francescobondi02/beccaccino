@@ -85,7 +85,7 @@ tests/
 - `player_joined`, `player_left`, `team_chosen`, `ready_changed`, `game_started` — room
 - `new_round_started`, `briscola_chosen`, `card_played`, `round_ended`, `game_finished` — game
 - `turn_timer_started`, `auto_played`, `player_kicked_timeout` — timer
-- `practice_abandoned`, `player_disconnected` — lifecycle
+- `practice_paused`, `practice_resumed`, `practice_abandoned`, `player_disconnected` — lifecycle
 - `chat_message` — in-game chat
 
 ### Auth
@@ -169,6 +169,12 @@ minutes, deleting finished rooms or rooms inactive for at least 24 hours.
 Successful briscola choices and card plays update the activity timestamp in the
 same transaction as the move. Each candidate is revalidated under its room lock;
 room/game rows are removed while shared bot users are retained.
+
+The human participant can pause and resume an active practice game through
+`POST /api/rooms/:roomCode/pause` and `/resume`. Persisted `pausedAt` state
+suppresses timers across restarts, while `pauseEpoch` prevents bot responses
+started before pause from advancing a resumed game. Resume starts a fresh turn
+timer, and paused rooms still expire after 24 hours of inactivity.
 
 Only an active *multiplayer* game blocks creating or joining another one
 (`findActiveGame`). Practice games are excluded, so one left open by a crash

@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/node";
 import { getSocketInstance } from "../socketInstance";
 import {
   playCard as playCardTransition,
+  PracticeTurnCancelledError,
   setBriscola as setBriscolaTransition,
   TurnDirective,
 } from "./gameService";
@@ -13,14 +14,10 @@ import { buildBotTurn } from "./botState";
 import { BotServiceError, requestBotMove } from "./botClient";
 import { Suit, SUITS } from "../domain/cards";
 
-const TURN_TIMEOUT_SECONDS = parseInt(
-  process.env.TURN_TIMEOUT_SECONDS || "60",
-  10,
-);
-const BRISCOLA_TIMEOUT_SECONDS = parseInt(
-  process.env.BRISCOLA_TIMEOUT_SECONDS || "90",
-  10,
-);
+const turnTimeoutSeconds = () =>
+  parseInt(process.env.TURN_TIMEOUT_SECONDS || "60", 10);
+const briscolaTimeoutSeconds = () =>
+  parseInt(process.env.BRISCOLA_TIMEOUT_SECONDS || "90", 10);
 
 type Phase = "play_card" | "choose_briscola";
 
@@ -33,6 +30,7 @@ interface TimerState {
   durationMs: number;
   /** Bot turns share this map so they are cancellable, but count no timeouts. */
   isBot: boolean;
+  pauseEpoch: number;
 }
 
 const activeTimers = new Map<string, TimerState>();
@@ -75,34 +73,47 @@ export function startTurnTimer(
   roomCode: string,
   currentTurnUserId: number,
   phase: Phase,
+  pauseEpoch: number,
 ): void {
   clearTurnTimer(roomCode);
 
   const botTier = botSeats.get(roomCode)?.get(currentTurnUserId);
   if (botTier) {
-    scheduleBotMove(roomCode, currentTurnUserId, botTier, phase);
+    scheduleBotMove(roomCode, currentTurnUserId, botTier, phase, pauseEpoch);
     return;
   }
 
   // If this player has been kicked, auto-play immediately
   const kicked = kickedPlayers.get(roomCode);
   if (kicked?.has(currentTurnUserId)) {
-    setTimeout(
-      () => executeAutoPlay(roomCode, currentTurnUserId, phase),
-      500,
-    ).unref();
+    const durationMs = 500;
+    const timeout = setTimeout(
+      () => executeAutoPlay(roomCode, currentTurnUserId, phase, pauseEpoch),
+      durationMs,
+    );
+    timeout.unref();
+    activeTimers.set(roomCode, {
+      timeout,
+      roomCode,
+      currentTurnUserId,
+      phase,
+      startedAt: Date.now(),
+      durationMs,
+      isBot: false,
+      pauseEpoch,
+    });
     return;
   }
 
   const durationMs =
     phase === "choose_briscola"
-      ? BRISCOLA_TIMEOUT_SECONDS * 1000
-      : TURN_TIMEOUT_SECONDS * 1000;
+      ? briscolaTimeoutSeconds() * 1000
+      : turnTimeoutSeconds() * 1000;
 
   const startedAt = Date.now();
 
   const timeout = setTimeout(() => {
-    executeAutoPlay(roomCode, currentTurnUserId, phase);
+    executeAutoPlay(roomCode, currentTurnUserId, phase, pauseEpoch);
   }, durationMs);
 
   activeTimers.set(roomCode, {
@@ -113,6 +124,7 @@ export function startTurnTimer(
     startedAt,
     durationMs,
     isBot: false,
+    pauseEpoch,
   });
 
   announceTurn(roomCode, currentTurnUserId, phase, durationMs);
@@ -197,6 +209,7 @@ export function applyTurnDirective(directive: TurnDirective | null): void {
     directive.roomCode,
     directive.userId,
     directive.phase,
+    directive.pauseEpoch,
   );
 }
 
@@ -247,10 +260,11 @@ function scheduleBotMove(
   userId: number,
   tier: BotTier,
   phase: Phase,
+  pauseEpoch: number,
 ): void {
   const thinkDelayMs = botThinkDelayMs();
   const timeout = setTimeout(() => {
-    void playBotMove(roomCode, userId, tier, phase);
+    void playBotMove(roomCode, userId, tier, phase, pauseEpoch);
   }, thinkDelayMs);
   timeout.unref();
 
@@ -262,9 +276,37 @@ function scheduleBotMove(
     startedAt: Date.now(),
     durationMs: thinkDelayMs,
     isBot: true,
+    pauseEpoch,
   });
 
   announceTurn(roomCode, userId, phase, null);
+}
+
+async function isPauseEpochCurrent(
+  roomCode: string,
+  expectedPauseEpoch: number,
+): Promise<boolean> {
+  try {
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: roomCode },
+      select: { pausedAt: true, pauseEpoch: true },
+    });
+    return Boolean(
+      room &&
+        !room.pausedAt &&
+        room.pauseEpoch === expectedPauseEpoch,
+    );
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { source: "bot_pause_fence_read" },
+      extra: { roomCode, expectedPauseEpoch },
+    });
+    logger.warn(
+      { err: error, roomCode, expectedPauseEpoch },
+      "bot_pause_fence_read_failed",
+    );
+    return false;
+  }
 }
 
 async function playBotMove(
@@ -272,6 +314,7 @@ async function playBotMove(
   userId: number,
   tier: BotTier,
   phase: Phase,
+  expectedPauseEpoch: number,
 ): Promise<void> {
   // The think-delay has elapsed, so drop our slot in activeTimers before acting:
   // playCard/setBriscola arm the NEXT seat's timer, and leaving a stale entry
@@ -287,6 +330,8 @@ async function playBotMove(
   if (!botSeats.get(roomCode)?.has(userId)) return;
 
   try {
+    if (!(await isPauseEpochCurrent(roomCode, expectedPauseEpoch))) return;
+
     const move = await chooseBotMove(roomCode, userId, tier, phase);
 
     if (move.kind === "briscola") {
@@ -295,6 +340,7 @@ async function playBotMove(
         gameRoomId,
         playerId,
         suit: move.suit,
+        expectedPauseEpoch,
       });
       applyTurnDirective(turnDirective);
     } else {
@@ -304,16 +350,27 @@ async function playBotMove(
         suit: move.suit,
         value: move.value,
         signal: move.signal,
+        expectedPauseEpoch,
       });
       applyTurnDirective(directive);
     }
   } catch (error) {
+    if (error instanceof PracticeTurnCancelledError) {
+      logger.debug({ roomCode, userId, phase }, "bot_move_cancelled_by_pause");
+      return;
+    }
+
     // Re-check: the human can abandon the game while /act is in flight, which
     // deletes the room and makes this failure expected. Reporting that as a
     // model fallback would cry wolf on the one alarm that tells us a seat was
     // NOT played by the model.
     if (!botSeats.get(roomCode)?.has(userId)) {
       logger.debug({ roomCode, userId }, "bot_move_abandoned_room_gone");
+      return;
+    }
+
+    if (!(await isPauseEpochCurrent(roomCode, expectedPauseEpoch))) {
+      logger.debug({ roomCode, userId, phase }, "bot_move_cancelled_by_pause");
       return;
     }
 
@@ -331,11 +388,22 @@ async function playBotMove(
 
     try {
       if (phase === "choose_briscola") {
-        await autoChooseBriscola(roomCode, userId);
+        await autoChooseBriscola(
+          roomCode,
+          userId,
+          expectedPauseEpoch,
+        );
       } else {
-        await autoPlayCard(roomCode, userId);
+        await autoPlayCard(roomCode, userId, expectedPauseEpoch);
       }
     } catch (fallbackError) {
+      if (fallbackError instanceof PracticeTurnCancelledError) {
+        logger.debug(
+          { roomCode, userId, phase },
+          "bot_fallback_cancelled_by_pause",
+        );
+        return;
+      }
       // Both paths failed. Most likely the turn already advanced (a reconnect
       // double-dispatched and the other call won), which is harmless.
       logger.warn(
@@ -405,14 +473,15 @@ async function executeAutoPlay(
   roomCode: string,
   userId: number,
   phase: Phase,
+  expectedPauseEpoch: number,
 ): Promise<void> {
   const io = getSocketInstance();
 
   try {
     if (phase === "choose_briscola") {
-      await autoChooseBriscola(roomCode, userId);
+      await autoChooseBriscola(roomCode, userId, expectedPauseEpoch);
     } else {
-      await autoPlayCard(roomCode, userId);
+      await autoPlayCard(roomCode, userId, expectedPauseEpoch);
     }
 
     io.to(roomCode).emit("auto_played", { userId, phase });
@@ -444,6 +513,10 @@ async function executeAutoPlay(
       io.to(roomCode).emit("player_kicked_timeout", { userId, username });
     }
   } catch (error) {
+    if (error instanceof PracticeTurnCancelledError) {
+      logger.debug({ roomCode, userId, phase }, "auto_play_cancelled_by_pause");
+      return;
+    }
     // The most common cause is a benign race: the player already acted
     // between the timer firing and our DB read. We still surface to Sentry
     // (with a tag) so we can spot pathological auto-play loops.
@@ -458,7 +531,11 @@ async function executeAutoPlay(
   }
 }
 
-async function autoPlayCard(roomCode: string, userId: number): Promise<void> {
+async function autoPlayCard(
+  roomCode: string,
+  userId: number,
+  expectedPauseEpoch?: number,
+): Promise<void> {
   const cards = await playableCards({ roomCode, userId });
   if (cards.length === 0) return;
 
@@ -469,6 +546,7 @@ async function autoPlayCard(roomCode: string, userId: number): Promise<void> {
     suit: card.suit,
     value: card.value,
     autoPlayed: true,
+    expectedPauseEpoch,
   });
   applyTurnDirective(directive);
 }
@@ -476,6 +554,7 @@ async function autoPlayCard(roomCode: string, userId: number): Promise<void> {
 async function autoChooseBriscola(
   roomCode: string,
   userId: number,
+  expectedPauseEpoch?: number,
 ): Promise<void> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -512,6 +591,7 @@ async function autoChooseBriscola(
     playerId: player.id,
     suit: bestSuit,
     autoChosen: true,
+    expectedPauseEpoch,
   });
   applyTurnDirective(turnDirective);
 }

@@ -13,10 +13,34 @@ import {
   createRoomCommand,
   joinRoomCommand,
   leaveRoomCommand,
+  pausePracticeRoomCommand,
+  resumePracticeRoomCommand,
   setReadyCommand,
 } from "../services/roomCommands";
 import { GameError } from "../utils/gameError";
 import { BotServiceError } from "../services/botClient";
+import { loadGameState } from "../services/gameState";
+
+function emitPracticeLifecycle(
+  req: Request,
+  roomCode: string,
+  event: "practice_paused" | "practice_resumed",
+  payload: Record<string, unknown>,
+): void {
+  try {
+    const io = getSocketInstance();
+    io.to(roomCode).emit(event, payload);
+    io.to("lobby").emit(event, payload);
+  } catch (error) {
+    Sentry.captureException(error, {
+      extra: { event, roomCode },
+    });
+    (req.log ?? logger).warn(
+      { err: error, event, roomCode },
+      "practice_lifecycle_broadcast_failed",
+    );
+  }
+}
 
 export const createRoom = async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -306,6 +330,7 @@ export const leaveRoom = async (req: Request, res: Response) => {
     switch (result.kind) {
       case "practice_deleted":
         io.to(roomCode).emit("practice_abandoned", { roomCode });
+        io.to("lobby").emit("practice_abandoned", { roomCode });
         logger.info({ roomCode, userId }, "practice_game_abandoned");
         return res.status(200).json({ success: true, deletedRoom: true });
       case "finished_preserved":
@@ -333,6 +358,77 @@ export const leaveRoom = async (req: Request, res: Response) => {
       "leave_room_failed",
     );
     return res.status(500).json({ error: "Failed to leave room" });
+  }
+};
+
+export const pausePracticeRoom = async (req: Request, res: Response) => {
+  const { roomCode } = req.params;
+  const userId = req.user!.userId;
+
+  try {
+    const room = await pausePracticeRoomCommand(
+      { roomCode, userId },
+      (pausedRoom) => {
+        emitPracticeLifecycle(req, roomCode, "practice_paused", {
+          roomCode,
+          pausedAt: pausedRoom.pausedAt,
+        });
+      },
+    );
+    logger.info({ roomCode, userId }, "practice_game_paused");
+    return res.status(200).json({
+      success: true,
+      paused: true,
+      pausedAt: room.pausedAt,
+    });
+  } catch (error) {
+    if (error instanceof GameError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    Sentry.captureException(error, {
+      extra: { op: "pause_practice_room", roomCode, userId },
+    });
+    (req.log ?? logger).error(
+      { err: error, roomCode, userId },
+      "pause_practice_room_failed",
+    );
+    return res.status(500).json({ error: "Failed to pause practice game" });
+  }
+};
+
+export const resumePracticeRoom = async (req: Request, res: Response) => {
+  const { roomCode } = req.params;
+  const userId = req.user!.userId;
+
+  try {
+    await resumePracticeRoomCommand({ roomCode, userId }, () => {
+      emitPracticeLifecycle(req, roomCode, "practice_resumed", { roomCode });
+    });
+    try {
+      await loadGameState(roomCode, userId);
+    } catch (error) {
+      Sentry.captureException(error, {
+        extra: { op: "resume_practice_timer", roomCode, userId },
+      });
+      (req.log ?? logger).warn(
+        { err: error, roomCode, userId },
+        "resume_practice_timer_failed",
+      );
+    }
+    logger.info({ roomCode, userId }, "practice_game_resumed");
+    return res.status(200).json({ success: true, paused: false });
+  } catch (error) {
+    if (error instanceof GameError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    Sentry.captureException(error, {
+      extra: { op: "resume_practice_room", roomCode, userId },
+    });
+    (req.log ?? logger).error(
+      { err: error, roomCode, userId },
+      "resume_practice_room_failed",
+    );
+    return res.status(500).json({ error: "Failed to resume practice game" });
   }
 };
 

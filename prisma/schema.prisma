@@ -149,6 +149,8 @@ model GameRoom {
   started        Boolean   @default(false)
   finished       Boolean   @default(false)
   isPractice     Boolean   @default(false)  // Human vs bots: excluded from all aggregates
+  pausedAt       DateTime?
+  pauseEpoch     Int       @default(0)
   createdAt      DateTime  @default(now())
   lastActivityAt DateTime  @default(now())
 

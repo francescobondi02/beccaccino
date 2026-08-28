@@ -10,6 +10,7 @@ import {
 } from "./gameService";
 import {
   getTurnTimerState,
+  clearTurnTimer,
   restoreBotSeats,
   startTurnTimer,
 } from "./turnTimer";
@@ -199,6 +200,8 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       where: { id: snapshot.gameRoom.id },
       select: {
         finished: true,
+        pausedAt: true,
+        pauseEpoch: true,
         rounds: {
           orderBy: { number: "desc" },
           take: 1,
@@ -208,6 +211,8 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
     });
     if (
       marker?.finished === snapshot.gameRoom.finished &&
+      marker.pausedAt?.getTime() === snapshot.gameRoom.pausedAt?.getTime() &&
+      marker.pauseEpoch === snapshot.gameRoom.pauseEpoch &&
       marker.rounds[0]?.id === snapshot.currentRound.id
     ) {
       break;
@@ -234,7 +239,10 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
   } = snapshot;
 
   let timerState = getTurnTimerState(roomCode);
-  if (!timerState && !gameRoom.finished && currentTurnUserId !== null) {
+  if (gameRoom.pausedAt) {
+    clearTurnTimer(roomCode);
+    timerState = null;
+  } else if (!timerState && !gameRoom.finished && currentTurnUserId !== null) {
     const phase =
       currentRound.briscola === null ? "choose_briscola" : "play_card";
     logger.info(
@@ -242,16 +250,23 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       "turn_timer_recovered_after_restart",
     );
     restoreBotSeats(roomCode, gameRoom.players);
-    startTurnTimer(roomCode, currentTurnUserId, phase);
+    startTurnTimer(
+      roomCode,
+      currentTurnUserId,
+      phase,
+      gameRoom.pauseEpoch,
+    );
     timerState = getTurnTimerState(roomCode);
   }
 
   return {
     status: gameRoom.finished
       ? "finished"
-      : currentRound.briscola === null
-        ? "choosing_briscola"
-        : "playing",
+      : gameRoom.pausedAt
+        ? "paused"
+        : currentRound.briscola === null
+          ? "choosing_briscola"
+          : "playing",
     round: {
       id: currentRound.id,
       number: currentRound.number,
@@ -271,6 +286,7 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       team1Figures: cumulative.team1.figures,
     },
     turnTimer: timerState,
+    pausedAt: gameRoom.pausedAt,
     finishedGame,
     isPractice: gameRoom.isPractice,
     allHands,

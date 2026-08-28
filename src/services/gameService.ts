@@ -34,8 +34,38 @@ export type TurnDirective =
       roomCode: string;
       userId: number;
       phase: "play_card" | "choose_briscola";
+      pauseEpoch: number;
     }
   | { kind: "clear"; roomCode: string };
+
+export class PracticeTurnCancelledError extends GameError {
+  constructor() {
+    super("Practice game is paused", 409);
+    this.name = "PracticeTurnCancelledError";
+  }
+}
+
+async function claimPracticeTransition(
+  tx: Prisma.TransactionClient,
+  room: { id: number; isPractice: boolean },
+  expectedPauseEpoch?: number,
+): Promise<void> {
+  if (!room.isPractice) return;
+
+  const claim = await tx.gameRoom.updateMany({
+    where: {
+      id: room.id,
+      pausedAt: null,
+      ...(expectedPauseEpoch === undefined
+        ? {}
+        : { pauseEpoch: expectedPauseEpoch }),
+    },
+    data: { lastActivityAt: new Date() },
+  });
+  if (claim.count !== 1) {
+    throw new PracticeTurnCancelledError();
+  }
+}
 
 /** Seat `offset` positions clockwise from `seat`, wrapping around the 4-seat table. */
 export function seatAfter(seat: number, offset = 1): number {
@@ -283,7 +313,7 @@ export async function startFirstRound(
   gameRoomId: number,
   roomCode: string,
 ): Promise<TurnDirective> {
-  const { callerUserId, roundSetup } = await prisma.$transaction(async (tx) => {
+  const { callerUserId, pauseEpoch, roundSetup } = await prisma.$transaction(async (tx) => {
     const claim = await tx.gameRoom.updateMany({
       where: { id: gameRoomId, started: false },
       data: { started: true },
@@ -293,13 +323,21 @@ export async function startFirstRound(
     }
 
     const roundSetup = await setupRound(gameRoomId, 1, tx);
+    const room = await tx.gameRoom.findUniqueOrThrow({
+      where: { id: gameRoomId },
+      select: { pauseEpoch: true },
+    });
     const caller = await tx.player.findUnique({
       where: { id: roundSetup.callerPlayerId },
       select: { userId: true },
     });
     if (!caller) throw new Error("Briscola caller not found");
 
-    return { callerUserId: caller.userId, roundSetup };
+    return {
+      callerUserId: caller.userId,
+      pauseEpoch: room.pauseEpoch,
+      roundSetup,
+    };
   });
 
   logRoundSetup(roundSetup);
@@ -309,6 +347,7 @@ export async function startFirstRound(
     roomCode,
     userId: callerUserId,
     phase: "choose_briscola",
+    pauseEpoch,
   };
 }
 
@@ -326,6 +365,8 @@ export async function setBriscola(args: {
   suit: Suit;
   /** Set by the timer: the server picked this suit, the caller did not. */
   autoChosen?: boolean;
+  /** Bot moves must belong to the same pause/resume generation they started in. */
+  expectedPauseEpoch?: number;
 }) {
   // We need the roomCode to key the lock. Look it up once; the inner function
   // will re-fetch the full room with players for correctness.
@@ -342,11 +383,13 @@ async function setBriscolaUnlocked({
   playerId,
   suit,
   autoChosen = false,
+  expectedPauseEpoch,
 }: {
   gameRoomId: number;
   playerId: number;
   suit: Suit;
   autoChosen?: boolean;
+  expectedPauseEpoch?: number;
 }) {
   const gameRoom = await prisma.gameRoom.findUnique({
     where: { id: gameRoomId },
@@ -356,6 +399,7 @@ async function setBriscolaUnlocked({
 
   const player = gameRoom.players.find((p) => p.id === playerId);
   if (!player) throw new GameError("Player not in this game room", 403);
+  if (gameRoom.pausedAt) throw new PracticeTurnCancelledError();
 
   const currentRound = await prisma.round.findFirst({
     where: { gameRoomId },
@@ -379,6 +423,7 @@ async function setBriscolaUnlocked({
   const hasCricca = detectCricca(callerCards, suit);
 
   const { updatedRound, firstHand } = await prisma.$transaction(async (tx) => {
+    await claimPracticeTransition(tx, gameRoom, expectedPauseEpoch);
     const claim = await tx.round.updateMany({
       where: { id: currentRound.id, briscola: null },
       data: { briscola: suit, cricca: hasCricca, briscolaAutoChosen: autoChosen },
@@ -393,12 +438,6 @@ async function setBriscolaUnlocked({
         starterId: playerId,
       },
     });
-    if (gameRoom.isPractice) {
-      await tx.gameRoom.update({
-        where: { id: gameRoomId },
-        data: { lastActivityAt: new Date() },
-      });
-    }
     const updatedRound = await tx.round.findUniqueOrThrow({
       where: { id: currentRound.id },
     });
@@ -437,6 +476,7 @@ async function setBriscolaUnlocked({
       roomCode: gameRoom.code,
       userId: callerPlayer.userId,
       phase: "play_card",
+      pauseEpoch: gameRoom.pauseEpoch,
     } satisfies TurnDirective,
   };
 }
@@ -498,6 +538,8 @@ export async function playCard(args: {
   signal?: CardSignal | null;
   /** Set by the timer: the server picked this card, the seat's owner did not. */
   autoPlayed?: boolean;
+  /** Bot moves must belong to the same pause/resume generation they started in. */
+  expectedPauseEpoch?: number;
 }) {
   return withRoomLock(args.roomCode, () => playCardUnlocked(args));
 }
@@ -509,6 +551,7 @@ async function playCardUnlocked({
   value,
   signal,
   autoPlayed = false,
+  expectedPauseEpoch,
 }: {
   roomCode: string;
   userId: number;
@@ -516,6 +559,7 @@ async function playCardUnlocked({
   value: Value;
   signal?: CardSignal | null;
   autoPlayed?: boolean;
+  expectedPauseEpoch?: number;
 }): Promise<TurnDirective | null> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -539,6 +583,9 @@ async function playCardUnlocked({
     throw new GameError("Room not found or game not started", 404);
 
   if (room.finished) throw new GameError("Game is already finished", 400);
+  const player = room.players.find((candidate) => candidate.userId === userId);
+  if (!player) throw new GameError("It's not this player's turn", 403);
+  if (room.pausedAt) throw new PracticeTurnCancelledError();
 
   const currentRound = room.rounds[0];
   const currentHand = currentRound?.hands[0];
@@ -562,9 +609,6 @@ async function playCardUnlocked({
   );
   if (!currentTurnPlayer || currentTurnPlayer.userId !== userId)
     throw new GameError("It's not this player's turn", 403);
-
-  const player = room.players.find((p) => p.userId === userId);
-  if (!player) throw new GameError("Player not found in this room", 404);
 
   const playerCard = await prisma.playerCard.findFirst({
     where: {
@@ -620,13 +664,8 @@ async function playCardUnlocked({
 
   if (position < 3) {
     await prisma.$transaction(async (tx) => {
+      await claimPracticeTransition(tx, room, expectedPauseEpoch);
       await persistPlayedCard(tx, playerCard.id, playedCardData);
-      if (room.isPractice) {
-        await tx.gameRoom.update({
-          where: { id: room.id },
-          data: { lastActivityAt: new Date() },
-        });
-      }
     });
     publish();
 
@@ -639,6 +678,7 @@ async function playCardUnlocked({
           roomCode,
           userId: nextPlayer.userId,
           phase: "play_card",
+          pauseEpoch: room.pauseEpoch,
         }
       : null;
   }
@@ -650,6 +690,7 @@ async function playCardUnlocked({
 
   if (currentHand.number < 10) {
     await prisma.$transaction(async (tx) => {
+      await claimPracticeTransition(tx, room, expectedPauseEpoch);
       await persistPlayedCard(tx, playerCard.id, playedCardData);
       await tx.hand.update({
         where: { id: currentHand.id },
@@ -662,12 +703,6 @@ async function playCardUnlocked({
           starterId: winnerPlayerId,
         },
       });
-      if (room.isPractice) {
-        await tx.gameRoom.update({
-          where: { id: room.id },
-          data: { lastActivityAt: new Date() },
-        });
-      }
     });
     publish();
 
@@ -678,6 +713,7 @@ async function playCardUnlocked({
           roomCode,
           userId: winnerPlayer.userId,
           phase: "play_card",
+          pauseEpoch: room.pauseEpoch,
         }
       : null;
   }
@@ -764,6 +800,7 @@ async function playCardUnlocked({
   );
 
   const nextRound = await prisma.$transaction(async (tx) => {
+    await claimPracticeTransition(tx, room, expectedPauseEpoch);
     await persistPlayedCard(tx, playerCard.id, playedCardData);
     await tx.hand.update({
       where: { id: currentHand.id },
@@ -779,12 +816,11 @@ async function playCardUnlocked({
         winnerTeam,
       },
     });
-    if (room.isPractice || finalWinnerTeam !== null) {
+    if (finalWinnerTeam !== null) {
       await tx.gameRoom.update({
         where: { id: room.id },
         data: {
-          ...(room.isPractice ? { lastActivityAt: new Date() } : {}),
-          ...(finalWinnerTeam !== null ? { finished: true } : {}),
+          finished: true,
         },
       });
     }
@@ -862,6 +898,7 @@ async function playCardUnlocked({
         roomCode,
         userId: newCaller.userId,
         phase: "choose_briscola",
+        pauseEpoch: room.pauseEpoch,
       }
     : null;
 }

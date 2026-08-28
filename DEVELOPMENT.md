@@ -140,6 +140,11 @@ npm run db:test:prepare
 This command refuses to run unless `NODE_ENV=test` and both Prisma URLs point
 exactly to `localhost/becca_test`.
 
+The root `./scripts/pre-push.sh` gate injects `TEST_DATABASE_URL` with a unique
+schema under that same safe database. `tests/loadTestEnv.ts` honors this
+override and applies the same localhost/`becca_test` safety check before any
+test imports Prisma.
+
 ### Commands
 
 ```sh
@@ -173,6 +178,13 @@ finished or inactive for at least 24 hours. Successful briscola choices and card
 plays refresh the activity timestamp transactionally. The sweep serializes with
 live room activity, revalidates eligibility under the room lock, and deletes
 game rows while retaining the reusable bot `User` accounts.
+
+Active practice games can be paused with `POST /api/rooms/:roomCode/pause` and
+resumed with `POST /api/rooms/:roomCode/resume`. Only the human participant can
+use these endpoints. Pause state survives process restarts, suppresses timer
+recovery, and fences bot responses that started before a pause/resume cycle.
+Resuming starts a fresh full turn timer. Paused rooms remain subject to the same
+24-hour inactivity cleanup.
 
 ### Test Architecture
 
