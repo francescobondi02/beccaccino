@@ -1,5 +1,11 @@
 # BECCA — Production Readiness Review
 
+> **Historical snapshot.** This review predates the backend, frontend, and AI
+> structure refactors and the current CI/deployment gates. Its findings, module
+> paths, test counts, and readiness verdict are retained for context but are no
+> longer current. Use the active root and submodule development/architecture
+> guides for the present system.
+
 ## 1. Verdict
 
 **Not production-ready for a public launch today — but close.** BECCA is a *solid hobby-production* codebase sitting right at the edge of *professional production*. The engineering quality is genuinely well above what AI-generated code usually delivers: the concurrency model (a per-room async mutex plus a compare-and-swap on game start), the bot-service integration, the cross-language wire-format contract, the observability stack (pino redaction, request IDs, Sentry, health/ready split), and the operator-grade `RUNBOOK.md` are all things a senior team would keep as-is. There are no security holes, no data-loss paths, and authorization is enforced and re-checked at the resource level everywhere it matters. If the bar were "a well-built side project," this clears it comfortably.
@@ -117,4 +123,4 @@ Treat the four highs plus the `trust proxy` rate-limiter trap as pre-launch bloc
 
 ## 5. Scope note
 
-The `ai/` module (the Python Gymnasium environment, RL self-play training, network architecture, and serving) was reviewed separately and is documented in `ai/docs/SYSTEM_ANALYSIS.md`; this document does not re-assess the model, training pipeline, or evaluation. What it *does* cover at the `ai` boundary is everything the rest of the system depends on to talk to it: the TypeScript→Python bot wire contract (`botState.ts` ↔ `state_adapter.py`), the `botClient` HTTP path and `/act` legality gate, the committed `(state, obs)` fixture-parity test, and the CI job that must keep those fixtures current. Everything else here — backend game core, HTTP and security, the Prisma/Postgres layer, the frontend pages and infrastructure, and DevOps/deployment — is in scope.
+The `ai/` module (the Python Gymnasium environment, RL self-play training, network architecture, and serving) was reviewed separately; current structure is documented in [`ai/docs/ARCHITECTURE.md`](ai/docs/ARCHITECTURE.md) and experiment evidence in [`ai/docs/EXPERIMENTS.md`](ai/docs/EXPERIMENTS.md). This document does not re-assess the model, training pipeline, or evaluation. What it *does* cover at the `ai` boundary is everything the rest of the system depends on to talk to it: the TypeScript→Python bot wire contract (`botState.ts` ↔ `state_adapter.py`), the `botClient` HTTP path and `/act` legality gate, the committed `(state, obs)` fixture-parity test, and the CI job that must keep those fixtures current. Everything else here — backend game core, HTTP and security, the Prisma/Postgres layer, the frontend pages and infrastructure, and DevOps/deployment — is in scope.

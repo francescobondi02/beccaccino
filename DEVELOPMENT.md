@@ -1,5 +1,11 @@
 # Becca Online — Development Guide
 
+## Prerequisites
+
+- Node.js 24+
+- Finch with Compose support
+- Python 3.11+ for the AI package
+
 ## Quick Start
 
 ```sh
@@ -12,10 +18,10 @@ cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 
 # 2. Start backend + database
-docker compose up
+finch compose up
 
 # 3. Start frontend (separate terminal)
-cd frontend && npm install && npm run dev
+cd frontend && npm ci && npm run dev
 ```
 
 - Backend: `http://localhost:8000`
@@ -25,12 +31,55 @@ cd frontend && npm install && npm run dev
 To run in the background:
 
 ```sh
-docker compose up -d
+finch compose up -d
 ```
 
 ---
 
 ## Running Tests
+
+### Pre-push Gate
+
+Before pushing the backend or frontend submodule to `develop`, run the complete
+web-application gate from the project root:
+
+```sh
+./scripts/pre-push.sh
+```
+
+The gate starts only the Finch PostgreSQL service, creates a temporary database
+for migration replay plus a temporary test schema inside the guarded local
+`becca_test` database, and then runs:
+
+- backend migration parity, typecheck, build, unit tests, and integration tests
+- frontend typecheck, lint, build-metadata tests, coverage, and production build
+- the complete Playwright suite against dedicated backend, frontend, and
+  deterministic bot-stub ports
+
+It never reuses servers on ports `8000` or `8081`. Logs, the Playwright HTML
+report, traces, and screenshots are retained under `test-artifacts/pre-push/`;
+temporary services and schemas are removed on success, failure, or Ctrl-C.
+
+For manual verification after all automated checks pass:
+
+```sh
+./scripts/pre-push.sh --keep-open
+```
+
+Open `http://localhost:18081`. The verified stack remains available until
+Ctrl-C, then performs the same cleanup.
+
+The web gate does not install or validate the Python package. Before pushing
+`ai/`, run its independent gate:
+
+```sh
+cd ai
+pytest
+ruff check .
+ruff format --check .
+python -m scripts.gen_bot_fixtures
+git diff --exit-code serving/fixtures/
+```
 
 ### Backend Tests
 
@@ -45,7 +94,7 @@ cd backend
 npm run db:test:prepare
 ```
 
-Make sure `docker compose up` is running before running integration tests.
+Make sure `finch compose up -d db` is running before integration tests.
 
 `becca_test` is built with `db push`, not `migrate deploy`, so it deliberately has
 **no migration history** — `migrate deploy` against it fails with P3005, which is
@@ -87,11 +136,8 @@ desktop and mobile.
 
 #### Prerequisites
 
-```sh
-docker compose up -d          # Start DB
-cd backend && npm run dev     # Start backend (port 8000)
-cd frontend && npm run dev    # Start frontend (port 8081)
-```
+Start PostgreSQL with `finch compose up -d db`. Playwright starts isolated
+backend and frontend processes unless `E2E_REUSE_SERVERS=true` is set.
 
 #### Commands
 
@@ -108,6 +154,7 @@ npm run test:e2e:ui           # Playwright interactive UI mode
 - **lobby-to-game.spec.ts** — 4 players register, create room, join, choose teams, ready up, game starts, verify 10 cards dealt
 - **first-trick.spec.ts** — Briscola selection → 4 players complete the first trick in correct turn order
 - **annotation.spec.ts** — Account login → expert access → answer and skip submissions with difficulty ratings
+- **practice-pause-resume.spec.ts** — Practice pause → home listing → resume → direct paused-room overlay → confirmed abandon on desktop and mobile
 
 #### Debugging failures
 
@@ -122,18 +169,15 @@ See `frontend/DEVELOPMENT.md` for full E2E documentation.
 
 ```
 backend/tests/
-  unit/
-    computePoints.test.ts       # scoring logic, deterministic seeded shuffle
-    determineHandWinner.test.ts # trick-winner logic
-  integration/
-    users.test.ts               # user registration via API + DB check
-    game.test.ts                # full round flow (setup → briscola → play)
-    fullGame.test.ts            # multi-round game until one team wins
+  unit/                         # pure rules, parsers, codecs, and policies
+  integration/                  # API, database, sockets, runtime, and archives
   helpers/
-    gameHelpers.ts              # shared helpers: setupGame, oneRound, etc.
-  loadTestEnv.ts                # sets DATABASE_URL before PrismaClient loads
-  setup.ts                      # mocks Socket.io, sets NODE_ENV=test
-  teardown.ts                   # disconnects Prisma after all tests
+    database.ts                 # shared complete reset
+    serverHarness.ts            # shared ephemeral HTTP server
+    gameDriver.ts               # deterministic game setup and play
+  loadTestEnv.ts                # selects and guards the test database
+  setup.ts                      # common Jest setup
+  teardown.ts                   # closes servers, sockets, timers, and Prisma
 ```
 
 Unit tests are pure — no database, no HTTP. Integration tests use a real `becca_test`
@@ -146,8 +190,8 @@ Each integration test suite calls `clearDatabase()` in `beforeEach` to ensure is
 ## Stopping the Project
 
 ```sh
-docker compose down           # stop containers
-docker compose down -v        # stop and delete database volume (destructive)
+finch compose down           # stop containers
+finch compose down -v        # stop and delete database volume (destructive)
 ```
 
 ---
@@ -205,20 +249,15 @@ without first reviewing the dry run against the same database.
 
 ```env
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca"
+DIRECT_URL="postgresql://postgres:postgres@localhost:5432/becca"
 JWT_SECRET="your_secret_key"
 PORT=8000
 FRONTEND_URL="http://localhost:8081"
 ```
 
-**`backend/.env.test`** (integration tests — used for reference, actual injection is via `loadTestEnv.ts`):
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
-JWT_SECRET="test-secret"
-NODE_ENV="test"
-PORT=8000
-FRONTEND_URL="http://localhost:8081"
-```
+Integration tests do not load `backend/.env.test`.
+`backend/tests/loadTestEnv.ts` runs before Prisma imports and sets both Prisma
+URLs to `TEST_DATABASE_URL` or the guarded local `becca_test` default.
 
 ---
 
@@ -227,10 +266,10 @@ FRONTEND_URL="http://localhost:8081"
 ### Daily Development
 
 ```sh
-docker compose up -d
+finch compose up -d
 cd frontend && npm run dev   # separate terminal
 cd backend && npm run test:unit  # fast feedback loop, no DB needed
-docker compose down
+finch compose down
 ```
 
 ### After Editing `schema.prisma`
@@ -238,37 +277,37 @@ docker compose down
 ```sh
 npx prisma migrate dev --name <description>
 # npx prisma generate is usually run automatically
-docker compose restart backend
+finch compose restart backend
 ```
 
 ### Running Integration Tests
 
 ```sh
-docker compose up -d
+finch compose up -d db
 cd backend && npm run test:integration
 ```
 
 ---
 
-## Docker Reference
+## Finch Compose Reference
 
 ```sh
 # View running containers
-docker ps
+finch ps
 
 # View logs
-docker compose logs -f          # all services
-docker compose logs -f backend  # backend only
+finch compose logs -f          # all services
+finch compose logs -f backend  # backend only
 
 # Restart a service
-docker compose restart backend
+finch compose restart backend
 
 # Rebuild after Dockerfile changes
-docker compose up --build
+finch compose up --build
 
 # Enter a container
-docker exec -it becca-backend sh
-docker exec -it becca-db psql -U postgres -d becca
+finch compose exec backend sh
+finch compose exec db psql -U postgres -d becca
 ```
 
 ---
@@ -285,9 +324,9 @@ kill -9 <PID>
 **Cannot connect to database:**
 
 ```sh
-docker ps                      # verify DB container is running
-docker compose logs db         # check DB logs
-docker compose restart db
+finch ps                      # verify DB container is running
+finch compose logs db         # check DB logs
+finch compose restart db
 ```
 
 **Prisma Client not generated:**
@@ -305,8 +344,8 @@ If tests are writing to `becca` instead of `becca_test`, check that the integrat
 **Database in inconsistent state:**
 
 ```sh
-docker compose down -v
-docker compose up
+finch compose down -v
+finch compose up
 ```
 
 ---
@@ -314,7 +353,7 @@ docker compose up
 ## Useful SQL Queries
 
 ```sh
-docker exec -it becca-db psql -U postgres -d becca
+finch compose exec db psql -U postgres -d becca
 ```
 
 ```sql

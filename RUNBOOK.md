@@ -8,6 +8,7 @@ Quick reference for diagnosing and fixing production issues during beta. When so
 | -------- | --------- | --------------- |
 | Frontend | Vercel | https://beccaccino-client.vercel.app / Vercel BECCA project |
 | Backend | Render | https://beccaccino-server.onrender.com / `becca-backend` logs |
+| AI | Render | https://becca-ai.onrender.com / BECCA AI service logs |
 | Database | Neon | https://console.neon.tech → BECCA project |
 | Errors | Sentry | https://sentry.io → backend + frontend projects |
 
@@ -17,7 +18,9 @@ Quick reference for diagnosing and fixing production issues during beta. When so
 2. Open Render → backend → Logs — search for `level:error` (or `"err"` in JSON logs).
 3. Open Vercel → frontend → Logs (or check Sentry replay if a session was captured).
 4. Check Neon → Monitoring — connection count, slow queries, CPU.
-5. Confirm the backend is alive: `curl https://<backend>/health` should return `{"status":"ok"}`.
+5. Confirm backend liveness with `/health`, then database readiness with
+   `/ready`. A healthy process with a failing `/ready` points to Neon or its
+   connection configuration.
 
 ## Logs — what to look for
 
@@ -31,7 +34,7 @@ Backend logs are structured JSON (pino). Useful queries inside Render's log sear
 | Card plays (the source of most bugs)  | `"card_played"`                                              |
 | Round/game outcomes                   | `"round_ended"` / `"game_finished"`                          |
 | Periodic ops metrics                  | `"ops_snapshot"` (active games, sockets, memory, every 60 s) |
-| Auto-play firing                      | `"auto_play_failed"` or `"turn_timer_recovered_after_restart"` |
+| Auto-play / runtime recovery          | `"auto_play_failed"` / `"turn_runtime_recovered"` / `"active_runtime_recovery_complete"` |
 | Recent restarts                       | `"server_started"` / `"shutdown_initiated"`                  |
 | Any unhandled error                   | `"uncaught_exception"` / `"unhandled_rejection"`             |
 
@@ -45,7 +48,7 @@ Every HTTP request gets a `req.id` (also returned in the `x-request-id` response
 
 User context is set on:
 - Login / register (`AuthDialog`)
-- `/users/me` checks on every page (Index, GameRoom, GameTable, Profile, Leaderboard)
+- Shared `/users/me` checks through `useAuth`
 - Cleared on logout
 
 If a Sentry event is missing `user`, the user wasn't logged in or the page hadn't checked auth yet.
@@ -57,7 +60,11 @@ If a Sentry event is missing `user`, the user wasn't logged in or the page hadn'
 1. Get the room code from the user.
 2. Render logs → search `"roomCode":"<CODE>"` for the last hour.
 3. Look for the last `card_played` event and the next expected turn (`turn_timer_started`).
-4. If the timer fired but `auto_play_failed` shows, that's a benign race (player clicked at the same time as the timeout). If neither fires, the server may have restarted — check `server_started` near that timestamp. The next state fetch will lazily restart the timer (`turn_timer_recovered_after_restart`).
+4. If the timer fired but `auto_play_failed` shows, the player may have clicked
+   at the same time as the timeout. If neither fires, check for
+   `server_started`, then `active_runtime_recovery_complete` and
+   `turn_runtime_recovered`. State reads are intentionally side-effect free and
+   do not repair missing runtime.
 
 ### "I can't log in"
 
@@ -93,9 +100,24 @@ with `--apply` writes scenario rows.
 ### Backend down / health check failing
 
 1. Render → backend → Events tab. Was there a deploy? Did the container OOM?
-2. `/health` endpoint probes the DB. If it's 503, the failure is at the Neon side.
+2. `/health` only checks process liveness. `/ready` probes the database and
+   returns 503 when Neon is unavailable.
 3. Neon → Monitoring → connections. If at the pooler limit, restart Render service or temporarily raise `DATABASE_URL` `connection_limit`.
 4. The Dockerfile runs `prisma migrate deploy` on startup. A migration failure crashes the container — check the very first log lines after a restart.
+
+### Deployment did not reach production
+
+1. Open the repository's GitHub Actions page and inspect `CI`, then
+   `Deploy production`.
+2. Missing deployment credentials fail the workflow. Configure
+   `RENDER_DEPLOY_HOOK_URL` for each Render repository and `VERCEL_TOKEN` for
+   the frontend repository. The frontend workflow resolves its Vercel project
+   and organization IDs.
+3. If CI passed but the deploy verification timed out, compare `/version`
+   (or frontend `/version.json`) with the expected GitHub commit.
+4. Keep Vercel and Render direct Git auto-deploy disabled so failed CI cannot
+   bypass these gates. The AI Blueprint declares this setting; the backend
+   Render service must be checked in the dashboard.
 
 ### Database connection exhaustion
 
@@ -118,7 +140,11 @@ Common gotcha: the release in `Sentry.init` must match the release passed to the
 
 ## Known caveats
 
-- **Turn timers are in-memory.** A server restart mid-game wipes them. The first `getGameState` fetch after restart restores the active timer, so auto-play resumes — but the player may need to refresh. Documented at `backend/src/controllers/gameController.ts` (lazy timer recovery block).
+- **Turn timers are in-memory.** A restart clears them, then startup recovery
+  scans persisted active games and restores one runtime turn per room before it
+  reports `active_runtime_recovery_complete`. Practice resume uses the same
+  explicit recovery path. `GET /games/:roomCode/state` never schedules timers
+  or bots. See `backend/src/runtime/recovery.ts`.
 - **Socket.IO sticky sessions.** If you scale Render to >1 instance you must enable a Redis adapter or sticky sessions. Currently single-instance.
 - **Leaderboard cache.** 60 s in-memory TTL. After a game finishes, the leaderboard may not update for up to a minute.
 

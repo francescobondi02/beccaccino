@@ -7,12 +7,12 @@ Real-time multiplayer Italian card game (Beccaccino) for 4 players in 2 teams. P
 ```
 backend/    Express 5 + Socket.IO + Prisma (Node 24, TypeScript)
 frontend/   React 18 + Vite + Tailwind + shadcn/ui (TypeScript)
-ai/         Python 3.11+ Gymnasium environment for RL self-play training
+ai/         Python 3.11+ training, evaluation, search, and bot inference
 ```
 
 Frontend ↔ Backend: REST API for game actions + WebSocket for real-time state sync.
 Database: PostgreSQL 15 via Prisma ORM.
-Repo: github.com/francescobondi02/beccaccino (monorepo, no workspaces).
+Repo: Git superproject with independent `backend`, `frontend`, and `ai` submodules.
 
 ## Game Rules (Beccaccino)
 
@@ -33,23 +33,23 @@ Repo: github.com/francescobondi02/beccaccino (monorepo, no workspaces).
 ## Running Locally
 
 ```bash
-docker compose up -d              # Postgres on :5432, Adminer on :8080, Backend on :8000
-cd frontend && npm install && npm run dev   # :8081
+finch compose up -d                       # Postgres :5432, Adminer :8080, backend :8000
+cd frontend && npm ci && npm run dev      # frontend :8081
 ```
 
 Alternatively, run backend outside Docker for hot-reload:
 ```bash
-docker compose up -d db adminer   # Postgres + Adminer only
-cd backend && npm install && npm run dev    # :8000 (auto-runs prisma generate + migrate)
+finch compose up -d db adminer             # Postgres + Adminer only
+cd backend && npm ci && npm run dev        # :8000 (generates Prisma + migrates)
 ```
 
 ## Testing
 
 ```bash
-cd backend && npm run test:unit         # Pure logic, no DB
-cd backend && npm run test:integration  # Needs docker postgres + becca_test DB
-cd frontend && npm test                 # Vitest unit tests
-cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs backend+frontend running)
+./scripts/pre-push.sh                    # backend, frontend, and Playwright
+cd ai && pytest && ruff check . && ruff format --check .
+python -m scripts.gen_bot_fixtures
+git diff --exit-code serving/fixtures/
 ```
 
 ## Key Conventions
@@ -60,12 +60,14 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 - Cookie config: `secure` in production, `sameSite: strict` (same-origin) or `none` (cross-origin deploy).
 - Turn timer: 60s for card play, 90s for briscola choice. Auto-play on timeout. Kick after 3 timeouts.
 - Points stored per round as real points + figures remainder in SEPARATE columns
-  (`Round.team0Points`/`team0Figures`, `schema.prisma:112-115`) — `computePoints` returns
+  (`Round.team0Points`/`team0Figures`) — `computePoints` returns
   `floor(raw/3)` plus `raw % 3`. To recover raw: `raw = points*3 + figures`. Summing only
   `*Points` silently drops each round's remainder.
-- Socket events are the source of truth for real-time state; REST is for mutations.
+- Persisted backend state is authoritative. REST owns mutations; Socket.IO
+  publishes committed changes and presence/chat events.
 - Tests: backend integration uses `becca_test` DB, loaded via `tests/loadTestEnv.ts` before Prisma imports.
-- Test auth bypass: `NODE_ENV=test` skips JWT, allows `x-test-user-id` header.
+- Test auth bypass requires `NODE_ENV=test`, `ALLOW_TEST_AUTH_BYPASS=true`, and
+  both `x-test-user-id` and `x-test-username` when no cookie is present.
 
 ## Environment Variables
 
@@ -83,6 +85,7 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 | backend | BRISCOLA_TIMEOUT_SECONDS | Briscola choice timeout (default 90) |
 | backend | SENTRY_DSN | Sentry error tracking DSN (optional, disables if unset) |
 | backend | BOT_SERVICE_URL | Python bot inference service (unset = bots disabled) |
+| backend | BOT_SERVICE_TOKEN | Shared bearer token for the bot service |
 | backend | BOT_THINK_DELAY_MS | Pause before a bot plays (default 1000) |
 | frontend | VITE_API_URL | Backend REST base URL (`/api`) |
 | frontend | VITE_SOCKET_URL | Backend WebSocket URL |
@@ -90,27 +93,27 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 
 ## Deployment
 
-Target stack: Render (backend Docker) + Neon (PostgreSQL, Frankfurt) + Vercel (frontend static).
-All auto-deploy from GitHub on push to main.
+Target stack: Render (backend and AI Docker) + Neon (PostgreSQL, Frankfurt) +
+Vercel (frontend static). Each submodule runs CI on `main`; only a successful
+push CI run triggers deployment of that exact commit.
 Backend Dockerfile runs `prisma migrate deploy` on startup (idempotent).
 Cross-origin deploy requires cookie `sameSite: 'none'` + `secure: true`.
 
 ## Module Boundaries
 
-- `backend/src/services/gameService.ts` — core game logic (start round, set briscola, play card, score)
-- `backend/src/services/cardService.ts` — playable cards logic (legal moves based on hand/trick state)
-- `backend/src/services/turnTimer.ts` — timeout/auto-play/kick logic + bot-turn dispatch
-- `backend/src/services/botService.ts` — bot identity (fixed pool of 3 users) + difficulty tiers
-- `backend/src/services/botState.ts` — serializes a game into the bot service's wire format
-- `backend/src/services/botClient.ts` — HTTP client for the Python `/act` endpoint
-- `backend/src/sockets/room.ts` — all Socket.IO event handlers (lobby + game)
-- `frontend/src/sockets/socketClient.ts` — singleton socket with reconnection (Infinity attempts)
-- `frontend/src/sockets/lobbyHandlers.ts` — lobby socket event handlers (room CRUD, player join/leave)
-- `frontend/src/sockets/roomHandlers.ts` — room socket event handlers (team choice, ready, game start)
-- `frontend/src/pages/GameTable.tsx` — main game UI (~1100 lines, manages full game state)
-- `frontend/src/pages/GameRoom.tsx` — pre-game room (team selection, ready state)
-- `frontend/src/pages/Leaderboard.tsx` — player rankings
-- `frontend/src/pages/Profile.tsx` — user profile page
-- `ai/becca_env/game.py` — pure Python game engine (mirrors backend rules exactly)
-- `ai/becca_env/observation.py` — state→tensor encoding for neural network input
-- `ai/CLAUDE.md` — detailed AI module docs (training, serving, evaluation, network architecture)
+- `backend/src/controllers/` adapts HTTP; `services/` coordinates operations;
+  `game/transitions/` owns atomic writes; `game/snapshots/` owns side-effect-free
+  reads; `domain/game/` owns pure rules; `runtime/` owns timers, bots, recovery,
+  timeout policy, and best-effort event publication.
+- `frontend/src/pages/` adapts routes and composes views; `hooks/` coordinates
+  REST and Socket.IO; `game/` and `rooms/` own pure reducers/selectors;
+  `components/` renders focused views; `lib/api.ts` is the REST boundary.
+- `ai/becca_env/` owns AI simulation rules and observations; `training/`,
+  `data/`, `evaluation/`, and `inference/` own reusable workflows;
+  `serving/` adapts backend state and serves validated bot moves.
+- The TypeScript backend remains authoritative for persisted online games and
+  accepted moves. Cross-language rule vectors, generated fixtures, and the
+  runtime legal-card check keep the AI implementation compatible.
+
+See each submodule's `CLAUDE.md` and development or architecture guide for the
+complete ownership map.
