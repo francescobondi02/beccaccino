@@ -2,16 +2,18 @@ import { Router } from "express";
 import {
   createRoom,
   createPracticeRoom,
-  getAvailableRooms,
   joinRoom,
   setPlayerReady,
-  getRoomByCode,
   leaveRoom,
-  getExitedRooms,
   pausePracticeRoom,
   resumePracticeRoom,
-} from "../controllers/roomController";
-import { chooseTeam } from "../controllers/chooseTeam";
+  chooseTeam,
+} from "../controllers/roomMutationController";
+import {
+  getAvailableRooms,
+  getRoomByCode,
+  getExitedRooms,
+} from "../controllers/roomQueryController";
 import { authenticateToken } from "../middleware/auth";
 import { generalRateLimiter } from "../middleware/rateLimiter";
 

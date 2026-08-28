@@ -1,5 +1,6 @@
 import { prisma } from "../db";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
+import { forbidden, notFound } from "../http/errors";
 import { GameError } from "../utils/gameError";
 
 export class ActiveGameConflict extends GameError {
@@ -69,6 +70,15 @@ export function findRoomByCode(roomCode: string) {
       players: { select: PUBLIC_PLAYER_SELECT },
     },
   });
+}
+
+export async function getRoomForUser(roomCode: string, userId: number) {
+  const room = await findRoomByCode(roomCode);
+  if (!room) throw notFound("Room not found");
+  if (!room.players.some((player) => player.userId === userId)) {
+    throw forbidden("You are not a player in this room");
+  }
+  return room;
 }
 
 export async function listExitedRooms(userId: number) {
