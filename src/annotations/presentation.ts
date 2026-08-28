@@ -1,9 +1,11 @@
 import type {
   AnnotationCard,
   AnnotationPlayCardAction,
+  AnnotationPlayCardScenario,
   AnnotationSeat,
   AnnotationSignal,
 } from "@/annotations/model";
+import type { HistoryTrick } from "@/components/TrickHistoryDialog";
 
 export type RelativePosition = "bottom" | "left" | "top" | "right";
 export type SignalChoice = AnnotationSignal | undefined;
@@ -50,4 +52,37 @@ export function actionMatchesCard(
 export function formatSignal(signal: AnnotationSignal): string {
   if (!signal) return "Nessun segnale";
   return signal.charAt(0).toUpperCase() + signal.slice(1);
+}
+
+export function historyFor(
+  scenario: AnnotationPlayCardScenario,
+): HistoryTrick[] {
+  const completed = scenario.completedTricks.map((trick) => ({
+    number: trick.number,
+    winnerLabel: seatLabel(trick.winnerSeat, scenario.actingSeat),
+    plays: trick.plays.map((play) => ({
+      label: seatLabel(play.seat, scenario.actingSeat),
+      suit: play.suit,
+      value: play.value,
+      signal: play.position === 0 && trick.signal ? trick.signal : null,
+    })),
+  }));
+  if (scenario.currentTrick.plays.length === 0) return completed;
+
+  return [
+    ...completed,
+    {
+      number: scenario.currentTrick.number,
+      current: true,
+      plays: scenario.currentTrick.plays.map((play) => ({
+        label: seatLabel(play.seat, scenario.actingSeat),
+        suit: play.suit,
+        value: play.value,
+        signal:
+          play.position === 0 && scenario.currentTrick.signal
+            ? scenario.currentTrick.signal
+            : null,
+      })),
+    },
+  ];
 }

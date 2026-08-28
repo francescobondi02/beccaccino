@@ -13,7 +13,6 @@ import {
   type RelativePosition,
 } from "@/annotations/presentation";
 import PlayingCard from "@/components/PlayingCard";
-import type { HistoryTrick } from "@/components/TrickHistoryDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -116,37 +115,4 @@ export default function ScenarioTrick({
       </CardContent>
     </Card>
   );
-}
-
-export function historyFor(
-  scenario: AnnotationPlayCardScenario,
-): HistoryTrick[] {
-  const completed = scenario.completedTricks.map((trick) => ({
-    number: trick.number,
-    winnerLabel: seatLabel(trick.winnerSeat, scenario.actingSeat),
-    plays: trick.plays.map((play) => ({
-      label: seatLabel(play.seat, scenario.actingSeat),
-      suit: play.suit,
-      value: play.value,
-      signal: play.position === 0 && trick.signal ? trick.signal : null,
-    })),
-  }));
-  if (scenario.currentTrick.plays.length === 0) return completed;
-
-  return [
-    ...completed,
-    {
-      number: scenario.currentTrick.number,
-      current: true,
-      plays: scenario.currentTrick.plays.map((play) => ({
-        label: seatLabel(play.seat, scenario.actingSeat),
-        suit: play.suit,
-        value: play.value,
-        signal:
-          play.position === 0 && scenario.currentTrick.signal
-            ? scenario.currentTrick.signal
-            : null,
-      })),
-    },
-  ];
 }

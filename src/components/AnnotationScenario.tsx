@@ -8,6 +8,7 @@ import type {
 } from "@/annotations/model";
 import {
   actionMatchesCard,
+  historyFor,
   type SignalChoice,
 } from "@/annotations/presentation";
 import {
@@ -16,9 +17,7 @@ import {
 } from "@/components/annotation/ResponseDialogs";
 import ScenarioDecision from "@/components/annotation/ScenarioDecision";
 import ScenarioSummary from "@/components/annotation/ScenarioSummary";
-import ScenarioTrick, {
-  historyFor,
-} from "@/components/annotation/ScenarioTrick";
+import ScenarioTrick from "@/components/annotation/ScenarioTrick";
 import TrickHistoryDialog from "@/components/TrickHistoryDialog";
 
 interface AnnotationScenarioProps {

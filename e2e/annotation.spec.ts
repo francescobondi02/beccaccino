@@ -50,6 +50,33 @@ async function verifyVisualState(
   });
 }
 
+async function selectFirstLegalAction(
+  page: Page,
+): Promise<"play_card" | "choose_briscola"> {
+  await expect(
+    page.getByRole("button", { name: "Conferma scelta" }),
+  ).toBeVisible();
+
+  const legalCard = page
+    .locator('button[aria-label^="Seleziona"]:not([disabled])')
+    .first();
+  if ((await legalCard.count()) > 0) {
+    await legalCard.click();
+    const signalChoice = page.getByTestId("annotation-signal-choice");
+    if (await signalChoice.isVisible()) {
+      await signalChoice.locator("button:not([disabled])").first().click();
+    }
+    return "play_card";
+  }
+
+  const legalBriscola = page.locator(
+    'button[role="radio"]:not([disabled])',
+  ).first();
+  await expect(legalBriscola).toBeVisible();
+  await legalBriscola.click();
+  return "choose_briscola";
+}
+
 test("invited expert submits account-linked scenario decisions", async ({
   createBot,
 }, testInfo) => {
@@ -67,17 +94,7 @@ test("invited expert submits account-linked scenario decisions", async ({
   await expert.page.getByRole("button", { name: "Continua" }).click();
 
   await expect(expert.page.getByText("0 risposte inviate")).toBeVisible();
-  const legalCard = expert.page
-    .locator('button[aria-label^="Seleziona"]:not([disabled])')
-    .first();
-  await legalCard.click();
-  if (
-    await expert.page
-      .getByTestId("annotation-signal-choice")
-      .isVisible()
-  ) {
-    await expert.page.getByRole("button", { name: "Niente" }).click();
-  }
+  const selectedDecisionType = await selectFirstLegalAction(expert.page);
 
   await verifyVisualState(expert.page, testInfo, "desktop");
   await expert.page.setViewportSize({ width: 390, height: 844 });
@@ -98,7 +115,7 @@ test("invited expert submits account-linked scenario decisions", async ({
   expect(savedResponse.request().postDataJSON()).toEqual(
     expect.objectContaining({
       selectedAction: expect.objectContaining({
-        decisionType: "play_card",
+        decisionType: selectedDecisionType,
       }),
       skipped: false,
     }),
