@@ -32,6 +32,37 @@ docker compose up -d
 
 ## Running Tests
 
+### Pre-push Gate
+
+Before pushing either submodule to `develop`, run the complete cross-repository
+gate from the project root:
+
+```sh
+./scripts/pre-push.sh
+```
+
+The gate starts only the Finch PostgreSQL service, creates a temporary database
+for migration replay plus a temporary test schema inside the guarded local
+`becca_test` database, and then runs:
+
+- backend migration parity, typecheck, build, unit tests, and integration tests
+- frontend typecheck, lint, build-metadata tests, coverage, and production build
+- the complete Playwright suite against dedicated backend, frontend, and
+  deterministic bot-stub ports
+
+It never reuses servers on ports `8000` or `8081`. Logs, the Playwright HTML
+report, traces, and screenshots are retained under `test-artifacts/pre-push/`;
+temporary services and schemas are removed on success, failure, or Ctrl-C.
+
+For manual verification after all automated checks pass:
+
+```sh
+./scripts/pre-push.sh --keep-open
+```
+
+Open `http://localhost:18081`. The verified stack remains available until
+Ctrl-C, then performs the same cleanup.
+
 ### Backend Tests
 
 Tests are split into two Jest projects: **unit** (no DB) and **integration** (real DB).
@@ -108,6 +139,7 @@ npm run test:e2e:ui           # Playwright interactive UI mode
 - **lobby-to-game.spec.ts** — 4 players register, create room, join, choose teams, ready up, game starts, verify 10 cards dealt
 - **first-trick.spec.ts** — Briscola selection → 4 players complete the first trick in correct turn order
 - **annotation.spec.ts** — Account login → expert access → answer and skip submissions with difficulty ratings
+- **practice-pause-resume.spec.ts** — Practice pause → home listing → resume → direct paused-room overlay → confirmed abandon on desktop and mobile
 
 #### Debugging failures
 

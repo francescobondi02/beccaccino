@@ -8,6 +8,7 @@ Quick reference for diagnosing and fixing production issues during beta. When so
 | -------- | --------- | --------------- |
 | Frontend | Vercel | https://beccaccino-client.vercel.app / Vercel BECCA project |
 | Backend | Render | https://beccaccino-server.onrender.com / `becca-backend` logs |
+| AI | Render | https://becca-ai.onrender.com / BECCA AI service logs |
 | Database | Neon | https://console.neon.tech → BECCA project |
 | Errors | Sentry | https://sentry.io → backend + frontend projects |
 
@@ -17,7 +18,9 @@ Quick reference for diagnosing and fixing production issues during beta. When so
 2. Open Render → backend → Logs — search for `level:error` (or `"err"` in JSON logs).
 3. Open Vercel → frontend → Logs (or check Sentry replay if a session was captured).
 4. Check Neon → Monitoring — connection count, slow queries, CPU.
-5. Confirm the backend is alive: `curl https://<backend>/health` should return `{"status":"ok"}`.
+5. Confirm backend liveness with `/health`, then database readiness with
+   `/ready`. A healthy process with a failing `/ready` points to Neon or its
+   connection configuration.
 
 ## Logs — what to look for
 
@@ -93,9 +96,23 @@ with `--apply` writes scenario rows.
 ### Backend down / health check failing
 
 1. Render → backend → Events tab. Was there a deploy? Did the container OOM?
-2. `/health` endpoint probes the DB. If it's 503, the failure is at the Neon side.
+2. `/health` only checks process liveness. `/ready` probes the database and
+   returns 503 when Neon is unavailable.
 3. Neon → Monitoring → connections. If at the pooler limit, restart Render service or temporarily raise `DATABASE_URL` `connection_limit`.
 4. The Dockerfile runs `prisma migrate deploy` on startup. A migration failure crashes the container — check the very first log lines after a restart.
+
+### Deployment did not reach production
+
+1. Open the repository's GitHub Actions page and inspect `CI`, then
+   `Deploy production`.
+2. Missing deployment credentials fail the workflow. Configure
+   `RENDER_DEPLOY_HOOK_URL` for each Render repository and `VERCEL_TOKEN`,
+   `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` for the frontend repository.
+3. If CI passed but the deploy verification timed out, compare `/version`
+   (or frontend `/version.json`) with the expected GitHub commit.
+4. Keep Vercel and Render direct Git auto-deploy disabled so failed CI cannot
+   bypass these gates. The AI Blueprint declares this setting; the backend
+   Render service must be checked in the dashboard.
 
 ### Database connection exhaustion
 
