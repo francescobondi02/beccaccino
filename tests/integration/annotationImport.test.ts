@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { prisma } from "../../src/db";
-import { annotationStateHash } from "../../src/annotations/scenario";
+import { annotationStateHash } from "../../src/annotations/state";
 import { importAnnotationBatch } from "../../src/scripts/importAnnotationScenarios";
 import {
   annotationScenarioCreateData,

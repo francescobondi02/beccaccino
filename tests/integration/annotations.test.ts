@@ -2,7 +2,7 @@ import { Prisma, Suit, Value } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import request from "supertest";
 import { prisma } from "../../src/db";
-import { annotationStateHash } from "../../src/annotations/scenario";
+import { annotationStateHash } from "../../src/annotations/state";
 import { CARD_SIGNALS } from "../../src/domain/game/cards";
 import { generateToken } from "../../src/utils/jwt";
 import {

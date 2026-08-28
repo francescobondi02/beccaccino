@@ -5,13 +5,9 @@ import {
   isAnnotationImportance,
   isAnnotationTag,
 } from "../annotations/constants";
-import { isCardSignal } from "../domain/game/cards";
-import {
-  AnnotationPlayCardAction,
-  AnnotationSelectedAction,
-  isAnnotationActionLegal,
-  parseAnnotationScenario,
-} from "../annotations/scenario";
+import { isAnnotationActionLegal } from "../annotations/action";
+import { parseAnnotationScenario } from "../annotations/state";
+import { annotationColumnsToAction } from "../annotations/responseCodec";
 
 type ExportableAnnotation = Pick<
   ExpertAnnotation,
@@ -52,62 +48,6 @@ function pseudonymFor(userId: number, salt: string): string {
     .digest("hex");
 }
 
-function selectedActionFor(
-  annotation: ExportableAnnotation,
-  decisionType: string,
-): AnnotationSelectedAction | null {
-  const {
-    selectedSuit,
-    selectedValue,
-    selectedSignal,
-    selectedBriscola,
-  } = annotation;
-  if (annotation.skipped) {
-    if (
-      selectedSuit !== null ||
-      selectedValue !== null ||
-      selectedSignal !== null ||
-      selectedBriscola !== null
-    ) {
-      throw new Error("skipped annotation selects an action");
-    }
-    return null;
-  }
-  if (decisionType === "choose_briscola") {
-    if (
-      selectedBriscola === null ||
-      selectedSuit !== null ||
-      selectedValue !== null ||
-      selectedSignal !== null
-    ) {
-      throw new Error(
-        "briscola annotation contains mismatched selected action columns",
-      );
-    }
-    return {
-      decisionType: "choose_briscola",
-      suit: selectedBriscola,
-    };
-  }
-  if (
-    decisionType !== "play_card" ||
-    selectedSuit === null ||
-    selectedValue === null ||
-    selectedBriscola !== null
-  ) {
-    throw new Error("card annotation contains mismatched selected action columns");
-  }
-  if (selectedSignal !== null && !isCardSignal(selectedSignal)) {
-    throw new Error("annotation contains an invalid selected signal");
-  }
-  return {
-    decisionType: "play_card",
-    suit: selectedSuit,
-    value: selectedValue,
-    signal: selectedSignal as AnnotationPlayCardAction["signal"],
-  };
-}
-
 export function annotationExportRecord(
   annotation: ExportableAnnotation,
   salt: string,
@@ -129,10 +69,16 @@ export function annotationExportRecord(
     annotation.scenario.state,
     annotation.scenario.stateHash,
   );
-  const selectedAction = selectedActionFor(
-    annotation,
-    parsedScenario.decisionType,
-  );
+  const selectedAction = annotationColumnsToAction({
+    decisionType: parsedScenario.decisionType,
+    skipped: annotation.skipped,
+    columns: {
+      selectedSuit: annotation.selectedSuit,
+      selectedValue: annotation.selectedValue,
+      selectedSignal: annotation.selectedSignal,
+      selectedBriscola: annotation.selectedBriscola,
+    },
+  });
   if (
     selectedAction &&
     !isAnnotationActionLegal(parsedScenario, selectedAction)

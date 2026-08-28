@@ -3,10 +3,13 @@ import { Request, Response } from "express";
 import { prisma } from "../db";
 import {
   AnnotationSelectedAction,
+} from "../annotations/contracts";
+import {
   isAnnotationActionLegal,
-  parseAnnotationScenario,
   parseAnnotationSelectedAction,
-} from "../annotations/scenario";
+} from "../annotations/action";
+import { parseAnnotationScenario } from "../annotations/state";
+import { actionToAnnotationColumns } from "../annotations/responseCodec";
 import { isAnnotationDifficulty } from "../annotations/constants";
 import { selectNextAnnotationScenario } from "../annotations/selection";
 import {
@@ -203,12 +206,7 @@ export const upsertAnnotationResponse = async (
 
   const data = {
     scenarioHash: scenario.stateHash,
-    selectedSuit: action?.decisionType === "play_card" ? action.suit : null,
-    selectedValue: action?.decisionType === "play_card" ? action.value : null,
-    selectedSignal:
-      action?.decisionType === "play_card" ? action.signal : null,
-    selectedBriscola:
-      action?.decisionType === "choose_briscola" ? action.suit : null,
+    ...actionToAnnotationColumns(action),
     skipped,
     comment: commentResult.comment,
     perceivedDifficulty,

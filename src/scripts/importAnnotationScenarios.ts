@@ -1,10 +1,8 @@
 import { createHash } from "crypto";
 import { readFile } from "fs/promises";
 import { Prisma, PrismaClient } from "@prisma/client";
-import {
-  canonicalJson,
-  parseAnnotationScenarioBatch,
-} from "../annotations/scenario";
+import { parseAnnotationScenarioBatch } from "../annotations/batch";
+import { canonicalJson } from "../annotations/state";
 
 interface AnnotationBatchManifest {
   batchId: string;

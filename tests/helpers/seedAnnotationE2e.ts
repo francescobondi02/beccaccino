@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import { Prisma, PrismaClient } from "@prisma/client";
-import { annotationStateHash } from "../../src/annotations/scenario";
+import { annotationStateHash } from "../../src/annotations/state";
 import {
   annotationScenarioCreateData,
   annotationScenarioState,

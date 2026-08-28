@@ -1,10 +1,12 @@
 import {
-  annotationStateHash,
   isAnnotationActionLegal,
-  parseAnnotationScenario,
-  parseAnnotationScenarioBatch,
   parseAnnotationSelectedAction,
-} from "../../src/annotations/scenario";
+} from "../../src/annotations/action";
+import { parseAnnotationScenarioBatch } from "../../src/annotations/batch";
+import {
+  annotationStateHash,
+  parseAnnotationScenario,
+} from "../../src/annotations/state";
 import {
   annotationScenarioInput,
   annotationScenarioState,
