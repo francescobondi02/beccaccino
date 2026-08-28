@@ -1,7 +1,7 @@
 // src/controllers/chooseTeam.ts
 
 import { Request, Response } from "express";
-import { chooseTeamCommand } from "../services/roomCommands";
+import { chooseTeamCommand } from "../services/multiplayerRoomCommands";
 import { parseRoomCode, parseTeam } from "../http/input/rooms";
 import { requireUser } from "../http/request";
 import { publishEvent } from "../runtime/eventPublisher";

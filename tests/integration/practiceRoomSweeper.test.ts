@@ -2,6 +2,10 @@ import { prisma } from "../../src/db";
 import { sweepPracticeRooms } from "../../src/services/practiceRoomSweeper";
 import { withRoomLock } from "../../src/utils/roomLock";
 import { clearDatabase } from "../helpers/gameHelpers";
+import {
+  getTurnTimerState,
+  scheduleTurnTimer,
+} from "../../src/runtime/turnTimer";
 
 const NOW = new Date("2026-08-25T12:00:00.000Z");
 const HOUR_MS = 60 * 60 * 1000;
@@ -90,6 +94,15 @@ describe("practice room sweeper", () => {
         position: 0,
       },
     });
+    scheduleTurnTimer({
+      roomCode: room.code,
+      userId: users[0].id,
+      phase: "play_card",
+      pauseEpoch: 0,
+      durationMs: 100_000,
+      isBot: false,
+      onElapsed: jest.fn(),
+    });
 
     await expect(sweepPracticeRooms(NOW)).resolves.toBe(1);
 
@@ -103,6 +116,7 @@ describe("practice room sweeper", () => {
     expect(
       await prisma.playedCard.findUnique({ where: { id: playedCard.id } }),
     ).toBeNull();
+    expect(getTurnTimerState(room.code)).toBeNull();
 
     const botIds = users.filter((user) => user.isBot).map((user) => user.id);
     expect(

@@ -1,28 +1,12 @@
 import { prisma } from "../db";
 import { logger } from "../logger";
-import { withRoomLock } from "../utils/roomLock";
-import { deleteRoomAndPlay } from "./roomCommands";
-import { clearRuntimeRoom } from "../runtime/turnRuntime";
+import { retirePracticeRoom } from "./practiceRoomCommands";
 
 const PRACTICE_ROOM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
 let interval: NodeJS.Timeout | null = null;
 let activeSweep: Promise<number> | null = null;
-
-function isEligibleForDeletion(
-  room: {
-    isPractice: boolean;
-    finished: boolean;
-    lastActivityAt: Date;
-  },
-  staleBefore: Date,
-): boolean {
-  return (
-    room.isPractice &&
-    (room.finished || room.lastActivityAt.getTime() <= staleBefore.getTime())
-  );
-}
 
 async function runPracticeRoomSweep(now: Date): Promise<number> {
   const staleBefore = new Date(now.getTime() - PRACTICE_ROOM_MAX_AGE_MS);
@@ -41,23 +25,11 @@ async function runPracticeRoomSweep(now: Date): Promise<number> {
 
   for (const candidate of candidates) {
     try {
-      await withRoomLock(candidate.code, async () => {
-        const room = await prisma.gameRoom.findUnique({
-          where: { code: candidate.code },
-          select: {
-            id: true,
-            code: true,
-            isPractice: true,
-            finished: true,
-            lastActivityAt: true,
-          },
-        });
-        if (!room || !isEligibleForDeletion(room, staleBefore)) return;
-
-        clearRuntimeRoom(room.code);
-        await deleteRoomAndPlay(room.id);
-        deletedRooms += 1;
+      const retired = await retirePracticeRoom({
+        roomCode: candidate.code,
+        reason: { kind: "stale", staleBefore },
       });
+      if (retired) deletedRooms += 1;
     } catch (error) {
       logger.error(
         {

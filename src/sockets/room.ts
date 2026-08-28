@@ -12,7 +12,7 @@ import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 import {
   chooseTeamCommand,
   setReadyCommand,
-} from "../services/roomCommands";
+} from "../services/multiplayerRoomCommands";
 import { GameError } from "../utils/gameError";
 import { sanitizeChatMessage } from "../utils/sanitizeChatMessage";
 

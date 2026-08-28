@@ -1,8 +1,12 @@
 import { Suit, Value } from "@prisma/client";
 import { prisma } from "../../src/db";
-import { deleteRoomAndPlay } from "../../src/services/roomCommands";
+import { retirePracticeRoom } from "../../src/services/practiceRoomCommands";
 import { practiceExportRecord } from "../../src/scripts/exportPracticeMatches";
-import { clearDatabase } from "../helpers/gameHelpers";
+import {
+  getTurnTimerState,
+  scheduleTurnTimer,
+} from "../../src/runtime/turnTimer";
+import { apiAs, clearDatabase } from "../helpers/gameHelpers";
 
 const SUITS: Suit[] = ["denara", "coppe", "spade", "bastoni"];
 const VALUES: Value[] = [
@@ -20,6 +24,15 @@ const VALUES: Value[] = [
 
 beforeEach(async () => {
   await clearDatabase();
+});
+
+afterEach(async () => {
+  await prisma.$executeRawUnsafe(
+    'DROP TRIGGER IF EXISTS practice_fail_archive_insert ON "PracticeMatch"',
+  );
+  await prisma.$executeRawUnsafe(
+    "DROP FUNCTION IF EXISTS practice_fail_archive_insert()",
+  );
 });
 
 /**
@@ -98,14 +111,22 @@ async function seedFinishedGame(
     ),
   });
 
-  return { roomId: room.id };
+  return {
+    roomId: room.id,
+    roomCode: room.code,
+    humanUserId: users[0].id,
+    humanUsername: users[0].username,
+  };
 }
 
 describe("practice game archiving", () => {
   it("keeps a snapshot when the game rows are deleted", async () => {
-    const { roomId } = await seedFinishedGame("ARC001", true);
+    const { roomId, roomCode } = await seedFinishedGame("ARC001", true);
 
-    await deleteRoomAndPlay(roomId);
+    await retirePracticeRoom({
+      roomCode,
+      reason: { kind: "failed_creation", gameRoomId: roomId },
+    });
 
     const matches = await prisma.practiceMatch.findMany();
     expect(matches).toHaveLength(1);
@@ -144,19 +165,75 @@ describe("practice game archiving", () => {
   });
 
   it("does not archive a game without genuine human choices", async () => {
-    const { roomId } = await seedFinishedGame("ARC003", true, true);
+    const { roomId, roomCode } = await seedFinishedGame(
+      "ARC003",
+      true,
+      true,
+    );
 
-    await deleteRoomAndPlay(roomId);
+    await retirePracticeRoom({
+      roomCode,
+      reason: { kind: "failed_creation", gameRoomId: roomId },
+    });
 
     expect(await prisma.practiceMatch.count()).toBe(0);
     expect(await prisma.gameRoom.count()).toBe(0);
   });
 
   it("does not archive multiplayer games", async () => {
-    const { roomId } = await seedFinishedGame("ARC002", false);
+    const { roomId, roomCode } = await seedFinishedGame("ARC002", false);
 
-    await deleteRoomAndPlay(roomId);
+    await expect(
+      retirePracticeRoom({
+        roomCode,
+        reason: { kind: "failed_creation", gameRoomId: roomId },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
 
     expect(await prisma.practiceMatch.count()).toBe(0);
+    expect(await prisma.gameRoom.count()).toBe(1);
+  });
+
+  it("keeps the room and runtime when archival fails during leave", async () => {
+    const { roomCode, humanUserId, humanUsername } =
+      await seedFinishedGame("ARC004", true);
+    scheduleTurnTimer({
+      roomCode,
+      userId: humanUserId,
+      phase: "play_card",
+      pauseEpoch: 0,
+      durationMs: 100_000,
+      isBot: false,
+      onElapsed: jest.fn(),
+    });
+    const timerBefore = getTurnTimerState(roomCode)!;
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION practice_fail_archive_insert() RETURNS trigger AS $$
+      BEGIN
+        RAISE EXCEPTION 'injected practice archival failure';
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER practice_fail_archive_insert
+      BEFORE INSERT ON "PracticeMatch"
+      FOR EACH ROW EXECUTE FUNCTION practice_fail_archive_insert()
+    `);
+
+    const response = await apiAs(humanUserId, humanUsername)
+      .post(`/api/rooms/${roomCode}/leave`)
+      .send({});
+
+    expect(response.statusCode).toBe(500);
+    expect(response.body).toEqual({ error: "Internal server error" });
+    expect(
+      await prisma.gameRoom.findUnique({ where: { code: roomCode } }),
+    ).not.toBeNull();
+    expect(await prisma.practiceMatch.count()).toBe(0);
+    expect(getTurnTimerState(roomCode)).toMatchObject({
+      turnUserId: timerBefore.turnUserId,
+      phase: timerBefore.phase,
+      totalMs: timerBefore.totalMs,
+    });
   });
 });

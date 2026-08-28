@@ -1,5 +1,4 @@
 import { Request, Response } from "express";
-import { prisma } from "../db";
 import { forbidden, notFound } from "../http/errors";
 import {
   parseJoinRoom,
@@ -11,16 +10,22 @@ import { requireUser } from "../http/request";
 import { logger } from "../logger";
 import { publishEvent, runBestEffort } from "../runtime/eventPublisher";
 import { recoverRoomRuntime } from "../runtime/recovery";
-import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 import {
-  createPracticeRoomCommand,
   createRoomCommand,
   joinRoomCommand,
-  leaveRoomCommand,
+  setReadyCommand,
+} from "../services/multiplayerRoomCommands";
+import {
+  createPracticeRoomCommand,
   pausePracticeRoomCommand,
   resumePracticeRoomCommand,
-  setReadyCommand,
-} from "../services/roomCommands";
+} from "../services/practiceRoomCommands";
+import { leaveRoomCommand } from "../services/roomLifecycle";
+import {
+  findRoomByCode,
+  listExitedRooms,
+  listRoomsForLobby,
+} from "../services/roomQueries";
 
 export const createRoom = async (req: Request, res: Response) => {
   const { userId } = requireUser(req);
@@ -53,44 +58,13 @@ export const createPracticeRoom = async (req: Request, res: Response) => {
 
 export const getAvailableRooms = async (req: Request, res: Response) => {
   const { userId } = requireUser(req);
-  const availableRoomsRaw = await prisma.gameRoom.findMany({
-    where: {
-      started: false,
-      finished: false,
-      isPractice: false,
-      players: { some: {} },
-      NOT: { players: { some: { userId } } },
-    },
-    include: {
-      players: { select: PUBLIC_PLAYER_SELECT },
-    },
-  });
-  const availableRooms = availableRoomsRaw.filter(
-    (room) => room.players.length < 4,
-  );
-  const activeGames = await prisma.gameRoom.findMany({
-    where: {
-      started: true,
-      finished: false,
-      players: { some: { userId } },
-    },
-    include: {
-      players: { select: PUBLIC_PLAYER_SELECT },
-    },
-  });
-
-  return res.status(200).json({ availableRooms, activeGames });
+  return res.status(200).json(await listRoomsForLobby(userId));
 };
 
 export const getRoomByCode = async (req: Request, res: Response) => {
   const roomCode = parseRoomCode(req.params.roomCode);
   const { userId } = requireUser(req);
-  const room = await prisma.gameRoom.findUnique({
-    where: { code: roomCode },
-    include: {
-      players: { select: PUBLIC_PLAYER_SELECT },
-    },
-  });
+  const room = await findRoomByCode(roomCode);
 
   if (!room) throw notFound("Room not found");
   if (!room.players.some((player) => player.userId === userId)) {
@@ -203,19 +177,5 @@ export const resumePracticeRoom = async (req: Request, res: Response) => {
 
 export const getExitedRooms = async (req: Request, res: Response) => {
   const { userId } = requireUser(req);
-  const rooms = await prisma.gameRoom.findMany({
-    where: {
-      players: { some: { userId } },
-      finished: false,
-    },
-    include: { players: true },
-  });
-  const formatted = rooms.map((room) => ({
-    id: room.id,
-    code: room.code,
-    currentPlayers: room.players.length,
-    maxPlayers: 4,
-  }));
-
-  return res.status(200).json(formatted);
+  return res.status(200).json(await listExitedRooms(userId));
 };
