@@ -1,13 +1,11 @@
 import { Response } from "express";
 import { generateToken } from "../utils/jwt";
+import { frontendOrigin } from "./frontendOrigin";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isCrossOrigin =
   isProduction &&
-  process.env.FRONTEND_URL &&
-  !process.env.FRONTEND_URL.includes(
-    process.env.RENDER_EXTERNAL_HOSTNAME || "",
-  );
+  !frontendOrigin().includes(process.env.RENDER_EXTERNAL_HOSTNAME || "");
 
 const COOKIE_OPTIONS = {
   httpOnly: true,

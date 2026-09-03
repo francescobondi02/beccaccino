@@ -6,6 +6,7 @@ import "./instrument";
 import { prisma } from "./db";
 import { logger } from "./logger";
 import { createServer } from "./server";
+import { hasProductionFrontendOrigin } from "./http/frontendOrigin";
 import { startMetrics, stopMetrics } from "./services/metrics";
 import {
   startPracticeRoomSweeper,
@@ -25,8 +26,13 @@ for (const key of REQUIRED_ENV) {
   }
 }
 
-if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
-  logger.fatal("FRONTEND_URL is required in production");
+if (
+  process.env.NODE_ENV === "production" &&
+  !hasProductionFrontendOrigin()
+) {
+  logger.fatal(
+    "FRONTEND_URL or RENDER_EXTERNAL_HOSTNAME is required in production",
+  );
   process.exit(1);
 }
 
