@@ -15,7 +15,6 @@ import annotationRouter from "./routes/annotations";
 import { logger } from "./logger";
 import { prisma } from "./db";
 import { errorHandler } from "./http/errorHandler";
-import { frontendOrigin } from "./http/frontendOrigin";
 import { isRuntimeRecoveryReady } from "./runtime/recovery";
 
 dotenv.config();
@@ -51,7 +50,7 @@ app.use(
 // CORS configuration per permettere cookies
 app.use(
   cors({
-    origin: frontendOrigin(),
+    origin: process.env.NODE_ENV === "production" ? process.env.FRONTEND_URL : "http://localhost:8081",
     credentials: true,
   }),
 );
