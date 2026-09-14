@@ -3,22 +3,28 @@ import { Request, Response } from "express";
 import { prisma } from "../db";
 import {
   AnnotationSelectedAction,
+} from "../annotations/contracts";
+import {
   isAnnotationActionLegal,
-  parseAnnotationScenario,
   parseAnnotationSelectedAction,
-} from "../annotations/scenario";
+} from "../annotations/action";
+import { parseAnnotationScenario } from "../annotations/state";
+import { actionToAnnotationColumns } from "../annotations/responseCodec";
 import { isAnnotationDifficulty } from "../annotations/constants";
 import { selectNextAnnotationScenario } from "../annotations/selection";
+import {
+  badRequest,
+  conflict,
+  serviceUnavailable,
+  unauthorized,
+} from "../http/errors";
+import { requireUser } from "../http/request";
 
 const COMMENT_MAX_LENGTH = 500;
 const RESPONSE_TIME_MAX_MS = 24 * 60 * 60 * 1000;
 
-function requireUserId(req: Request, res: Response): number | null {
-  if (!req.user) {
-    res.status(401).json({ error: "Authentication required" });
-    return null;
-  }
-  return req.user.userId;
+function requireUserId(req: Request): number {
+  return requireUser(req).userId;
 }
 
 function accessCodeMatches(value: unknown): boolean {
@@ -34,14 +40,13 @@ async function contributionCount(userId: number): Promise<number> {
 }
 
 export const getAnnotationStatus = async (req: Request, res: Response) => {
-  const userId = requireUserId(req, res);
-  if (userId === null) return;
+  const userId = requireUserId(req);
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { deletedAt: true, expertAccessGrantedAt: true },
   });
   if (!user || user.deletedAt) {
-    return res.status(401).json({ error: "Authentication required" });
+    throw unauthorized();
   }
   return res.status(200).json({
     accessGranted: user.expertAccessGrantedAt !== null,
@@ -50,13 +55,12 @@ export const getAnnotationStatus = async (req: Request, res: Response) => {
 };
 
 export const grantAnnotationAccess = async (req: Request, res: Response) => {
-  const userId = requireUserId(req, res);
-  if (userId === null) return;
+  const userId = requireUserId(req);
   if (!process.env.ANNOTATION_ACCESS_CODE) {
-    return res.status(503).json({ error: "Annotation access is not configured" });
+    throw serviceUnavailable("Annotation access is not configured");
   }
   if (!accessCodeMatches(req.body?.code)) {
-    return res.status(400).json({ error: "Invalid annotation access code" });
+    throw badRequest("Invalid annotation access code");
   }
 
   const result = await prisma.user.updateMany({
@@ -73,7 +77,7 @@ export const grantAnnotationAccess = async (req: Request, res: Response) => {
       select: { deletedAt: true, expertAccessGrantedAt: true },
     });
     if (!existing || existing.deletedAt) {
-      return res.status(401).json({ error: "Authentication required" });
+      throw unauthorized();
     }
   }
   return res.status(200).json({
@@ -105,8 +109,7 @@ function validatedComment(value: unknown):
 }
 
 export const getNextAnnotation = async (req: Request, res: Response) => {
-  const userId = requireUserId(req, res);
-  if (userId === null) return;
+  const userId = requireUserId(req);
   const selected = await selectNextAnnotationScenario(userId);
   const count = await contributionCount(userId);
   if (!selected) {
@@ -133,8 +136,7 @@ export const upsertAnnotationResponse = async (
   req: Request,
   res: Response,
 ) => {
-  const userId = requireUserId(req, res);
-  if (userId === null) return;
+  const userId = requireUserId(req);
   const {
     scenarioId,
     scenarioHash,
@@ -149,7 +151,7 @@ export const upsertAnnotationResponse = async (
     scenarioId < 1 ||
     typeof scenarioHash !== "string"
   ) {
-    return res.status(400).json({ error: "Invalid scenario identity" });
+    throw badRequest("Invalid scenario identity");
   }
   if (
     typeof skipped !== "boolean" ||
@@ -158,16 +160,14 @@ export const upsertAnnotationResponse = async (
     responseTimeMs < 0 ||
     responseTimeMs > RESPONSE_TIME_MAX_MS
   ) {
-    return res.status(400).json({ error: "Invalid response metadata" });
+    throw badRequest("Invalid response metadata");
   }
   const commentResult = validatedComment(comment);
   if (!commentResult.ok) {
-    return res.status(400).json({ error: commentResult.error });
+    throw badRequest(commentResult.error);
   }
   if (!skipped && commentResult.comment !== null) {
-    return res
-      .status(400)
-      .json({ error: "Only a skipped response may include a comment" });
+    throw badRequest("Only a skipped response may include a comment");
   }
 
   const scenario = await prisma.annotationScenario.findUnique({
@@ -180,7 +180,7 @@ export const upsertAnnotationResponse = async (
     },
   });
   if (!scenario || scenario.stateHash !== scenarioHash) {
-    return res.status(409).json({ error: "Scenario identity is stale" });
+    throw conflict("Scenario identity is stale");
   }
   const parsedScenario = parseAnnotationScenario(
     scenario.decisionType,
@@ -191,31 +191,22 @@ export const upsertAnnotationResponse = async (
   let action: AnnotationSelectedAction | null = null;
   if (skipped) {
     if (selectedAction !== null) {
-      return res
-        .status(400)
-        .json({ error: "A skipped response cannot select an action" });
+      throw badRequest("A skipped response cannot select an action");
     }
   } else {
     try {
       action = parseAnnotationSelectedAction(selectedAction);
     } catch {
-      return res.status(400).json({ error: "A selected action is required" });
+      throw badRequest("A selected action is required");
     }
     if (!isAnnotationActionLegal(parsedScenario, action)) {
-      return res
-        .status(400)
-        .json({ error: "Selected action is not legal for this scenario" });
+      throw badRequest("Selected action is not legal for this scenario");
     }
   }
 
   const data = {
     scenarioHash: scenario.stateHash,
-    selectedSuit: action?.decisionType === "play_card" ? action.suit : null,
-    selectedValue: action?.decisionType === "play_card" ? action.value : null,
-    selectedSignal:
-      action?.decisionType === "play_card" ? action.signal : null,
-    selectedBriscola:
-      action?.decisionType === "choose_briscola" ? action.suit : null,
+    ...actionToAnnotationColumns(action),
     skipped,
     comment: commentResult.comment,
     perceivedDifficulty,

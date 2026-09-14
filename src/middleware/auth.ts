@@ -1,6 +1,12 @@
 // src/middleware/auth.ts
 import { Request, Response, NextFunction } from "express";
-import { verifyToken, JwtPayload } from "../utils/jwt";
+import { JwtPayload } from "../utils/jwt";
+import { verifyActiveSession } from "../auth/activeSession";
+import {
+  isTestAuthBypassEnabled,
+  testRequestIdentity,
+} from "../auth/testAuthBypass";
+import { unauthorized } from "../http/errors";
 
 // Estende Request per includere user
 declare global {
@@ -11,15 +17,9 @@ declare global {
   }
 }
 
-// Test auth bypass requires BOTH NODE_ENV=test AND an explicit opt-in env var,
-// so a misconfigured production deploy can never disable auth.
-const isTestAuthBypassEnabled =
-  process.env.NODE_ENV === "test" &&
-  process.env.ALLOW_TEST_AUTH_BYPASS === "true";
-
-export const authenticateToken = (
+export const authenticateToken = async (
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction,
 ) => {
   const token = req.cookies?.authToken;
@@ -28,37 +28,26 @@ export const authenticateToken = (
   // masking invalid or expired login state.
   if (token !== undefined) {
     if (typeof token !== "string" || token.length === 0) {
-      return res.status(401).json({ error: "Invalid or expired token" });
+      return next(unauthorized("Invalid or expired token"));
     }
 
-    const decoded = verifyToken(token);
-    if (!decoded) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
+    try {
+      const session = await verifyActiveSession(token);
+      if (!session) {
+        return next(unauthorized("Invalid or expired token"));
+      }
 
-    req.user = decoded;
-    return next();
-  }
-
-  // In test environment, allow requests that carry a valid x-test-user-id header
-  // as a lightweight alternative to managing cookies across every supertest request.
-  // This still validates the header is present — it does NOT blindly skip auth.
-  if (isTestAuthBypassEnabled) {
-    const testUserId = req.headers["x-test-user-id"];
-    const testUsername = req.headers["x-test-username"];
-
-    if (testUserId && testUsername) {
-      req.user = {
-        userId: parseInt(testUserId as string, 10),
-        username: testUsername as string,
-      };
+      req.user = session;
       return next();
+    } catch (error) {
+      return next(error);
     }
+  }
 
-    // In test mode, if no credentials provided, still allow (backward compat)
-    // This ensures existing tests that don't pass auth headers keep working.
+  if (isTestAuthBypassEnabled()) {
+    req.user = testRequestIdentity(req.headers) ?? undefined;
     return next();
   }
 
-  return res.status(401).json({ error: "Authentication required" });
+  return next(unauthorized());
 };

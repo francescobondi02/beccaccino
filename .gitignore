@@ -13,5 +13,6 @@ coverage/
 prisma/dev.db
 prisma/test.db
 test-results/
+*.jsonl
 dist/
 .DS_Store

@@ -1,19 +1,24 @@
 import {
-  playCard as playCardTransition,
   setBriscola as setBriscolaTransition,
   startFirstRound as startFirstRoundTransition,
-} from "./gameService";
+} from "../game/transitions/round";
+import { playCard as playCardTransition } from "../game/transitions/cardPlay";
+import { coordinateOutcome } from "../game/coordinateOutcome";
+import { publishEvents } from "../runtime/eventPublisher";
 import {
-  applyTurnDirective,
-  clearRoomTimerData,
-} from "./turnTimer";
+  applyRuntimeDirective,
+  clearRuntimeRoom,
+} from "../runtime/turnRuntime";
 
 export async function startFirstRound(gameRoomId: number, roomCode: string) {
   try {
-    const directive = await startFirstRoundTransition(gameRoomId, roomCode);
-    applyTurnDirective(directive);
+    const outcome = await startFirstRoundTransition(gameRoomId, roomCode);
+    await coordinateOutcome(outcome, {
+      applyRuntime: applyRuntimeDirective,
+      publishEvents,
+    });
   } catch (error) {
-    clearRoomTimerData(roomCode);
+    clearRuntimeRoom(roomCode);
     throw error;
   }
 }
@@ -21,12 +26,15 @@ export async function startFirstRound(gameRoomId: number, roomCode: string) {
 export async function setBriscola(
   args: Parameters<typeof setBriscolaTransition>[0],
 ) {
-  const { turnDirective, ...result } = await setBriscolaTransition(args);
-  applyTurnDirective(turnDirective);
-  return result;
+  return coordinateOutcome(await setBriscolaTransition(args), {
+    applyRuntime: applyRuntimeDirective,
+    publishEvents,
+  });
 }
 
 export async function playCard(args: Parameters<typeof playCardTransition>[0]) {
-  const directive = await playCardTransition(args);
-  applyTurnDirective(directive);
+  return coordinateOutcome(await playCardTransition(args), {
+    applyRuntime: applyRuntimeDirective,
+    publishEvents,
+  });
 }

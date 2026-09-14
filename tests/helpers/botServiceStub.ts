@@ -35,6 +35,7 @@ export type BotServiceStubOptions = {
   readyBody?: unknown;
   readyDelayMs?: number;
   requiredToken?: string;
+  port?: number;
 };
 
 /**
@@ -115,7 +116,9 @@ export async function startBotServiceStub(
     });
   });
 
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) =>
+    server.listen(options.port ?? 0, "127.0.0.1", resolve),
+  );
   const { port } = server.address() as AddressInfo;
 
   return {

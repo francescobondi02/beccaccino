@@ -4,12 +4,16 @@ import {
   register,
   login,
   logout,
+} from "../controllers/authController";
+import {
   getCurrentUser,
-  getUserStats,
   updateCurrentUser,
   deleteCurrentUser,
+} from "../controllers/accountController";
+import {
+  getUserStats,
   getLeaderboard,
-} from "../controllers/userController";
+} from "../controllers/statisticsController";
 import { authenticateToken } from "../middleware/auth";
 import { authRateLimiter, generalRateLimiter } from "../middleware/rateLimiter";
 

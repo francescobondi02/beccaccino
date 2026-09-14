@@ -68,6 +68,8 @@ jobs:
 
       - run: npm run build
 
+      - run: node --test scripts/upload-sourcemaps.test.js
+
       - run: npm run test:unit
 
       # Bypass pretest:integration: it uses db push for local convenience and
@@ -103,6 +105,24 @@ jobs:
 
       - name: Build production image
         run: docker build --tag becca-backend:${{ github.sha }} .
+
+      - name: Verify production image excludes application maps and Sentry secrets
+        shell: bash
+        run: |
+          maps="$(
+            docker run --rm --entrypoint find \
+              becca-backend:${{ github.sha }} \
+              dist -type f -name '*.map' -print -quit
+          )"
+          if [[ -n "$maps" ]]; then
+            echo "::error::Production image contains source maps."
+            exit 1
+          fi
+          if docker history --no-trunc becca-backend:${{ github.sha }} \
+            | grep --quiet 'SENTRY_AUTH_TOKEN'; then
+            echo "::error::Production image history references SENTRY_AUTH_TOKEN."
+            exit 1
+          fi
 
       - name: Start production image
         run: |

@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { prisma } from "../../src/db";
 import { Suit, Value } from "@prisma/client";
-import { clearDatabase } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
 import { buildBotTurn, BotState } from "../../src/services/botState";
 import { ensureBotUsers } from "../../src/services/botService";
 import { GAME_WIN_POINTS } from "../../src/gameConfig";

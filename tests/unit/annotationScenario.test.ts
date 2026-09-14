@@ -1,10 +1,12 @@
 import {
-  annotationStateHash,
   isAnnotationActionLegal,
-  parseAnnotationScenario,
-  parseAnnotationScenarioBatch,
   parseAnnotationSelectedAction,
-} from "../../src/annotations/scenario";
+} from "../../src/annotations/action";
+import { parseAnnotationScenarioBatch } from "../../src/annotations/batch";
+import {
+  annotationStateHash,
+  parseAnnotationScenario,
+} from "../../src/annotations/state";
 import {
   annotationScenarioInput,
   annotationScenarioState,
@@ -156,6 +158,54 @@ describe("annotation scenarios", () => {
 
     expect(() => parseAnnotationScenarioBatch([scenario])).toThrow(
       /legalActions do not match/,
+    );
+  });
+
+  it("requires each completed trick to start with the caller or previous winner", () => {
+    const state = annotationScenarioState({
+      completedTricks: [
+        {
+          number: 1,
+          starterSeat: 1,
+          winnerSeat: 1,
+          signal: null,
+          signalSeat: null,
+          plays: [
+            {
+              position: 0,
+              seat: 1,
+              suit: "denara",
+              value: "quattro",
+            },
+            {
+              position: 1,
+              seat: 2,
+              suit: "coppe",
+              value: "cinque",
+            },
+            {
+              position: 2,
+              seat: 3,
+              suit: "spade",
+              value: "sei",
+            },
+            {
+              position: 3,
+              seat: 0,
+              suit: "bastoni",
+              value: "sette",
+            },
+          ],
+        },
+      ],
+    });
+    const scenario = {
+      ...annotationScenarioInput({ state }),
+      stateHash: annotationStateHash(state),
+    };
+
+    expect(() => parseAnnotationScenarioBatch([scenario])).toThrow(
+      /follow the caller and previous winners/,
     );
   });
 

@@ -1,18 +1,17 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
-import { logger } from "../logger";
 import { GameError } from "../utils/gameError";
-import { cumulativeScore, decideGameWinner, Team } from "../utils/score";
+import {
+  cumulativeScore,
+  decideGameWinner,
+  Team,
+} from "../domain/game/score";
 import { GAME_WIN_POINTS } from "../gameConfig";
 import {
-  resolveCaller,
-  resolveCurrentTurnUserId,
-} from "./gameService";
-import {
-  getTurnTimerState,
-  restoreBotSeats,
-  startTurnTimer,
-} from "./turnTimer";
+  readCallerPlayerId,
+  readCurrentTurnUserId,
+} from "../game/snapshots/turnState";
+import { getTurnTimerState } from "../runtime/turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 
 async function revealAllHands(
@@ -62,21 +61,11 @@ async function readGameStateSnapshot(
     throw new GameError("No active round found", 404);
   }
 
-  let callerPlayerId = await resolveCaller(
+  const callerPlayerId = await readCallerPlayerId(
     currentRound,
     gameRoom.players,
     client,
   );
-  if (callerPlayerId === null) {
-    callerPlayerId =
-      (
-        await client.hand.findFirst({
-          where: { roundId: currentRound.id },
-          orderBy: { number: "asc" },
-          select: { starterId: true },
-        })
-      )?.starterId ?? null;
-  }
   const callerUserId =
     gameRoom.players.find((player) => player.id === callerPlayerId)?.userId ??
     null;
@@ -90,10 +79,10 @@ async function readGameStateSnapshot(
     },
     orderBy: [{ suit: "asc" }, { value: "asc" }],
   });
-  const currentTurnUserId = await resolveCurrentTurnUserId(
+  const currentTurnUserId = await readCurrentTurnUserId(
     currentRound,
     gameRoom.players,
-    callerUserId,
+    callerPlayerId,
     client,
   );
 
@@ -199,6 +188,8 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       where: { id: snapshot.gameRoom.id },
       select: {
         finished: true,
+        pausedAt: true,
+        pauseEpoch: true,
         rounds: {
           orderBy: { number: "desc" },
           take: 1,
@@ -208,6 +199,8 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
     });
     if (
       marker?.finished === snapshot.gameRoom.finished &&
+      marker.pausedAt?.getTime() === snapshot.gameRoom.pausedAt?.getTime() &&
+      marker.pauseEpoch === snapshot.gameRoom.pauseEpoch &&
       marker.rounds[0]?.id === snapshot.currentRound.id
     ) {
       break;
@@ -233,25 +226,18 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
     allHands,
   } = snapshot;
 
-  let timerState = getTurnTimerState(roomCode);
-  if (!timerState && !gameRoom.finished && currentTurnUserId !== null) {
-    const phase =
-      currentRound.briscola === null ? "choose_briscola" : "play_card";
-    logger.info(
-      { roomCode, currentTurnUserId, phase },
-      "turn_timer_recovered_after_restart",
-    );
-    restoreBotSeats(roomCode, gameRoom.players);
-    startTurnTimer(roomCode, currentTurnUserId, phase);
-    timerState = getTurnTimerState(roomCode);
-  }
+  const timerState = gameRoom.pausedAt
+    ? null
+    : getTurnTimerState(roomCode);
 
   return {
     status: gameRoom.finished
       ? "finished"
-      : currentRound.briscola === null
-        ? "choosing_briscola"
-        : "playing",
+      : gameRoom.pausedAt
+        ? "paused"
+        : currentRound.briscola === null
+          ? "choosing_briscola"
+          : "playing",
     round: {
       id: currentRound.id,
       number: currentRound.number,
@@ -271,6 +257,7 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       team1Figures: cumulative.team1.figures,
     },
     turnTimer: timerState,
+    pausedAt: gameRoom.pausedAt,
     finishedGame,
     isPractice: gameRoom.isPractice,
     allHands,

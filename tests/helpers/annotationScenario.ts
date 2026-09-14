@@ -4,8 +4,8 @@ import {
   AnnotationChooseBriscolaScenarioState,
   AnnotationPlayCardScenarioInput,
   AnnotationPlayCardScenarioState,
-  annotationStateHash,
-} from "../../src/annotations/scenario";
+} from "../../src/annotations/contracts";
+import { annotationStateHash } from "../../src/annotations/state";
 
 export function annotationScenarioState(
   overrides: Partial<AnnotationPlayCardScenarioState> = {},

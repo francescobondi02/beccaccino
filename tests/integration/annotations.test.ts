@@ -2,8 +2,8 @@ import { Prisma, Suit, Value } from "@prisma/client";
 import jwt from "jsonwebtoken";
 import request from "supertest";
 import { prisma } from "../../src/db";
-import { annotationStateHash } from "../../src/annotations/scenario";
-import { CARD_SIGNALS } from "../../src/domain/cards";
+import { annotationStateHash } from "../../src/annotations/state";
+import { CARD_SIGNALS } from "../../src/domain/game/cards";
 import { generateToken } from "../../src/utils/jwt";
 import {
   annotationScenarioCreateData,
@@ -11,11 +11,8 @@ import {
   chooseBriscolaScenarioCreateData,
   chooseBriscolaScenarioState,
 } from "../helpers/annotationScenario";
-import {
-  apiAs,
-  clearDatabase,
-  getServer,
-} from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { apiAs, getServer } from "../helpers/serverHarness";
 
 const ACCESS_CODE = "annotation-integration-code";
 const originalAccessCode = process.env.ANNOTATION_ACCESS_CODE;

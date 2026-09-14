@@ -12,24 +12,27 @@ import {
   isValue,
   SUITS,
   VALUES,
-} from "../domain/cards";
+} from "../domain/game/cards";
+import { badRequest } from "../http/errors";
 
 /**
  * Validates the body for POST /api/games/choose-briscola
  * Required: gameRoomId (number), suit (valid Suit enum).
  * playerId is derived server-side from req.user — never trust the client.
  */
-export const validateChooseBriscola = (req: Request, res: Response, next: NextFunction) => {
+export const validateChooseBriscola = (req: Request, _res: Response, next: NextFunction) => {
   const { gameRoomId, suit } = req.body;
 
   if (gameRoomId === undefined || typeof gameRoomId !== "number" || !Number.isInteger(gameRoomId)) {
-    return res.status(400).json({ error: "gameRoomId must be a valid integer" });
+    return next(badRequest("gameRoomId must be a valid integer"));
   }
 
   if (!isSuit(suit)) {
-    return res.status(400).json({
-      error: `Invalid suit: "${suit}". Must be one of: ${SUITS.join(", ")}`,
-    });
+    return next(
+      badRequest(
+        `Invalid suit: "${suit}". Must be one of: ${SUITS.join(", ")}`,
+      ),
+    );
   }
 
   next();
@@ -41,23 +44,27 @@ export const validateChooseBriscola = (req: Request, res: Response, next: NextFu
  * Optional: signal (one of striscio/busso/volo, or null/undefined)
  * userId comes from req.user (JWT auth)
  */
-export const validatePlayCard = (req: Request, res: Response, next: NextFunction) => {
+export const validatePlayCard = (req: Request, _res: Response, next: NextFunction) => {
   const { roomCode, suit, value, signal } = req.body;
 
   if (!roomCode || typeof roomCode !== "string") {
-    return res.status(400).json({ error: "roomCode must be a non-empty string" });
+    return next(badRequest("roomCode must be a non-empty string"));
   }
 
   if (!isSuit(suit)) {
-    return res.status(400).json({
-      error: `Invalid suit: "${suit}". Must be one of: ${SUITS.join(", ")}`,
-    });
+    return next(
+      badRequest(
+        `Invalid suit: "${suit}". Must be one of: ${SUITS.join(", ")}`,
+      ),
+    );
   }
 
   if (!isValue(value)) {
-    return res.status(400).json({
-      error: `Invalid value: "${value}". Must be one of: ${VALUES.join(", ")}`,
-    });
+    return next(
+      badRequest(
+        `Invalid value: "${value}". Must be one of: ${VALUES.join(", ")}`,
+      ),
+    );
   }
 
   if (
@@ -65,9 +72,11 @@ export const validatePlayCard = (req: Request, res: Response, next: NextFunction
     signal !== null &&
     !isCardSignal(signal)
   ) {
-    return res.status(400).json({
-      error: `Invalid signal: "${signal}". Must be one of: ${CARD_SIGNALS.join(", ")} (or null)`,
-    });
+    return next(
+      badRequest(
+        `Invalid signal: "${signal}". Must be one of: ${CARD_SIGNALS.join(", ")} (or null)`,
+      ),
+    );
   }
 
   next();
@@ -77,11 +86,11 @@ export const validatePlayCard = (req: Request, res: Response, next: NextFunction
  * Validates path params for GET /api/games/playable-cards/:roomCode
  * userId comes from req.user (JWT auth)
  */
-export const validateGetPlayableCards = (req: Request, res: Response, next: NextFunction) => {
+export const validateGetPlayableCards = (req: Request, _res: Response, next: NextFunction) => {
   const { roomCode } = req.params;
 
   if (!roomCode || typeof roomCode !== "string") {
-    return res.status(400).json({ error: "roomCode path param is required" });
+    return next(badRequest("roomCode path param is required"));
   }
 
   next();

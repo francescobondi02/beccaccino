@@ -45,7 +45,7 @@ describe("account JWTs", () => {
     ],
   ])(
     "returns 401 for an %s real cookie even when test bypass headers exist",
-    (_kind, token) => {
+    async (_kind, token) => {
       const req = {
         cookies: { authToken: token },
         headers: {
@@ -60,18 +60,21 @@ describe("account JWTs", () => {
       response.status.mockReturnValue(response);
       const next = jest.fn();
 
-      authenticateToken(
+      await authenticateToken(
         req,
         response as unknown as Parameters<typeof authenticateToken>[1],
         next,
       );
 
       expect(process.env.ALLOW_TEST_AUTH_BYPASS).toBe("true");
-      expect(response.status).toHaveBeenCalledWith(401);
-      expect(response.json).toHaveBeenCalledWith({
-        error: "Invalid or expired token",
-      });
-      expect(next).not.toHaveBeenCalled();
+      expect(response.status).not.toHaveBeenCalled();
+      expect(response.json).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 401,
+          message: "Invalid or expired token",
+        }),
+      );
     },
   );
 });

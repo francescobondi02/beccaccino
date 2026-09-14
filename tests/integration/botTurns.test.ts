@@ -1,11 +1,13 @@
 import { prisma } from "../../src/db";
-import { clearDatabase, api, apiAs } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { api, apiAs } from "../helpers/serverHarness";
 import {
   startBotServiceStub,
   ActHandler,
   BotServiceStub,
 } from "../helpers/botServiceStub";
-import { getTimeoutState, getTurnTimerState } from "../../src/services/turnTimer";
+import { getTurnTimerState } from "../../src/runtime/turnTimer";
+import { getTimeoutState } from "../../src/runtime/timeoutPolicy";
 import { playableCards } from "../../src/services/cardService";
 import { logger } from "../../src/logger";
 
@@ -337,7 +339,7 @@ describe("Bot turn driver", () => {
     process.env.BOT_SERVICE_URL = stub.url;
     process.env.BOT_SERVICE_TOKEN = TOKEN;
 
-    const { setupGame } = await import("../helpers/gameHelpers");
+    const { setupGame } = await import("../helpers/gameDriver");
     const { roomCode } = await setupGame();
     await sleep(THINK_DELAY_MS * 10);
 

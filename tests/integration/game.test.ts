@@ -1,11 +1,11 @@
 import {
-  clearDatabase,
   setupGame,
   chooseBriscola,
   oneHand,
   oneRound,
-} from "../helpers/gameHelpers";
+} from "../helpers/gameDriver";
 import { prisma } from "../../src/db";
+import { clearDatabase } from "../helpers/database";
 
 beforeEach(async () => {
   await clearDatabase();

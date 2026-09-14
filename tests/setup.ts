@@ -1,8 +1,8 @@
 import { setSocketInstance } from "../src/socketInstance";
 import { prisma } from "../src/db";
 import { setRng, createSeededRng } from "../src/utils/random";
-import { closeServer } from "./helpers/gameHelpers";
-import { clearAllTurnTimerData } from "../src/services/turnTimer";
+import { closeServer } from "./helpers/serverHarness";
+import { clearAllRuntime } from "../src/runtime/turnRuntime";
 
 // Set environment to test
 process.env.NODE_ENV = "test";
@@ -36,11 +36,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  clearAllTurnTimerData();
+  clearAllRuntime();
 });
 
 afterAll(async () => {
-  clearAllTurnTimerData();
+  clearAllRuntime();
   if (restoreRng) restoreRng();
   await closeServer();
   await prisma.$disconnect();

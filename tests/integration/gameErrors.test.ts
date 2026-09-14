@@ -1,10 +1,11 @@
 import { prisma } from "../../src/db";
 import {
-  clearRoomTimerData,
   getTurnTimerState,
-} from "../../src/services/turnTimer";
-
-import { clearDatabase, setupGame, chooseBriscola, api, apiAs } from "../helpers/gameHelpers";
+} from "../../src/runtime/turnTimer";
+import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
+import { clearDatabase } from "../helpers/database";
+import { chooseBriscola, setupGame } from "../helpers/gameDriver";
+import { api, apiAs } from "../helpers/serverHarness";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -12,7 +13,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-  for (const room of rooms) clearRoomTimerData(room.code);
+  for (const room of rooms) clearRuntimeRoom(room.code);
 });
 
 type TurnTimerState = NonNullable<ReturnType<typeof getTurnTimerState>>;

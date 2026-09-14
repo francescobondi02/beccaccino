@@ -5,7 +5,7 @@
  *
  * Practice games are torn down the moment the human leaves the table
  * (`leaveRoomCommand`) or when the sweeper finds them finished or stale, so
- * `deleteRoomAndPlay` is the single place every practice game passes through on
+ * `retirePracticeRoom` is the single place every practice game passes through on
  * its way out — that is why the snapshot hangs off it instead of off the end of
  * the game, which would miss abandoned games.
  *
@@ -17,57 +17,29 @@
  */
 
 import { Prisma } from "@prisma/client";
+import {
+  resolveCaller,
+  seatAfter,
+} from "../domain/game/turnOrder";
+import { CardSignal, Suit } from "../domain/game/cards";
 import { GAME_WIN_POINTS } from "../gameConfig";
-
-/** Bump when the payload shape or replay rules change. */
-const PAYLOAD_VERSION = 1;
+import {
+  parsePracticeMatchPayload,
+  PRACTICE_MATCH_PAYLOAD_VERSION,
+  PracticeCardCode,
+  PracticeCardEntry,
+  PracticeHumanAction,
+  PracticeMatchPayload,
+  PracticeRoundPayload,
+  PracticeSeat,
+} from "../practice/matchPayload";
 
 const SEATS = [0, 1, 2, 3] as const;
-
-/** `[seat, "suit:value"]`. These cards rebuild context; they are not labels. */
-type CardEntry = [number, string];
-
-type HumanAction =
-  | {
-      kind: "choose_briscola";
-      suit: string;
-    }
-  | {
-      kind: "play_card";
-      trick: number;
-      position: number;
-      card: string;
-      signal: string | null;
-    };
-
-type TrickPayload = {
-  number: number;
-  starterSeat: number;
-  winnerSeat: number | null;
-  signal: string | null;
-  cards: CardEntry[];
-};
-
-type RoundPayload = {
-  number: number;
-  briscola: string | null;
-  callerSeat: number;
-  cricca: boolean;
-  /** The 10 cards each seat held at the start of the round; order is not meaningful. */
-  dealtHands: Record<string, string[]>;
-  tricks: TrickPayload[];
-  /** The only training labels: choices made directly by the human. */
-  humanActions: HumanAction[];
-};
-
-type MatchPayload = {
-  winPoints: number;
-  rounds: RoundPayload[];
-};
 
 /** Only what the snapshot reads, so the builder stays a pure function. */
 type ArchivableRoom = {
   isPractice: boolean;
+  started: boolean;
   finished: boolean;
   createdAt: Date;
   lastActivityAt: Date;
@@ -99,70 +71,101 @@ type ArchivableRoom = {
 };
 
 export type PracticeMatchRecord = {
-  humanSeat: number;
+  humanSeat: PracticeSeat;
   botTier: string;
   completed: boolean;
   startedAt: Date;
   endedAt: Date;
-  payload: MatchPayload;
+  payload: PracticeMatchPayload;
 };
 
-function cardCode(card: { suit: string; value: string }): string {
-  return `${card.suit}:${card.value}`;
+function cardCode(card: { suit: string; value: string }): PracticeCardCode {
+  return `${card.suit}:${card.value}` as PracticeCardCode;
 }
 
 /**
- * Build the snapshot, or null when there is nothing worth keeping: a room that
- * is not practice, has no seated human, or died before any briscola was chosen.
+ * Build the snapshot, or null when there is intentionally nothing to archive:
+ * a non-practice room or a game with no genuine human action.
  */
 export function buildPracticeMatch(
   room: ArchivableRoom,
 ): PracticeMatchRecord | null {
   if (!room.isPractice) return null;
+  if (!room.started) return null;
 
-  const human = room.players.find((player) => player.botModel === null);
-  const bot = room.players.find((player) => player.botModel !== null);
-  // Every seat is filled before a practice game starts, so an unseated player
-  // means a half-built room: nothing we could map onto a board.
-  if (!human || !bot?.botModel) return null;
-  if (room.players.some((player) => player.seat === null)) return null;
-
-  const seatOf = new Map(room.players.map((player) => [player.id, player.seat!]));
-  const rounds: RoundPayload[] = [];
-  for (const round of room.rounds) {
-    const archived = buildRound(
-      round,
-      seatOf,
-      human.seat!,
-      rounds[rounds.length - 1]?.callerSeat,
-    );
-    if (archived) rounds.push(archived);
+  const humans = room.players.filter((player) => player.botModel === null);
+  const bots = room.players.filter((player) => player.botModel !== null);
+  if (humans.length !== 1 || bots.length !== 3) {
+    throw new Error("Practice snapshot must contain one human and three bots");
   }
-  if (!rounds.some((round) => round.humanActions.length > 0)) return null;
+  if (
+    room.players.some(
+      (player) =>
+        player.seat === null ||
+        !SEATS.includes(player.seat as PracticeSeat),
+    ) ||
+    new Set(room.players.map((player) => player.seat)).size !== SEATS.length
+  ) {
+    throw new Error("Practice snapshot must contain seats 0 through 3");
+  }
+
+  const human = humans[0];
+  const botTier = bots[0].botModel!;
+  if (!botTier || bots.some((bot) => bot.botModel !== botTier)) {
+    throw new Error("Practice snapshot bots must use one tier");
+  }
+  const seatOf = new Map(
+    room.players.map((player) => [player.id, player.seat as PracticeSeat]),
+  );
+  const rounds: PracticeRoundPayload[] = [];
+  for (const round of room.rounds) {
+    rounds.push(
+      buildRound(
+        round,
+        seatOf,
+        human.seat as PracticeSeat,
+        rounds[rounds.length - 1]?.callerSeat,
+      ),
+    );
+  }
+  if (rounds.length === 0) return null;
+
+  const payload = parsePracticeMatchPayload({
+    winPoints: GAME_WIN_POINTS,
+    rounds,
+  });
+  if (!payload.rounds.some((round) => round.humanActions.length > 0)) {
+    return null;
+  }
 
   return {
-    humanSeat: human.seat!,
-    botTier: bot.botModel,
+    humanSeat: human.seat as PracticeSeat,
+    botTier,
     completed: room.finished,
     startedAt: room.createdAt,
     endedAt: room.lastActivityAt,
-    payload: {
-      winPoints: GAME_WIN_POINTS,
-      rounds,
-    },
+    payload,
   };
 }
 
 function buildRound(
   round: ArchivableRoom["rounds"][number],
-  seatOf: Map<number, number>,
-  humanSeat: number,
-  previousCallerSeat: number | undefined,
-): RoundPayload | null {
-  const seat = (playerId: number): number => seatOf.get(playerId)!;
+  seatOf: Map<number, PracticeSeat>,
+  humanSeat: PracticeSeat,
+  previousCallerSeat: PracticeSeat | undefined,
+): PracticeRoundPayload {
+  const seat = (playerId: number): PracticeSeat => {
+    const playerSeat = seatOf.get(playerId);
+    if (playerSeat === undefined) {
+      throw new Error(
+        `Practice round ${round.number} references unknown player ${playerId}`,
+      );
+    }
+    return playerSeat;
+  };
   const tricks = round.hands.filter((hand) => hand.cards.length > 0);
 
-  const dealtHands: Record<string, string[]> = {};
+  const dealtHands: Record<string, PracticeCardCode[]> = {};
   for (const seatNumber of SEATS) dealtHands[String(seatNumber)] = [];
   for (const trick of tricks) {
     for (const card of trick.cards) {
@@ -175,24 +178,31 @@ function buildRound(
     dealtHands[String(seat(card.playerId))].push(cardCode(card));
   }
   for (const cards of Object.values(dealtHands)) cards.sort();
-  if (Object.values(dealtHands).some((cards) => cards.length !== 10)) {
-    return null;
-  }
-
-  let callerSeat: number | undefined;
-  if (round.hands.length > 0) {
-    callerSeat = seat(round.hands[0].starterId);
-  } else if (round.number === 1) {
-    const quattro = round.playerCards.find(
-      (card) => card.suit === "denara" && card.value === "quattro",
+  const invalidDeal = Object.entries(dealtHands).find(
+    ([, cards]) => cards.length !== 10,
+  );
+  if (invalidDeal) {
+    throw new Error(
+      `Practice round ${round.number} seat ${invalidDeal[0]} has ${invalidDeal[1].length} cards; expected 10`,
     );
-    callerSeat = quattro ? seat(quattro.playerId) : undefined;
-  } else if (previousCallerSeat !== undefined) {
-    callerSeat = (previousCallerSeat + 1) % SEATS.length;
   }
-  if (callerSeat === undefined) return null;
 
-  const humanActions: HumanAction[] = [];
+  const quattro = round.playerCards.find(
+    (card) => card.suit === "denara" && card.value === "quattro",
+  );
+  const callerSeat = resolveCaller({
+    roundNumber: round.number,
+    firstTrickStarter:
+      round.hands.length > 0 ? seat(round.hands[0].starterId) : null,
+    quattroDenaraHolder: quattro ? seat(quattro.playerId) : null,
+    previousCaller: previousCallerSeat,
+    nextCaller: (caller) => seatAfter(caller) as PracticeSeat,
+  });
+  if (callerSeat === null) {
+    throw new Error(`Practice round ${round.number} has no resolvable caller`);
+  }
+
+  const humanActions: PracticeHumanAction[] = [];
   if (
     round.briscola !== null &&
     callerSeat === humanSeat &&
@@ -200,7 +210,7 @@ function buildRound(
   ) {
     humanActions.push({
       kind: "choose_briscola",
-      suit: round.briscola!,
+      suit: round.briscola as Suit,
     });
   }
   for (const trick of tricks) {
@@ -213,14 +223,14 @@ function buildRound(
         trick: trick.number,
         position: card.position,
         card: cardCode(card),
-        signal: card.signal,
+        signal: card.signal as CardSignal | null,
       });
     }
   }
 
   return {
     number: round.number,
-    briscola: round.briscola,
+    briscola: round.briscola as Suit | null,
     callerSeat,
     cricca: round.cricca,
     dealtHands,
@@ -228,9 +238,13 @@ function buildRound(
       number: trick.number,
       starterSeat: seat(trick.starterId),
       winnerSeat: trick.winnerId === null ? null : seat(trick.winnerId),
-      signal: trick.cards.find((card) => card.position === 0)?.signal ?? null,
+      signal:
+        (trick.cards.find((card) => card.position === 0)?.signal as
+          | CardSignal
+          | null
+          | undefined) ?? null,
       cards: trick.cards.map(
-        (card): CardEntry => [seat(card.playerId), cardCode(card)],
+        (card): PracticeCardEntry => [seat(card.playerId), cardCode(card)],
       ),
     })),
     humanActions,
@@ -250,6 +264,7 @@ export async function archivePracticeMatch(
     where: { id: gameRoomId },
     select: {
       isPractice: true,
+      started: true,
       finished: true,
       createdAt: true,
       lastActivityAt: true,
@@ -293,6 +308,6 @@ export async function archivePracticeMatch(
   if (!match) return;
 
   await tx.practiceMatch.create({
-    data: { ...match, schemaVersion: PAYLOAD_VERSION },
+    data: { ...match, schemaVersion: PRACTICE_MATCH_PAYLOAD_VERSION },
   });
 }

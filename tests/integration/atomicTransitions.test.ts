@@ -1,21 +1,21 @@
-import * as score from "../../src/utils/score";
+import * as score from "../../src/domain/game/score";
 import { prisma } from "../../src/db";
 import {
   getSocketInstance,
   setSocketInstance,
 } from "../../src/socketInstance";
 import {
-  clearRoomTimerData,
   getTurnTimerState,
-} from "../../src/services/turnTimer";
+} from "../../src/runtime/turnTimer";
+import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 import { setRng } from "../../src/utils/random";
+import { clearDatabase } from "../helpers/database";
 import {
-  apiAs,
   chooseBriscola,
-  clearDatabase,
   oneHand,
   setupGame,
-} from "../helpers/gameHelpers";
+} from "../helpers/gameDriver";
+import { apiAs } from "../helpers/serverHarness";
 
 type TimerState = NonNullable<ReturnType<typeof getTurnTimerState>>;
 
@@ -45,7 +45,7 @@ afterEach(async () => {
   );
 
   const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-  for (const room of rooms) clearRoomTimerData(room.code);
+  for (const room of rooms) clearRuntimeRoom(room.code);
   setSocketInstance(originalIo);
   jest.restoreAllMocks();
 });
@@ -186,7 +186,8 @@ describe("Atomic game transitions", () => {
       .post("/api/games/play-card")
       .send(move.payload);
 
-    expect(failed.statusCode).toBe(400);
+    expect(failed.statusCode).toBe(500);
+    expect(failed.body).toEqual({ error: "Internal server error" });
     expect(await prisma.playedCard.count({ where: { handId: move.hand.id } })).toBe(3);
     expect(
       await prisma.hand.findUniqueOrThrow({ where: { id: move.hand.id } }),
@@ -238,7 +239,8 @@ describe("Atomic game transitions", () => {
       .post("/api/games/play-card")
       .send(move.payload);
 
-    expect(failed.statusCode).toBe(400);
+    expect(failed.statusCode).toBe(500);
+    expect(failed.body).toEqual({ error: "Internal server error" });
     expect(
       await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } }),
     ).toMatchObject({ finished: false });
@@ -297,7 +299,8 @@ describe("Atomic game transitions", () => {
       restoreRng();
     }
 
-    expect(failed!.statusCode).toBe(400);
+    expect(failed!.statusCode).toBe(500);
+    expect(failed!.body).toEqual({ error: "Internal server error" });
     expect(
       await prisma.round.findUniqueOrThrow({ where: { id: round.id } }),
     ).toMatchObject({ winnerTeam: null, team0Points: 0, team1Points: 0 });

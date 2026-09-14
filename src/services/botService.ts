@@ -3,8 +3,8 @@
  * Bot identity for practice games.
  *
  * Bots are ordinary `User` rows. That is deliberate: the whole turn loop is
- * keyed on `userId` (gameService, turnTimer, gameController), so real users mean
- * zero change to how a turn is identified. A fixed pool of three is reused
+ * keyed on `userId` across transitions, runtime, and controllers, so real users
+ * mean zero change to how a turn is identified. A fixed pool of three is reused
  * across games rather than creating a set per game — the Player→User FK is
  * ON DELETE RESTRICT, so per-game bot users could never be cleaned up and would
  * grow without bound.

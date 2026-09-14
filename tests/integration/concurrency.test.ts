@@ -1,11 +1,10 @@
 import { prisma } from "../../src/db";
+import { clearDatabase } from "../helpers/database";
 import {
-  clearDatabase,
   setupGame,
   chooseBriscola,
-  api,
-  apiAs,
-} from "../helpers/gameHelpers";
+} from "../helpers/gameDriver";
+import { api, apiAs } from "../helpers/serverHarness";
 
 beforeEach(async () => {
   await clearDatabase();

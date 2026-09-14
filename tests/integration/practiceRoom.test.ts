@@ -1,5 +1,6 @@
 import { prisma } from "../../src/db";
-import { clearDatabase, api, apiAs } from "../helpers/gameHelpers";
+import { clearDatabase } from "../helpers/database";
+import { api, apiAs } from "../helpers/serverHarness";
 import { ensureBotUsers } from "../../src/services/botService";
 import {
   BotServiceStub,
@@ -7,9 +8,9 @@ import {
 } from "../helpers/botServiceStub";
 import * as turnCoordinator from "../../src/services/turnCoordinator";
 import {
-  clearRoomTimerData,
   getTurnTimerState,
-} from "../../src/services/turnTimer";
+} from "../../src/runtime/turnTimer";
+import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 
 /**
  * POST /api/rooms/practice must hand back a game that is ready to play: started,
@@ -249,7 +250,7 @@ describe("Practice room creation", () => {
       turnUserId: firstTimer!.turnUserId,
       phase: firstTimer!.phase,
     });
-    clearRoomTimerData(first.body.code);
+    clearRuntimeRoom(first.body.code);
   });
 
   it("serializes concurrent practice creation for one user", async () => {

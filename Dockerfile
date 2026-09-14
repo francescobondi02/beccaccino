@@ -8,26 +8,9 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
-COPY scripts ./scripts
 RUN npm run build
 
-# Upload source maps to Sentry (no-op if SENTRY_AUTH_TOKEN/ORG/PROJECT not set
-# — pass them as build secrets/build args). Source maps stay on disk; we drop
-# the .map files from the runtime image below to keep it slim.
-ARG SENTRY_AUTH_TOKEN
-ARG SENTRY_ORG
-ARG SENTRY_PROJECT
-ARG SENTRY_RELEASE
-ARG RENDER_GIT_COMMIT
-ENV SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN \
-    SENTRY_ORG=$SENTRY_ORG \
-    SENTRY_PROJECT=$SENTRY_PROJECT \
-    SENTRY_RELEASE=$SENTRY_RELEASE \
-    RENDER_GIT_COMMIT=$RENDER_GIT_COMMIT
-RUN npm run sentry:sourcemaps
-
-# Drop .map files from the build output before pruning — they were only needed
-# to upload to Sentry; serving them from the runtime image is wasted bytes.
+# Source maps are uploaded by the trusted deployment workflow.
 RUN find dist -name "*.map" -type f -delete
 RUN npm prune --omit=dev
 

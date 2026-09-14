@@ -16,17 +16,10 @@ cp .env.example .env
 The database defaults work with Finch Compose out of the box. Replace both
 `JWT_SECRET` and `ANNOTATION_ACCESS_CODE` before sharing the annotation page.
 
-For integration tests, a separate `.env.test` is already provided:
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
-DIRECT_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
-JWT_SECRET="test-secret"
-ANNOTATION_ACCESS_CODE="test-access-code"
-NODE_ENV="test"
-PORT=8000
-FRONTEND_URL="http://localhost:8081"
-```
+Tests do not load `.env.test`. Jest runs `tests/loadTestEnv.ts` before Prisma
+imports; it uses `TEST_DATABASE_URL` when supplied and otherwise selects the
+guarded local `becca_test` database. Initialize that database with
+`npm run db:test:prepare` before running integration tests.
 
 ## Starting the Backend
 
@@ -44,7 +37,7 @@ This starts PostgreSQL + Adminer + the backend with hot-reload. The backend runs
 
 ```sh
 cd backend
-npm install
+npm ci
 npx prisma generate
 npx prisma migrate deploy
 npm run dev
@@ -60,45 +53,53 @@ backend/
 │   ├── app.ts              # Express app, routes, health/readiness probes
 │   ├── gameConfig.ts       # Environment-backed game rules
 │   ├── db.ts               # Prisma client singleton
-│   ├── socketInstance.ts    # Socket.IO singleton (get/set)
-│   ├── annotations/         # Annotation scenario validation and selection
-│   ├── domain/              # Card types and public DTO projections
-│   ├── controllers/        # Request handlers
-│   │   ├── userController.ts    # register, login, logout, getCurrentUser
-│   │   ├── annotationController.ts # annotation status, access, next scenario, responses
-│   │   ├── roomController.ts    # createRoom, joinRoom, setPlayerReady, leaveRoom
-│   │   ├── chooseTeam.ts        # Team selection
-│   │   └── gameController.ts    # chooseBriscola, playCard, getGameState
-│   ├── services/           # Business logic
-│   │   ├── gameService.ts       # Atomic transitions and timer directives
-│   │   ├── gameState.ts         # Browser state loading and timer recovery
-│   │   ├── turnCoordinator.ts   # Controller-facing transition coordinator
-│   │   ├── turnTimer.ts         # Timers, bots, autoplay, timeout state
-│   │   ├── roomCommands.ts      # Shared room lifecycle, team, and ready commands
-│   │   ├── practiceRoomSweeper.ts # Periodic abandoned-practice cleanup
-│   │   └── cardService.ts       # playableCards (follow-suit rules)
-│   ├── sockets/            # WebSocket event handlers
-│   │   └── room.ts             # join_lobby, join_room, choose_team, set_ready
-│   ├── routes/             # Express route definitions
-│   ├── scripts/            # Operational CLIs, including JSONL annotation export
-│   ├── middleware/          # auth.ts (JWT cookie verification)
-│   └── utils/              # Pure functions
-│       ├── computePoints.ts
-│       ├── determineHandWinner.ts
-│       ├── generateRoomCode.ts
-│       ├── jwt.ts
-│       └── password.ts
+│   ├── annotations/        # Scenario contracts, parsers, legality, selection, response codec
+│   ├── auth/               # Shared active-session verification and isolated test bypass
+│   ├── controllers/        # HTTP adapters grouped by account, auth, stats, rooms, and games
+│   ├── domain/game/        # Pure caller, turn, card, trick, and scoring rules
+│   ├── game/
+│   │   ├── snapshots/      # Side-effect-free persisted turn reads
+│   │   └── transitions/    # Atomic round and card-play database mutations
+│   ├── http/               # Input parsers, typed errors, and global error mapping
+│   ├── practice/           # Versioned practice-match payload contract and parser
+│   ├── routes/             # Visible REST API map
+│   ├── runtime/            # Timers, bot execution, timeout policy, recovery, event publication
+│   ├── scripts/            # Annotation operators and practice/annotation exports
+│   ├── services/           # Coordinators, room commands/queries, snapshots, account and stats
+│   └── sockets/room.ts     # Socket presence and chat; room mutations remain REST-only
 ├── prisma/
 │   └── schema.prisma       # Database schema
 ├── tests/
 │   ├── unit/               # Pure logic tests (no DB)
 │   ├── integration/        # API tests (real DB)
-│   ├── helpers/            # Shared test utilities
+│   ├── helpers/
+│   │   ├── database.ts     # Shared complete database reset
+│   │   ├── serverHarness.ts # Shared ephemeral HTTP test server
+│   │   └── gameDriver.ts   # Game setup and deterministic play helpers
 │   ├── setup.ts            # Mock socket, set NODE_ENV=test
 │   ├── loadTestEnv.ts      # Override DATABASE_URL for tests
 │   └── teardown.ts         # Disconnect Prisma after tests
 └── Dockerfile              # Production build
 ```
+
+## Module Ownership and Call Flow
+
+- Routes are the API map. Controllers parse request data, call one operation,
+  and return its result. `src/http/errorHandler.ts` is the only HTTP error
+  mapping and sanitization boundary.
+- `roomCoordinator.ts` and `turnCoordinator.ts` sequence committed database
+  work, runtime changes, and best-effort event publication.
+- Room command modules and `game/transitions/` own writes. Game transitions
+  commit atomically and return runtime directives and events; they never
+  publish directly.
+- `domain/game/` owns pure caller, seat, turn, legality, trick, and scoring
+  rules. Snapshots, transitions, bots, annotations, and archives consume those
+  rules instead of reimplementing them.
+- `game/snapshots/` and `services/gameState.ts` are reads. Loading
+  `GET /api/games/:roomCode/state` never schedules a timer or starts a bot.
+- Runtime directives are applied before events are published. Publication
+  failures are logged and reported to Sentry but do not turn a committed
+  request into an HTTP failure.
 
 ## Database Management (Prisma)
 
@@ -121,6 +122,12 @@ npx prisma migrate reset
 npx prisma studio
 ```
 
+Never run `prisma migrate reset` against a shared or production database. Test
+setup uses `npm run db:test:prepare`, which refuses any host/database other than
+the explicit local `becca_test` target. Annotation status/import/export uses
+the guarded scripts under `scripts/annotations/`; see
+[`scripts/annotations/README.md`](scripts/annotations/README.md).
+
 ## Testing
 
 Tests are split into two Jest projects: **unit** (no DB) and **integration** (real DB).
@@ -136,6 +143,14 @@ finch compose up -d db
 cd backend
 npm run db:test:prepare
 ```
+
+This command refuses to run unless `NODE_ENV=test` and both Prisma URLs point
+exactly to `localhost/becca_test`.
+
+The root `./scripts/pre-push.sh` gate injects `TEST_DATABASE_URL` with a unique
+schema under that same safe database. `tests/loadTestEnv.ts` honors this
+override and applies the same localhost/`becca_test` safety check before any
+test imports Prisma.
 
 ### Commands
 
@@ -171,6 +186,38 @@ plays refresh the activity timestamp transactionally. The sweep serializes with
 live room activity, revalidates eligibility under the room lock, and deletes
 game rows while retaining the reusable bot `User` accounts.
 
+Active practice games can be paused with `POST /api/rooms/:roomCode/pause` and
+resumed with `POST /api/rooms/:roomCode/resume`. Only the human participant can
+use these endpoints. Pause state survives process restarts, suppresses timer
+recovery, and fences bot responses that started before a pause/resume cycle.
+Resuming starts a fresh full turn timer. Paused rooms remain subject to the same
+24-hour inactivity cleanup.
+
+### Runtime Recovery
+
+Before the HTTP server listens, `reconcileActiveRuntime()` scans started,
+unfinished, unpaused rooms. Each room is locked, its persisted caller and exact
+turn identity are read, bot seats are restored, and one runtime directive is
+scheduled only when that turn has no scheduled or executing owner. Failures are
+isolated per room, keep `/ready` unavailable, and are retried by a
+non-overlapping periodic reconciler. Practice resume commits the unpause first
+and returns success only after the same recovery path confirms current runtime.
+Game-state reads never recover runtime, so repeated snapshots cannot create
+timers or bot moves.
+
+### Backend and AI Contract
+
+The TypeScript backend is authoritative for persisted online games, turn
+validation, and accepted moves. The Python package owns training, simulation,
+state adaptation, and model inference; its rules mirror the backend for those
+workflows.
+
+`tests/integration/botStateFixtures.test.ts` consumes
+`../ai/serving/fixtures/bot_states.json` to verify the real TypeScript
+serializer against Python-generated states. That suite requires the full
+parent checkout with both submodules initialized and is skipped with an
+explicit message in a standalone backend checkout.
+
 ### Test Architecture
 
 | Project | Runs | DB Required | Files |
@@ -182,7 +229,8 @@ game rows while retaining the reusable bot `User` accounts.
 - The annotation scenario unit suite enforces the exact public-state contract,
   chronological plays, hand-bound legal actions, and hidden-field rejection.
 - **Integration tests** use Supertest and real Socket.IO clients against the Express/server factory with PostgreSQL. Auth bypass is available only when explicitly enabled in test mode.
-- Each integration test calls `clearDatabase()` in `beforeEach` for isolation.
+- Each integration test calls the shared `tests/helpers/database.ts`
+  `clearDatabase()` in `beforeEach` for isolation.
 - Shared teardown closes HTTP servers, sockets, Prisma, and all turn timers.
 
 ## Scripts Reference
@@ -199,8 +247,10 @@ game rows while retaining the reusable bot `User` accounts.
 | `npm run db:test:prepare` | Apply the Prisma schema to the isolated `becca_test` database |
 | `npm start` | Run compiled `dist/index.js` (production) |
 | `npm run migrate` | Apply Prisma migrations |
-| `npm run annotations:import -- <batch> <manifest> [--apply] [--replace-active]` | Validate or import an offline scenario batch |
-| `npm run annotations:export` | Emit self-contained pseudonymous annotation rows as JSONL |
+| `scripts/annotations/status.sh` | Show catalog and response counts using an explicit environment file |
+| `scripts/annotations/import.sh` | Dry-run or apply a plan-token-confirmed scenario import |
+| `scripts/annotations/_run.sh restore-active ...` | Dry-run or apply a plan-token-confirmed retained-catalog restore |
+| `scripts/annotations/export.sh` | Atomically create a mode-`600` pseudonymous JSONL export |
 | `npm run practice:export` | Emit archived practice games as JSONL, one game per line |
 
 ## Expert Annotation Data
@@ -213,21 +263,31 @@ retries update the same row and keep the contribution count unchanged. Answers
 remain associated with the account so progress survives login on another
 browser. There is no response-history portal.
 
-The AI package creates deterministic scenario batches offline. Build the
-backend, validate a batch with a dry run, then import it explicitly:
+The AI package creates deterministic scenario batches offline. Use the guarded
+wrapper to inspect the target and validate a batch without writing:
 
 ```sh
-npm run build
-npm run annotations:import -- scenarios.json manifest.json
-npm run annotations:import -- scenarios.json manifest.json --apply
-npm run annotations:import -- scenarios.json manifest.json --apply --replace-active
+scripts/annotations/import.sh scenarios.json manifest.json \
+  --env-file "$ANNOTATION_ENV_FILE" \
+  --replace-active
 ```
+
+For routine database operations, prefer the guarded wrappers documented in
+[`scripts/annotations/README.md`](scripts/annotations/README.md). They require
+an explicit mode-`600` environment file, display only the database host and
+name, and keep import database-read-only by default. A dry run emits a plan
+token bound to the full connection configuration, compiled toolkit, complete
+manifest, replacement mode, exact scenario catalog, and current write counts.
+Apply requires that exact token and aborts if any relevant input or catalog
+state changed.
 
 Imports require each scenario to declare `play_card` or `choose_briscola` and
 are transactional and idempotent. Existing scenario codes and state hashes
 cannot be changed. With `--replace-active`, scenarios outside the incoming
 batch are deactivated in the same transaction; their rows and responses remain
-stored. The command remains write-free unless `--apply` is present.
+stored. The command remains database-write-free unless `--apply` is present.
+`restore-active` can reactivate one retained `sourceBatch` and deactivate the
+current catalog in another serializable, plan-confirmed transaction.
 
 The next-scenario query keeps each user's answers near the 20% easy, 40%
 medium, 40% hard mix, then ranks unanswered scenarios by
@@ -239,28 +299,39 @@ hard rating.
 For production, deploy the annotation migration and API before importing. Run
 the importer from a controlled environment with the production `DATABASE_URL`
 and `DIRECT_URL` injected, never pasted into shell history. The command without
-`--apply` validates and queries for conflicts but writes nothing. Confirm the
-database host and dry-run summary before adding `--apply`. The complete
-generation, import, launch, replenishment, and recovery runbook is
+`--apply` validates and queries for conflicts but writes nothing to the
+database. Confirm the database host and dry-run summary before adding `--apply`.
+The complete generation, import, launch, replenishment, and recovery runbook is
 `ai/docs/EXPERT_DATA_COLLECTION.md` in the parent BECCA checkout.
 
 Each export row includes the decision type, exact visible scenario, matching
 discriminated selected action or skip, and optional skip comment. It
-pseudonymizes the account ID and never selects the username or email. Set a
-private stable salt and redirect stdout to create a JSONL export:
+pseudonymizes the account ID and never selects the username or email. Put a
+private stable salt in the protected environment file and name a new output:
 
 ```sh
-ANNOTATION_EXPORT_SALT="<at-least-16-private-characters>" \
-npm run annotations:export > annotations.jsonl
+mkdir -p "$HOME/.becca/annotation-exports"
+chmod 700 "$HOME/.becca/annotation-exports"
+scripts/annotations/export.sh \
+  --env-file "$ANNOTATION_ENV_FILE" \
+  --output "$HOME/.becca/annotation-exports/annotations-$(date +%F).jsonl"
 ```
+
+The export validates every row before atomically creating a mode-`600` file and
+refuses to overwrite an existing path.
 
 ## Practice Game Data
 
 Practice games are training data. A practice room is deleted as soon as the
 human leaves it, and the sweeper deletes finished or day-old ones, so
-`deleteRoomAndPlay` snapshots the game into one `PracticeMatch` row on its way
-out — in the same transaction, so a failed snapshot keeps the game for the next
-attempt instead of losing it.
+`retirePracticeRoom` snapshots the game into one `PracticeMatch` row on its way
+out, in the same transaction, so a failed snapshot keeps the game and runtime
+for the next attempt instead of losing either.
+
+A valid game with no genuine human action is intentionally retired without an
+archive. Malformed player or round state is different: snapshot construction or
+payload validation throws, rolling back both the archive and live-row deletion
+while leaving runtime available for retry.
 
 The row holds the cards each seat was dealt plus every card played in order,
 which is enough to rebuild the complete game. Bot cards remain in that history
@@ -307,11 +378,12 @@ npm run practice:export > practice_matches.jsonl
 | POST | `/api/rooms/` | Yes | Create a new room |
 | POST | `/api/rooms/practice` | Yes | Start a practice game against bots |
 | GET | `/api/rooms/available` | Yes | List joinable rooms + active games |
-| GET | `/api/rooms/getExitedRooms` | Yes | List unfinished rooms for compatibility clients |
 | GET | `/api/rooms/:roomCode` | Yes | Get room details |
 | POST | `/api/rooms/join` | Yes | Join a room by code |
 | POST | `/api/rooms/:roomCode/choose-team` | Yes | Choose team 0 or 1 |
 | POST | `/api/rooms/:roomCode/ready` | Yes | Toggle ready state |
+| POST | `/api/rooms/:roomCode/pause` | Yes | Pause an active practice room |
+| POST | `/api/rooms/:roomCode/resume` | Yes | Resume an active practice room and recover its turn |
 | POST | `/api/rooms/:roomCode/leave` | Yes | Leave an open lobby; practice rooms are deleted, active multiplayer returns 409, and finished multiplayer history is preserved |
 | POST | `/api/games/choose-briscola` | Yes | Choose trump suit |
 | POST | `/api/games/play-card` | Yes | Play a card |
@@ -320,6 +392,10 @@ npm run practice:export > practice_matches.jsonl
 | GET | `/health` | No | Health check |
 | GET | `/version` | No | Get the deployed backend commit |
 | GET | `/ready` | No | Database readiness check |
+
+Team selection and ready-state changes are REST-only mutations. Socket.IO
+continues to deliver `team_chosen`, `ready_changed`, and `game_started` events,
+plus presence and chat events.
 
 ## CI and production deployment
 

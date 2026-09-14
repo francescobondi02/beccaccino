@@ -16,7 +16,7 @@ import {
   isValue,
   Suit,
   Value,
-} from "../domain/cards";
+} from "../domain/game/cards";
 
 /**
  * Per-request timeout. Well above the slowest tier (PIMC measures ~135 ms/move)

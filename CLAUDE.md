@@ -1,188 +1,172 @@
-# Backend — Express + Socket.IO + Prisma
+# Backend - Express, Socket.IO, and Prisma
 
-Node 24, TypeScript, Express 5. Stateful WebSocket server for real-time card game.
+Node 24, TypeScript, Express 5, Prisma, and Socket.IO. See `DEVELOPMENT.md`
+for setup, commands, endpoints, and operator procedures.
 
-## Structure
+## Ownership
 
-```
+```text
 src/
-  index.ts              Process entry: env validation, listen, background jobs, shutdown
-  server.ts             HTTP + Socket.IO factory: JWT auth, IP admission, handlers
-  app.ts                Express app: middleware, routes, health/readiness probes
-  gameConfig.ts         Game-wide environment-backed rules such as win points
-  db.ts                 Prisma client singleton
-  socketInstance.ts     Global io getter/setter (used by services to emit events)
-  annotations/
-    constants.ts        Fixed difficulty, tag, and importance vocabulary
-    scenario.ts         Discriminated scenario/action parsing and public-state validation
-    selection.ts        Unanswered-scenario usefulness ranking
-  domain/
-    cards.ts            Prisma-backed card enums, signal types, and parsers
-    publicPlayer.ts     Public player projection for room payloads
-  controllers/
-    userController.ts   Register, login, logout, profile, stats, leaderboard
-    annotationController.ts Annotation status, access, next scenario, response upsert
-    roomController.ts   Create room, join room, list rooms
-    gameController.ts   Choose briscola, play card, get playable cards, get game state
-    chooseTeam.ts       Team selection logic
-  services/
-    gameService.ts      Core game transitions; returns timer directives
-    gameState.ts        Loads the browser game-state DTO and restores timers
-    turnCoordinator.ts  Applies directives for controller-driven game actions
-    cardService.ts      Gets playable cards with follow-suit filtering
-    turnTimer.ts        Timer/bot state, autoplay, kick after 3 timeouts
-    roomCommands.ts     Serialized room lifecycle, team, and ready commands
-    practiceRoomSweeper.ts  Locked cleanup of finished or stale practice rooms
-    practiceArchive.ts  Snapshots a practice game before its rows are deleted
-  sockets/
-    room.ts             All socket event handlers: lobby, room join/leave, game events, chat
-  middleware/
-    auth.ts             JWT cookie auth (bypassed in test via x-test-user-id header)
-    annotationAccess.ts Account-level expert-access gate
-    validate.ts         Input validation for game endpoints (suit/value enum checks)
-    rateLimiter.ts      Per-route rate limiting
-  routes/
-    users.ts            /api/users/*
-    rooms.ts            /api/rooms/*
-    games.ts            /api/games/*
-    annotations.ts      /api/annotations/* (account auth + shared-code access gate)
-  scripts/
-    importAnnotationScenarios.ts Transactional offline-batch import
-    exportAnnotations.ts Pseudonymous JSONL export
-    exportPracticeMatches.ts JSONL export of archived practice games
-  utils/
-    computePoints.ts    Raw points → {points, figures} per team
-    determineHandWinner.ts  Trick winner logic (briscola > lead suit > off-suit)
-    generateRoomCode.ts 6-char room codes (unambiguous charset — no 0/O, 1/I)
-    jwt.ts              Sign/verify JWT tokens
-    password.ts         bcrypt hash/compare
-    random.ts           Seeded RNG for deterministic card shuffle (Fisher-Yates)
-    sanitizeChatMessage.ts  Production chat input sanitizer
-prisma/
-  schema.prisma         Models: User, Player, GameRoom, Round, Hand, PlayedCard, PlayerCard, PracticeMatch
-  migrations/           17 migrations
-tests/
-  unit/                 Pure rules, card parsing, scoring, room codes, chat sanitization
-  integration/          Full API tests with real DB plus production server/socket tests
-  helpers/              Shared: setupGame, oneRound, clearDatabase
-  loadTestEnv.ts        Overrides DATABASE_URL to becca_test before Prisma loads
-  setup.ts              Mocks socket.io, sets NODE_ENV=test
-  teardown.ts           Disconnects Prisma
+  index.ts                 Process entry, startup recovery, shutdown
+  app.ts                   Express middleware, routes, probes, global errors
+  server.ts                HTTP and Socket.IO factory and transport auth
+  auth/                    Active account sessions and isolated test bypass
+  http/                    Input parsing, request identity, typed HTTP errors
+  controllers/             HTTP adaptation only
+  routes/                  Visible REST API map
+  domain/game/             Pure cards, caller, turn, trick, and scoring rules
+  game/snapshots/          Persisted caller/current-turn reads
+  game/transitions/        Atomic round and card-play mutations
+  runtime/                 Timers, bots, timeout policy, recovery, publication
+  services/                Coordinators, room commands/queries, account, stats
+  annotations/             Contracts, state/action/batch parsing, response codec
+  practice/                Practice archive payload version, types, parser
+  sockets/room.ts          Presence and chat handlers
+  scripts/                 Annotation operators and JSONL exports
 ```
 
-## Key Implementation Details
+Controllers parse input, call one operation, and return the result. Do not add
+controller-local `try/catch` response mapping; `http/errorHandler.ts` maps typed
+client errors and sanitizes unexpected failures.
 
-### Game Flow (gameService.ts)
-1. `startFirstRound()` atomically marks the room started, calls `setupRound()`, and returns a timer directive
-2. `setupRound()` shuffles the deck, deals 10 cards per player, and determines the caller
-3. `setBriscola()` validates the caller and atomically creates the first Hand
-4. `playCard()` validates follow-suit and atomically advances the hand or round
-5. On round end, scores are committed and the next round starts or the game finishes
+Routes are the public API map. Avoid compatibility barrels that hide which
+controller or service owns a route.
 
-### Socket Events (emitted by server)
-- `room_created`, `room_updated`, `room_full`, `room_deleted` — lobby
-- `player_joined`, `player_left`, `team_chosen`, `ready_changed`, `game_started` — room
-- `new_round_started`, `briscola_chosen`, `card_played`, `round_ended`, `game_finished` — game
-- `turn_timer_started`, `auto_played`, `player_kicked_timeout` — timer
-- `practice_abandoned`, `player_disconnected` — lifecycle
-- `chat_message` — in-game chat
+## Call Flow
 
-### Auth
-- Cookie name: `authToken`, httpOnly, 7-day expiry
-- Production: `secure: true`, `sameSite: 'strict'` (same-origin) or `'none'` (cross-origin)
-- `createServer()` applies Socket.IO JWT auth before per-IP admission, then attaches verified identity to `socket.data.user`
+Room mutations:
 
-### Expert Annotations
-- Normal BECCA account authentication protects all four endpoints:
-  `GET /api/annotations/status`, `POST /api/annotations/access`,
-  `GET /api/annotations/next`, and `POST /api/annotations/responses`.
-  The access endpoint verifies `ANNOTATION_ACCESS_CODE` and records expert
-  access on the account.
-- Deterministic scenario batches are generated offline by the AI package,
-  validated again by the backend, and imported transactionally into SQL. Each
-  imported scenario declares `play_card` or `choose_briscola`; historical rows
-  default to `play_card`. Existing identifiers and state hashes cannot be
-  overwritten. `--replace-active` can make the incoming batch the active
-  catalog without deleting older scenarios or responses.
-- Selection keeps each user's answers near the 20/40/40 difficulty mix and
-  ranks unanswered scenarios by importance divided by the square root of one
-  plus its global response count.
-- Scenario hash, the matching discriminated action, perceived difficulty, and
-  an optional 500-character skip comment are verified server-side before an
-  idempotent per-account/per-scenario upsert. One current response row is stored
-  for that pair; no response-history portal exists.
-- The UI shows an open-ended contribution count. A null next scenario means
-  only that the user has answered every currently active scenario.
-- `ANNOTATION_EXPORT_SALT=... npm run annotations:export` emits the exact
-  visible scenario with deterministic user pseudonyms and optional skip
-  comments; it never reads username or email.
+```text
+route -> room mutation controller -> roomCoordinator
+      -> multiplayer/practice command transaction
+      -> runtime recovery or cleanup
+      -> best-effort Socket.IO publication
+```
 
-### Practice Game Archive
-- `deleteRoomAndPlay` snapshots a practice game into one `PracticeMatch` row
-  before deleting it, in the same transaction. It is the only exit practice data
-  has: leaving the table deletes the room immediately, and the sweeper deletes
-  finished or day-old ones.
-- The payload holds each seat's dealt cards plus every card played in order,
-  which is enough to rebuild the complete game. Each round has a separate
-  `humanActions` list containing only direct human choices. Bot moves remain
-  replay context and never appear in that training-label list.
-- A full game is ~20 KB of JSON but
-  **~1.4 KB on disk**: Postgres compresses JSONB over ~2 KB automatically
-  (measured 15x), so there is nothing to gain from compressing it in the app.
-- `PlayedCard.autoPlayed` and `Round.briscolaAutoChosen` mark moves the server
-  chose (human timeout, or the fallback when the bot service fails). They are
-  used while building `humanActions`; `true` and unknown (`null`) choices are
-  excluded.
-- Practice archives contain no account ID, username, email, or pseudonym.
+Game mutations:
 
-### Database Notes
-- Player has unique constraints on `[gameRoomId, seat]` and `[gameRoomId, userId]`
-- AnnotationScenario has unique `code` and `stateHash` fields; ExpertAnnotation
-  is unique on `[userId, scenarioId]`. `decisionType` defaults to `play_card`;
-  briscola choices use `selectedBriscola` while card choices retain the
-  existing selected card and signal columns.
-- PlayedCard.signal: nullable string ("striscio"|"busso"|"volo"|null), only set for trick leader (position 0)
-- Indexes on all foreign keys (added in migration 20260517190703)
-- `binaryTargets` includes `linux-musl-arm64-openssl-3.0.x` for Docker Alpine
+```text
+route -> game controller -> turnCoordinator
+      -> round/card-play transition transaction
+      -> runtime directive
+      -> best-effort event publication
+```
 
-## Build & Deploy
+Transitions do not schedule timers or publish events. They commit database
+changes and return an outcome containing the result, runtime directive, and
+events. `coordinateOutcome()` applies runtime before publication. Publication
+failure is logged and captured but does not fail an already committed request.
+
+`services/gameState.ts` and `game/snapshots/` are read-only. A game-state GET
+must never start a timer, run a bot, or repair runtime.
+
+Team selection and ready changes are REST-only:
+
+- `POST /api/rooms/:roomCode/choose-team`
+- `POST /api/rooms/:roomCode/ready`
+
+Socket.IO emits the resulting `team_chosen`, `ready_changed`, and
+`game_started` events. Client-to-server room sockets are limited to lobby/room
+presence, leave, and chat.
+
+## Runtime Recovery
+
+`index.ts` completes the initial `reconcileActiveRuntime()` pass before the HTTP
+server listens. Recovery scans started, unfinished, unpaused rooms and locks
+each room before deriving the persisted caller and exact turn identity. It
+restores bot-seat metadata and schedules only when that turn has no scheduled
+or executing runtime. `/ready` remains unavailable while any room recovery
+fails, and the non-overlapping periodic reconciler retries failed or missing
+runtime.
+
+Practice resume commits `pausedAt = null` and a new pause epoch before calling
+the same recovery path for that room. It returns success only after current
+runtime exists. Paused rooms are excluded from recovery. Snapshot reads remain
+side-effect free.
+
+Runtime responsibilities are separate:
+
+- `turnTimer.ts`: scheduled/executing turn ownership, cancellation, timer reads
+- `turnRuntime.ts`: apply schedule/clear directives
+- `botExecutor.ts`: bot move execution
+- `timeoutPolicy.ts` and `timeoutExecutor.ts`: penalties and elapsed-turn policy
+- `autoPlay.ts`: fallback legal autoplay
+- `recovery.ts`: explicit startup/resume restoration
+- `reconciler.ts`: periodic, non-overlapping runtime repair
+- `eventPublisher.ts`: best-effort Socket.IO publication
+
+The backend assumes one active runtime instance. Distributed timer ownership is
+not implemented.
+
+## Backend and AI Boundary
+
+The backend is the online source of truth: it owns persisted game state,
+current-turn validation, and move acceptance. Python owns AI training,
+simulation, state adaptation, and inference. Keep the implementations aligned
+through shared rule vectors, the Python-generated bot fixture consumed by the
+backend integration suite, and the runtime legal-card agreement check.
+
+The cross-language fixture test needs the full parent checkout because the
+fixture lives in the sibling `ai/` submodule. A standalone backend checkout
+skips that suite with an explicit message.
+
+## Database Operations
+
+Schema and migrations live under `prisma/`.
 
 ```bash
-npm run build           # prisma generate + tsc → dist/
-npm start               # node dist/index.js
+npx prisma migrate deploy
+npx prisma generate
+npm run db:test:prepare
 ```
 
-Dockerfile: multi-stage Node 24 Alpine build; the runtime applies migrations before starting.
-GitHub Actions builds and starts the Dockerfile, then triggers the Render deploy
-hook for the exact tested commit only after all CI jobs pass on `main`. Render's
-direct Git auto-deploy stays disabled.
+`db:test:prepare` is destructive only to the local `becca_test` database and
+refuses non-test mode, non-local hosts, or another database name. Integration
+tests use the shared reset in `tests/helpers/database.ts`.
 
-Practice games require `BOT_SERVICE_URL` and `BOT_SERVICE_TOKEN`. Creation
-checks the AI service's authenticated, tier-specific `/ready` endpoint before
-writing room state, while individual `/act` calls keep a 5-second timeout.
-The server also sweeps practice rooms immediately at startup and every 10
-minutes, deleting finished rooms or rooms inactive for at least 24 hours.
-Successful briscola choices and card plays update the activity timestamp in the
-same transaction as the move. Each candidate is revalidated under its room lock;
-room/game rows are removed while shared bot users are retained.
+Practice retirement archives and deletes in one transaction. Runtime state is
+cleared only after successful deletion, so archive/delete failure leaves both
+the room and runtime available for retry. The versioned JSON payload contract
+is in `practice/matchPayload.ts` and is shared by archive creation and export.
 
-Only an active *multiplayer* game blocks creating or joining another one
-(`findActiveGame`). Practice games are excluded, so one left open by a crash
-never locks the account out. Starting a new practice game while old practice
-games exist is equivalent to abandoning those old games and creating a new one.
-The replacement must be playable before the old practice rooms are deleted and
-is removed if setup or deletion fails. Leaving is still refused
-mid-multiplayer-game and always allowed in practice, where it deletes the room.
+## Annotation Tooling
 
-## Test Commands
+Annotation contracts are split by responsibility:
+
+- `annotations/contracts.ts`: scenario and action types
+- `annotations/state.ts`: scenario state parsing and hashing
+- `annotations/action.ts`: selected-action parsing and legality
+- `annotations/batch.ts`: batch metadata and duplicate validation
+- `annotations/responseCodec.ts`: action/database-column conversion
+
+The database operator is also split:
+
+- `annotationDatabaseCli.ts`: command-line parsing
+- `annotationEnvironment.ts`: protected env-file loading and target checks
+- `annotationDatabaseStatus.ts`: read-only catalog/response status query
+- `atomicAnnotationExport.ts`: mode-600, no-overwrite atomic export
+- `annotationDatabase.ts`: import plan confirmation and orchestration
+
+Use the wrappers documented in `scripts/annotations/README.md`. Imports and
+active-catalog restores are dry run by default; apply requires the exact plan
+token. Restore changes only retained rows' `active` flags and never deletes
+scenarios or responses. Do not pass database credentials on the command line or
+store them in the repository.
+
+## Verification
 
 ```bash
-npm run typecheck           # compile checks without output
-npm run build               # prisma generate + tsc → dist/
-npm run test:unit           # Jest unit project only
-npm run test:integration    # Jest integration project, --runInBand (sequential DB access)
-npm test                    # Both projects
+npm run typecheck
+npm test
+npm run build
 ```
 
-Integration tests require `finch compose up -d db` from the project root (PostgreSQL on localhost:5432).
-DB is cleared between tests via `clearDatabase()` in beforeEach.
+Jest has unit and integration projects. Integration tests run serially against
+PostgreSQL and use:
+
+- `tests/helpers/database.ts` for complete resets
+- `tests/helpers/serverHarness.ts` for the shared ephemeral HTTP server
+- `tests/helpers/gameDriver.ts` for deterministic game setup and play
+
+Test servers and sockets must be closed by teardown; do not leave background
+dev servers or listeners running after a test command.

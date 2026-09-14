@@ -1,23 +1,24 @@
 import { NextFunction, Request, Response } from "express";
 import { prisma } from "../db";
+import { forbidden, unauthorized } from "../http/errors";
 
 export async function requireAnnotationAccess(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction,
 ) {
   if (!req.user) {
-    return res.status(401).json({ error: "Authentication required" });
+    return next(unauthorized());
   }
   const user = await prisma.user.findUnique({
     where: { id: req.user.userId },
     select: { deletedAt: true, expertAccessGrantedAt: true },
   });
   if (!user || user.deletedAt) {
-    return res.status(401).json({ error: "Authentication required" });
+    return next(unauthorized());
   }
   if (!user.expertAccessGrantedAt) {
-    return res.status(403).json({ error: "Expert access required" });
+    return next(forbidden("Expert access required"));
   }
   next();
 }

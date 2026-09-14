@@ -6,11 +6,17 @@ import "./instrument";
 import { prisma } from "./db";
 import { logger } from "./logger";
 import { createServer } from "./server";
+import { hasProductionFrontendOrigin } from "./http/frontendOrigin";
 import { startMetrics, stopMetrics } from "./services/metrics";
 import {
   startPracticeRoomSweeper,
   stopPracticeRoomSweeper,
 } from "./services/practiceRoomSweeper";
+import { reconcileActiveRuntime } from "./runtime/recovery";
+import {
+  startRuntimeReconciler,
+  stopRuntimeReconciler,
+} from "./runtime/reconciler";
 
 const REQUIRED_ENV = ["DATABASE_URL", "JWT_SECRET"] as const;
 for (const key of REQUIRED_ENV) {
@@ -20,19 +26,46 @@ for (const key of REQUIRED_ENV) {
   }
 }
 
-if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
-  logger.fatal("FRONTEND_URL is required in production");
+if (
+  process.env.NODE_ENV === "production" &&
+  !hasProductionFrontendOrigin()
+) {
+  logger.fatal(
+    "FRONTEND_URL or RENDER_EXTERNAL_HOSTNAME is required in production",
+  );
   process.exit(1);
 }
 
 const { httpServer, close } = createServer();
 const port = process.env.PORT ? Number(process.env.PORT) : 8000;
-httpServer.listen(port, () => {
-  logger.info({ port }, "server_started");
+
+async function start(): Promise<void> {
   if (process.env.NODE_ENV !== "test") {
+    const recovery = await reconcileActiveRuntime();
+    logger.info(recovery, "active_runtime_recovery_complete");
+    startRuntimeReconciler();
     startMetrics();
     startPracticeRoomSweeper();
   }
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    httpServer.once("error", onError);
+    httpServer.listen(port, () => {
+      httpServer.off("error", onError);
+      resolve();
+    });
+  });
+  logger.info({ port }, "server_started");
+}
+
+void start().catch(async (error) => {
+  logger.fatal({ err: error }, "server_start_failed");
+  stopMetrics();
+  await stopRuntimeReconciler();
+  await stopPracticeRoomSweeper();
+  if (httpServer.listening) await close();
+  await prisma.$disconnect();
+  process.exit(1);
 });
 
 let isShuttingDown = false;
@@ -42,6 +75,7 @@ const shutdown = async (signal: string) => {
   logger.info({ signal }, "shutdown_initiated");
 
   stopMetrics();
+  await stopRuntimeReconciler();
   await stopPracticeRoomSweeper();
   let exitCode = 0;
   try {
