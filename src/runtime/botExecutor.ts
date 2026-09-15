@@ -1,15 +1,8 @@
-import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { coordinateOutcome } from "../game/coordinateOutcome";
-import {
-  TurnIdentity,
-  TurnPhase,
-} from "../game/transitions/types";
+import { TurnIdentity, TurnPhase } from "../game/transitions/types";
 import { logger } from "../logger";
-import {
-  BotServiceError,
-  requestBotMove,
-} from "../services/botClient";
+import { BotServiceError, requestBotMove } from "../services/botClient";
 import { BotTier } from "../services/botService";
 import { buildBotTurn } from "../services/botState";
 import { playableCards } from "../services/cardService";
@@ -34,15 +27,9 @@ async function isPauseEpochCurrent(
       select: { pausedAt: true, pauseEpoch: true },
     });
     return Boolean(
-      room &&
-        !room.pausedAt &&
-        room.pauseEpoch === expectedPauseEpoch,
+      room && !room.pausedAt && room.pauseEpoch === expectedPauseEpoch,
     );
   } catch (error) {
-    Sentry.captureException(error, {
-      tags: { source: "bot_pause_fence_read" },
-      extra: { roomCode, expectedPauseEpoch },
-    });
     logger.warn(
       { err: error, roomCode, expectedPauseEpoch },
       "bot_pause_fence_read_failed",
@@ -62,16 +49,13 @@ export async function executeBotTurn(args: {
   if (!hasBotSeat(args.roomCode, args.userId)) return;
 
   try {
-    if (
-      !(await isPauseEpochCurrent(
-        args.roomCode,
-        args.expectedPauseEpoch,
-      ))
-    ) {
+    if (!(await isPauseEpochCurrent(args.roomCode, args.expectedPauseEpoch))) {
       return;
     }
-    const { state, seat, turnSeat, playerId, gameRoomId } =
-      await buildBotTurn(args.roomCode, args.userId);
+    const { state, seat, turnSeat, playerId, gameRoomId } = await buildBotTurn(
+      args.roomCode,
+      args.userId,
+    );
     if (turnSeat !== seat) {
       throw new BotServiceError(
         `bot seat ${seat} does not own turn ${String(turnSeat)}`,
@@ -90,8 +74,7 @@ export async function executeBotTurn(args: {
       tier: args.tier,
       expectedLegalCards,
     });
-    const expectedKind =
-      args.phase === "choose_briscola" ? "briscola" : "card";
+    const expectedKind = args.phase === "choose_briscola" ? "briscola" : "card";
     if (move.kind !== expectedKind) {
       throw new BotServiceError(
         `bot returned a ${move.kind} move during ${args.phase}`,
@@ -141,20 +124,11 @@ export async function executeBotTurn(args: {
       logger.debug(args, "bot_move_abandoned_room_gone");
       return;
     }
-    if (
-      !(await isPauseEpochCurrent(
-        args.roomCode,
-        args.expectedPauseEpoch,
-      ))
-    ) {
+    if (!(await isPauseEpochCurrent(args.roomCode, args.expectedPauseEpoch))) {
       logger.debug(args, "bot_move_cancelled_by_pause");
       return;
     }
 
-    Sentry.captureException(error, {
-      tags: { source: "bot_fallback_to_autoplay" },
-      extra: args,
-    });
     logger.error({ err: error, ...args }, "bot_fallback_to_autoplay");
     try {
       if (args.phase === "choose_briscola") {

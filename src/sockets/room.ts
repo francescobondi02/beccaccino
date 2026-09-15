@@ -2,7 +2,6 @@
 /** Socket presence and chat handlers. Room mutations use the REST API. */
 
 import { Server, Socket } from "socket.io";
-import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
 import { logger } from "../logger";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
@@ -116,9 +115,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         }
         acknowledge?.({ ok: true });
       } catch (error) {
-        Sentry.captureException(error, {
-          extra: { event: "join_room", roomCode, userId },
-        });
         logger.error({ err: error, roomCode, userId }, "join_room_failed");
         socket.emit("error", { message: "Failed to join room" });
         acknowledge?.({ ok: false, error: "Failed to join room" });

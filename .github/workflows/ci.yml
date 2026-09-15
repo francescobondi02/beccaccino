@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [develop]
   pull_request:
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -14,25 +15,22 @@ concurrency:
 
 jobs:
   test:
+    # Crea una VM con Ubuntu (20 minuti di execution time)
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    # Jest instantiates PrismaClient from src/db.ts in globalTeardown (outside the
-    # per-project setupFiles that normally supply the test DATABASE_URL), and the
-    # unit project loads src/utils/jwt.ts — which throws at import if JWT_SECRET is
-    # unset — before tests/setup.ts assigns it. Both must be present job-wide.
+    # Required by Prisma and auth during tests.
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/becca_test
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/becca_test
       JWT_SECRET: ci-test-secret
 
     services:
+      # Crea un servizio PostgreSQL dentro alla VM di Ubuntu.
       postgres:
         image: postgres:15
         env:
           POSTGRES_PASSWORD: postgres
-          # The integration suite hardcodes the becca_test database; `prisma db
-          # push` connects to it but does not create it, so the server must.
           POSTGRES_DB: becca_test
         ports:
           - 5432:5432
@@ -52,8 +50,10 @@ jobs:
           node-version: 24
           cache: npm
 
+      # Installazione
       - run: npm ci
 
+      # Applica migrazioni
       - name: Apply production migration history
         run: npm run migrate
 
@@ -67,8 +67,6 @@ jobs:
       - run: npm run typecheck
 
       - run: npm run build
-
-      - run: node --test scripts/upload-sourcemaps.test.js
 
       - run: npm run test:unit
 
@@ -105,24 +103,6 @@ jobs:
 
       - name: Build production image
         run: docker build --tag becca-backend:${{ github.sha }} .
-
-      - name: Verify production image excludes application maps and Sentry secrets
-        shell: bash
-        run: |
-          maps="$(
-            docker run --rm --entrypoint find \
-              becca-backend:${{ github.sha }} \
-              dist -type f -name '*.map' -print -quit
-          )"
-          if [[ -n "$maps" ]]; then
-            echo "::error::Production image contains source maps."
-            exit 1
-          fi
-          if docker history --no-trunc becca-backend:${{ github.sha }} \
-            | grep --quiet 'SENTRY_AUTH_TOKEN'; then
-            echo "::error::Production image history references SENTRY_AUTH_TOKEN."
-            exit 1
-          fi
 
       - name: Start production image
         run: |

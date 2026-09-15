@@ -36,11 +36,7 @@ function getClientIp(handshake: SocketHandshake): string {
 }
 
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
-  const corsOrigin =
-    options.corsOrigin ??
-    (process.env.NODE_ENV === "production"
-      ? process.env.FRONTEND_URL
-      : "http://localhost:8081");
+  const corsOrigin = options.corsOrigin ?? process.env.FRONTEND_URL;
   const allowTestAuthBypass = isTestAuthBypassEnabled(
     options.allowTestAuthBypass,
   );

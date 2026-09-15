@@ -1,8 +1,6 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import "./instrument";
-
 import { prisma } from "./db";
 import { logger } from "./logger";
 import { createServer } from "./server";
@@ -25,8 +23,8 @@ for (const key of REQUIRED_ENV) {
   }
 }
 
-if (process.env.NODE_ENV === "production" && !process.env.FRONTEND_URL) {
-  logger.fatal("FRONTEND_URL is required in production");
+if (!process.env.FRONTEND_URL) {
+  logger.fatal("FRONTEND_URL is required");
   process.exit(1);
 }
 
