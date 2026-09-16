@@ -2,7 +2,6 @@ import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
-import { setSentryUser, clearSentryUser } from "@/lib/sentryUser";
 
 export interface AuthUser {
   id: number;
@@ -34,6 +33,7 @@ async function fetchCurrentUser(): Promise<AuthUser | null> {
 export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
   const query = useQuery({
     queryKey: AUTH_QUERY_KEY,
     queryFn: fetchCurrentUser,
@@ -42,17 +42,8 @@ export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
   });
 
   useEffect(() => {
-    if (!query.isSuccess) return;
+    if (!query.isSuccess || query.data) return;
 
-    if (query.data) {
-      setSentryUser({
-        id: query.data.id,
-        username: query.data.username,
-      });
-      return;
-    }
-
-    clearSentryUser();
     if (redirectOnFail) {
       navigate("/", { replace: true });
     }
@@ -61,7 +52,6 @@ export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
   const setUser = useCallback(
     (user: AuthUser) => {
       queryClient.setQueryData<AuthUser | null>(AUTH_QUERY_KEY, user);
-      setSentryUser({ id: user.id, username: user.username });
     },
     [queryClient],
   );
@@ -69,7 +59,6 @@ export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
   const clearUser = useCallback(async () => {
     await queryClient.cancelQueries({ queryKey: AUTH_QUERY_KEY });
     queryClient.setQueryData<AuthUser | null>(AUTH_QUERY_KEY, null);
-    clearSentryUser();
   }, [queryClient]);
 
   const logout = useCallback(async () => {

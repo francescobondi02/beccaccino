@@ -1,13 +1,7 @@
 // Shared REST client. Centralizes the API base URL, cookie credentials, and
 // error handling so pages don't repeat the fetch + res.ok + res.json dance.
 
-const API_URL = import.meta.env.VITE_API_URL;
-
-if (!API_URL) {
-  throw new Error(
-    "VITE_API_URL is not set — define it in your environment (.env) before starting the app.",
-  );
-}
+const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 // Error payloads the backend sends alongside non-2xx statuses.
 interface ApiErrorBody {
@@ -48,7 +42,8 @@ async function request<T>(
   const res = await fetch(`${API_URL}${path}`, {
     method,
     credentials: "include",
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers:
+      body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 

@@ -12,10 +12,6 @@ vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return { ...actual, apiGet: mocks.apiGet };
 });
-vi.mock("@/lib/sentryUser", () => ({
-  setSentryUser: vi.fn(),
-  clearSentryUser: vi.fn(),
-}));
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),

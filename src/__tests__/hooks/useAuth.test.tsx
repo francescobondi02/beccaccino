@@ -1,19 +1,13 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  AUTH_QUERY_KEY,
-  useAuth,
-  type AuthUser,
-} from "@/hooks/useAuth";
+import { AUTH_QUERY_KEY, useAuth, type AuthUser } from "@/hooks/useAuth";
 import { ApiError } from "@/lib/api";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
   navigate: vi.fn(),
-  setSentryUser: vi.fn(),
-  clearSentryUser: vi.fn(),
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -27,10 +21,6 @@ vi.mock("@/lib/api", async () => {
     apiPost: mocks.apiPost,
   };
 });
-vi.mock("@/lib/sentryUser", () => ({
-  setSentryUser: mocks.setSentryUser,
-  clearSentryUser: mocks.clearSentryUser,
-}));
 
 const alice: AuthUser = { id: 1, username: "alice" };
 
@@ -67,10 +57,7 @@ function Probe({
   );
 }
 
-function renderWithAuth(
-  children: React.ReactNode,
-  seed?: AuthUser | null,
-) {
+function renderWithAuth(children: React.ReactNode, seed?: AuthUser | null) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -113,25 +100,21 @@ describe("useAuth", () => {
     });
     expect(mocks.apiGet).toHaveBeenCalledTimes(1);
     expect(mocks.apiGet).toHaveBeenCalledWith("/users/me");
-    expect(mocks.setSentryUser).toHaveBeenCalledWith(alice);
   });
 
   it.each([401, 403])(
     "redirects protected consumers only after a confirmed %s",
     async (status) => {
-      mocks.apiGet.mockRejectedValue(
-        new ApiError(status, "Not authenticated"),
-      );
+      mocks.apiGet.mockRejectedValue(new ApiError(status, "Not authenticated"));
 
       renderWithAuth(<Probe id="protected" protectedPage />);
 
-      expect(
-        await screen.findByTestId("user-protected"),
-      ).toHaveTextContent("anonymous");
+      expect(await screen.findByTestId("user-protected")).toHaveTextContent(
+        "anonymous",
+      );
       await waitFor(() =>
         expect(mocks.navigate).toHaveBeenCalledWith("/", { replace: true }),
       );
-      expect(mocks.clearSentryUser).toHaveBeenCalled();
     },
   );
 
@@ -155,9 +138,7 @@ describe("useAuth", () => {
       fireEvent.click(screen.getByRole("button", { name: "Retry protected" }));
 
       await waitFor(() =>
-        expect(screen.getByTestId("user-protected")).toHaveTextContent(
-          "alice",
-        ),
+        expect(screen.getByTestId("user-protected")).toHaveTextContent("alice"),
       );
       expect(mocks.apiGet).toHaveBeenCalledTimes(2);
       expect(mocks.navigate).not.toHaveBeenCalled();
@@ -188,7 +169,6 @@ describe("useAuth", () => {
       expect(screen.getByTestId("user-second")).toHaveTextContent("anonymous");
     });
     expect(mocks.apiPost).toHaveBeenCalledWith("/users/logout");
-    expect(mocks.clearSentryUser).toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/", { replace: true });
   });
 
@@ -200,7 +180,6 @@ describe("useAuth", () => {
 
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalled());
     expect(screen.getByTestId("user-current")).toHaveTextContent("alice");
-    expect(mocks.clearSentryUser).not.toHaveBeenCalled();
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 });

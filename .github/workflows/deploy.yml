@@ -24,7 +24,6 @@ jobs:
     env:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
       GIT_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
-      VITE_SENTRY_RELEASE: ${{ github.event.workflow_run.head_sha }}
       VITE_API_URL: https://beccaccino-server.onrender.com/api
       VITE_SOCKET_URL: https://beccaccino-server.onrender.com
       FRONTEND_URL: https://beccaccino-client.vercel.app
@@ -89,9 +88,6 @@ jobs:
       - name: Build exact commit
         run: vercel build --prod --token="$VERCEL_TOKEN"
         env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy exact build
