@@ -103,6 +103,7 @@ export function useGameTable(
 
       // Fetch playable cards immediately if it's our turn
       if (
+        data.status !== "paused" &&
         data.currentTurnUserId === uid &&
         data.round?.briscola &&
         data.currentHandNumber !== null &&
@@ -133,6 +134,7 @@ export function useGameTable(
   // Fetch playable cards when it's my turn
   useEffect(() => {
     const canRequestPlayableCards =
+      state.gameStatus !== "paused" &&
       state.completedTricks.length === 0 &&
       Boolean(state.currentRound?.briscola) &&
       state.currentHandNumber !== null &&
@@ -147,6 +149,7 @@ export function useGameTable(
 
     void fetchPlayableCards(gameRoomCode);
   }, [
+    state.gameStatus,
     state.currentTurnUserId,
     userId,
     gameRoomCode,
@@ -271,6 +274,12 @@ export function useGameTable(
       toast.warning(`${data.username} è stato rimosso per inattività`);
     };
 
+    const handlePracticeLifecycleChanged = () => {
+      invalidateStateRequests();
+      playableRequestSequence.current += 1;
+      void refetchGameState();
+    };
+
     const unsubscribers = [
       subscribeToRoomEvent("card_played", handleCardPlayed),
       subscribeToRoomEvent("briscola_chosen", handleBriscolaChosen),
@@ -284,9 +293,19 @@ export function useGameTable(
         "player_kicked_timeout",
         handlePlayerKickedTimeout,
       ),
+      subscribeToRoomEvent(
+        "practice_paused",
+        handlePracticeLifecycleChanged,
+      ),
+      subscribeToRoomEvent(
+        "practice_resumed",
+        handlePracticeLifecycleChanged,
+      ),
     ];
 
     return () => {
+      stateRequestSequence.current += 1;
+      playableRequestSequence.current += 1;
       unsubscribers.forEach((unsubscribe) => unsubscribe());
       unregisterRoom();
       leaveRoom(gameRoomCode);

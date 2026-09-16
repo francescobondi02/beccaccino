@@ -51,17 +51,15 @@ export interface PlayerDisconnectedPayload {
   userId: number;
   username: string;
 }
-// playerId is only present on the deprecated socket path; the authoritative
-// REST path omits it.
 export interface TeamChosenPayload {
   userId: number;
   team: number;
-  playerId?: number;
+  playerId: number;
 }
 export interface ReadyChangedPayload {
   userId: number;
   isReady: boolean;
-  playerId?: number;
+  playerId: number;
 }
 export interface BriscolaChosenPayload {
   briscola: string;
@@ -112,6 +110,9 @@ export interface PlayerKickedTimeoutPayload {
   userId: number;
   username: string;
 }
+export interface PracticePausedPayload extends RoomCodePayload {
+  pausedAt: string;
+}
 export interface ChatMessagePayload {
   userId: number;
   username: string;
@@ -145,6 +146,8 @@ export interface ServerToClientEvents {
   turn_timer_started: (payload: TurnTimerStartedPayload) => void;
   auto_played: (payload: AutoPlayedPayload) => void;
   player_kicked_timeout: (payload: PlayerKickedTimeoutPayload) => void;
+  practice_paused: (payload: PracticePausedPayload) => void;
+  practice_resumed: (payload: RoomCodePayload) => void;
   practice_abandoned: (payload: RoomCodePayload) => void;
   chat_message: (payload: ChatMessagePayload) => void;
   error: (payload: ErrorPayload) => void;
@@ -164,15 +167,5 @@ export interface ClientToServerEvents {
     acknowledge: (result: JoinRoomResult) => void,
   ) => void;
   leave_room: (payload: { roomCode: string }) => void;
-  choose_team: (payload: {
-    roomCode: string;
-    userId: number;
-    team: number;
-  }) => void;
-  set_ready: (payload: {
-    roomCode: string;
-    userId: number;
-    isReady: boolean;
-  }) => void;
   send_chat_message: (payload: { roomCode?: string; message: string }) => void;
 }

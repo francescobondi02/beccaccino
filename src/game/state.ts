@@ -10,11 +10,14 @@ import type {
   PlayerCard,
   RevealedHand,
   RoundEndData,
+  Signal,
   TotalPoints,
   TurnTimer,
 } from "@/game/model";
 
 export interface GameTableState {
+  gameStatus: GameStateResponse["status"] | null;
+  pausedAt: string | null;
   currentRound: GameStateResponse["round"] | null;
   callerUserId: number | null;
   myCards: PlayerCard[];
@@ -26,7 +29,7 @@ export interface GameTableState {
   currentHandNumber: number | null;
   totalPoints: TotalPoints;
   turnTimer: TurnTimer | null;
-  currentSignal: { userId: number; signal: string } | null;
+  currentSignal: { userId: number; signal: Signal } | null;
   isPractice: boolean;
   allHands: RevealedHand[] | null;
   moveLog: MoveLogEntry[];
@@ -59,6 +62,8 @@ const EMPTY_POINTS: TotalPoints = {
 };
 
 export const initialGameTableState: GameTableState = {
+  gameStatus: null,
+  pausedAt: null,
   currentRound: null,
   callerUserId: null,
   myCards: [],
@@ -93,6 +98,8 @@ export function gameTableReducer(
         state.currentRound.id !== data.round.id;
       return {
         ...state,
+        gameStatus: data.status,
+        pausedAt: data.pausedAt,
         currentRound: data.round,
         callerUserId: data.callerUserId,
         myCards: data.myCards ?? [],
@@ -174,6 +181,8 @@ export function gameTableReducer(
     case "briscola_chosen":
       return {
         ...state,
+        gameStatus: "playing",
+        pausedAt: null,
         turnTimer: null,
         currentRound: state.currentRound
           ? { ...state.currentRound, briscola: action.briscola }
@@ -196,6 +205,8 @@ export function gameTableReducer(
     case "new_round_started":
       return {
         ...state,
+        gameStatus: "choosing_briscola",
+        pausedAt: null,
         currentRound: {
           id: action.data.roundId,
           number: action.data.roundNumber,
@@ -218,7 +229,13 @@ export function gameTableReducer(
       return { ...state, roundEndData: null };
 
     case "game_finished":
-      return { ...state, gameFinishedData: action.data, roundEndData: null };
+      return {
+        ...state,
+        gameStatus: "finished",
+        pausedAt: null,
+        gameFinishedData: action.data,
+        roundEndData: null,
+      };
 
     case "turn_timer_started":
       return {

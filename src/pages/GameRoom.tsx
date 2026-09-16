@@ -1,30 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Check, X, LogOut, Share2, Loader2 } from "lucide-react";
+import { useCallback, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Check, Loader2, LogOut, Share2, Users } from "lucide-react";
 import { toast } from "sonner";
-import Header from "@/components/Header";
 import AuthErrorState from "@/components/AuthErrorState";
 import ConnectionBanner from "@/components/ConnectionBanner";
-import { Badge } from "@/components/ui/badge";
-
-import {
-  registerRoomHandlers,
-  leaveRoom,
-  subscribeToRoomEvent,
-} from "@/sockets/roomHandlers";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import Header from "@/components/Header";
+import WaitingRoomPlayers from "@/components/rooms/WaitingRoomPlayers";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
-import { useConnectionStatus } from "@/hooks/useConnectionStatus";
-import {
-  normalizeRoom,
-  type Room,
-  type RoomPlayer,
-  type RoomResponse,
-} from "@/rooms/model";
+import { useWaitingRoom } from "@/hooks/useWaitingRoom";
+import { apiPost, ApiError } from "@/lib/api";
+import { waitingRoomSlots } from "@/rooms/waitingRoomState";
 
-// Long enough to read the "starting" toast before landing on the table.
 const GAME_START_REDIRECT_MS = 5000;
 
 const GameRoom = () => {
@@ -38,200 +26,66 @@ const GameRoom = () => {
   } = useAuth({ redirectOnFail: true });
   const userId = user?.id ?? null;
   const username = user?.username ?? "";
-  const [room, setRoom] = useState<Room | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+
+  const handleLoadError = useCallback(
+    (error: unknown) => {
+      if (error instanceof ApiError) {
+        if (error.status === 404) {
+          toast.error("Stanza non trovata");
+        } else if (error.status === 403) {
+          toast.error("Non sei un giocatore in questa stanza");
+        } else {
+          toast.error("Errore nel caricamento della stanza");
+        }
+      } else {
+        console.error("Error fetching room:", error);
+        toast.error("Impossibile caricare i dati della stanza");
+      }
+      navigate("/");
+    },
+    [navigate],
+  );
+
+  const {
+    room,
+    isLoading,
+    gameStarted,
+    connectionStatus,
+    setPlayerReady,
+    setPlayerTeam,
+  } = useWaitingRoom({
+    roomCode,
+    userId,
+    username,
+    onLoadError: handleLoadError,
+  });
   const myPlayer =
     room?.players.find((player) => player.userId === userId) ?? null;
-
-  // Refs for stable references in callbacks
-  const userIdRef = useRef<number | null>(null);
-  const roomCodeRef = useRef<string | undefined>(undefined);
+  const playerSlots = waitingRoomSlots(room, userId);
 
   useEffect(() => {
-    userIdRef.current = userId;
-  }, [userId]);
+    if (!gameStarted || !roomCode) return;
 
-  useEffect(() => {
-    roomCodeRef.current = roomCode;
-  }, [roomCode]);
+    toast.success("La partita sta per iniziare! Redirecting...");
+    const timeout = setTimeout(() => {
+      navigate(`/game/${roomCode}`);
+    }, GAME_START_REDIRECT_MS);
 
-  // Helper: refetch room data from backend (used on reconnect)
-  const refetchRoom = useCallback(async () => {
-    const uid = userIdRef.current;
-    const code = roomCodeRef.current;
-    if (!uid || !code) return;
-
-    try {
-      const roomData = await apiGet<RoomResponse>(`/rooms/${code}`);
-      setRoom(normalizeRoom(roomData));
-    } catch (error) {
-      console.error("Error refetching room on reconnect:", error);
-    }
-  }, []);
-
-  const connectionStatus = useConnectionStatus(refetchRoom);
-
-  // Carica i dati della stanza
-  useEffect(() => {
-    if (!userId || !roomCode) return;
-
-    const fetchRoom = async () => {
-      setIsLoading(true);
-      try {
-        const roomData = await apiGet<RoomResponse>(
-          `/rooms/${roomCode}?userId=${userId}`,
-        );
-        setRoom(normalizeRoom(roomData));
-      } catch (error) {
-        if (error instanceof ApiError) {
-          if (error.status === 404) {
-            toast.error("Stanza non trovata");
-          } else if (error.status === 403) {
-            toast.error("Non sei un giocatore in questa stanza");
-          } else {
-            toast.error("Errore nel caricamento della stanza");
-          }
-        } else {
-          console.error("Error fetching room:", error);
-          toast.error("Impossibile caricare i dati della stanza");
-        }
-        navigate("/");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchRoom();
-  }, [userId, roomCode, navigate]);
-
-  // Gestione WebSocket room
-  useEffect(() => {
-    if (!userId || !username || !roomCode) return;
-
-    const user = { userId, username };
-    // Ref locale per sapere se la partita è iniziata (navigazione a GameTable)
-    let gameStarted = false;
-
-    const unregisterRoom = registerRoomHandlers(roomCode, user);
-
-    const handlePlayerJoined = (joinedPlayer: RoomPlayer) => {
-      setRoom((prevRoom) => {
-        if (!prevRoom) return prevRoom;
-
-        // Evita duplicati
-        const alreadyExists = prevRoom.players.some(
-          (p) => p.userId === joinedPlayer.userId,
-        );
-        if (alreadyExists) return prevRoom;
-
-        return {
-          ...prevRoom,
-          players: [...prevRoom.players, joinedPlayer],
-        };
-      });
-    };
-
-    const handlePlayerLeft = (leftUserId: number) => {
-      setRoom((prevRoom) => {
-        if (!prevRoom) return prevRoom;
-        return {
-          ...prevRoom,
-          players: prevRoom.players.filter((p) => p.userId !== leftUserId),
-        };
-      });
-    };
-
-    const handleTeamChosen = (data: { userId: number; team: number }) => {
-      setRoom((prevRoom) => {
-        if (!prevRoom) return prevRoom;
-        const updatedPlayers = prevRoom.players.map((p) =>
-          p.userId === data.userId ? { ...p, team: data.team } : p,
-        );
-        return { ...prevRoom, players: updatedPlayers };
-      });
-    };
-
-    const handleReadyChanged = (data: { userId: number; isReady: boolean }) => {
-      setRoom((prevRoom) => {
-        if (!prevRoom) return prevRoom;
-        const updatedPlayers = prevRoom.players.map((p) =>
-          p.userId === data.userId ? { ...p, isReady: data.isReady } : p,
-        );
-        return { ...prevRoom, players: updatedPlayers };
-      });
-    };
-
-    let gameStartTimeout: ReturnType<typeof setTimeout> | undefined;
-    const handleGameStarted = () => {
-      gameStarted = true;
-      toast.success("La partita sta per iniziare! Redirecting...");
-      gameStartTimeout = setTimeout(() => {
-        navigate(`/game/${roomCode}`);
-      }, GAME_START_REDIRECT_MS);
-    };
-
-    const unsubscribePlayerJoined = subscribeToRoomEvent(
-      "player_joined",
-      ({ player }) => handlePlayerJoined(player),
-    );
-    const unsubscribePlayerLeft = subscribeToRoomEvent(
-      "player_left",
-      ({ userId: leftUserId }) => handlePlayerLeft(leftUserId),
-    );
-    const unsubscribeTeamChosen = subscribeToRoomEvent(
-      "team_chosen",
-      handleTeamChosen,
-    );
-    const unsubscribeReadyChanged = subscribeToRoomEvent(
-      "ready_changed",
-      handleReadyChanged,
-    );
-    const unsubscribeGameStarted = subscribeToRoomEvent(
-      "game_started",
-      handleGameStarted,
-    );
-
-    return () => {
-      unsubscribePlayerJoined();
-      unsubscribePlayerLeft();
-      unsubscribeTeamChosen();
-      unsubscribeReadyChanged();
-      unsubscribeGameStarted();
-      unregisterRoom();
-      clearTimeout(gameStartTimeout);
-      if (!gameStarted) {
-        leaveRoom(roomCode);
-      }
-    };
-  }, [navigate, roomCode, userId, username]);
+    return () => clearTimeout(timeout);
+  }, [gameStarted, navigate, roomCode]);
 
   const handleReady = async () => {
     if (!myPlayer || !userId) return;
-
-    const newReadyState = !myPlayer.isReady;
+    const isReady = !myPlayer.isReady;
 
     try {
       const data = await apiPost<{ allReady?: boolean }>(
         `/rooms/${roomCode}/ready`,
-        { isReady: newReadyState },
+        { isReady },
       );
+      setPlayerReady(userId, isReady);
+      toast.success(isReady ? "Sei pronto!" : "Non più pronto");
 
-      setRoom((currentRoom) =>
-        currentRoom
-          ? {
-              ...currentRoom,
-              players: currentRoom.players.map((player) =>
-                player.userId === userId
-                  ? { ...player, isReady: newReadyState }
-                  : player,
-              ),
-            }
-          : currentRoom,
-      );
-
-      toast.success(newReadyState ? "Sei pronto!" : "Non più pronto");
-
-      // Se tutti sono pronti (e il numero di giocatori è 4), la partita inizia
       if (data.allReady && room?.players.length === 4) {
         toast.success("Tutti pronti! La partita sta per iniziare...");
       }
@@ -247,14 +101,13 @@ const GameRoom = () => {
 
   const handleShareLink = () => {
     const inviteUrl = `${window.location.origin}/room/${roomCode}`;
-    navigator.clipboard.writeText(inviteUrl);
+    void navigator.clipboard.writeText(inviteUrl);
     toast.success("Link di invito copiato!");
   };
 
   const handleLeaveRoom = async () => {
     try {
       await apiPost(`/rooms/${roomCode}/leave`, {});
-
       toast.success("Hai lasciato la stanza");
       navigate("/");
     } catch (error) {
@@ -268,18 +121,7 @@ const GameRoom = () => {
 
     try {
       await apiPost(`/rooms/${roomCode}/choose-team`, { team });
-
-      setRoom((currentRoom) =>
-        currentRoom
-          ? {
-              ...currentRoom,
-              players: currentRoom.players.map((player) =>
-                player.userId === userId ? { ...player, team } : player,
-              ),
-            }
-          : currentRoom,
-      );
-
+      setPlayerTeam(userId, team);
       toast.success(`Sei nel Team ${team + 1}!`);
     } catch (error) {
       console.error("Error choosing team:", error);
@@ -288,20 +130,6 @@ const GameRoom = () => {
       );
     }
   };
-
-  // Crea array di 4 player (riempiendo gli slot vuoti)
-  const allPlayers: (RoomPlayer | null)[] = [];
-
-  const currentPlayers = [...(room?.players ?? [])].sort((a, b) => {
-    if (a.userId === userId) return -1;
-    if (b.userId === userId) return 1;
-    return a.username.localeCompare(b.username);
-  });
-
-  // Riempie gli slot con i player presenti
-  for (let i = 0; i < 4; i++) {
-    allPlayers[i] = currentPlayers[i] || null;
-  }
 
   if (authError) {
     return <AuthErrorState onRetry={retryAuth} />;
@@ -334,15 +162,16 @@ const GameRoom = () => {
     );
   }
 
+  const team0Players = room.players.filter((player) => player.team === 0).length;
+  const team1Players = room.players.filter((player) => player.team === 1).length;
+
   return (
     <div className="min-h-screen bg-background">
       <ConnectionBanner status={connectionStatus} />
-
       <Header />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto animate-fade-in">
-          {/* Room Info Card */}
           <Card className="bg-gradient-card border-border/50 mb-8">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
@@ -373,112 +202,13 @@ const GameRoom = () => {
             </CardContent>
           </Card>
 
-          {/* Players Grid */}
-          <div className="grid md:grid-cols-2 gap-4 mb-8">
-            {allPlayers.map((player, index) => {
-              const isMe = player?.userId === userId;
-              return (
-                <Card
-                  key={index}
-                  className={`bg-gradient-card border-border/50 transition-all duration-300 ${
-                    player
-                      ? "hover:border-primary/50 hover:scale-[1.02]"
-                      : "opacity-50"
-                  } ${isMe ? "ring-2 ring-primary" : ""}`}
-                >
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
-                            player
-                              ? "bg-gradient-primary text-primary-foreground"
-                              : "bg-secondary text-muted-foreground"
-                          }`}
-                        >
-                          {player ? (
-                            // Prendi solo le iniziali
-                            player?.username
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .toUpperCase()
-                          ) : (
-                            <X className="h-6 w-6" />
-                          )}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold text-lg">
-                              {player ? player.username : "In attesa..."}
-                            </p>
-                            {isMe && (
-                              <Badge variant="secondary" className="text-xs">
-                                Tu
-                              </Badge>
-                            )}
-                          </div>
-                          {player && (
-                            <>
-                              <div className="flex items-center gap-1.5 mt-1">
-                                <div
-                                  className={`w-2 h-2 rounded-full ${
-                                    player.isReady
-                                      ? "bg-accent animate-pulse"
-                                      : "bg-muted-foreground"
-                                  }`}
-                                />
-                                <p
-                                  className={`text-sm font-medium ${
-                                    player.isReady
-                                      ? "text-accent"
-                                      : "text-muted-foreground"
-                                  }`}
-                                >
-                                  {player.isReady ? "Pronto" : "Non pronto"}
-                                </p>
-                              </div>
-                              {player.team !== null && (
-                                <Badge
-                                  variant="outline"
-                                  className="text-xs mt-1"
-                                >
-                                  Team {player.team + 1}
-                                </Badge>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </div>
+          <WaitingRoomPlayers players={playerSlots} currentUserId={userId} />
 
-                      {player && (
-                        <div
-                          className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
-                            player.isReady
-                              ? "bg-accent/20 text-accent"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {player.isReady ? (
-                            <Check className="h-5 w-5" />
-                          ) : (
-                            <X className="h-5 w-5" />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-
-          {/* Actions */}
           <div className="grid sm:grid-cols-2 gap-4">
             <Button
               variant={myPlayer?.isReady ? "secondary" : "gradient"}
               size="lg"
-              onClick={handleReady}
+              onClick={() => void handleReady()}
               className="w-full"
               disabled={!myPlayer || myPlayer.team === null}
               data-testid="ready-button"
@@ -491,7 +221,7 @@ const GameRoom = () => {
               variant="outline"
               size="lg"
               className="w-full border-destructive/50 hover:bg-destructive/10 text-destructive"
-              onClick={handleLeaveRoom}
+              onClick={() => void handleLeaveRoom()}
               data-testid="leave-room-button"
             >
               <LogOut className="mr-2 h-5 w-5" />
@@ -508,23 +238,19 @@ const GameRoom = () => {
                 <div className="flex gap-4 justify-center">
                   <Button
                     variant="outline"
-                    onClick={() => handleChooseTeam(0)}
-                    disabled={
-                      room.players.filter((p) => p.team === 0).length >= 2
-                    }
+                    onClick={() => void handleChooseTeam(0)}
+                    disabled={team0Players >= 2}
                     data-testid="team-0-button"
                   >
-                    Team 1 ({room.players.filter((p) => p.team === 0).length}/2)
+                    Team 1 ({team0Players}/2)
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => handleChooseTeam(1)}
-                    disabled={
-                      room.players.filter((p) => p.team === 1).length >= 2
-                    }
+                    onClick={() => void handleChooseTeam(1)}
+                    disabled={team1Players >= 2}
                     data-testid="team-1-button"
                   >
-                    Team 2 ({room.players.filter((p) => p.team === 1).length}/2)
+                    Team 2 ({team1Players}/2)
                   </Button>
                 </div>
               </CardContent>

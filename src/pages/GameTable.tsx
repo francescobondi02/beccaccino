@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import PlayingCard from "@/components/PlayingCard";
 import TrumpSuitDialog from "@/components/TrumpSuitDialog";
 import LastTrickDialog from "@/components/LastTrickDialog";
 import RoundEndDialog from "@/components/RoundEndDialog";
@@ -10,21 +9,12 @@ import GameFinishedDialog from "@/components/GameFinishedDialog";
 import GameChat from "@/components/GameChat";
 import SignalDialog from "@/components/SignalDialog";
 import ConnectionBanner from "@/components/ConnectionBanner";
-import PlayerSeat from "@/components/PlayerSeat";
-import TableCenter from "@/components/TableCenter";
 import PracticeHistoryDialog from "@/components/PracticeHistoryDialog";
 import AuthErrorState from "@/components/AuthErrorState";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import GameBoard from "@/components/game/GameBoard";
+import GameScoreHeader from "@/components/game/GameScoreHeader";
+import PausedPracticeDialog from "@/components/game/PausedPracticeDialog";
+import PracticeActions from "@/components/game/PracticeActions";
 import {
   AlertCircle,
   History,
@@ -37,19 +27,14 @@ import { apiGet, apiPost, ApiError } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useGameTable } from "@/hooks/useGameTable";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
-import type { PlayerCard, PlayerPosition, Signal } from "@/game/model";
+import { useTurnCountdown } from "@/hooks/useTurnCountdown";
+import type { PlayerCard, Signal } from "@/game/model";
+import { positionPlayers } from "@/game/presentation";
 import {
   normalizeRoom,
   type Room,
-  type RoomPlayer,
   type RoomResponse,
 } from "@/rooms/model";
-
-interface PositionedPlayer extends RoomPlayer {
-  position?: PlayerPosition;
-  isLocalPlayer?: boolean;
-  isTeammate?: boolean;
-}
 
 const GameTable = () => {
   const { gameRoomCode } = useParams();
@@ -64,7 +49,8 @@ const GameTable = () => {
   const username = user?.username ?? "";
   const [room, setRoom] = useState<Room | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [myPlayer, setMyPlayer] = useState<RoomPlayer | null>(null);
+  const myPlayer =
+    room?.players.find((player) => player.userId === userId) ?? null;
 
   const {
     currentRound,
@@ -83,12 +69,14 @@ const GameTable = () => {
     moveLog,
     roundEndData,
     gameFinishedData,
+    gameStatus,
     gameStateStatus,
     refetchGameState,
     dismissRoundEnd,
     applyLocalBriscola,
   } = useGameTable(gameRoomCode, userId, username, room?.players ?? []);
   const connectionStatus = useConnectionStatus();
+  const countdown = useTurnCountdown(turnTimer);
 
   // Dialog state
   const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);
@@ -96,12 +84,14 @@ const GameTable = () => {
   const [roundEndDialogOpen, setRoundEndDialogOpen] = useState(false);
   const [gameFinishedDialogOpen, setGameFinishedDialogOpen] = useState(false);
   const [isReturningHome, setIsReturningHome] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
+  const [confirmPausedAbandon, setConfirmPausedAbandon] = useState(false);
 
   // Signal dialog state (pending card waiting for signal choice)
   const [pendingCard, setPendingCard] = useState<PlayerCard | null>(null);
   const [signalDialogOpen, setSignalDialogOpen] = useState(false);
 
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [isPlayingCard, setIsPlayingCard] = useState(false);
   const [practiceHistoryOpen, setPracticeHistoryOpen] = useState(false);
   const [handsRevealed, setHandsRevealed] = useState(false);
@@ -135,9 +125,6 @@ const GameTable = () => {
 
         const normalizedRoom = normalizeRoom(roomData);
         setRoom(normalizedRoom);
-
-        const me = normalizedRoom.players.find((p) => p.userId === userId);
-        setMyPlayer(me || null);
       } catch (error) {
         if (error instanceof ApiError) {
           if (error.status === 404) {
@@ -174,11 +161,23 @@ const GameTable = () => {
     });
   }, []);
 
+  useEffect(() => {
+    return subscribeToRoomEvent(
+      "practice_abandoned",
+      ({ roomCode: abandonedRoomCode }) => {
+        if (abandonedRoomCode !== gameRoomCode) return;
+        toast.info("L'allenamento è stato abbandonato");
+        navigate("/");
+      },
+    );
+  }, [gameRoomCode, navigate]);
+
   // Il caller vede il dialog briscola finché non sceglie (il dialog non è
   // chiudibile in altro modo, quindi ri-aprirlo a ogni cambio di stato è
   // equivalente al vecchio open-on-fetch).
   useEffect(() => {
     setTrumpDialogOpen(
+      gameStatus !== "paused" &&
       currentRound?.briscola === null &&
         callerUserId === userId &&
         !roundEndData &&
@@ -188,9 +187,20 @@ const GameTable = () => {
     currentRound?.briscola,
     callerUserId,
     userId,
+    gameStatus,
     roundEndData,
     gameFinishedData,
   ]);
+
+  useEffect(() => {
+    if (gameStatus === "paused") {
+      setTrumpDialogOpen(false);
+      setSignalDialogOpen(false);
+      setPendingCard(null);
+      return;
+    }
+    setConfirmPausedAbandon(false);
+  }, [gameStatus]);
 
   useEffect(() => {
     setRoundEndDialogOpen(Boolean(roundEndData));
@@ -204,75 +214,10 @@ const GameTable = () => {
     }
   }, [gameFinishedData]);
 
-  // Countdown timer interval. totalMs is null on bot turns — no deadline,
-  // so no countdown.
-  useEffect(() => {
-    if (!turnTimer || turnTimer.totalMs === null) {
-      setCountdown(null);
-      return;
-    }
-    const totalMs = turnTimer.totalMs;
-
-    const tick = () => {
-      const elapsed = Date.now() - turnTimer.startedAt;
-      const remaining = Math.max(0, Math.ceil((totalMs - elapsed) / 1000));
-      setCountdown(remaining);
-    };
-
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [turnTimer]);
-
-  // Calcola le posizioni relative dei giocatori
-  const getPlayersWithPositions = (): PositionedPlayer[] => {
-    if (!room || !myPlayer) return [];
-
-    // Ordina i giocatori per seat
-    const sortedPlayers = [...room.players].sort((a, b) => {
-      if (a.seat === null) return 1;
-      if (b.seat === null) return -1;
-      return a.seat - b.seat;
-    });
-
-    // Trova l'indice del giocatore corrente
-    const myIndex = sortedPlayers.findIndex((p) => p.userId === userId);
-    if (myIndex === -1) return [];
-
-    // Mappa delle posizioni relative
-    const positionMap: Record<number, PlayerPosition> = {
-      0: "bottom",
-      1: "left",
-      2: "top",
-      3: "right",
-    };
-
-    // Assegna le posizioni relative
-    return sortedPlayers.map((player, index) => {
-      const relativeIndex = (index - myIndex + 4) % 4;
-      return {
-        ...player,
-        position: positionMap[relativeIndex],
-        isLocalPlayer: player.userId === userId,
-        isTeammate: player.team === myPlayer.team && player.userId !== userId,
-      };
-    });
-  };
-
-  const playersWithPositions = getPlayersWithPositions();
-
-  // Calcola i punti per squadra
-  const myTeamPoints =
-    myPlayer?.team === 0
-      ? totalPoints.team0Points
-      : totalPoints.team1Points;
-
-  const opponentTeamPoints =
-    myPlayer?.team === 0
-      ? totalPoints.team1Points
-      : totalPoints.team0Points;
+  const playersWithPositions = positionPlayers(room?.players ?? [], userId);
   const showPracticeHistory = import.meta.env.DEV && isPractice;
   const practiceHistoryBlocked =
+    gameStatus === "paused" ||
     trumpDialogOpen ||
     signalDialogOpen ||
     roundEndDialogOpen ||
@@ -383,37 +328,50 @@ const GameTable = () => {
     }
   };
 
-  const practiceLeaveAction = isPractice && !gameFinishedData && (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button
-          variant="destructive"
-          size="sm"
-          disabled={isReturningHome}
-          data-testid="abandon-practice-button"
-        >
-          Abbandona
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent className="bg-card">
-        <AlertDialogHeader>
-          <AlertDialogTitle>Abbandonare l'allenamento?</AlertDialogTitle>
-          <AlertDialogDescription>
-            La partita verrà chiusa e non potrai riprenderla.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Annulla</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleReturnHome}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            Abbandona
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
+  const handlePause = async () => {
+    if (!gameRoomCode) return;
+
+    setIsPausing(true);
+    try {
+      await apiPost<{ success: boolean; paused: boolean }>(
+        `/rooms/${gameRoomCode}/pause`,
+        {},
+      );
+      navigate("/");
+    } catch (error) {
+      console.error("Error pausing practice room:", error);
+      toast.error("Impossibile mettere in pausa l'allenamento. Riprova.");
+      setIsPausing(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!gameRoomCode) return;
+
+    setIsResuming(true);
+    try {
+      await apiPost<{ success: boolean; paused: boolean }>(
+        `/rooms/${gameRoomCode}/resume`,
+        {},
+      );
+      await refetchGameState();
+    } catch (error) {
+      console.error("Error resuming practice room:", error);
+      toast.error("Impossibile riprendere l'allenamento. Riprova.");
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const practiceActions =
+    isPractice && !gameFinishedData && gameStatus !== "paused" ? (
+      <PracticeActions
+        isPausing={isPausing}
+        isLeaving={isReturningHome}
+        onPause={() => void handlePause()}
+        onLeave={() => void handleReturnHome()}
+      />
+    ) : null;
 
   if (authError) {
     return <AuthErrorState onRetry={retryAuth} />;
@@ -478,214 +436,28 @@ const GameTable = () => {
       {/* Connection Status Banner */}
       <ConnectionBanner status={connectionStatus} />
 
-      <div className="absolute top-4 right-4 text-sm text-muted-foreground">
-        Room:{" "}
-        <span className="font-semibold text-foreground">{gameRoomCode}</span>
-      </div>
+      <GameScoreHeader
+        roomCode={gameRoomCode}
+        briscola={currentRound?.briscola}
+        roundNumber={currentRound?.number}
+        handNumber={currentHandNumber}
+        playerTeam={myPlayer.team}
+        totalPoints={totalPoints}
+      />
 
-      {/* Briscola Badge */}
-      {currentRound?.briscola && (
-        <Card className="absolute top-4 left-4 px-4 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <img
-              src={`/images/semi/${currentRound.briscola}_seme.png`}
-              alt={currentRound.briscola}
-              className="w-8 h-8 object-contain"
-            />
-            <div>
-              <div className="text-xs text-muted-foreground">Briscola</div>
-              <div className="text-sm font-bold capitalize">
-                {currentRound.briscola}
-              </div>
-            </div>
-          </div>
-        </Card>
-      )}
-
-      {/* Team Points Panel */}
-      <div className="container absolute inset-x-0 top-4 mx-auto flex justify-center px-4">
-        <Card
-          className="px-6 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm"
-          data-testid="team-points-panel"
-        >
-          {currentHandNumber && currentRound && (
-            <div className="text-center text-xs text-muted-foreground mb-2 border-b border-border pb-1">
-              Round {currentRound.number} &middot; Mano {currentHandNumber}/10
-            </div>
-          )}
-          <div className="flex items-center gap-6">
-            <div className="text-center">
-              <div className="text-xs text-muted-foreground mb-1">
-                La tua squadra (Team {(myPlayer.team ?? 0) + 1})
-              </div>
-              <div
-                className="text-2xl font-bold text-primary"
-                data-testid="my-team-points"
-              >
-                {myTeamPoints}
-              </div>
-            </div>
-            <div className="h-8 w-px bg-border" />
-            <div className="text-center">
-              <div className="text-xs text-muted-foreground mb-1">
-                Avversari (Team {((myPlayer.team ?? 0) === 0 ? 1 : 0) + 1})
-              </div>
-              <div
-                className="text-2xl font-bold text-accent"
-                data-testid="opponent-team-points"
-              >
-                {opponentTeamPoints}
-              </div>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Main game area */}
-      <div
-        className="container mx-auto h-screen flex flex-col items-center pt-32 pb-4 px-4"
-        data-testid="game-layout"
-      >
-        <div className="flex-1 min-h-0 flex items-center justify-center w-full">
-          <div className="relative w-full h-full max-h-[34rem] max-w-[50rem] flex items-center justify-center">
-            {/* Top Player */}
-            <div
-              className="absolute left-1/2 top-0 -translate-x-1/2"
-              data-testid="player-position-top"
-            >
-              {playersWithPositions
-                .filter((p) => p.position === "top")
-                .map((player) => (
-                  <PlayerSeat
-                    key={player.id}
-                    testId="player-seat-top"
-                    player={player}
-                    isTurn={currentTurnUserId === player.userId}
-                    showRole
-                    countdown={countdown}
-                    signal={
-                      currentSignal?.userId === player.userId
-                        ? currentSignal.signal
-                        : null
-                    }
-                  />
-                ))}
-            </div>
-
-            {/* Left Player */}
-            <div
-              className="absolute left-8 top-1/2 -translate-y-1/2"
-              data-testid="player-position-left"
-            >
-              {playersWithPositions
-                .filter((p) => p.position === "left")
-                .map((player) => (
-                  <PlayerSeat
-                    key={player.id}
-                    player={player}
-                    isTurn={currentTurnUserId === player.userId}
-                    showRole
-                    signal={
-                      currentSignal?.userId === player.userId
-                        ? currentSignal.signal
-                        : null
-                    }
-                  />
-                ))}
-            </div>
-
-            {/* Right Player */}
-            <div
-              className="absolute right-8 top-1/2 -translate-y-1/2"
-              data-testid="player-position-right"
-            >
-              {playersWithPositions
-                .filter((p) => p.position === "right")
-                .map((player) => (
-                  <PlayerSeat
-                    key={player.id}
-                    player={player}
-                    isTurn={currentTurnUserId === player.userId}
-                    showRole
-                    signal={
-                      currentSignal?.userId === player.userId
-                        ? currentSignal.signal
-                        : null
-                    }
-                  />
-                ))}
-            </div>
-
-            {/* Central Table with Played Cards */}
-            <TableCenter
-              cards={playedCards.map((playedCard) => ({
-                userId: playedCard.userId,
-                suit: playedCard.suit,
-                value: playedCard.value,
-                position:
-                  playersWithPositions.find(
-                    (p) => p.userId === playedCard.userId,
-                  )?.position ?? "bottom",
-              }))}
-              briscolaChosen={Boolean(currentRound?.briscola)}
-              waitingForUsername={
-                playersWithPositions.find(
-                  (p) =>
-                    p.userId ===
-                    (currentRound?.briscola === null
-                      ? callerUserId
-                      : currentTurnUserId),
-                )?.username ?? "giocatore"
-              }
-              countdown={countdown}
-            />
-          </div>
-        </div>
-
-        {/* Bottom: Local Player Info + Hand */}
-        <div className="flex flex-col items-center gap-3 w-full">
-          {/* Player's Hand */}
-          <div
-            className="flex gap-2 xl:gap-1 flex-wrap justify-center max-w-5xl"
-            data-testid="player-hand"
-          >
-            {myCards
-              .filter((c) => c.inHand)
-              .map((card) => {
-                const isPlayable = playableCards.some(
-                  (pc) => pc.suit === card.suit && pc.value === card.value,
-                );
-                const isMyTurn = currentTurnUserId === userId;
-
-                return (
-                  <PlayingCard
-                    key={card.id}
-                    suit={card.suit}
-                    value={card.value}
-                    onClick={() => handleCardClick(card)}
-                    size="lg"
-                    className="xl:w-[5.5rem] xl:h-[7.75rem] xl:hover:scale-105"
-                    clickable={isMyTurn && isPlayable}
-                    disabled={!isMyTurn || !isPlayable}
-                    data-testid={`hand-card-${card.suit}-${card.value}`}
-                  />
-                );
-              })}
-          </div>
-
-          {/* Local Player Info */}
-          {playersWithPositions
-            .filter((p) => p.position === "bottom")
-            .map((player) => (
-              <PlayerSeat
-                key={player.id}
-                testId="player-seat-bottom"
-                player={player}
-                isTurn={currentTurnUserId === player.userId}
-              />
-            ))}
-        </div>
-      </div>
+      <GameBoard
+        players={playersWithPositions}
+        currentTurnUserId={currentTurnUserId}
+        currentSignal={currentSignal}
+        countdown={countdown}
+        playedCards={playedCards}
+        briscola={currentRound?.briscola}
+        callerUserId={callerUserId}
+        currentUserId={userId}
+        hand={myCards}
+        playableCards={playableCards}
+        onCardClick={(card) => void handleCardClick(card)}
+      />
 
       {/* Game Action Buttons */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2">
@@ -722,19 +494,30 @@ const GameTable = () => {
             Scegli Briscola
           </Button>
         )}
-        {!trumpDialogOpen && practiceLeaveAction}
+        {!trumpDialogOpen && !signalDialogOpen && practiceActions}
       </div>
 
       {/* Dialogs */}
       <SignalDialog
         open={signalDialogOpen}
         onSelect={handleSignalSelect}
+        practiceActions={practiceActions}
       />
       <TrumpSuitDialog
         open={trumpDialogOpen}
         onSelectSuit={handleTrumpSelect}
         myCards={myCards}
-        practiceLeaveAction={practiceLeaveAction}
+        practiceActions={practiceActions}
+      />
+      <PausedPracticeDialog
+        open={gameStatus === "paused"}
+        confirmAbandon={confirmPausedAbandon}
+        isLeaving={isReturningHome}
+        isResuming={isResuming}
+        onCancelAbandon={() => setConfirmPausedAbandon(false)}
+        onConfirmAbandon={() => void handleReturnHome()}
+        onRequestAbandon={() => setConfirmPausedAbandon(true)}
+        onResume={() => void handleResume()}
       />
       <LastTrickDialog
         open={lastTrickDialogOpen}

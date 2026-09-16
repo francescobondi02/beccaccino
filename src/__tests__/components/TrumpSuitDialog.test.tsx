@@ -23,28 +23,41 @@ describe("TrumpSuitDialog", () => {
     }
   });
 
-  it("opens the practice leave confirmation inside the mandatory dialog", () => {
+  it("keeps pause and leave actions reachable inside the mandatory dialog", () => {
+    const onPause = vi.fn();
     const onLeave = vi.fn();
     render(
       <TrumpSuitDialog
         open
         onSelectSuit={vi.fn()}
         myCards={[]}
-        practiceLeaveAction={
-          <AlertDialog>
-            <AlertDialogTrigger>Abbandona</AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogTitle>Abbandonare?</AlertDialogTitle>
-              <AlertDialogDescription>
-                La partita verrà chiusa.
-              </AlertDialogDescription>
-              <AlertDialogAction onClick={onLeave}>Conferma</AlertDialogAction>
-            </AlertDialogContent>
-          </AlertDialog>
+        practiceActions={
+          <div>
+            <button type="button" onClick={onPause}>
+              Pausa e torna alla home
+            </button>
+            <AlertDialog>
+              <AlertDialogTrigger>Abbandona</AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogTitle>Abbandonare?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  La partita verrà chiusa.
+                </AlertDialogDescription>
+                <AlertDialogAction onClick={onLeave}>
+                  Conferma
+                </AlertDialogAction>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         }
       />,
     );
 
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Pausa e torna alla home",
+      }),
+    );
     fireEvent.click(
       within(screen.getByRole("dialog")).getByRole("button", {
         name: "Abbandona",
@@ -56,6 +69,7 @@ describe("TrumpSuitDialog", () => {
       }),
     );
 
+    expect(onPause).toHaveBeenCalledOnce();
     expect(onLeave).toHaveBeenCalledOnce();
   });
 });

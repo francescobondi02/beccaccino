@@ -58,6 +58,7 @@ function gameState(
   overrides: Partial<GameStateResponse> = {},
 ): GameStateResponse {
   return {
+    pausedAt: null,
     round: { id: 20, number: 1, briscola: "spade" },
     currentHandNumber: 1,
     callerUserId: 1,
@@ -207,6 +208,63 @@ describe("useGameTable turn synchronization", () => {
     );
     expect(result.current.currentTurnUserId).toBeNull();
     expect(result.current.turnTimer).toBeNull();
+  });
+
+  it("does not request playable cards while the game is paused", async () => {
+    mocks.apiGet.mockResolvedValue(
+      gameState({
+        status: "paused",
+        pausedAt: "2026-08-27T18:00:00.000Z",
+        currentTurnUserId: 1,
+        turnTimer: null,
+        isPractice: true,
+      }),
+    );
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+      ]),
+    );
+
+    await waitFor(() => expect(result.current.gameStatus).toBe("paused"));
+    expect(result.current.pausedAt).toBe("2026-08-27T18:00:00.000Z");
+    expect(result.current.playableCards).toEqual([]);
+    expect(
+      mocks.apiGet.mock.calls.some(
+        ([path]) => path === "/games/playable-cards/ROOM",
+      ),
+    ).toBe(false);
+  });
+
+  it("reconciles pause and resume events from another open tab", async () => {
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ isPractice: true }))
+      .mockResolvedValueOnce(
+        gameState({
+          status: "paused",
+          pausedAt: "2026-08-27T18:00:00.000Z",
+          isPractice: true,
+        }),
+      )
+      .mockResolvedValueOnce(gameState({ isPractice: true }));
+
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+      ]),
+    );
+    await waitFor(() => expect(result.current.gameStatus).toBe("playing"));
+
+    emitSocket("practice_paused", {
+      roomCode: "ROOM",
+      pausedAt: "2026-08-27T18:00:00.000Z",
+    });
+    await waitFor(() => expect(result.current.gameStatus).toBe("paused"));
+
+    emitSocket("practice_resumed", { roomCode: "ROOM" });
+    await waitFor(() => expect(result.current.gameStatus).toBe("playing"));
+    expect(stateRequestCount()).toBe(3);
   });
 
   it("advances to my turn and fetches fresh playable cards", async () => {
@@ -418,6 +476,36 @@ describe("useGameTable turn synchronization", () => {
       await Promise.resolve();
     });
     expect(stateRequestCount()).toBe(1);
+  });
+
+  it("ignores a state request failure after unmount", async () => {
+    const pending = deferred<GameStateResponse>();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }))
+      .mockImplementationOnce(() => pending.promise);
+
+    const { result, unmount } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", [
+        { userId: 1, username: "alice" },
+        { userId: 2, username: "bob" },
+      ]),
+    );
+
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
+    emitSocket("practice_paused", { roomCode: "ROOM" });
+    await waitFor(() => expect(stateRequestCount()).toBe(2));
+
+    unmount();
+    await act(async () => {
+      pending.reject(new TypeError("Failed to fetch"));
+      await Promise.resolve();
+    });
+
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("ignores a stale game-state response that resolves out of order", async () => {

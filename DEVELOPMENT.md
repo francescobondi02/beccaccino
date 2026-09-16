@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Node.js** 18+
+- **Node.js** 24+ (matches CI)
 - Backend running at `http://localhost:8000` (via Finch Compose from project root)
 
 ## Environment Setup
@@ -23,7 +23,7 @@ VITE_SOCKET_URL=http://localhost:8000
 
 ```sh
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -47,6 +47,10 @@ frontend/
 │   │   └── NotFound.tsx        # 404
 │   ├── components/
 │   │   ├── AnnotationScenario.tsx # Shared context and play-card/briscola decisions
+│   │   ├── annotation/         # Annotation summary, trick, action, and dialog views
+│   │   ├── game/               # Active-table board, score, and practice controls
+│   │   ├── lobby/              # Lobby actions, room lists, and card background
+│   │   ├── rooms/              # Waiting-room player presentation
 │   │   ├── AuthDialog.tsx      # Login/register modal
 │   │   ├── Header.tsx          # Top nav bar
 │   │   ├── PlayingCard.tsx     # Card image renderer
@@ -57,18 +61,25 @@ frontend/
 │   │   ├── LastTrickDialog.tsx # View last trick
 │   │   └── ui/                 # shadcn/ui primitives (do not edit manually)
 │   ├── sockets/
+│   │   ├── events.ts           # Typed client/server event contract
 │   │   ├── socketClient.ts     # Singleton socket connection
 │   │   ├── lobbyHandlers.ts    # Lobby events (room_created, room_updated, etc.)
 │   │   └── roomHandlers.ts     # Room events (player_joined, team_chosen, etc.)
 │   ├── hooks/
 │   │   ├── useAuth.ts          # Shared authentication state and actions
 │   │   ├── useConnectionStatus.ts # Socket status and reconnect refresh
-│   │   └── useGameTable.ts     # Game table loading and socket coordination
-│   ├── game/                   # Game DTOs and reducer state
+│   │   ├── useGameTable.ts     # Game table loading and socket coordination
+│   │   ├── useLobbyRooms.ts    # Lobby fetch and socket reconciliation
+│   │   ├── useTurnCountdown.ts # Server-authoritative timer presentation
+│   │   └── useWaitingRoom.ts   # Waiting-room fetch and socket reconciliation
+│   ├── game/                   # Game DTOs, reducer state, and view selectors
 │   ├── annotations/            # Expert annotation API model types
-│   ├── rooms/                  # Room DTOs and response normalization
+│   ├── rooms/                  # Room DTOs, normalization, and pure reducers
+│   ├── v2/                     # Unrouted V2 design foundation
 │   └── lib/
 │       ├── api.ts              # Typed REST request helpers
+│       ├── roomRedirect.ts     # Active-room conflict navigation
+│       ├── sentryUser.ts       # Browser error-reporting identity
 │       └── utils.ts            # cn() utility (clsx + tailwind-merge)
 ├── public/
 │   ├── images/cards/           # Italian card images ({value}_{suit}.png)
@@ -86,7 +97,10 @@ frontend/
 - **Auth via HTTP-only cookies**: The backend sets a `authToken` cookie. All `fetch()` calls use `credentials: "include"`.
 - **State management**: Local React state + React Query. No global store.
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
+- **Page ownership**: Pages own route adaptation, user feedback, commands, and view composition. Hooks own asynchronous coordination. Reducers and selectors remain pure.
+- **V2 status**: `src/v2/` is not imported by the active router or stylesheet entry point. Do not duplicate V1 behavior there until migration ownership is decided.
 - **Practice history**: When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
+- **Practice pause**: The explicit pause action stops server-side bot and timer activity before returning home. Paused games appear under `Allenamenti in pausa`; resume completes before navigation, while direct paused-game links show blocking resume and confirmed-abandon controls. Disconnects never pause a game automatically.
 - **Expert annotations**: REST-only workflow. The backend supplies immutable
   scenario identity and legal actions; the client returns the selected action
   or an explicit skip plus perceived difficulty without exposing model
@@ -147,9 +161,15 @@ End-to-end tests use **Playwright** to simulate 4 real browser sessions playing 
 - Backend dependencies and environment configured
 - Frontend dependencies installed
 
-Playwright auto-starts the backend and frontend through `playwright.config.ts`,
-or reuses servers already listening on ports 8000 and 8081. The auto-started
-backend uses the isolated `becca_test` database.
+Playwright auto-starts the backend and frontend through `playwright.config.ts`.
+It does not reuse servers already listening on ports 8000 and 8081 unless
+`E2E_REUSE_SERVERS=true` is set explicitly. The auto-started backend uses the
+isolated `becca_test` database.
+
+For the release-quality local gate, run `./scripts/pre-push.sh` from the project
+root. It uses a unique PostgreSQL schema, dedicated ports, and a deterministic
+local bot stub. `./scripts/pre-push.sh --keep-open` leaves that verified stack
+at `http://localhost:18081` for manual review until Ctrl-C.
 
 #### Commands
 
@@ -175,7 +195,8 @@ frontend/e2e/
 │   └── fixtures.ts         # Playwright fixtures with createBot factory
 ├── annotation.spec.ts      # Account login, expert code, answer, skip, and ratings
 ├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
-└── first-trick.spec.ts     # Briscola selection and the first 4-card trick
+├── first-trick.spec.ts     # Briscola selection and the first 4-card trick
+└── practice-pause-resume.spec.ts # Pause, resume, direct overlay, mobile, abandon
 ```
 
 The annotation E2E test seeds two valid SQL scenarios through
@@ -213,7 +234,7 @@ Key patterns:
 
 `playwright.config.ts` configures:
 - **webServer**: Auto-starts backend (port 8000) and frontend (port 8081)
-- **reuseExistingServer**: Skips auto-start if servers are already running
+- **reuseExistingServer**: Disabled unless `E2E_REUSE_SERVERS=true`
 - **trace/video**: Recorded on first retry for debugging failures
 - **timeout**: 60s by default; the first-trick scenario raises its budget to 90s
 
@@ -259,6 +280,8 @@ npx playwright test first-trick --headed --timeout=120000
 | `/room/:roomCode` | GameRoom | Waiting room — team pick, ready |
 | `/game/:gameRoomCode` | GameTable | Active game |
 | `/profile` | Profile | User stats and account settings |
+| `/leaderboard` | Leaderboard | Global player rankings |
+| `/practice` | Practice | Practice tier selection |
 | `/annotate` | Annotation | Shared-code gate and expert scenario labeling |
 | `*` | NotFound | 404 |
 

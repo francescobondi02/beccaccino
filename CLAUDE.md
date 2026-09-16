@@ -19,6 +19,10 @@ src/
     NotFound.tsx        404 page
   components/
     AnnotationScenario.tsx Shared scenario context with card/signal or briscola decisions
+    annotation/          Annotation summary, trick, selection, and response views
+    game/                Table board, score header, and practice controls
+    lobby/               Lobby actions, room lists, and decorative background
+    rooms/               Waiting-room player presentation
     AuthDialog.tsx      Login/register modal
     Header.tsx          Nav bar with auth state
     PlayingCard.tsx     Single card renderer (suit + value → image)
@@ -32,6 +36,7 @@ src/
     GameFinishedDialog.tsx  Game over with final scores
     ui/                 shadcn/ui components (don't edit manually — use CLI to add new ones)
   sockets/
+    events.ts           Typed client/server event contract
     socketClient.ts     Singleton Socket.IO client, reconnection logic, status tracking
     lobbyHandlers.ts    Lobby socket events: room_created, room_updated, room_full, room_deleted
     roomHandlers.ts     Room socket events: join, leave, team, ready, game start
@@ -39,10 +44,17 @@ src/
     useAuth.ts          Shared authentication state and actions
     useConnectionStatus.ts Socket status and reconnect refresh
     useGameTable.ts     Game table state and socket coordination
-  game/                 Game DTOs and reducer state
+    useLobbyRooms.ts    Lobby room hydration and socket coordination
+    useTurnCountdown.ts Server-authoritative timer presentation
+    useWaitingRoom.ts   Waiting-room hydration and socket coordination
+  game/                 Game DTOs, reducer state, and presentation selectors
   annotations/          Expert annotation API model types
-  rooms/                Room DTOs and response normalization
+  rooms/                Room DTOs, normalization, and pure state reducers
+  v2/                   Unrouted V2 design foundation
   lib/
+    api.ts              Typed REST helpers and ApiError
+    roomRedirect.ts     Active-room conflict navigation
+    sentryUser.ts       Browser error-reporting identity
     utils.ts            cn() utility for Tailwind class merging
   assets/               Static images used in components
   __tests__/            Vitest unit tests for components and socket handlers
@@ -53,12 +65,20 @@ e2e/
   lobby-to-game.spec.ts  4 players: register → room → teams → ready → game starts
   first-trick.spec.ts    Briscola selection and the first 4-card trick
   annotation.spec.ts     Account-linked expert answer and skip workflow
+  practice-pause-resume.spec.ts Practice pause, resume, direct links, and abandon
 public/
   images/cards/         40 card PNGs (format: {value}_{suit}.png, e.g., asso_denari.png)
   images/semi/          4 suit icon PNGs
 ```
 
 ## Key Patterns
+
+### Responsibility boundaries
+- Pages adapt routes and authentication, execute user commands, and compose views.
+- Hooks coordinate REST, Socket.IO, and reconnect behavior.
+- Reducers and selectors are pure and independently tested.
+- Feature view components receive data and callbacks; they do not fetch or subscribe.
+- V2 is not part of the active router. Keep it isolated until product migration is explicit.
 
 ### Socket.IO Client (socketClient.ts)
 - Singleton pattern: `getSocket()` creates once, returns same instance
@@ -68,8 +88,10 @@ public/
 - Lobby handlers auto-rejoin on reconnect
 
 ### GameTable.tsx (main game page)
-- Fetches initial state via REST `GET /api/games/:roomCode/state` on mount
-- Subscribes to socket events for real-time updates: card_played, hand_complete, round_ended, etc.
+- Composes the active table from `useGameTable`, pure selectors, and focused
+  game components
+- `useGameTable` fetches `GET /api/games/:roomCode/state` and reconciles
+  card, hand, round, timer, and practice lifecycle events
 - Player positions mapped to CSS positions: bottom (me), top (partner), left/right (opponents)
 - Signal flow: click card → if trick leader, show SignalDialog → then send play-card with signal
 - Pending card stored in ref while signal dialog is open
@@ -108,12 +130,14 @@ public/
 ## Build
 
 ```bash
-npm run build       # vite build → dist/ (static files)
+npm run typecheck   # TypeScript project checks
+npm run build       # vite build -> dist/ (static files)
 npm run dev         # vite dev server on :8081
 ```
 
-Vercel auto-detects Vite framework. Set root directory to `frontend/`.
-SPA routing handled automatically (all paths → index.html).
+GitHub Actions deploys the exact successful `main` commit with the pinned
+Vercel CLI and then verifies `/version.json`. Direct Vercel Git deployments
+are disabled. SPA routing is handled by `vercel.json`.
 
 ## Testing
 
@@ -128,7 +152,7 @@ npx playwright show-report  # HTML report with traces after failures
 
 - All UI text is in Italian
 - Card images: `/images/cards/{value}_{suit}.png` where suit uses "denari" (not "denara") in filenames
-- Practice games show an "Abbandona" button while playing, which confirms and then deletes the room. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".
+- Practice games show "Pausa e torna alla home" alongside the confirmed, destructive "Abbandona" action, including inside the mandatory briscola and signal dialogs. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".
 - When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`
 - Animations: card-from-bottom for chat; directional table-card animations for plays
