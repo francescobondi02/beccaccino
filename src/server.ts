@@ -9,7 +9,6 @@ import {
   verifyActiveSession,
 } from "./auth/activeSession";
 import { isTestAuthBypassEnabled } from "./auth/testAuthBypass";
-import { frontendOrigin } from "./http/frontendOrigin";
 
 type SocketHandshake = {
   address: string;
@@ -36,12 +35,8 @@ function getClientIp(handshake: SocketHandshake): string {
   return handshake.address;
 }
 
-export function createServer(
-  options: CreateServerOptions = {},
-): CreatedServer {
-  const corsOrigin =
-    options.corsOrigin ??
-    frontendOrigin();
+export function createServer(options: CreateServerOptions = {}): CreatedServer {
+  const corsOrigin = options.corsOrigin ?? process.env.FRONTEND_URL;
   const allowTestAuthBypass = isTestAuthBypassEnabled(
     options.allowTestAuthBypass,
   );

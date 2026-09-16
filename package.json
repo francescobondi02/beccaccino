@@ -2,7 +2,6 @@
   "name": "becca-backend",
   "dependencies": {
     "@prisma/client": "6.16.3",
-    "@sentry/node": "^10.55.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -16,7 +15,6 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
-    "@sentry/cli": "^3.4.3",
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.9",
     "@types/express": "^5.0.3",
@@ -45,7 +43,6 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/index.js",
     "migrate": "npx prisma migrate deploy",
-    "practice:export": "node dist/scripts/exportPracticeMatches.js",
-    "sentry:sourcemaps": "node scripts/upload-sourcemaps.js"
+    "practice:export": "node dist/scripts/exportPracticeMatches.js"
   }
 }

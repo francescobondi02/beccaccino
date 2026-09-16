@@ -1,16 +1,13 @@
 import { Response } from "express";
 import { generateToken } from "../utils/jwt";
-import { frontendOrigin } from "./frontendOrigin";
 
+// La ENV VAR specifica se siamo in production. Il Dockerfile del backend la specifica, mentre in locale non è definita.
 const isProduction = process.env.NODE_ENV === "production";
-const isCrossOrigin =
-  isProduction &&
-  !frontendOrigin().includes(process.env.RENDER_EXTERNAL_HOSTNAME || "");
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProduction,
-  sameSite: (isCrossOrigin ? "none" : "strict") as "none" | "strict",
+  sameSite: (isProduction ? "none" : "strict") as "none" | "strict",
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 

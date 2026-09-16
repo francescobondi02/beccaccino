@@ -1,4 +1,3 @@
-import * as Sentry from "@sentry/node";
 import { logger } from "../logger";
 import { getSocketInstance } from "../socketInstance";
 import { GameEvent } from "../game/transitions/types";
@@ -12,7 +11,6 @@ export function publishEvent(
   try {
     getSocketInstance().to(target).emit(event, payload);
   } catch (error) {
-    Sentry.captureException(error, { extra: { event, target, ...context } });
     logger.warn(
       { err: error, event, target, ...context },
       "event_publication_failed",
@@ -34,7 +32,6 @@ export async function runBestEffort(
   try {
     await operation();
   } catch (error) {
-    Sentry.captureException(error, { extra: { operation: name, ...context } });
     logger.warn({ err: error, ...context }, `${name}_failed`);
   }
 }

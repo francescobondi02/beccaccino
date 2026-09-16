@@ -1,4 +1,3 @@
-import * as Sentry from "@sentry/node";
 import { ErrorRequestHandler } from "express";
 import { logger } from "../logger";
 import { BotServiceError } from "../services/botClient";
@@ -19,7 +18,6 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
     return;
   }
 
-  Sentry.captureException(error);
   (req.log ?? logger).error({ err: error }, "unhandled_error");
   res.status(500).json({ error: "Internal server error" });
 };

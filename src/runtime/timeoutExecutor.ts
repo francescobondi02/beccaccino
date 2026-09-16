@@ -1,9 +1,5 @@
-import * as Sentry from "@sentry/node";
 import { prisma } from "../db";
-import {
-  TurnIdentity,
-  TurnPhase,
-} from "../game/transitions/types";
+import { TurnIdentity, TurnPhase } from "../game/transitions/types";
 import { logger } from "../logger";
 import {
   PracticeTurnCancelledError,
@@ -63,10 +59,6 @@ export async function executeTimedOutTurn(args: {
       logger.debug(args, "auto_play_cancelled_by_pause");
       return;
     }
-    Sentry.captureException(error, {
-      tags: { source: "auto_play_race" },
-      extra: args,
-    });
     logger.warn({ err: error, ...args }, "auto_play_failed");
     throw error;
   }
