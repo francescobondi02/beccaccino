@@ -31,18 +31,15 @@
     "typescript": "^5.9.3"
   },
   "scripts": {
-    "dev": "npx prisma generate && npx prisma migrate deploy && ts-node-dev src/index.ts",
-    "dev:e2e": "npm run db:test:prepare && NODE_ENV=test DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' DIRECT_URL='postgresql://postgres:postgres@localhost:5432/becca_test' ANNOTATION_ACCESS_CODE='becca-expert' ts-node-dev src/index.ts",
-    "db:test:prepare": "NODE_ENV=test DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' DIRECT_URL='postgresql://postgres:postgres@localhost:5432/becca_test' node scripts/prepareTestDatabase.js",
-    "pretest": "npm run db:test:prepare",
-    "pretest:integration": "npm run db:test:prepare",
+    "dev": "prisma generate && prisma migrate deploy && ts-node-dev src/index.ts",
+    "dev:e2e": "NODE_ENV=test DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' DIRECT_URL='postgresql://postgres:postgres@localhost:5432/becca_test' ANNOTATION_ACCESS_CODE='becca-expert' prisma migrate deploy && ts-node-dev src/index.ts",
+    "build": "prisma generate && tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "migrate": "prisma migrate deploy",
     "test": "jest --runInBand",
     "test:unit": "jest --selectProjects unit",
     "test:integration": "jest --selectProjects integration --runInBand",
-    "build": "npx prisma generate && tsc",
-    "typecheck": "tsc --noEmit",
-    "start": "node dist/index.js",
-    "migrate": "npx prisma migrate deploy",
     "practice:export": "node dist/scripts/exportPracticeMatches.js"
   }
 }

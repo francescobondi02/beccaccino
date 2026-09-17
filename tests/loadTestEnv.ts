@@ -5,12 +5,10 @@ const testDatabaseUrl =
   "postgresql://postgres:postgres@localhost:5432/becca_test?connection_limit=5";
 process.env.DATABASE_URL = testDatabaseUrl;
 process.env.DIRECT_URL = testDatabaseUrl;
+
 process.env.JWT_SECRET = "test-secret";
 process.env.NODE_ENV = "test";
 process.env.ALLOW_TEST_AUTH_BYPASS = "true";
 process.env.GAME_WIN_POINTS = "5";
-
-const { assertSafeTestDatabase } = require("../scripts/prepareTestDatabase");
-assertSafeTestDatabase();
 
 export {};
