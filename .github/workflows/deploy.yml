@@ -24,11 +24,11 @@ jobs:
     env:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
       GIT_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
-      VITE_API_URL: https://beccaccino-server.onrender.com/api
-      VITE_SOCKET_URL: https://beccaccino-server.onrender.com
+
       FRONTEND_URL: https://beccaccino-client.vercel.app
       BACKEND_URL: https://beccaccino-server.onrender.com
       AI_URL: https://becca-ai.onrender.com
+
       VERCEL_PROJECT: beccaccino-client
       VERCEL_SCOPE: francesco-bondi-s-projects
     steps:
