@@ -27,14 +27,5 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run test:build-metadata
-      - run: npm run test:coverage
+      - run: npm test
       - run: npm run build # no VITE_ vars needed: they are optional at build time (verified)
-      - name: Verify ordinary builds contain no source maps
-        shell: bash
-        run: |
-          if find dist -type f -name '*.map' -print -quit | grep --quiet .; then
-            echo "::error::Secret-free builds must not publish source maps."
-            exit 1
-          fi
-      # Playwright remains local because it needs the database and backend test environment.

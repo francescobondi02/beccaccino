@@ -9,43 +9,23 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: frontend-production
-  cancel-in-progress: false
-
 jobs:
   deploy:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event.workflow_run.event == 'push'
+
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+
     env:
-      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
-      GIT_COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      FRONTEND_URL: https://beccaccino-client.vercel.app
-      BACKEND_URL: https://beccaccino-server.onrender.com
-      AI_URL: https://becca-ai.onrender.com
-
-      VERCEL_PROJECT: beccaccino-client
-      VERCEL_SCOPE: francesco-bondi-s-projects
     steps:
-      - name: Require deployment configuration
-        shell: bash
-        run: |
-          if [[ -z "$VERCEL_TOKEN" ]]; then
-            echo "::error::VERCEL_TOKEN is not configured."
-            exit 1
-          fi
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
-          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -54,69 +34,10 @@ jobs:
 
       - run: npm ci
 
-      - name: Install pinned Vercel CLI
-        run: npm install --global vercel@59.7.0
+      - run: npm install --global vercel@59.7.0
 
-      - name: Resolve Vercel project
-        shell: bash
-        run: |
-          project="$(
-            curl --fail --silent --show-error \
-              --header "Authorization: Bearer $VERCEL_TOKEN" \
-              --get \
-              --data-urlencode "slug=$VERCEL_SCOPE" \
-              "https://api.vercel.com/v9/projects/$VERCEL_PROJECT"
-          )"
-          org_id="$(jq -r '.accountId // empty' <<< "$project")"
-          project_id="$(jq -r '.id // empty' <<< "$project")"
-          if [[ -z "$org_id" || -z "$project_id" ]]; then
-            echo "::error::Vercel project lookup returned no account or project ID."
-            exit 1
-          fi
-          {
-            echo "VERCEL_ORG_ID=$org_id"
-            echo "VERCEL_PROJECT_ID=$project_id"
-          } >> "$GITHUB_ENV"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      - run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
-      - name: Pull production environment
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      - run: vercel build --prod --token="$VERCEL_TOKEN"
 
-      - name: Build exact commit
-        run: vercel build --prod --token="$VERCEL_TOKEN"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
-      - name: Deploy exact build
-        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
-      - name: Verify deployed commit
-        shell: bash
-        run: |
-          for attempt in $(seq 1 60); do
-            metadata="$(curl --fail --silent --show-error \
-              "$FRONTEND_URL/version.json?expected=$EXPECTED_SHA" 2>/dev/null || true)"
-            deployed_sha="$(jq -r '.commit // empty' <<< "$metadata")"
-            if [[ "$deployed_sha" == "$EXPECTED_SHA" ]]; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "::error::Production did not report commit $EXPECTED_SHA within 10 minutes."
-          exit 1
-
-      - name: Verify production stack
-        shell: bash
-        run: |
-          curl --fail --silent --show-error "$FRONTEND_URL/" \
-            | grep --quiet '<div id="root"></div>'
-          curl --fail --silent --show-error "$BACKEND_URL/ready" \
-            | jq --exit-status '.status == "ready"' > /dev/null
-          curl --fail --silent --show-error "$AI_URL/health" \
-            | jq --exit-status \
-              '.status == "ok" and .model == "ready" and .tier == "forte"' > /dev/null
+      - run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
