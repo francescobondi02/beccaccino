@@ -19,7 +19,7 @@ import {
 import { logger } from "../../src/logger";
 import * as cardQueries from "../../src/services/playableCards";
 import { recoverRoomRuntime } from "../../src/runtime/recovery";
-import * as runtimeRecovery from "../../src/runtime/recovery";
+import * as turnState from "../../src/game/snapshots/turnState";
 import {
   getSocketInstance,
   setSocketInstance,
@@ -221,7 +221,7 @@ describe("Practice pause and resume", () => {
     }
   });
 
-  it("does not report resume success until current runtime is active", async () => {
+  it("keeps a failed resume paused, then resumes and notifies on retry", async () => {
     const roomCode = await startPractice();
     expect(
       (
@@ -231,9 +231,13 @@ describe("Practice pause and resume", () => {
       ).statusCode,
     ).toBe(200);
 
-    const ensureRuntime = jest
-      .spyOn(runtimeRecovery, "ensureRoomRuntime")
-      .mockResolvedValueOnce(false);
+    const pausedRoom = await prisma.gameRoom.findUniqueOrThrow({
+      where: { code: roomCode },
+      select: { pausedAt: true, pauseEpoch: true },
+    });
+    const readTurn = jest
+      .spyOn(turnState, "readCurrentTurn")
+      .mockResolvedValueOnce(null);
     const originalIo = getSocketInstance();
     const resumedEvents: string[] = [];
     setSocketInstance({
@@ -246,6 +250,12 @@ describe("Practice pause and resume", () => {
         .post(`/api/rooms/${roomCode}/resume`)
         .send({});
 
+      expect(
+        await prisma.gameRoom.findUniqueOrThrow({
+          where: { code: roomCode },
+          select: { pausedAt: true, pauseEpoch: true },
+        }),
+      ).toEqual(pausedRoom);
       expect(failed.statusCode).toBe(503);
       expect(failed.body).toEqual({
         error: "Practice game runtime unavailable; retry",
@@ -253,13 +263,24 @@ describe("Practice pause and resume", () => {
       expect(getTurnTimerState(roomCode)).toBeNull();
       expect(resumedEvents).not.toContain("practice_resumed");
 
-      ensureRuntime.mockRestore();
+      readTurn.mockRestore();
       const retry = await apiAs(userId, "pause-human")
         .post(`/api/rooms/${roomCode}/resume`)
         .send({});
       expect(retry.statusCode).toBe(200);
       expect(getTurnTimerState(roomCode)).not.toBeNull();
-      expect(resumedEvents).not.toContain("practice_resumed");
+      expect(
+        resumedEvents.filter((event) => event === "practice_resumed"),
+      ).toHaveLength(2);
+      expect(
+        await prisma.gameRoom.findUniqueOrThrow({
+          where: { code: roomCode },
+          select: { pausedAt: true, pauseEpoch: true },
+        }),
+      ).toEqual({
+        pausedAt: null,
+        pauseEpoch: pausedRoom.pauseEpoch + 1,
+      });
     } finally {
       setSocketInstance(originalIo);
     }

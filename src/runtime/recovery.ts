@@ -9,11 +9,6 @@ import { startRuntimeTurn } from "./turnRuntime";
 import { hasTurnRuntime } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 
-type RoomRuntimeState = {
-  active: boolean;
-  recovered: boolean;
-};
-
 export type RuntimeRecoverySummary = {
   activeRooms: number;
   recoveredRooms: number;
@@ -30,9 +25,9 @@ export function setRuntimeRecoveryReady(ready: boolean): void {
   runtimeRecoveryReady = ready;
 }
 
-async function reconcileRoomRuntime(
+export async function recoverRoomRuntime(
   roomCode: string,
-): Promise<RoomRuntimeState> {
+): Promise<boolean> {
   return withRoomLock(roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
       where: { code: roomCode },
@@ -51,7 +46,7 @@ async function reconcileRoomRuntime(
       room.finished ||
       room.pausedAt
     ) {
-      return { active: false, recovered: false };
+      return false;
     }
     if (!round) {
       throw new Error("Active room has no current round");
@@ -76,7 +71,7 @@ async function reconcileRoomRuntime(
         turn.identity,
       )
     ) {
-      return { active: true, recovered: false };
+      return false;
     }
 
     restoreBotSeats(roomCode, room.players);
@@ -91,16 +86,8 @@ async function reconcileRoomRuntime(
       { roomCode, userId: turn.userId, phase: turn.phase },
       "turn_runtime_recovered",
     );
-    return { active: true, recovered: true };
+    return true;
   });
-}
-
-export async function recoverRoomRuntime(roomCode: string): Promise<boolean> {
-  return (await reconcileRoomRuntime(roomCode)).recovered;
-}
-
-export async function ensureRoomRuntime(roomCode: string): Promise<boolean> {
-  return (await reconcileRoomRuntime(roomCode)).active;
 }
 
 export async function recoverRooms(
