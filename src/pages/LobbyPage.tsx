@@ -69,7 +69,7 @@ const LobbyPage = () => {
     }
 
     try {
-      const room = await apiPost<{ code: string }>("/rooms/", {});
+      const room = await apiPost<{ code: string }>("/rooms", {});
       toast.success("Stanza creata!");
       navigate(`/room/${room.code}`);
     } catch (error) {
