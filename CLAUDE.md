@@ -60,7 +60,7 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 - Cookie config: `secure` in production, `sameSite: strict` (same-origin) or `none` (cross-origin deploy).
 - Turn timer: 60s for card play, 90s for briscola choice. Auto-play on timeout. Kick after 3 timeouts.
 - Points stored per round as real points + figures remainder in SEPARATE columns
-  (`Round.team0Points`/`team0Figures`, `schema.prisma:112-115`) — `computePoints` returns
+  (`Round.team0Points`/`team0Figures`, `schema.prisma:112-115`) — `computeRoundScore` returns
   `floor(raw/3)` plus `raw % 3`. To recover raw: `raw = points*3 + figures`. Summing only
   `*Points` silently drops each round's remainder.
 - Socket events are the source of truth for real-time state; REST is for mutations.
@@ -97,13 +97,18 @@ Cross-origin deploy requires cookie `sameSite: 'none'` + `secure: true`.
 
 ## Module Boundaries
 
-- `backend/src/services/gameService.ts` — core game logic (start round, set briscola, play card, score)
-- `backend/src/services/cardService.ts` — playable cards logic (legal moves based on hand/trick state)
-- `backend/src/services/turnTimer.ts` — timeout/auto-play/kick logic + bot-turn dispatch
-- `backend/src/services/botService.ts` — bot identity (fixed pool of 3 users) + difficulty tiers
+- `backend/src/game/transitions/round.ts` — round setup, game start and briscola choice
+- `backend/src/game/transitions/cardPlay.ts` — card play, round completion and game completion
+- `backend/src/game/turn.ts` — shared turn phase and persisted turn identity
+- `backend/src/domain/game/roundScore.ts` and `gameScore.ts` — pure round and cumulative scoring
+- `backend/src/services/multiplayerRooms.ts` and `practiceRooms.ts` — room operations
+- `backend/src/services/leaveRoom.ts` — participant departure and preserved game history
+- `backend/src/services/playableCards.ts` — read-only query for legal moves
+- `backend/src/runtime/` — timers, timeout penalties, bot turns and recovery
+- `backend/src/services/botUsers.ts` — bot accounts (fixed pool of 3 users) and difficulty tiers
 - `backend/src/services/botState.ts` — serializes a game into the bot service's wire format
 - `backend/src/services/botClient.ts` — HTTP client for the Python `/act` endpoint
-- `backend/src/sockets/room.ts` — all Socket.IO event handlers (lobby + game)
+- `backend/src/sockets/room.ts` — lobby/room presence and chat; game mutations use REST
 - `frontend/src/sockets/socketClient.ts` — singleton socket with reconnection (Infinity attempts)
 - `frontend/src/sockets/lobbyHandlers.ts` — lobby socket event handlers (room CRUD, player join/leave)
 - `frontend/src/sockets/roomHandlers.ts` — room socket event handlers (team choice, ready, game start)
