@@ -6,8 +6,8 @@
       "destination": "https://beccaccino-server.onrender.com/api/:path*"
     },
     {
-      "source": "/socket.io/:path*",
-      "destination": "https://beccaccino-server.onrender.com/socket.io/:path*"
+      "source": "/socket.io/",
+      "destination": "https://beccaccino-server.onrender.com/socket.io/"
     },
     {
       "source": "/((?!assets/).*)",
