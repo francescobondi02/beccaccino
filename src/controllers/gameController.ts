@@ -2,8 +2,9 @@
 
 import { Request, Response } from "express";
 import { prisma } from "../db";
-import { playCard, setBriscola } from "../services/turnCoordinator";
-import { playableCards } from "../services/cardService";
+import { playCard } from "../game/transitions/cardPlay";
+import { setBriscola } from "../game/transitions/round";
+import { readPlayableCards } from "../services/playableCards";
 import { resetTimeoutCount } from "../runtime/timeoutPolicy";
 import { loadGameState } from "../services/gameState";
 import { forbidden } from "../http/errors";
@@ -44,7 +45,7 @@ export const handlePlayCard = async (req: Request, res: Response) => {
 export const getPlayableCards = async (req: Request, res: Response) => {
   const { roomCode } = req.params;
   const { userId } = requireUser(req);
-  const cards = await playableCards({ roomCode, userId });
+  const cards = await readPlayableCards({ roomCode, userId });
   return res.status(200).json({ playableCards: cards });
 };
 

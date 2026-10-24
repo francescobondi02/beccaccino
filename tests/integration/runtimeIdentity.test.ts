@@ -1,7 +1,7 @@
 import { prisma } from "../../src/db";
 import { playCard } from "../../src/game/transitions/cardPlay";
 import { RuntimeTurnCancelledError } from "../../src/game/transitions/round";
-import { playableCards } from "../../src/services/cardService";
+import { readPlayableCards } from "../../src/services/playableCards";
 import { clearDatabase } from "../helpers/database";
 import { chooseBriscola, setupGame } from "../helpers/gameDriver";
 
@@ -35,7 +35,7 @@ describe("runtime turn identity", () => {
         starterId: player.id,
       },
     });
-    const [card] = await playableCards({
+    const [card] = await readPlayableCards({
       roomCode,
       userId: player.userId,
     });

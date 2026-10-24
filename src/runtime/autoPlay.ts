@@ -1,19 +1,11 @@
 import { prisma } from "../db";
-import { coordinateOutcome } from "../game/coordinateOutcome";
 import { Suit, SUITS } from "../domain/game/cards";
 import {
   setBriscola,
 } from "../game/transitions/round";
 import { playCard } from "../game/transitions/cardPlay";
-import { playableCards } from "../services/cardService";
-import { publishEvents } from "./eventPublisher";
-import { applyRuntimeDirective } from "./turnRuntime";
-import { TurnIdentity } from "../game/transitions/types";
-
-const dependencies = {
-  applyRuntime: applyRuntimeDirective,
-  publishEvents,
-};
+import { readPlayableCards } from "../services/playableCards";
+import { TurnIdentity } from "../game/turn";
 
 export async function autoPlayCard(
   roomCode: string,
@@ -21,23 +13,20 @@ export async function autoPlayCard(
   expectedPauseEpoch?: number,
   expectedTurn?: TurnIdentity,
 ): Promise<void> {
-  const cards = await playableCards({ roomCode, userId });
+  const cards = await readPlayableCards({ roomCode, userId });
   if (cards.length === 0) {
     throw new Error("No playable card found for the current runtime turn");
   }
   const card = cards[0];
-  await coordinateOutcome(
-    await playCard({
-      roomCode,
-      userId,
-      suit: card.suit,
-      value: card.value,
-      autoPlayed: true,
-      expectedPauseEpoch,
-      expectedTurn,
-    }),
-    dependencies,
-  );
+  await playCard({
+    roomCode,
+    userId,
+    suit: card.suit,
+    value: card.value,
+    autoPlayed: true,
+    expectedPauseEpoch,
+    expectedTurn,
+  });
 }
 
 export async function autoChooseBriscola(
@@ -76,15 +65,12 @@ export async function autoChooseBriscola(
       : best;
   });
 
-  await coordinateOutcome(
-    await setBriscola({
-      gameRoomId: room.id,
-      playerId: player.id,
-      suit,
-      autoChosen: true,
-      expectedPauseEpoch,
-      expectedTurn,
-    }),
-    dependencies,
-  );
+  await setBriscola({
+    gameRoomId: room.id,
+    playerId: player.id,
+    suit,
+    autoChosen: true,
+    expectedPauseEpoch,
+    expectedTurn,
+  });
 }

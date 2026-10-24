@@ -1,12 +1,10 @@
 import {
-  RuntimeDirective,
   TurnIdentity,
   TurnPhase,
-} from "../game/transitions/types";
+} from "../game/turn";
 import { logger } from "../logger";
 import { publishEvent } from "./eventPublisher";
 import {
-  botRoomCodes,
   botTierForTurn,
   clearAllBotSeats,
   clearBotSeats,
@@ -16,11 +14,9 @@ import {
   clearAllTimeoutPolicy,
   clearTimeoutPolicy,
   isPlayerKicked,
-  timeoutPolicyRoomCodes,
   turnDurationMs,
 } from "./timeoutPolicy";
 import {
-  activeTimerRoomCodes,
   clearAllTurnTimers,
   clearTurnTimer,
   scheduleTurnTimer,
@@ -97,23 +93,6 @@ export function startRuntimeTurn(
   });
 }
 
-export function applyRuntimeDirective(
-  directive: RuntimeDirective | null,
-): void {
-  if (!directive) return;
-  if (directive.kind === "clear") {
-    clearRuntimeRoom(directive.roomCode);
-    return;
-  }
-  startRuntimeTurn(
-    directive.roomCode,
-    directive.userId,
-    directive.phase,
-    directive.pauseEpoch,
-    directive.identity,
-  );
-}
-
 export function clearRuntimeRoom(roomCode: string): void {
   clearTurnTimer(roomCode);
   clearTimeoutPolicy(roomCode);
@@ -121,12 +100,6 @@ export function clearRuntimeRoom(roomCode: string): void {
 }
 
 export function clearAllRuntime(): void {
-  const roomCodes = new Set([
-    ...activeTimerRoomCodes(),
-    ...timeoutPolicyRoomCodes(),
-    ...botRoomCodes(),
-  ]);
-  for (const roomCode of roomCodes) clearRuntimeRoom(roomCode);
   clearAllTurnTimers();
   clearAllTimeoutPolicy();
   clearAllBotSeats();

@@ -1,4 +1,4 @@
-import { TurnPhase } from "../game/transitions/types";
+import { TurnPhase } from "../game/turn";
 
 const timeoutCounts = new Map<string, Map<number, number>>();
 const kickedPlayers = new Map<string, Set<number>>();
@@ -64,8 +64,4 @@ export function clearTimeoutPolicy(roomCode: string): void {
 export function clearAllTimeoutPolicy(): void {
   timeoutCounts.clear();
   kickedPlayers.clear();
-}
-
-export function timeoutPolicyRoomCodes(): string[] {
-  return [...new Set([...timeoutCounts.keys(), ...kickedPlayers.keys()])];
 }

@@ -1,4 +1,4 @@
-import { BotTier, isBotTier } from "../services/botService";
+import { BotTier, isBotTier } from "../services/botUsers";
 
 const botSeats = new Map<string, Map<number, BotTier>>();
 
@@ -40,8 +40,4 @@ export function clearBotSeats(roomCode: string): void {
 
 export function clearAllBotSeats(): void {
   botSeats.clear();
-}
-
-export function botRoomCodes(): string[] {
-  return [...botSeats.keys()];
 }

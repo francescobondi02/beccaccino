@@ -3,7 +3,8 @@ import {
   AnnotationSelectedAction,
   ParsedAnnotationScenario,
 } from "./contracts";
-import { exactKeys, recordAt, signalAt } from "./parsing";
+import { signalAt } from "./parsing";
+import { exactKeys, recordAt } from "../utils/json";
 
 export function parseAnnotationSelectedAction(
   value: unknown,

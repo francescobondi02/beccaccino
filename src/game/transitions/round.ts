@@ -5,6 +5,11 @@ import { detectCricca } from "../../domain/game/detectCricca";
 import { getRng } from "../../utils/random";
 import { withRoomLock } from "../../utils/roomLock";
 import { logger } from "../../logger";
+import { publishEvents } from "../../runtime/eventPublisher";
+import {
+  clearRuntimeRoom,
+  startRuntimeTurn,
+} from "../../runtime/turnRuntime";
 import {
   Card,
   Suit,
@@ -14,14 +19,12 @@ import {
 } from "../../domain/game/cards";
 import {
   resolveCaller as resolveCallerRule,
-  seatAfter,
+  nextCallerPlayerId,
 } from "../../domain/game/turnOrder";
 import {
   isSameTurn,
-  RuntimeDirective,
-  TransitionOutcome,
   TurnIdentity,
-} from "./types";
+} from "../turn";
 import { readCallerPlayerId } from "../snapshots/turnState";
 
 export class PracticeTurnCancelledError extends GameError {
@@ -60,16 +63,6 @@ export async function claimPracticeTransition(
   }
 }
 
-function nextCallerPlayerId(
-  players: { id: number; seat: number | null }[],
-  previousCallerId: number,
-): number | null {
-  const previous = players.find((p) => p.id === previousCallerId);
-  if (!previous || previous.seat === null) return null;
-  const nextSeat = seatAfter(previous.seat);
-  return players.find((p) => p.seat === nextSeat)?.id ?? null;
-}
-
 function generateDeck(): Card[] {
   const deck: Card[] = [];
 
@@ -91,22 +84,6 @@ function shuffleDeck<T>(deck: T[]): T[] {
   return out;
 }
 
-export async function setupRound(
-  gameRoomId: number,
-  roundNumber: number,
-  tx?: Prisma.TransactionClient,
-) {
-  if (tx) {
-    return setupRoundTx(tx, gameRoomId, roundNumber);
-  }
-
-  const result = await prisma.$transaction((client) =>
-    setupRoundTx(client, gameRoomId, roundNumber),
-  );
-  logRoundSetup(result);
-  return result;
-}
-
 type RoundSetupResult = {
   gameRoomId: number;
   roundNumber: number;
@@ -118,10 +95,10 @@ export function logRoundSetup(result: RoundSetupResult): void {
   logger.info(result, "round_setup");
 }
 
-async function setupRoundTx(
-  tx: Prisma.TransactionClient,
+export async function setupRound(
   gameRoomId: number,
   roundNumber: number,
+  tx: Prisma.TransactionClient,
 ): Promise<RoundSetupResult> {
   if (roundNumber === 1) {
     await tx.player.updateMany({
@@ -169,7 +146,7 @@ async function setupRoundTx(
 
   const newRoundNumber = previousRound ? previousRound.number + 1 : 1;
 
-  let starterId: number;
+  let callerPlayerId: number;
 
   const round = await tx.round.create({
     data: {
@@ -207,7 +184,7 @@ async function setupRoundTx(
 
   // Determine the briscola caller for this round
   if (newRoundNumber === 1) {
-    starterId = playerWithQuattroDenara!;
+    callerPlayerId = playerWithQuattroDenara!;
   } else {
     const nextCaller = resolveCallerRule({
       roundNumber: newRoundNumber,
@@ -217,74 +194,67 @@ async function setupRoundTx(
     if (nextCaller === null) {
       throw new Error("Could not rotate briscola caller from previous round");
     }
-    starterId = nextCaller;
+    callerPlayerId = nextCaller;
   }
 
   return {
     gameRoomId,
     roundNumber: newRoundNumber,
     roundId: round.id,
-    callerPlayerId: starterId,
+    callerPlayerId,
   };
 }
 
-/**
- * Announce the game and set up round 1, returning the caller's timer directive.
- *
- * Shared by the lobby ready-up gate and practice-game creation so a game
- * against bots starts on exactly the same path as a game between humans.
- * The caller owns flipping `started` (the lobby needs a conditional flip to
- * settle a race; a fresh practice room does not).
- */
 export async function startFirstRound(
   gameRoomId: number,
   roomCode: string,
-): Promise<TransitionOutcome<void>> {
-  const { callerUserId, pauseEpoch, roundSetup } =
-    await prisma.$transaction(async (tx) => {
-      const claim = await tx.gameRoom.updateMany({
-        where: { id: gameRoomId, started: false },
-        data: { started: true },
-      });
-      if (claim.count !== 1) {
-        throw new GameError("Game has already started", 409);
-      }
+): Promise<void> {
+  try {
+    const { callerUserId, pauseEpoch, roundSetup } =
+      await prisma.$transaction(async (tx) => {
+        const claim = await tx.gameRoom.updateMany({
+          where: { id: gameRoomId, started: false },
+          data: { started: true },
+        });
+        if (claim.count !== 1) {
+          throw new GameError("Game has already started", 409);
+        }
 
-      const roundSetup = await setupRound(gameRoomId, 1, tx);
-      const room = await tx.gameRoom.findUniqueOrThrow({
-        where: { id: gameRoomId },
-        select: { pauseEpoch: true },
-      });
-      const caller = await tx.player.findUnique({
-        where: { id: roundSetup.callerPlayerId },
-        select: { userId: true },
-      });
-      if (!caller) throw new Error("Briscola caller not found");
+        const roundSetup = await setupRound(gameRoomId, 1, tx);
+        const room = await tx.gameRoom.findUniqueOrThrow({
+          where: { id: gameRoomId },
+          select: { pauseEpoch: true },
+        });
+        const caller = await tx.player.findUnique({
+          where: { id: roundSetup.callerPlayerId },
+          select: { userId: true },
+        });
+        if (!caller) throw new Error("Briscola caller not found");
 
-      return {
-        callerUserId: caller.userId,
-        pauseEpoch: room.pauseEpoch,
-        roundSetup,
-      };
-    });
+        return {
+          callerUserId: caller.userId,
+          pauseEpoch: room.pauseEpoch,
+          roundSetup,
+        };
+      });
 
-  logRoundSetup(roundSetup);
-  return {
-    value: undefined,
-    runtime: {
-      kind: "schedule",
+    logRoundSetup(roundSetup);
+    startRuntimeTurn(
       roomCode,
-      userId: callerUserId,
-      phase: "choose_briscola",
+      callerUserId,
+      "choose_briscola",
       pauseEpoch,
-      identity: {
+      {
         roundId: roundSetup.roundId,
         handId: null,
         playedCardCount: 0,
       },
-    },
-    events: [{ target: roomCode, event: "game_started", payload: {} }],
-  };
+    );
+    publishEvents([{ target: roomCode, event: "game_started", payload: {} }]);
+  } catch (error) {
+    clearRuntimeRoom(roomCode);
+    throw error;
+  }
 }
 
 /**
@@ -396,9 +366,6 @@ async function setBriscolaUnlocked({
     return { updatedRound, firstHand };
   });
 
-  const callerPlayer = gameRoom.players.find((p) => p.id === playerId);
-  if (!callerPlayer) throw new Error("Briscola caller not found");
-
   logger.info(
     {
       roomCode: gameRoom.code,
@@ -411,35 +378,32 @@ async function setBriscolaUnlocked({
     "briscola_set",
   );
 
-  return {
-    value: {
-      round: updatedRound,
-      hand: firstHand,
-      roomCode: gameRoom.code,
+  startRuntimeTurn(
+    gameRoom.code,
+    player.userId,
+    "play_card",
+    gameRoom.pauseEpoch,
+    {
+      roundId: currentRound.id,
+      handId: firstHand.id,
+      playedCardCount: 0,
     },
-    runtime: {
-      kind: "schedule",
-      roomCode: gameRoom.code,
-      userId: callerPlayer.userId,
-      phase: "play_card",
-      pauseEpoch: gameRoom.pauseEpoch,
-      identity: {
-        roundId: currentRound.id,
-        handId: firstHand.id,
-        playedCardCount: 0,
+  );
+  publishEvents([
+    {
+      target: gameRoom.code,
+      event: "briscola_chosen",
+      payload: {
+        briscola: suit,
+        roundNumber: currentRound.number,
+        starterId: playerId,
+        cricca: hasCricca,
       },
-    } satisfies RuntimeDirective,
-    events: [
-      {
-        target: gameRoom.code,
-        event: "briscola_chosen",
-        payload: {
-          briscola: suit,
-          roundNumber: currentRound.number,
-          starterId: playerId,
-          cricca: hasCricca,
-        },
-      },
-    ],
+    },
+  ]);
+  return {
+    round: updatedRound,
+    hand: firstHand,
+    roomCode: gameRoom.code,
   };
 }

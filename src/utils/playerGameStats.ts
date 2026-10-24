@@ -1,9 +1,9 @@
 import {
-  cumulativeScore,
+  sumRoundScores,
   decideScoreWinner,
   RoundScoreRow,
   Team,
-} from "../domain/game/score";
+} from "../domain/game/gameScore";
 
 type StatsRound = RoundScoreRow & {
   hands: { starterId: number }[];
@@ -37,7 +37,7 @@ export function summarizePlayerGame(
     throw new Error("Finished game has no valid final caller");
   }
 
-  const cumulative = cumulativeScore(rounds);
+  const cumulative = sumRoundScores(rounds);
   const winnerTeam = decideScoreWinner(cumulative, callerTeam);
 
   return {

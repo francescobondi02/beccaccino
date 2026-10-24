@@ -1,6 +1,6 @@
 import { prisma } from "../db";
 import { logger } from "../logger";
-import { retirePracticeRoom } from "./practiceRoomCommands";
+import { retirePracticeRoom } from "./practiceRooms";
 
 const PRACTICE_ROOM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;

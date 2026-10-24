@@ -4,7 +4,7 @@
  * deleted.
  *
  * Practice games are torn down the moment the human leaves the table
- * (`leaveRoomCommand`) or when the sweeper finds them finished or stale, so
+ * (`leaveRoom`) or when the sweeper finds them finished or stale, so
  * `retirePracticeRoom` is the single place every practice game passes through on
  * its way out — that is why the snapshot hangs off it instead of off the end of
  * the game, which would miss abandoned games.

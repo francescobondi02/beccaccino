@@ -4,6 +4,16 @@ export function seatAfter(seat: number, offset = 1): number {
   return (seat + offset) % TABLE_SEATS;
 }
 
+export function nextCallerPlayerId(
+  players: { id: number; seat: number | null }[],
+  previousCallerId: number,
+): number | null {
+  const previous = players.find((player) => player.id === previousCallerId);
+  if (!previous || previous.seat === null) return null;
+  const nextSeat = seatAfter(previous.seat);
+  return players.find((player) => player.seat === nextSeat)?.id ?? null;
+}
+
 export function resolveCaller<T>({
   roundNumber,
   firstTrickStarter,

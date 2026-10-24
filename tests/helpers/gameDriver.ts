@@ -1,5 +1,5 @@
 import { prisma } from "../../src/db";
-import { computePoints } from "../../src/domain/game/computePoints";
+import { computeRoundScore } from "../../src/domain/game/roundScore";
 import { Suit } from "@prisma/client";
 import { PlayerCard, Round } from "@prisma/client";
 import { api, apiAs } from "./serverHarness";
@@ -255,7 +255,7 @@ export async function oneRound(roomCode: string, round: any) {
     teamPlayers[player.id] = player.team!;
   }
 
-  const rawPoints = computePoints(finalHands, teamPlayers, round.briscola);
+  const rawPoints = computeRoundScore(finalHands, teamPlayers, round.briscola);
   const lastHand = finalHands.reduce((prev, curr) =>
     curr.number > prev.number ? curr : prev
   );
@@ -298,7 +298,7 @@ export async function computeRoundPoints(
     teamPlayers[p.id] = p.team!;
   }
 
-  const rawPoints = computePoints(hands, teamPlayers, round!.briscola as Suit);
+  const rawPoints = computeRoundScore(hands, teamPlayers, round!.briscola as Suit);
 
   const team0Cleaned = rawPoints.team0.points;
   const team1Cleaned = rawPoints.team1.points;

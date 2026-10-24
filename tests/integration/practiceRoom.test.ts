@@ -1,12 +1,12 @@
 import { prisma } from "../../src/db";
 import { clearDatabase } from "../helpers/database";
 import { api, apiAs } from "../helpers/serverHarness";
-import { ensureBotUsers } from "../../src/services/botService";
+import { ensureBotUsers } from "../../src/services/botUsers";
 import {
   BotServiceStub,
   startBotServiceStub,
 } from "../helpers/botServiceStub";
-import * as turnCoordinator from "../../src/services/turnCoordinator";
+import * as gameRound from "../../src/game/transitions/round";
 import {
   getTurnTimerState,
 } from "../../src/runtime/turnTimer";
@@ -199,7 +199,7 @@ describe("Practice room creation", () => {
   it("preserves previous practice games when initial round setup fails", async () => {
     const first = await createPractice("forte");
     jest
-      .spyOn(turnCoordinator, "startFirstRound")
+      .spyOn(gameRound, "startFirstRound")
       .mockRejectedValueOnce(new Error("injected practice deal failure"));
 
     const res = await createPractice("forte");

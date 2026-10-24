@@ -7,12 +7,8 @@ import {
   ANNOTATION_IMPORTANCE,
 } from "../annotations/constants";
 import { AnnotationScenarioInput } from "../annotations/contracts";
-import {
-  exactKeys,
-  integerAt,
-  nonEmptyStringAt,
-  recordAt,
-} from "../annotations/parsing";
+import { nonEmptyStringAt } from "../annotations/parsing";
+import { exactKeys, integerAt, recordAt } from "../utils/json";
 import { canonicalJson } from "../annotations/state";
 
 const ANNOTATION_FAMILIES = [

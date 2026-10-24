@@ -1,6 +1,6 @@
 import { Suit, Value } from "@prisma/client";
 import { prisma } from "../../src/db";
-import { retirePracticeRoom } from "../../src/services/practiceRoomCommands";
+import { retirePracticeRoom } from "../../src/services/practiceRooms";
 import { practiceExportRecord } from "../../src/scripts/exportPracticeMatches";
 import {
   getTurnTimerState,

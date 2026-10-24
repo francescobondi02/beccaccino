@@ -1,6 +1,11 @@
 import { logger } from "../logger";
 import { getSocketInstance } from "../socketInstance";
-import { GameEvent } from "../game/transitions/types";
+
+export type GameEvent = {
+  target: string;
+  event: string;
+  payload: unknown;
+};
 
 export function publishEvent(
   target: string,
@@ -21,17 +26,5 @@ export function publishEvent(
 export function publishEvents(events: readonly GameEvent[]): void {
   for (const event of events) {
     publishEvent(event.target, event.event, event.payload);
-  }
-}
-
-export async function runBestEffort(
-  operation: () => Promise<void>,
-  name: string,
-  context: Record<string, unknown> = {},
-): Promise<void> {
-  try {
-    await operation();
-  } catch (error) {
-    logger.warn({ err: error, ...context }, `${name}_failed`);
   }
 }

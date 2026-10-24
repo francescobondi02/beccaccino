@@ -4,7 +4,7 @@ import { prisma } from "../../src/db";
 import { Suit, Value } from "@prisma/client";
 import { clearDatabase } from "../helpers/database";
 import { buildBotTurn, BotState } from "../../src/services/botState";
-import { ensureBotUsers } from "../../src/services/botService";
+import { ensureBotUsers } from "../../src/services/botUsers";
 import { GAME_WIN_POINTS } from "../../src/gameConfig";
 
 // Read at runtime rather than importing: the fixture is generated in the `ai`

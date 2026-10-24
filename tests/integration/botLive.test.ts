@@ -2,9 +2,9 @@ import { prisma } from "../../src/db";
 import { clearDatabase } from "../helpers/database";
 import { api, apiAs } from "../helpers/serverHarness";
 import { getTurnTimerState } from "../../src/runtime/turnTimer";
-import { playableCards } from "../../src/services/cardService";
+import { readPlayableCards } from "../../src/services/playableCards";
 import { ensureBotServiceReady } from "../../src/services/botClient";
-import { isBotTier } from "../../src/services/botService";
+import { isBotTier } from "../../src/services/botUsers";
 
 /**
  * End-to-end against the REAL Python bot service — the only test that proves the
@@ -84,7 +84,7 @@ describeLive("Live bot service (real model)", () => {
     for (let trick = 0; trick < TRICKS_PER_ROUND; trick++) {
       await waitForHumanTurn(roomCode);
 
-      const legal = await playableCards({ roomCode, userId });
+      const legal = await readPlayableCards({ roomCode, userId });
       if (legal.length === 0) break;
 
       const res = await apiAs(userId, "human")
@@ -124,7 +124,7 @@ describeLive("Live bot service (real model)", () => {
 
     for (let trick = 0; trick < TRICKS_PER_ROUND; trick++) {
       await waitForHumanTurn(roomCode);
-      const legal = await playableCards({ roomCode, userId });
+      const legal = await readPlayableCards({ roomCode, userId });
       if (legal.length === 0) break;
       await apiAs(userId, "human")
         .post("/api/games/play-card")
