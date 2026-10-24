@@ -115,16 +115,19 @@ describe("LobbyPage room commands", () => {
     });
   });
 
-  it("uses the approved design for real room actions, without demo rooms", async () => {
-    mocks.apiPost.mockResolvedValue({ code: "NEW123" });
-    renderLobby();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("NON È SOLO FORTUNA.");
-    expect(screen.getByRole("heading", { name: "TROVA IL TUO SOCIO." })).toBeInTheDocument();
-    expect(screen.queryByText(/dati demo|tavoli dimostrativi/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("hero-primary-action"));
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/", {}));
-    expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");
-  });
+  it.each(["hero-primary-action", "create-room-button"])(
+    "creates a real room from %s using the canonical API path",
+    async (buttonId) => {
+      mocks.apiPost.mockResolvedValue({ code: "NEW123" });
+      renderLobby();
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("NON È SOLO FORTUNA.");
+      expect(screen.getByRole("heading", { name: "TROVA IL TUO SOCIO." })).toBeInTheDocument();
+      expect(screen.queryByText(/dati demo|tavoli dimostrativi/i)).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId(buttonId));
+      await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms", {}));
+      expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");
+    },
+  );
 
   it("submits invitation codes through the native form", async () => {
     mocks.apiPost.mockResolvedValue({});
