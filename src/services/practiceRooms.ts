@@ -1,7 +1,7 @@
 import { prisma } from "../db";
-import { registerBotSeats } from "../runtime/botRegistry";
-import { clearRuntimeRoom } from "../runtime/turnRuntime";
-import { clearTurnTimer } from "../runtime/turnTimer";
+import { registerBotSeats, restoreBotSeats } from "../runtime/botRegistry";
+import { clearRuntimeRoom, startRuntimeTurn } from "../runtime/turnRuntime";
+import { clearTurnTimer, hasTurnRuntime } from "../runtime/turnTimer";
 import { GameError } from "../utils/gameError";
 import { withRoomLock } from "../utils/roomLock";
 import { ensureBotServiceReady } from "./botClient";
@@ -12,7 +12,10 @@ import { assertNoActiveMultiplayerGame } from "./roomQueries";
 import { startFirstRound } from "../game/transitions/round";
 import { logger } from "../logger";
 import { publishEvent } from "../runtime/eventPublisher";
-import { ensureRoomRuntime } from "../runtime/recovery";
+import {
+  readCallerPlayerId,
+  readCurrentTurn,
+} from "../game/snapshots/turnState";
 
 class PracticeRoomCleanupError extends Error {
   constructor(
@@ -293,13 +296,26 @@ export async function resumePracticeRoom(
   const resumed = await withRoomLock(args.roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
       where: { code: args.roomCode },
-      include: { players: true },
+      include: {
+        players: true,
+        rounds: { orderBy: { number: "desc" }, take: 1 },
+      },
     });
     if (!room) throw new GameError("Room not found", 404);
     assertPausablePracticeRoom(room, args.userId);
 
+    const round = room.rounds[0];
+    if (!round) {
+      throw new GameError("Practice game runtime unavailable; retry", 503);
+    }
+    const callerPlayerId = await readCallerPlayerId(round, room.players);
+    const turn = await readCurrentTurn(round, room.players, callerPlayerId);
+    if (!turn) {
+      throw new GameError("Practice game runtime unavailable; retry", 503);
+    }
+
+    let pauseEpoch = room.pauseEpoch;
     if (room.pausedAt) {
-      clearTurnTimer(args.roomCode);
       const update = await prisma.gameRoom.updateMany({
         where: {
           id: room.id,
@@ -307,6 +323,7 @@ export async function resumePracticeRoom(
           started: true,
           finished: false,
           pausedAt: { not: null },
+          pauseEpoch,
         },
         data: {
           pausedAt: null,
@@ -314,22 +331,32 @@ export async function resumePracticeRoom(
           lastActivityAt: new Date(),
         },
       });
-      if (update.count === 0) {
-        const current = await prisma.gameRoom.findUnique({
-          where: { id: room.id },
-          select: { pausedAt: true },
-        });
-        if (current?.pausedAt) {
-          throw new GameError("Practice game state changed; retry", 409);
-        }
+      if (update.count !== 1) {
+        throw new GameError("Practice game state changed; retry", 409);
       }
+      pauseEpoch++;
     }
 
+    restoreBotSeats(args.roomCode, room.players);
+    if (
+      !hasTurnRuntime(
+        args.roomCode,
+        turn.userId,
+        turn.phase,
+        pauseEpoch,
+        turn.identity,
+      )
+    ) {
+      startRuntimeTurn(
+        args.roomCode,
+        turn.userId,
+        turn.phase,
+        pauseEpoch,
+        turn.identity,
+      );
+    }
     return room.pausedAt !== null;
   });
-  if (!(await ensureRoomRuntime(args.roomCode))) {
-    throw new GameError("Practice game runtime unavailable; retry", 503);
-  }
   if (resumed) {
     const payload = { roomCode: args.roomCode };
     publishEvent(args.roomCode, "practice_resumed", payload);

@@ -250,18 +250,18 @@ describe("Practice pause and resume", () => {
         .post(`/api/rooms/${roomCode}/resume`)
         .send({});
 
-      expect(failed.statusCode).toBe(503);
-      expect(failed.body).toEqual({
-        error: "Practice game runtime unavailable; retry",
-      });
-      expect(getTurnTimerState(roomCode)).toBeNull();
-      expect(resumedEvents).not.toContain("practice_resumed");
       expect(
         await prisma.gameRoom.findUniqueOrThrow({
           where: { code: roomCode },
           select: { pausedAt: true, pauseEpoch: true },
         }),
       ).toEqual(pausedRoom);
+      expect(failed.statusCode).toBe(503);
+      expect(failed.body).toEqual({
+        error: "Practice game runtime unavailable; retry",
+      });
+      expect(getTurnTimerState(roomCode)).toBeNull();
+      expect(resumedEvents).not.toContain("practice_resumed");
 
       readTurn.mockRestore();
       const retry = await apiAs(userId, "pause-human")
