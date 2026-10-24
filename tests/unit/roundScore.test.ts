@@ -1,5 +1,5 @@
-import { computePoints } from "../../src/domain/game/computePoints";
-import { determineHandWinner } from "../../src/domain/game/determineHandWinner";
+import { computeRoundScore } from "../../src/domain/game/roundScore";
+import { determineTrickWinner } from "../../src/domain/game/trickWinner";
 import { Suit, Value } from "@prisma/client";
 
 const SUITS: Suit[] = ["coppe", "denara", "spade", "bastoni"];
@@ -27,7 +27,7 @@ function seededShuffle<T>(arr: T[], seed: number): T[] {
 const TEAM_PLAYERS: Record<number, 0 | 1> = { 1: 0, 2: 1, 3: 0, 4: 1 };
 const PLAYERS = [1, 2, 3, 4];
 
-describe("computePoints", () => {
+describe("computeRoundScore", () => {
   it("round total always equals 11 (10 card-value points + 1 last-hand bonus)", () => {
     const deck = seededShuffle(buildDeck(), 42);
     const briscola: Suit = "denara";
@@ -38,10 +38,10 @@ describe("computePoints", () => {
         playerId,
         ...deck[cardIndex++],
       }));
-      return { winnerId: determineHandWinner(cards, briscola), cards };
+      return { winnerId: determineTrickWinner(cards, briscola), cards };
     });
 
-    const scores = computePoints(hands, TEAM_PLAYERS, "bastoni");
+    const scores = computeRoundScore(hands, TEAM_PLAYERS, "bastoni");
     expect(scores.team0.points + scores.team1.points).toBe(11);
   });
 
@@ -62,7 +62,7 @@ describe("computePoints", () => {
       };
     });
 
-    const scores = computePoints(hands, TEAM_PLAYERS, "bastoni");
+    const scores = computeRoundScore(hands, TEAM_PLAYERS, "bastoni");
     // team 0 wins everything: all 40 cards + last-hand bonus → 11 points
     expect(scores.team0.points).toBe(11);
     expect(scores.team1.points).toBe(0);
@@ -85,7 +85,7 @@ describe("computePoints", () => {
       makeHand(2),
     ];
 
-    const scores = computePoints(hands, TEAM_PLAYERS, "denara");
+    const scores = computeRoundScore(hands, TEAM_PLAYERS, "denara");
     // team 1 gets the last-hand bonus point
     expect(scores.team1.points).toBeGreaterThan(0);
     expect(scores.team0.points + scores.team1.points).toBe(11);
@@ -98,9 +98,9 @@ describe("computePoints", () => {
       let idx = 0;
       const hands = Array.from({ length: 10 }, () => {
         const cards = PLAYERS.map((playerId) => ({ playerId, ...shuffled[idx++] }));
-        return { winnerId: determineHandWinner(cards, "coppe" as Suit), cards };
+        return { winnerId: determineTrickWinner(cards, "coppe" as Suit), cards };
       });
-      const scores = computePoints(hands, TEAM_PLAYERS, "coppe");
+      const scores = computeRoundScore(hands, TEAM_PLAYERS, "coppe");
       expect(scores.team0.points + scores.team1.points).toBe(11);
     }
   });

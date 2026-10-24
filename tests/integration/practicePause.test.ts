@@ -17,7 +17,7 @@ import {
   StubMove,
 } from "../helpers/botServiceStub";
 import { logger } from "../../src/logger";
-import * as cardService from "../../src/services/cardService";
+import * as cardQueries from "../../src/services/playableCards";
 import { recoverRoomRuntime } from "../../src/runtime/recovery";
 import * as runtimeRecovery from "../../src/runtime/recovery";
 import {
@@ -430,7 +430,7 @@ describe("Practice pause and resume", () => {
       include: { cards: true },
     });
     const playableSpy = jest
-      .spyOn(cardService, "playableCards")
+      .spyOn(cardQueries, "readPlayableCards")
       .mockRejectedValueOnce(new Error("injected card lookup failure"));
 
     clearTurnTimer(roomCode);
@@ -570,7 +570,7 @@ describe("Practice pause and resume", () => {
       ).toBe(200);
     }
 
-    const legalCards = await cardService.playableCards({ roomCode, userId });
+    const legalCards = await cardQueries.readPlayableCards({ roomCode, userId });
     const room = await prisma.gameRoom.findUniqueOrThrow({
       where: { code: roomCode },
     });
@@ -588,7 +588,7 @@ describe("Practice pause and resume", () => {
       releaseCards = resolve;
     });
     const playableSpy = jest
-      .spyOn(cardService, "playableCards")
+      .spyOn(cardQueries, "readPlayableCards")
       .mockImplementationOnce(() => heldCards);
     const cancellationLogs = jest.spyOn(logger, "debug");
 

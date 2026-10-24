@@ -3,7 +3,7 @@ import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 import { forbidden, notFound } from "../http/errors";
 import { GameError } from "../utils/gameError";
 
-export class ActiveGameConflict extends GameError {
+export class ActiveGameConflictError extends GameError {
   constructor(readonly activeRoomCode: string) {
     super("Sei già in una partita attiva", 409, { activeRoomCode });
   }
@@ -28,12 +28,12 @@ export async function assertNoActiveMultiplayerGame(
 ): Promise<void> {
   const activeGame = await findActiveMultiplayerGame(userId);
   if (activeGame) {
-    throw new ActiveGameConflict(activeGame.gameRoom.code);
+    throw new ActiveGameConflictError(activeGame.gameRoom.code);
   }
 }
 
 export async function listRoomsForLobby(userId: number) {
-  const availableRoomsRaw = await prisma.gameRoom.findMany({
+  const candidateRooms = await prisma.gameRoom.findMany({
     where: {
       started: false,
       finished: false,
@@ -56,7 +56,7 @@ export async function listRoomsForLobby(userId: number) {
     },
   });
   return {
-    availableRooms: availableRoomsRaw.filter(
+    availableRooms: candidateRooms.filter(
       (room) => room.players.length < 4,
     ),
     activeGames,

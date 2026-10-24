@@ -2,11 +2,10 @@ import {
   isSameTurn,
   TurnIdentity,
   TurnPhase,
-} from "../game/transitions/types";
+} from "../game/turn";
 
 type TimerState = {
   timeout: NodeJS.Timeout;
-  roomCode: string;
   currentTurnUserId: number;
   phase: TurnPhase;
   startedAt: number;
@@ -37,7 +36,6 @@ export function scheduleTurnTimer(args: {
   timeout.unref();
   activeTimers.set(args.roomCode, {
     timeout,
-    roomCode: args.roomCode,
     currentTurnUserId: args.userId,
     phase: args.phase,
     startedAt,
@@ -119,10 +117,6 @@ export function hasTurnRuntime(
       timer.pauseEpoch === pauseEpoch &&
       isSameTurn(timer.identity, identity),
   );
-}
-
-export function activeTimerRoomCodes(): string[] {
-  return [...activeTimers.keys()];
 }
 
 export function clearAllTurnTimers(): void {

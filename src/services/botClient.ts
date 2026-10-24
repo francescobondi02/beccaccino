@@ -8,7 +8,7 @@
  */
 
 import { BotState } from "./botState";
-import { BotTier } from "./botService";
+import { BotTier } from "./botUsers";
 import {
   CardSignal,
   isCardSignal,

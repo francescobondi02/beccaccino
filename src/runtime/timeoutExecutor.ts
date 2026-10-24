@@ -1,5 +1,5 @@
 import { prisma } from "../db";
-import { TurnIdentity, TurnPhase } from "../game/transitions/types";
+import { TurnIdentity, TurnPhase } from "../game/turn";
 import { logger } from "../logger";
 import {
   PracticeTurnCancelledError,

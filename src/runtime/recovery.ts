@@ -5,7 +5,7 @@ import {
   readCurrentTurn,
 } from "../game/snapshots/turnState";
 import { restoreBotSeats } from "./botRegistry";
-import { applyRuntimeDirective } from "./turnRuntime";
+import { startRuntimeTurn } from "./turnRuntime";
 import { hasTurnRuntime } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 
@@ -80,14 +80,13 @@ async function reconcileRoomRuntime(
     }
 
     restoreBotSeats(roomCode, room.players);
-    applyRuntimeDirective({
-      kind: "schedule",
+    startRuntimeTurn(
       roomCode,
-      userId: turn.userId,
-      phase: turn.phase,
-      pauseEpoch: room.pauseEpoch,
-      identity: turn.identity,
-    });
+      turn.userId,
+      turn.phase,
+      room.pauseEpoch,
+      turn.identity,
+    );
     logger.info(
       { roomCode, userId: turn.userId, phase: turn.phase },
       "turn_runtime_recovered",

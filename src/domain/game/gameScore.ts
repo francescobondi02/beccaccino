@@ -1,12 +1,10 @@
-// src/domain/game/score.ts
-//
 // Per-round scores are stored as real points + a figures remainder in separate
 // columns (raw = points * RAW_PER_POINT + figures). Cumulative totals therefore
 // MUST be summed on RAW and re-split, or each round's figures are silently
 // dropped. This mirrors ai/becca_env/game.py (_end_round), the reference
 // semantics: it accumulates raw and derives real points as raw // 3.
 
-/** Real points per raw point — the divisor behind the points/figures split. */
+/** Raw points per real point; preserve remainders while summing rounds. */
 const RAW_PER_POINT = 3;
 
 export interface RoundScoreRow {
@@ -32,7 +30,7 @@ export type Team = 0 | 1;
  * Cumulative real points across the given rounds, computed on raw totals so a
  * round's figures remainder carries into whole points instead of being lost.
  */
-export function cumulativeScore(rounds: RoundScoreRow[]): CumulativeScore {
+export function sumRoundScores(rounds: RoundScoreRow[]): CumulativeScore {
   let rawTeam0 = 0;
   let rawTeam1 = 0;
   for (const round of rounds) {

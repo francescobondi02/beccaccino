@@ -1,10 +1,8 @@
-// src/services/cardService.ts
-
 import { prisma } from "../db";
 import { selectLegalCards } from "../domain/game/legalCards";
 import { GameError } from "../utils/gameError";
 
-export async function playableCards({
+export async function readPlayableCards({
   roomCode,
   userId,
 }: {

@@ -8,7 +8,7 @@ import {
 } from "../helpers/botServiceStub";
 import { getTurnTimerState } from "../../src/runtime/turnTimer";
 import { getTimeoutState } from "../../src/runtime/timeoutPolicy";
-import { playableCards } from "../../src/services/cardService";
+import { readPlayableCards } from "../../src/services/playableCards";
 import { logger } from "../../src/logger";
 
 /**
@@ -168,7 +168,7 @@ describe("Bot turn driver", () => {
     for (let turn = 0; turn < HUMAN_TURNS; turn++) {
       await settle(roomCode);
 
-      const legal = await playableCards({ roomCode, userId });
+      const legal = await readPlayableCards({ roomCode, userId });
       const res = await apiAs(userId, "human")
         .post("/api/games/play-card")
         .send({ roomCode, suit: legal[0].suit, value: legal[0].value });

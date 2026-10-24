@@ -17,8 +17,9 @@ src/
   domain/game/             Pure cards, caller, turn, trick, and scoring rules
   game/snapshots/          Persisted caller/current-turn reads
   game/transitions/        Atomic round and card-play mutations
+  game/turn.ts             Shared turn phase, identity, and comparison
   runtime/                 Timers, bots, timeout policy, recovery, publication
-  services/                Coordinators, room commands/queries, account, stats
+  services/                Room operations/queries, account, stats
   annotations/             Contracts, state/action/batch parsing, response codec
   practice/                Practice archive payload version, types, parser
   sockets/room.ts          Presence and chat handlers
@@ -32,13 +33,25 @@ client errors and sanitizes unexpected failures.
 Routes are the public API map. Avoid compatibility barrels that hide which
 controller or service owns a route.
 
+Use these entry points when following the game:
+
+- `services/multiplayerRooms.ts` and `services/practiceRooms.ts`: room operations.
+- `services/leaveRoom.ts`: participant departure, not ownership checks.
+- `services/playableCards.ts`: read-only legal-card query.
+- `services/botUsers.ts`: bot accounts and tiers; `botClient.ts`: Python HTTP calls.
+- `domain/game/trickWinner.ts`, `roundScore.ts`, `gameScore.ts`: pure rules at each scope.
+
+Use explicit `userId` and `playerId` names. `playerTeams` maps player IDs to
+teams. A trick is one four-card play; a hand is the cards held by a player.
+Prisma's `Hand` model and existing `hand*` API fields retain their legacy names.
+
 ## Call Flow
 
 Room mutations:
 
 ```text
-route -> room mutation controller -> roomCoordinator
-      -> multiplayer/practice command transaction
+route -> room mutation controller -> multiplayer/practice/leave operation
+      -> database mutation
       -> runtime recovery or cleanup
       -> best-effort Socket.IO publication
 ```
@@ -46,16 +59,16 @@ route -> room mutation controller -> roomCoordinator
 Game mutations:
 
 ```text
-route -> game controller -> turnCoordinator
-      -> round/card-play transition transaction
-      -> runtime directive
+route -> game controller -> round/card-play operation
+      -> database transaction
+      -> runtime start or cleanup
       -> best-effort event publication
 ```
 
-Transitions do not schedule timers or publish events. They commit database
-changes and return an outcome containing the result, runtime directive, and
-events. `coordinateOutcome()` applies runtime before publication. Publication
-failure is logged and captured but does not fail an already committed request.
+Each operation owns its database writes, runtime handoff, and publication.
+Transactions commit before runtime starts or clears, and runtime changes precede
+game events. Publication failure is logged and captured but does not fail an
+already committed request.
 
 `services/gameState.ts` and `game/snapshots/` are read-only. A game-state GET
 must never start a timer, run a bot, or repair runtime.
@@ -87,7 +100,7 @@ side-effect free.
 Runtime responsibilities are separate:
 
 - `turnTimer.ts`: scheduled/executing turn ownership, cancellation, timer reads
-- `turnRuntime.ts`: apply schedule/clear directives
+- `turnRuntime.ts`: start turn runtime and clear room runtime
 - `botExecutor.ts`: bot move execution
 - `timeoutPolicy.ts` and `timeoutExecutor.ts`: penalties and elapsed-turn policy
 - `autoPlay.ts`: fallback legal autoplay

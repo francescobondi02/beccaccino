@@ -3,27 +3,17 @@ import { prisma } from "../../db";
 import {
   resolveCaller,
   resolveTurnSeat,
-  seatAfter,
+  nextCallerPlayerId,
 } from "../../domain/game/turnOrder";
 import {
   TurnIdentity,
   TurnPhase,
-} from "../transitions/types";
+} from "../turn";
 
 type GameReadClient = Pick<
   Prisma.TransactionClient,
   "hand" | "playerCard" | "round"
 >;
-
-function nextCallerPlayerId(
-  players: { id: number; seat: number | null }[],
-  previousCallerId: number,
-): number | null {
-  const previous = players.find((player) => player.id === previousCallerId);
-  if (!previous || previous.seat === null) return null;
-  const nextSeat = seatAfter(previous.seat);
-  return players.find((player) => player.seat === nextSeat)?.id ?? null;
-}
 
 export async function readCallerPlayerId(
   round: { id: number; number: number; gameRoomId: number },

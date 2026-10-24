@@ -4,12 +4,13 @@ import { GameError } from "../utils/gameError";
 import { withRoomLock } from "../utils/roomLock";
 import { assertNoActiveMultiplayerGame } from "./roomQueries";
 import { generateUniqueRoomCode } from "./roomCode";
-import { startFirstRound } from "./turnCoordinator";
+import { startFirstRound } from "../game/transitions/round";
+import { publishEvent } from "../runtime/eventPublisher";
 
-export async function createRoomCommand(userId: number) {
+export async function createMultiplayerRoom(userId: number) {
   await assertNoActiveMultiplayerGame(userId);
 
-  return prisma.gameRoom.create({
+  const room = await prisma.gameRoom.create({
     data: {
       code: await generateUniqueRoomCode(),
       players: {
@@ -25,15 +26,29 @@ export async function createRoomCommand(userId: number) {
       },
     },
   });
+  publishEvent(
+    "lobby",
+    "room_created",
+    {
+      room: {
+        id: room.id,
+        code: room.code,
+        currentPlayers: room.players.length,
+        maxPlayers: 4,
+      },
+    },
+    { roomCode: room.code },
+  );
+  return room;
 }
 
-export async function joinRoomCommand(args: {
+export async function joinMultiplayerRoom(args: {
   roomCode: string;
   userId: number;
 }) {
   await assertNoActiveMultiplayerGame(args.userId);
 
-  return withRoomLock(args.roomCode, async () => {
+  const room = await withRoomLock(args.roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
       where: { code: args.roomCode },
       include: { players: true },
@@ -65,48 +80,18 @@ export async function joinRoomCommand(args: {
       },
     });
   });
-}
-
-export type MultiplayerLeaveResult =
-  | { kind: "finished_preserved" }
-  | { kind: "room_deleted" }
-  | { kind: "player_left" };
-
-export async function leaveMultiplayerRoomCommand(args: {
-  roomCode: string;
-  userId: number;
-}): Promise<MultiplayerLeaveResult> {
-  return withRoomLock(args.roomCode, async () => {
-    const room = await prisma.gameRoom.findUnique({
-      where: { code: args.roomCode },
-      include: { players: true },
+  if (room.players.length >= 4) {
+    publishEvent("lobby", "room_full", { roomCode: args.roomCode });
+  } else {
+    publishEvent("lobby", "room_updated", {
+      roomCode: args.roomCode,
+      currentPlayers: room.players.length,
     });
-    if (!room || room.isPractice) throw new GameError("Room not found", 404);
-
-    const player = room.players.find(
-      (candidate) => candidate.userId === args.userId,
-    );
-    if (!player) throw new GameError("Player not found in room", 404);
-    if (room.started && !room.finished) {
-      throw new GameError("Cannot leave an active multiplayer game", 409);
-    }
-    if (room.finished) {
-      return { kind: "finished_preserved" };
-    }
-    if (room.players.length === 1) {
-      await prisma.$transaction([
-        prisma.player.deleteMany({ where: { gameRoomId: room.id } }),
-        prisma.gameRoom.delete({ where: { id: room.id } }),
-      ]);
-      return { kind: "room_deleted" };
-    }
-
-    await prisma.player.delete({ where: { id: player.id } });
-    return { kind: "player_left" };
-  });
+  }
+  return room;
 }
 
-export async function chooseTeamCommand(args: {
+export async function chooseMultiplayerTeam(args: {
   roomCode: string;
   userId: number;
   team: number;
@@ -115,7 +100,7 @@ export async function chooseTeamCommand(args: {
     throw new GameError("Invalid team selection", 400);
   }
 
-  return withRoomLock(args.roomCode, async () => {
+  const result = await withRoomLock(args.roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
       where: { code: args.roomCode },
       include: { players: true },
@@ -157,23 +142,31 @@ export async function chooseTeamCommand(args: {
     });
     return { player: updatedPlayer, changed: true };
   });
+  if (result.changed) {
+    publishEvent(
+      args.roomCode,
+      "team_chosen",
+      {
+        userId: args.userId,
+        playerId: result.player.id,
+        team: args.team,
+      },
+      { userId: args.userId },
+    );
+  }
+  return { success: true, player: result.player };
 }
 
-export async function setReadyCommand(args: {
+export async function setMultiplayerReady(args: {
   roomCode: string;
   userId: number;
   isReady: boolean;
-  onReadyChanged?: (event: {
-    userId: number;
-    playerId: number;
-    isReady: boolean;
-  }) => void | Promise<void>;
 }) {
   if (typeof args.isReady !== "boolean") {
     throw new GameError("Ready status is required", 400);
   }
 
-  return withRoomLock(args.roomCode, async () => {
+  const result = await withRoomLock(args.roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
       where: { code: args.roomCode },
       include: { players: true },
@@ -222,7 +215,7 @@ export async function setReadyCommand(args: {
       players.filter((candidate) => candidate.team === 1).length === 2;
 
     if (changed) {
-      await args.onReadyChanged?.({
+      publishEvent(args.roomCode, "ready_changed", {
         userId: args.userId,
         playerId: updatedPlayer.id,
         isReady: args.isReady,
@@ -233,6 +226,11 @@ export async function setReadyCommand(args: {
       await startFirstRound(room.id, args.roomCode);
     }
 
-    return { player: updatedPlayer, allReady, changed };
+    return { player: updatedPlayer, allReady };
   });
+  return {
+    success: true,
+    player: result.player,
+    allReady: result.allReady,
+  };
 }

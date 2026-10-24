@@ -1,4 +1,4 @@
-import { BOT_TIERS, BotTier, isBotTier } from "../../services/botService";
+import { BOT_TIERS, BotTier, isBotTier } from "../../services/botUsers";
 import { badRequest } from "../errors";
 
 type Body = Record<string, unknown> | null | undefined;

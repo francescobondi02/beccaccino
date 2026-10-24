@@ -1,9 +1,10 @@
 import { prisma } from "../../src/db";
-import { startFirstRound } from "../../src/services/turnCoordinator";
+import { startFirstRound } from "../../src/game/transitions/round";
 import {
   getTurnTimerState,
 } from "../../src/runtime/turnTimer";
 import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
+import * as turnRuntime from "../../src/runtime/turnRuntime";
 import {
   getSocketInstance,
   setSocketInstance,
@@ -171,5 +172,74 @@ describe("first-round startup", () => {
     expect(getTurnTimerState(code)).toMatchObject({
       phase: "choose_briscola",
     });
+  });
+
+  it("arms the briscola timer before publishing game start", async () => {
+    const code = "START4";
+    const { room } = await createReadyRoom([0, 1, 0, 1], code);
+    const originalIo = getSocketInstance();
+    const events: string[] = [];
+    let runtimeAtStart: ReturnType<typeof getTurnTimerState> = null;
+    setSocketInstance({
+      to: () => ({
+        emit: (event: string) => {
+          events.push(event);
+          if (event === "game_started") {
+            runtimeAtStart = getTurnTimerState(code);
+          }
+        },
+      }),
+    } as any);
+
+    try {
+      await startFirstRound(room.id, code);
+    } finally {
+      setSocketInstance(originalIo);
+    }
+
+    expect(events).toEqual(["turn_timer_started", "game_started"]);
+    expect(runtimeAtStart).toMatchObject({
+      phase: "choose_briscola",
+      totalMs: 90_000,
+    });
+  });
+
+  it("clears failed runtime startup without undoing the committed deal", async () => {
+    const code = "START5";
+    const { room } = await createReadyRoom([0, 1, 0, 1], code);
+    const originalIo = getSocketInstance();
+    const events: string[] = [];
+    setSocketInstance({
+      to: () => ({
+        emit: (event: string) => events.push(event),
+      }),
+    } as any);
+    const startRuntimeTurn = turnRuntime.startRuntimeTurn;
+    const start = jest
+      .spyOn(turnRuntime, "startRuntimeTurn")
+      .mockImplementationOnce((...args) => {
+        startRuntimeTurn(...args);
+        throw new Error("runtime startup failed");
+      });
+
+    try {
+      await expect(startFirstRound(room.id, code)).rejects.toThrow(
+        "runtime startup failed",
+      );
+    } finally {
+      start.mockRestore();
+      setSocketInstance(originalIo);
+    }
+
+    expect(
+      await prisma.gameRoom.findUniqueOrThrow({ where: { id: room.id } }),
+    ).toMatchObject({ started: true });
+    expect(
+      await prisma.playerCard.count({
+        where: { round: { gameRoomId: room.id } },
+      }),
+    ).toBe(40);
+    expect(events).not.toContain("game_started");
+    expect(getTurnTimerState(code)).toBeNull();
   });
 });

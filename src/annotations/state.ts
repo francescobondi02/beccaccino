@@ -6,7 +6,7 @@ import {
   SUITS,
   Suit,
 } from "../domain/game/cards";
-import { determineHandWinner } from "../domain/game/determineHandWinner";
+import { determineTrickWinner } from "../domain/game/trickWinner";
 import { selectLegalCards } from "../domain/game/legalCards";
 import { seatAfter } from "../domain/game/turnOrder";
 import {
@@ -24,14 +24,11 @@ import {
 import {
   cardAt,
   cardKey,
-  exactKeys,
-  integerAt,
   isAnnotationDecisionType,
-  JsonRecord,
-  recordAt,
   seatAt,
   signalAt,
 } from "./parsing";
+import { exactKeys, integerAt, JsonRecord, recordAt } from "../utils/json";
 
 function playCardLegalActionAt(
   value: unknown,
@@ -227,7 +224,7 @@ function parsePlayCardScenarioState(
         `${path}.completedTricks must follow the caller and previous winners`,
       );
     }
-    const winner = determineHandWinner(
+    const winner = determineTrickWinner(
       parsed.plays.map((play) => ({
         playerId: play.seat,
         suit: play.suit,

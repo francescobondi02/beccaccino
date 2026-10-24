@@ -2,10 +2,10 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { GameError } from "../utils/gameError";
 import {
-  cumulativeScore,
+  sumRoundScores,
   decideGameWinner,
   Team,
-} from "../domain/game/score";
+} from "../domain/game/gameScore";
 import { GAME_WIN_POINTS } from "../gameConfig";
 import {
   readCallerPlayerId,
@@ -14,7 +14,7 @@ import {
 import { getTurnTimerState } from "../runtime/turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 
-async function revealAllHands(
+async function readPlayerHands(
   client: Prisma.TransactionClient,
   players: { userId: number; id: number; botModel: string | null }[],
   roundId: number,
@@ -106,7 +106,7 @@ async function readGameStateSnapshot(
       },
     },
   });
-  const serializeHand = (hand: typeof currentHand) =>
+  const serializePlayedCards = (hand: typeof currentHand) =>
     hand?.cards.map((card) => ({
       playerId: card.playerId,
       userId: card.player.userId,
@@ -130,7 +130,7 @@ async function readGameStateSnapshot(
       winnerTeam: true,
     },
   });
-  const cumulative = cumulativeScore(completedRounds);
+  const cumulative = sumRoundScores(completedRounds);
   const callerTeam = gameRoom.players.find(
     (player) => player.id === callerPlayerId,
   )?.team;
@@ -157,7 +157,7 @@ async function readGameStateSnapshot(
       : null;
 
   const allHands = gameRoom.isPractice
-    ? await revealAllHands(client, gameRoom.players, currentRound.id)
+    ? await readPlayerHands(client, gameRoom.players, currentRound.id)
     : null;
 
   return {
@@ -167,8 +167,8 @@ async function readGameStateSnapshot(
     callerUserId,
     myCards,
     currentTurnUserId,
-    playedCards: serializeHand(currentHand),
-    lastHandCards: serializeHand(lastCompletedHand),
+    playedCards: serializePlayedCards(currentHand),
+    lastHandCards: serializePlayedCards(lastCompletedHand),
     cumulative,
     finishedGame,
     allHands,
@@ -184,7 +184,7 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       (client) => readGameStateSnapshot(client, roomCode, userId),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
-    const marker = await prisma.gameRoom.findUnique({
+    const latestRoomState = await prisma.gameRoom.findUnique({
       where: { id: snapshot.gameRoom.id },
       select: {
         finished: true,
@@ -198,10 +198,10 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       },
     });
     if (
-      marker?.finished === snapshot.gameRoom.finished &&
-      marker.pausedAt?.getTime() === snapshot.gameRoom.pausedAt?.getTime() &&
-      marker.pauseEpoch === snapshot.gameRoom.pauseEpoch &&
-      marker.rounds[0]?.id === snapshot.currentRound.id
+      latestRoomState?.finished === snapshot.gameRoom.finished &&
+      latestRoomState.pausedAt?.getTime() === snapshot.gameRoom.pausedAt?.getTime() &&
+      latestRoomState.pauseEpoch === snapshot.gameRoom.pauseEpoch &&
+      latestRoomState.rounds[0]?.id === snapshot.currentRound.id
     ) {
       break;
     }

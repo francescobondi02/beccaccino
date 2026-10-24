@@ -4,11 +4,8 @@ import {
   isAnnotationTag,
 } from "./constants";
 import { AnnotationScenarioInput } from "./contracts";
-import {
-  exactKeys,
-  nonEmptyStringAt,
-  recordAt,
-} from "./parsing";
+import { nonEmptyStringAt } from "./parsing";
+import { exactKeys, recordAt } from "../utils/json";
 import { parseAnnotationScenario } from "./state";
 
 export function parseAnnotationScenarioBatch(

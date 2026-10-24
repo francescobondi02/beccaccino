@@ -1,13 +1,18 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../db";
-import { computePoints } from "../../domain/game/computePoints";
-import { determineHandWinner } from "../../domain/game/determineHandWinner";
+import { computeRoundScore } from "../../domain/game/roundScore";
+import { determineTrickWinner } from "../../domain/game/trickWinner";
 import { isLegalCard } from "../../domain/game/legalCards";
-import { cumulativeScore, decideGameWinner } from "../../domain/game/score";
+import { sumRoundScores, decideGameWinner } from "../../domain/game/gameScore";
 import { resolveTurnSeat } from "../../domain/game/turnOrder";
 import { CardSignal, Suit, Value } from "../../domain/game/cards";
 import { GAME_WIN_POINTS } from "../../gameConfig";
 import { logger } from "../../logger";
+import { GameEvent, publishEvents } from "../../runtime/eventPublisher";
+import {
+  clearRuntimeRoom,
+  startRuntimeTurn,
+} from "../../runtime/turnRuntime";
 import { GameError } from "../../utils/gameError";
 import { withRoomLock } from "../../utils/roomLock";
 import {
@@ -18,11 +23,9 @@ import {
   setupRound,
 } from "./round";
 import {
-  GameEvent,
   isSameTurn,
-  TransitionOutcome,
   TurnIdentity,
-} from "./types";
+} from "../turn";
 
 type PlayedCardInput = {
   handId: number;
@@ -41,32 +44,6 @@ async function persistPlayedCard(
 ) {
   await tx.playerCard.delete({ where: { id: playerCardId } });
   return tx.playedCard.create({ data });
-}
-
-function playedCardEvent(args: {
-  roomCode: string;
-  userId: number;
-  playerId: number;
-  suit: Suit;
-  value: Value;
-  position: number;
-  handNumber: number;
-  roundNumber: number;
-  signal: PlayedCardInput["signal"];
-}): GameEvent {
-  return {
-    target: args.roomCode,
-    event: "card_played",
-    payload: {
-      playerId: args.playerId,
-      userId: args.userId,
-      suit: args.suit,
-      value: args.value,
-      position: args.position,
-      handNumber: args.handNumber,
-      signal: args.signal,
-    },
-  };
 }
 
 export async function playCard(args: {
@@ -100,7 +77,7 @@ async function playCardUnlocked({
   autoPlayed?: boolean;
   expectedPauseEpoch?: number;
   expectedTurn?: TurnIdentity;
-}): Promise<TransitionOutcome<void>> {
+}): Promise<void> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
     include: {
@@ -199,17 +176,19 @@ async function playCardUnlocked({
     signal: validSignal,
     autoPlayed,
   };
-  const cardEvent = playedCardEvent({
-    roomCode,
-    userId,
-    playerId: player.id,
-    suit,
-    value,
-    position,
-    handNumber: currentHand.number,
-    roundNumber: currentRound.number,
-    signal: validSignal,
-  });
+  const cardEvent: GameEvent = {
+    target: roomCode,
+    event: "card_played",
+    payload: {
+      userId,
+      playerId: player.id,
+      suit,
+      value,
+      position,
+      handNumber: currentHand.number,
+      signal: validSignal,
+    },
+  };
 
   if (position < 3) {
     await prisma.$transaction(async (tx) => {
@@ -230,27 +209,24 @@ async function playCardUnlocked({
     const nextPlayer = room.players.find(
       (candidate) => candidate.seat === nextTurnSeat,
     );
-    return {
-      value: undefined,
-      runtime: nextPlayer
-        ? {
-            kind: "schedule",
-            roomCode,
-            userId: nextPlayer.userId,
-            phase: "play_card",
-            pauseEpoch: room.pauseEpoch,
-            identity: {
-              roundId: currentRound.id,
-              handId: currentHand.id,
-              playedCardCount: position + 1,
-            },
-          }
-        : null,
-      events: [cardEvent],
-    };
+    if (nextPlayer) {
+      startRuntimeTurn(
+        roomCode,
+        nextPlayer.userId,
+        "play_card",
+        room.pauseEpoch,
+        {
+          roundId: currentRound.id,
+          handId: currentHand.id,
+          playedCardCount: position + 1,
+        },
+      );
+    }
+    publishEvents([cardEvent]);
+    return;
   }
 
-  const winnerPlayerId = determineHandWinner(
+  const trickWinnerPlayerId = determineTrickWinner(
     [...playedCards, playedCardData],
     currentRound.briscola,
   );
@@ -261,39 +237,36 @@ async function playCardUnlocked({
       await persistPlayedCard(tx, playerCard.id, playedCardData);
       await tx.hand.update({
         where: { id: currentHand.id },
-        data: { winnerId: winnerPlayerId },
+        data: { winnerId: trickWinnerPlayerId },
       });
       return tx.hand.create({
         data: {
           roundId: currentRound.id,
           number: currentHand.number + 1,
-          starterId: winnerPlayerId,
+          starterId: trickWinnerPlayerId,
         },
       });
     });
     logger.info({ roomCode, userId, suit, value, position }, "card_played");
 
     const winnerPlayer = room.players.find(
-      (candidate) => candidate.id === winnerPlayerId,
+      (candidate) => candidate.id === trickWinnerPlayerId,
     );
-    return {
-      value: undefined,
-      runtime: winnerPlayer
-        ? {
-            kind: "schedule",
-            roomCode,
-            userId: winnerPlayer.userId,
-            phase: "play_card",
-            pauseEpoch: room.pauseEpoch,
-            identity: {
-              roundId: currentRound.id,
-              handId: nextHand.id,
-              playedCardCount: 0,
-            },
-          }
-        : null,
-      events: [cardEvent],
-    };
+    if (winnerPlayer) {
+      startRuntimeTurn(
+        roomCode,
+        winnerPlayer.userId,
+        "play_card",
+        room.pauseEpoch,
+        {
+          roundId: currentRound.id,
+          handId: nextHand.id,
+          playedCardCount: 0,
+        },
+      );
+    }
+    publishEvents([cardEvent]);
+    return;
   }
 
   const allHands = await prisma.hand.findMany({
@@ -301,17 +274,17 @@ async function playCardUnlocked({
     orderBy: { number: "asc" },
     include: { cards: { orderBy: { position: "asc" } } },
   });
-  const teamPlayers: Record<number, number> = {};
+  const playerTeams: Record<number, number> = {};
   for (const roomPlayer of room.players) {
     if (roomPlayer.team !== null) {
-      teamPlayers[roomPlayer.id] = roomPlayer.team;
+      playerTeams[roomPlayer.id] = roomPlayer.team;
     }
   }
 
-  const scores = computePoints(
+  const roundScore = computeRoundScore(
     allHands.map((hand) => ({
       winnerId:
-        hand.id === currentHand.id ? winnerPlayerId : hand.winnerId,
+        hand.id === currentHand.id ? trickWinnerPlayerId : hand.winnerId,
       cards: [
         ...hand.cards.map((card) => ({
           value: card.value,
@@ -323,23 +296,23 @@ async function playCardUnlocked({
           : []),
       ],
     })),
-    teamPlayers,
+    playerTeams,
     currentRound.briscola!,
   );
 
   if (currentRound.cricca) {
-    const callerTeam = teamPlayers[allHands[0].starterId];
-    if (callerTeam === 0) scores.team0.points += 3;
-    if (callerTeam === 1) scores.team1.points += 3;
+    const callerTeam = playerTeams[allHands[0].starterId];
+    if (callerTeam === 0) roundScore.team0.points += 3;
+    if (callerTeam === 1) roundScore.team1.points += 3;
   }
 
-  let winnerTeam: number;
-  if (scores.team0.points !== scores.team1.points) {
-    winnerTeam = scores.team0.points > scores.team1.points ? 0 : 1;
-  } else if (scores.team0.figures !== scores.team1.figures) {
-    winnerTeam = scores.team0.figures > scores.team1.figures ? 0 : 1;
+  let roundWinnerTeam: number;
+  if (roundScore.team0.points !== roundScore.team1.points) {
+    roundWinnerTeam = roundScore.team0.points > roundScore.team1.points ? 0 : 1;
+  } else if (roundScore.team0.figures !== roundScore.team1.figures) {
+    roundWinnerTeam = roundScore.team0.figures > roundScore.team1.figures ? 0 : 1;
   } else {
-    winnerTeam = 0;
+    roundWinnerTeam = 0;
   }
 
   const previousCompletedRounds = await prisma.round.findMany({
@@ -359,20 +332,20 @@ async function playCardUnlocked({
   const allCompletedRounds = [
     ...previousCompletedRounds,
     {
-      team0Points: scores.team0.points,
-      team1Points: scores.team1.points,
-      team0Figures: scores.team0.figures,
-      team1Figures: scores.team1.figures,
-      winnerTeam,
+      team0Points: roundScore.team0.points,
+      team1Points: roundScore.team1.points,
+      team0Figures: roundScore.team0.figures,
+      team1Figures: roundScore.team1.figures,
+      winnerTeam: roundWinnerTeam,
     },
   ];
-  const total = cumulativeScore(allCompletedRounds);
-  const callerTeam = teamPlayers[allHands[0].starterId];
+  const gameScore = sumRoundScores(allCompletedRounds);
+  const callerTeam = playerTeams[allHands[0].starterId];
   if (callerTeam !== 0 && callerTeam !== 1) {
     throw new Error("Round caller has no valid team");
   }
-  const finalWinnerTeam = decideGameWinner(
-    total,
+  const gameWinnerTeam = decideGameWinner(
+    gameScore,
     GAME_WIN_POINTS,
     callerTeam,
   );
@@ -382,19 +355,19 @@ async function playCardUnlocked({
     await persistPlayedCard(tx, playerCard.id, playedCardData);
     await tx.hand.update({
       where: { id: currentHand.id },
-      data: { winnerId: winnerPlayerId },
+      data: { winnerId: trickWinnerPlayerId },
     });
     await tx.round.update({
       where: { id: currentRound.id },
       data: {
-        team0Points: scores.team0.points,
-        team1Points: scores.team1.points,
-        team0Figures: scores.team0.figures,
-        team1Figures: scores.team1.figures,
-        winnerTeam,
+        team0Points: roundScore.team0.points,
+        team1Points: roundScore.team1.points,
+        team0Figures: roundScore.team0.figures,
+        team1Figures: roundScore.team1.figures,
+        winnerTeam: roundWinnerTeam,
       },
     });
-    if (finalWinnerTeam !== null) {
+    if (gameWinnerTeam !== null) {
       await tx.gameRoom.update({
         where: { id: room.id },
         data: { finished: true },
@@ -413,9 +386,9 @@ async function playCardUnlocked({
       event: "round_ended",
       payload: {
         roundNumber: currentRound.number,
-        team0: scores.team0,
-        team1: scores.team1,
-        winnerTeam,
+        team0: roundScore.team0,
+        team1: roundScore.team1,
+        winnerTeam: roundWinnerTeam,
         cricca: currentRound.cricca,
       },
     },
@@ -424,17 +397,17 @@ async function playCardUnlocked({
     {
       roomCode,
       roundNumber: currentRound.number,
-      team0Points: scores.team0.points,
-      team1Points: scores.team1.points,
-      team0Figures: scores.team0.figures,
-      team1Figures: scores.team1.figures,
-      winnerTeam,
+      team0Points: roundScore.team0.points,
+      team1Points: roundScore.team1.points,
+      team0Figures: roundScore.team0.figures,
+      team1Figures: roundScore.team1.figures,
+      winnerTeam: roundWinnerTeam,
       cricca: currentRound.cricca,
     },
     "round_ended",
   );
 
-  if (finalWinnerTeam !== null) {
+  if (gameWinnerTeam !== null) {
     const totalRounds = allCompletedRounds.length;
     const team0Wins = allCompletedRounds.filter(
       (round) => round.winnerTeam === 0,
@@ -443,11 +416,11 @@ async function playCardUnlocked({
       target: roomCode,
       event: "game_finished",
       payload: {
-        winnerTeam: finalWinnerTeam,
+        winnerTeam: gameWinnerTeam,
         totalRounds,
         finalScores: {
-          team0: total.team0.points,
-          team1: total.team1.points,
+          team0: gameScore.team0.points,
+          team1: gameScore.team1.points,
         },
         roundsWon: {
           team0: team0Wins,
@@ -458,18 +431,16 @@ async function playCardUnlocked({
     logger.info(
       {
         roomCode,
-        winnerTeam: finalWinnerTeam,
+        winnerTeam: gameWinnerTeam,
         totalRounds,
-        totalTeam0Points: total.team0.points,
-        totalTeam1Points: total.team1.points,
+        totalTeam0Points: gameScore.team0.points,
+        totalTeam1Points: gameScore.team1.points,
       },
       "game_finished",
     );
-    return {
-      value: undefined,
-      runtime: { kind: "clear", roomCode },
-      events,
-    };
+    clearRuntimeRoom(roomCode);
+    publishEvents(events);
+    return;
   }
 
   const newCaller = room.players.find(
@@ -484,22 +455,18 @@ async function playCardUnlocked({
       callerUserId: newCaller?.userId ?? null,
     },
   });
-  return {
-    value: undefined,
-    runtime: newCaller
-      ? {
-          kind: "schedule",
-          roomCode,
-          userId: newCaller.userId,
-          phase: "choose_briscola",
-          pauseEpoch: room.pauseEpoch,
-          identity: {
-            roundId: nextRound!.roundId,
-            handId: null,
-            playedCardCount: 0,
-          },
-        }
-      : null,
-    events,
-  };
+  if (newCaller) {
+    startRuntimeTurn(
+      roomCode,
+      newCaller.userId,
+      "choose_briscola",
+      room.pauseEpoch,
+      {
+        roundId: nextRound!.roundId,
+        handId: null,
+        playedCardCount: 0,
+      },
+    );
+  }
+  publishEvents(events);
 }

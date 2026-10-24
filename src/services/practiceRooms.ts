@@ -5,11 +5,14 @@ import { clearTurnTimer } from "../runtime/turnTimer";
 import { GameError } from "../utils/gameError";
 import { withRoomLock } from "../utils/roomLock";
 import { ensureBotServiceReady } from "./botClient";
-import { BotTier, ensureBotUsers } from "./botService";
+import { BotTier, ensureBotUsers } from "./botUsers";
 import { archivePracticeMatch } from "./practiceArchive";
 import { generateUniqueRoomCode } from "./roomCode";
 import { assertNoActiveMultiplayerGame } from "./roomQueries";
-import { startFirstRound } from "./turnCoordinator";
+import { startFirstRound } from "../game/transitions/round";
+import { logger } from "../logger";
+import { publishEvent } from "../runtime/eventPublisher";
+import { ensureRoomRuntime } from "../runtime/recovery";
 
 class PracticeRoomCleanupError extends Error {
   constructor(
@@ -123,11 +126,11 @@ async function retirePreviousPracticeRooms(
   }
 }
 
-export async function createPracticeRoomCommand(args: {
+export async function createPracticeRoom(args: {
   userId: number;
   tier: BotTier;
 }) {
-  return withRoomLock(`practice-user:${args.userId}`, async () => {
+  const room = await withRoomLock(`practice-user:${args.userId}`, async () => {
     await assertNoActiveMultiplayerGame(args.userId);
     await ensureBotServiceReady(args.tier);
 
@@ -187,6 +190,11 @@ export async function createPracticeRoomCommand(args: {
       throw creationError;
     }
   });
+  logger.info(
+    { roomCode: room.code, userId: args.userId, tier: args.tier },
+    "practice_game_started",
+  );
+  return { code: room.code, tier: args.tier };
 }
 
 function assertPausablePracticeRoom(
@@ -210,13 +218,13 @@ function assertPausablePracticeRoom(
   }
 }
 
-export async function pausePracticeRoomCommand(
+export async function pausePracticeRoom(
   args: {
     roomCode: string;
     userId: number;
   },
 ) {
-  return withRoomLock(args.roomCode, async () => {
+  const room = await withRoomLock(args.roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
       where: { code: args.roomCode },
       include: { players: true },
@@ -260,15 +268,29 @@ export async function pausePracticeRoomCommand(
     });
     return { ...pausedRoom, paused };
   });
+  if (room.paused) {
+    const payload = {
+      roomCode: args.roomCode,
+      pausedAt: room.pausedAt,
+    };
+    publishEvent(args.roomCode, "practice_paused", payload);
+    publishEvent("lobby", "practice_paused", payload);
+  }
+  logger.info(args, "practice_game_paused");
+  return {
+    success: true,
+    paused: true,
+    pausedAt: room.pausedAt,
+  };
 }
 
-export async function resumePracticeRoomCommand(
+export async function resumePracticeRoom(
   args: {
     roomCode: string;
     userId: number;
   },
 ) {
-  return withRoomLock(args.roomCode, async () => {
+  const resumed = await withRoomLock(args.roomCode, async () => {
     const room = await prisma.gameRoom.findUnique({
       where: { code: args.roomCode },
       include: { players: true },
@@ -303,7 +325,16 @@ export async function resumePracticeRoomCommand(
       }
     }
 
-    const resumedRoom = { code: room.code, resumed: room.pausedAt !== null };
-    return resumedRoom;
+    return room.pausedAt !== null;
   });
+  if (!(await ensureRoomRuntime(args.roomCode))) {
+    throw new GameError("Practice game runtime unavailable; retry", 503);
+  }
+  if (resumed) {
+    const payload = { roomCode: args.roomCode };
+    publishEvent(args.roomCode, "practice_resumed", payload);
+    publishEvent("lobby", "practice_resumed", payload);
+  }
+  logger.info(args, "practice_game_resumed");
+  return { success: true, paused: false };
 }

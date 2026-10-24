@@ -59,13 +59,14 @@ backend/
 │   ├── domain/game/        # Pure caller, turn, card, trick, and scoring rules
 │   ├── game/
 │   │   ├── snapshots/      # Side-effect-free persisted turn reads
-│   │   └── transitions/    # Atomic round and card-play database mutations
+│   │   ├── transitions/    # Atomic round and card-play database mutations
+│   │   └── turn.ts         # Shared turn phase, persisted identity and comparison
 │   ├── http/               # Input parsers, typed errors, and global error mapping
 │   ├── practice/           # Versioned practice-match payload contract and parser
 │   ├── routes/             # Visible REST API map
 │   ├── runtime/            # Timers, bot execution, timeout policy, recovery, event publication
 │   ├── scripts/            # Annotation operators and practice/annotation exports
-│   ├── services/           # Coordinators, room commands/queries, snapshots, account and stats
+│   ├── services/           # Room operations/queries, snapshots, account and stats
 │   └── sockets/room.ts     # Socket presence and chat; room mutations remain REST-only
 ├── prisma/
 │   └── schema.prisma       # Database schema
@@ -87,17 +88,15 @@ backend/
 - Routes are the API map. Controllers parse request data, call one operation,
   and return its result. `src/http/errorHandler.ts` is the only HTTP error
   mapping and sanitization boundary.
-- `roomCoordinator.ts` and `turnCoordinator.ts` sequence committed database
-  work, runtime changes, and best-effort event publication.
-- Room command modules and `game/transitions/` own writes. Game transitions
-  commit atomically and return runtime directives and events; they never
-  publish directly.
+- Room operations and `game/transitions/` own writes, runtime changes, and
+  best-effort event publication. Game transactions commit before starting or
+  clearing runtime; there is no intermediate coordinator or directive layer.
 - `domain/game/` owns pure caller, seat, turn, legality, trick, and scoring
   rules. Snapshots, transitions, bots, annotations, and archives consume those
   rules instead of reimplementing them.
 - `game/snapshots/` and `services/gameState.ts` are reads. Loading
   `GET /api/games/:roomCode/state` never schedules a timer or starts a bot.
-- Runtime directives are applied before events are published. Publication
+- Runtime changes finish before game events are published. Publication
   failures are logged and reported to Sentry but do not turn a committed
   request into an HTTP failure.
 
@@ -197,8 +196,8 @@ Resuming starts a fresh full turn timer. Paused rooms remain subject to the same
 
 Before the HTTP server listens, `reconcileActiveRuntime()` scans started,
 unfinished, unpaused rooms. Each room is locked, its persisted caller and exact
-turn identity are read, bot seats are restored, and one runtime directive is
-scheduled only when that turn has no scheduled or executing owner. Failures are
+turn identity are read, bot seats are restored, and turn runtime starts only
+when that turn has no scheduled or executing owner. Failures are
 isolated per room, keep `/ready` unavailable, and are retried by a
 non-overlapping periodic reconciler. Practice resume commits the unpause first
 and returns success only after the same recovery path confirms current runtime.

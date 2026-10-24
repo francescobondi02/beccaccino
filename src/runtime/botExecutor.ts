@@ -1,11 +1,10 @@
 import { prisma } from "../db";
-import { coordinateOutcome } from "../game/coordinateOutcome";
-import { TurnIdentity, TurnPhase } from "../game/transitions/types";
+import { TurnIdentity, TurnPhase } from "../game/turn";
 import { logger } from "../logger";
 import { BotServiceError, requestBotMove } from "../services/botClient";
-import { BotTier } from "../services/botService";
+import { BotTier } from "../services/botUsers";
 import { buildBotTurn } from "../services/botState";
-import { playableCards } from "../services/cardService";
+import { readPlayableCards } from "../services/playableCards";
 import {
   PracticeTurnCancelledError,
   RuntimeTurnCancelledError,
@@ -14,8 +13,6 @@ import {
 import { playCard } from "../game/transitions/cardPlay";
 import { autoChooseBriscola, autoPlayCard } from "./autoPlay";
 import { hasBotSeat } from "./botRegistry";
-import { publishEvents } from "./eventPublisher";
-import { applyRuntimeDirective } from "./turnRuntime";
 
 async function isPauseEpochCurrent(
   roomCode: string,
@@ -63,7 +60,7 @@ export async function executeBotTurn(args: {
     }
     const expectedLegalCards =
       args.phase === "play_card"
-        ? (await playableCards(args)).map((card) => ({
+        ? (await readPlayableCards(args)).map((card) => ({
             suit: card.suit,
             value: card.value,
           }))
@@ -82,35 +79,23 @@ export async function executeBotTurn(args: {
     }
 
     if (move.kind === "briscola") {
-      await coordinateOutcome(
-        await setBriscola({
-          gameRoomId,
-          playerId,
-          suit: move.suit,
-          expectedPauseEpoch: args.expectedPauseEpoch,
-          expectedTurn: args.expectedTurn,
-        }),
-        {
-          applyRuntime: applyRuntimeDirective,
-          publishEvents,
-        },
-      );
+      await setBriscola({
+        gameRoomId,
+        playerId,
+        suit: move.suit,
+        expectedPauseEpoch: args.expectedPauseEpoch,
+        expectedTurn: args.expectedTurn,
+      });
     } else {
-      await coordinateOutcome(
-        await playCard({
-          roomCode: args.roomCode,
-          userId: args.userId,
-          suit: move.suit,
-          value: move.value,
-          signal: move.signal,
-          expectedPauseEpoch: args.expectedPauseEpoch,
-          expectedTurn: args.expectedTurn,
-        }),
-        {
-          applyRuntime: applyRuntimeDirective,
-          publishEvents,
-        },
-      );
+      await playCard({
+        roomCode: args.roomCode,
+        userId: args.userId,
+        suit: move.suit,
+        value: move.value,
+        signal: move.signal,
+        expectedPauseEpoch: args.expectedPauseEpoch,
+        expectedTurn: args.expectedTurn,
+      });
     }
   } catch (error) {
     if (

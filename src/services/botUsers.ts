@@ -1,4 +1,3 @@
-// src/services/botService.ts
 /**
  * Bot identity for practice games.
  *
@@ -31,7 +30,7 @@ const BOT_USERNAMES = ["Anna (bot)", "Bruno (bot)", "Carla (bot)"];
  * Idempotent — called on every practice game.
  */
 export async function ensureBotUsers(): Promise<number[]> {
-  const ids: number[] = [];
+  const userIds: number[] = [];
 
   for (const username of BOT_USERNAMES) {
     const user = await prisma.user.upsert({
@@ -50,8 +49,8 @@ export async function ensureBotUsers(): Promise<number[]> {
       );
     }
 
-    ids.push(user.id);
+    userIds.push(user.id);
   }
 
-  return ids;
+  return userIds;
 }
