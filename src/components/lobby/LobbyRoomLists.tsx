@@ -69,7 +69,7 @@ export default function LobbyRoomLists({
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+        <div className="arcade-room-scroll space-y-6 max-h-[500px] overflow-y-auto custom-scrollbar">
           {pausedPracticeGames.length > 0 && (
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-primary flex items-center gap-2">
@@ -79,7 +79,7 @@ export default function LobbyRoomLists({
               {pausedPracticeGames.map((game) => (
                 <Card
                   key={game.id}
-                  className="bg-gradient-card border-primary/30 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
+                  className="arcade-room-card bg-gradient-card border-primary/30 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
                 >
                   <CardContent className="p-5">
                     <div className="flex items-center justify-between gap-4">
@@ -128,7 +128,7 @@ export default function LobbyRoomLists({
               {ordinaryActiveGames.map((game) => (
                 <Card
                   key={game.id}
-                  className="bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-amber-500/30 hover:border-amber-500/50 transition-all duration-300 hover:scale-[1.02]"
+                  className="arcade-room-card bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-amber-500/30 hover:border-amber-500/50 transition-all duration-300 hover:scale-[1.02]"
                 >
                   <CardContent className="p-5">
                     <div className="flex items-center justify-between mb-3">

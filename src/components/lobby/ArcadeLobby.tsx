@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { MotionConfig } from "framer-motion";
+import { Link } from "react-router-dom";
 import { ArrowUpRight, Pause, Play, Zap } from "lucide-react";
 import { useReducedMotion } from "@/v2/hooks/useReducedMotion";
 import ArcadeHero from "./ArcadeHero";
@@ -39,7 +40,7 @@ export default function ArcadeLobby({ children, onPlay }: { children: ReactNode;
             <button className="club-text-button" onClick={onPlay}>IL PROSSIMO GIRO È TUO <ArrowUpRight size={22} /></button>
           </section>
         </main>
-        <footer className="club-footer"><span>BECCA <span>©</span> {new Date().getFullYear()}</span><span>IL BECCACCINO, DOVE VUOI TU.</span></footer>
+        <footer className="club-footer"><span>BECCA <span>©</span> {new Date().getFullYear()}</span><span>IL BECCACCINO, DOVE VUOI TU.</span><Link to="/leaderboard">Classifica <ArrowUpRight size={14} /></Link></footer>
         <ArcadeRules open={rulesOpen} onOpenChange={setRulesOpen} />
       </div>
     </MotionConfig>

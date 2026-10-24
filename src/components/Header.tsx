@@ -58,10 +58,12 @@ const Header = ({ onAuthenticate }: HeaderProps) => {
           <span>BECCA<span className="club-brand-caption">VECCHIA SCUOLA. NUOVA ENERGIA.</span></span>
         </button>
 
-        <nav aria-label="Navigazione principale">
-          <button aria-current={pathname === "/" ? "page" : undefined} onClick={() => navigate("/")}>La lobby</button>
-          <button aria-current={pathname === "/leaderboard" ? "page" : undefined} onClick={() => navigate("/leaderboard")}>Classifica</button>
-        </nav>
+        {pathname !== "/" && (
+          <nav aria-label="Navigazione principale">
+            <button onClick={() => navigate("/")}>Gioca</button>
+            <button aria-current={pathname === "/leaderboard" ? "page" : undefined} onClick={() => navigate("/leaderboard")}>Classifica</button>
+          </nav>
+        )}
 
         {username ? (
           <DropdownMenu>

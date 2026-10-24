@@ -1,6 +1,122 @@
 import { test, expect } from "./helpers/fixtures";
 
 test.describe("Arcade interface", () => {
+  test("previews the dashboard anonymously without loading private statistics", async ({ page }) => {
+    await page.route("**/users/me", (route) => route.fulfill({
+      status: 401, json: { error: "Not authenticated" },
+    }));
+    let privateStatsRequests = 0;
+    await page.route("**/users/me/stats", (route) => {
+      privateStatsRequests += 1;
+      return route.fulfill({ status: 401, json: { error: "Not authenticated" } });
+    });
+    await page.route("**/users/leaderboard", (route) => route.fulfill({
+      json: { leaderboard: [] },
+    }));
+    await page.goto("/preview/profile");
+    await expect(page.getByRole("heading", { name: "Il mio profilo", exact: true })).toBeVisible();
+    await expect(page.getByText("Anteprima locale · dati dimostrativi · nessun accesso necessario.")).toBeVisible();
+    await expect(page.getByText("GiuliaDemo", { exact: true })).toBeVisible();
+    await expect(page.locator(".arcade-stat")).toHaveCount(4);
+    await expect(page.locator(".arcade-match-row")).toHaveCount(3);
+    await expect(page.getByRole("button", { name: "Modifica", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Elimina account", exact: true })).toHaveCount(0);
+    await page.getByRole("link", { name: "Torna alla landing" }).click();
+    await page.getByRole("contentinfo").getByRole("link", { name: "Classifica" }).click();
+    await expect(page.getByRole("heading", { name: "Classifica generale", exact: true })).toBeVisible();
+    await page.goto("/profile");
+    await expect(page).toHaveURL("/");
+    expect(privateStatsRequests).toBe(0);
+  });
+
+  test("keeps room borders inside the scroll area while hovering", async ({ page }) => {
+    await page.route("**/users/me", (route) => route.fulfill({
+      json: { id: 1, username: "Giulia" },
+    }));
+    await page.route("**/rooms/available", (route) => route.fulfill({
+      json: {
+        availableRooms: Array.from({ length: 6 }, (_, index) => ({
+          id: index + 1, code: `BECCA${index}`, players: [],
+        })),
+        activeGames: [
+          { id: 20, code: "PAUSA1", isPractice: true, pausedAt: "2026-10-24T10:00:00Z", players: [] },
+          { id: 21, code: "GIOCO1", isPractice: false, pausedAt: null, players: [] },
+        ],
+      },
+    }));
+    await page.goto("/");
+    const scroll = page.locator(".arcade-live-rooms .overflow-y-auto");
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const code of ["PAUSA1", "GIOCO1", "BECCA0"]) {
+        const card = page.locator(".arcade-room-card").filter({ hasText: code });
+        await card.hover();
+        await card.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+        const area = await scroll.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return { left: bounds.left, right: bounds.left + element.clientWidth };
+        });
+        const bounds = await card.boundingBox();
+        if (!bounds) throw new Error("Missing hovered room card");
+        expect(bounds.x, `Left border clipped at ${width}px`).toBeGreaterThanOrEqual(area.left);
+        expect(bounds.x + bounds.width, `Right border clipped at ${width}px`).toBeLessThanOrEqual(area.right);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.locator(".arcade-live-rooms").screenshot({ path: test.info().outputPath(`room-hover-${width}.png`) });
+    }
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.locator(".arcade-room-card").filter({ hasText: "BECCA0" }).hover();
+    await expect(page.locator(".arcade-room-card").filter({ hasText: "BECCA0" })).toHaveCSS("transform", "none");
+  });
+
+  test("shows responsive personal stats and ordered rankings with long names", async ({ page }) => {
+    await page.route("**/users/me", (route) => route.fulfill({
+      json: { id: 1, username: "Giulia" },
+    }));
+    await page.route("**/users/me/stats", (route) => route.fulfill({
+      json: {
+        totalGames: 28, wins: 17, winRate: 61, totalPoints: 892,
+        recentGames: [
+          { id: 1, code: "UNO", date: "2026-10-24T12:00:00Z", result: "Vittoria", myTeamPoints: 41, opponentTeamPoints: 29, teammates: ["Luca"], opponents: ["Marta", "Diego"] },
+          { id: 2, code: "DUE", date: "2026-10-23T12:00:00Z", result: "Sconfitta", myTeamPoints: 33, opponentTeamPoints: 42, teammates: ["Giocatore_con_un_nome_molto_lungo"], opponents: ["Francesco", "Giocatore_con_un_nome_molto_lungo"] },
+        ],
+      },
+    }));
+    const names = ["Giulia", "Giocatore_con_un_nome_molto_lungo", "Luca", "Marta", "Giocatore_con_un_nome_molto_lungo_2"];
+    await page.route("**/users/leaderboard", (route) => route.fulfill({
+      json: { leaderboard: names.map((username, index) => ({
+        username, wins: 17 - index, totalGames: 28, winRate: 61 - index * 4, totalPoints: 892 - index * 30,
+      })) },
+    }));
+    for (const width of [1440, 768, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/profile");
+      await expect(page.getByRole("heading", { name: "Il mio profilo", exact: true })).toBeVisible();
+      await expect(page.locator(".arcade-stat")).toHaveCount(4);
+      await expect(page.locator(".arcade-match-row")).toHaveCount(2);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`personal-dashboard-${width}.png`), fullPage: true, animations: "disabled" });
+
+      await page.goto("/leaderboard");
+      const podium = page.getByRole("list", { name: "Podio", exact: true });
+      await expect(podium.getByRole("listitem")).toHaveCount(3);
+      await expect(podium.getByRole("heading")).toHaveText(names.slice(0, 3));
+      const rest = page.getByRole("list", { name: "Classifica dal quarto posto" });
+      await expect(rest.getByRole("heading")).toHaveText(names.slice(3));
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: test.info().outputPath(`rankings-dashboard-${width}.png`), fullPage: true, animations: "disabled" });
+    }
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/profile");
+    await expect(page.locator(".arcade-stat").first()).toHaveCSS("animation-name", "none");
+    await page.getByText("Gestione account", { exact: true }).click();
+    await page.getByRole("button", { name: "Elimina account", exact: true }).click();
+    await expect(page.getByRole("alertdialog")).toContainText("Questa azione non può essere annullata");
+    await page.getByRole("button", { name: "Annulla", exact: true }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Il mio profilo", exact: true })).toBeVisible();
+  });
+
   test("ignores retired interface preferences and removes layout switches", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("becca-ui", "classic"));
     await page.goto("/");
@@ -9,6 +125,8 @@ test.describe("Arcade interface", () => {
     await expect(page.getByText(/dati demo|tavoli dimostrativi/i)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "TROVA IL TUO SOCIO.", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /interfaccia/i })).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "Navigazione principale" })).toHaveCount(0);
+    await expect(page.getByRole("contentinfo").getByRole("link", { name: "Classifica" })).toHaveAttribute("href", "/leaderboard");
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-ui", "arcade");
     await page.getByTestId("open-auth-button").click();
