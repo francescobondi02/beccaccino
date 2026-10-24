@@ -26,25 +26,30 @@ describe("isolated UI preview", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("NON È SOLO FORTUNA.");
     fireEvent.click(screen.getByRole("button", { name: "Prova Ancora una, poi basta." }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ancora una, poi basta.");
-    fireEvent.click(screen.getByRole("button", { name: "Busso" }));
-    expect(screen.getByRole("button", { name: "Busso" })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Gioca Asso di denari" }));
-    expect(screen.queryByRole("button", { name: "Gioca Asso di denari" })).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Asso di denari in tavola · Busso");
+    expect(within(screen.getByTestId("player-hand")).getAllByRole("button")).toHaveLength(10);
+    fireEvent.click(screen.getByTestId("hand-card-denara-asso"));
+    fireEvent.click(screen.getByTestId("signal-button-busso"));
+    expect(screen.queryByTestId("hand-card-denara-asso")).not.toBeInTheDocument();
+    expect(screen.getByTestId("table-card-position-bottom")).toBeInTheDocument();
+    const controls = screen.getByRole("complementary", { name: "Comandi del tavolo demo" });
+    expect(within(controls).getByRole("status")).toHaveTextContent("La tua carta è in tavola · busso");
 
     fireEvent.click(screen.getByRole("button", { name: "Ricomincia" }));
-    expect(screen.getByRole("button", { name: "Gioca Asso di denari" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Niente" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("hand-card-denara-asso")).toBeEnabled();
+    expect(within(screen.getByTestId("player-hand")).getAllByRole("button")).toHaveLength(10);
+    expect(screen.queryByTestId("table-card-position-bottom")).not.toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("offers a fresh hand after all demo cards and returns to the unchanged app", () => {
+  it("completes a four-card trick with distinct cards and returns to the lobby", () => {
     render(<PreviewStudio />);
     fireEvent.click(screen.getByRole("button", { name: "FAMMI GIOCARE" }));
-    for (const button of screen.getAllByRole("button", { name: /^Gioca / })) fireEvent.click(button);
-    expect(screen.getByText("Hai provato tutte le carte.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Distribuisci di nuovo" }));
-    expect(screen.getAllByRole("button", { name: /^Gioca / })).toHaveLength(5);
+    fireEvent.click(screen.getByTestId("hand-card-spade-sette"));
+    fireEvent.click(screen.getByTestId("signal-button-none"));
+    fireEvent.click(screen.getByRole("button", { name: "Completa la presa" }));
+    const cards = within(screen.getByTestId("game-table-center")).getAllByRole("img");
+    expect(cards).toHaveLength(4);
+    expect(new Set(cards.map((card) => card.getAttribute("src"))).size).toBe(4);
     fireEvent.click(screen.getByRole("button", { name: "Tutti i tavoli" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("NON È SOLO FORTUNA.");
     expect(screen.getByRole("link", { name: /Torna alla versione attuale/ })).toHaveAttribute("href", "/");
