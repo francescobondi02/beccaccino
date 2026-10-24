@@ -20,14 +20,14 @@ export default function ArcadeHero({ onPlay, onRules, motionStopped }: ArcadeHer
     <>
       <section className="club-hero" aria-labelledby="club-title">
         <motion.div className="club-hero-copy" initial={{ opacity: 0, y: motionStopped ? 0 : 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
-          <span className="club-eyebrow"><span className="club-tiny-star" aria-hidden="true">✳</span> CARTE DI SEMPRE. ENERGIA NUOVA.</span>
+          <span className="club-eyebrow"><span className="club-tiny-star" aria-hidden="true">✳</span> Finalmente anche online</span>
           <h1 id="club-title" tabIndex={-1}><span>NON È </span><span className="club-title-outline">SOLO </span><em>FORTUNA.</em></h1>
-          <p>Sfida la chat di gruppo. Trova il tuo socio.<br />Fai quella presa che non si scordano.</p>
+          <p>Sfida la chat di gruppo. Trova il tuo socio.<br />Fai quella presa che non si dimentica</p>
           <div className="club-hero-actions">
             <button className="club-button" onClick={onPlay} data-testid="hero-primary-action">FAMMI GIOCARE <Zap size={20} fill="currentColor" /></button>
             <button className="club-text-button" onClick={onRules}><span className="club-play-icon" aria-hidden="true"><Play size={12} fill="currentColor" /></span> Come si gioca</button>
           </div>
-          <div className="club-hero-note"><span className="club-people" aria-hidden="true"><i>G</i><i>L</i><i>M</i><i>Tu</i></span><span>4 giocatori. 2 squadre.<br /><strong>Un sacco di «te l'avevo detto».</strong></span></div>
+          <div className="club-hero-note"><span className="club-people" aria-hidden="true"><i>G</i><i>L</i><i>M</i><i>Tu</i></span><span>4 giocatori. 2 squadre.<br /><strong>Un sacco di "ma le hai contate?"</strong></span></div>
         </motion.div>
         <motion.div className="club-hero-art" aria-hidden="true"
           style={{ rotateX: motionStopped ? 0 : tiltX, rotateY: motionStopped ? 0 : tiltY }}
