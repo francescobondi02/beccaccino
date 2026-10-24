@@ -25,12 +25,12 @@ export default function LobbyActions({
       </button>
       <button type="button" className="arcade-entry arcade-entry-practice" onClick={onPractice} data-testid="practice-button">
         <span className="arcade-entry-top" aria-hidden="true"><Bot size={32} /><ArrowUpRight size={25} /></span>
-        <span className="arcade-entry-copy"><strong>Scalda la mano.</strong><span>Fai pratica con un socio e due avversari bot.</span></span>
+        <span className="arcade-entry-copy"><strong>Scalda la mano.</strong><span>Fai pratica con 3 bot di vari livelli</span></span>
         <span className="arcade-entry-link">Allenati con i bot <ArrowRight size={19} aria-hidden="true" /></span>
       </button>
       <form className="arcade-entry arcade-entry-join" onSubmit={(event) => { event.preventDefault(); onJoinByCode(); }}>
         <span className="arcade-entry-top" aria-hidden="true"><Hash size={32} /><span>INVITO IN TASCA?</span></span>
-        <div className="arcade-entry-copy"><label htmlFor="room-code" className="arcade-entry-title">Hai il codice?</label><span>Il tuo posto ti aspetta.</span></div>
+        <div className="arcade-entry-copy"><label htmlFor="room-code" className="arcade-entry-title">Hai il codice?</label><span>I tuoi amici ti aspettano</span></div>
         <div className="arcade-code-row">
           <Input
             id="room-code"

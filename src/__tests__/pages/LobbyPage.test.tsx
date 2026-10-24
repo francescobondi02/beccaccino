@@ -123,6 +123,7 @@ describe("LobbyPage room commands", () => {
       expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("NON È SOLO FORTUNA.");
       expect(screen.getByRole("heading", { name: "TROVA IL TUO SOCIO." })).toBeInTheDocument();
       expect(screen.queryByText(/dati demo|tavoli dimostrativi/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^(Pausa|Attiva) effetti$/ })).not.toBeInTheDocument();
       fireEvent.click(screen.getByTestId(buttonId));
       await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms", {}));
       expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");

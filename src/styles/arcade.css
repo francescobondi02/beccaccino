@@ -350,7 +350,6 @@ html[data-ui="arcade"] [role="dialog"]:not(.club-dialog) { width: calc(100% - 32
 .arcade-lobby { padding-top: 80px; min-height: 100vh; background: hsl(var(--background)); color: hsl(var(--foreground)); }
 .arcade-lobby #main-content:focus { outline: none; }
 .arcade-live-hero { position: relative; min-height: 0; }
-.arcade-effects { position: absolute; top: 7px; right: 4%; z-index: 3; }
 .arcade-live-hero .club-hero { padding-top: 50px; }
 .arcade-lounge { width: 92%; max-width: 1440px; margin: auto; padding-block: 70px 50px; scroll-margin-top: 100px; }
 .arcade-lounge > .club-eyebrow { color: hsl(260 100% 77%); }
@@ -520,7 +519,6 @@ html[data-ui="arcade"] .arcade-score-panel .border-border, html[data-ui="arcade"
   .arcade-header [aria-label="Menu account"] > .font-medium { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
   .arcade-lobby { padding-top: 76px; }
   .arcade-live-hero .club-hero { padding-top: 45px; }
-  .arcade-effects { right: 5%; }
   .arcade-lounge { width: 90%; padding-top: 45px; }
   .arcade-lobby-grid { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .arcade-lobby-actions { grid-template-columns: minmax(0, 1fr); gap: 18px; }
