@@ -40,18 +40,18 @@ const GameFinishedDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl">
         <DialogHeader>
           <DialogTitle className="text-3xl font-bold text-center flex items-center justify-center gap-3 mb-2">
             <Trophy
               className={`h-8 w-8 ${isMyTeamWinner ? "text-yellow-500 animate-bounce" : "text-muted-foreground"}`}
             />
-            {isMyTeamWinner ? "🎉 Vittoria! 🎉" : "Partita Terminata"}
+            {isMyTeamWinner ? "Vittoria" : "Partita terminata"}
           </DialogTitle>
           <DialogDescription className="text-center text-lg">
             {isMyTeamWinner
               ? "La tua squadra ha vinto la partita!"
-              : `Team ${winnerTeam + 1} ha vinto la partita`}
+              : `La squadra ${winnerTeam + 1} ha vinto la partita.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -60,9 +60,9 @@ const GameFinishedDialog = ({
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
               <Target className="h-4 w-4" />
-              Punteggio Finale
+              Punteggio finale
             </h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               {/* Team 0 */}
               <div
                 className={`p-6 rounded-lg border-2 ${
@@ -73,10 +73,10 @@ const GameFinishedDialog = ({
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-lg">Team 1</span>
+                    <span className="font-bold text-lg">Squadra 1</span>
                     {myTeam === 0 && (
                       <Badge variant="secondary" className="text-xs">
-                        Tuo
+                        La tua
                       </Badge>
                     )}
                   </div>
@@ -102,10 +102,10 @@ const GameFinishedDialog = ({
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-lg">Team 2</span>
+                    <span className="font-bold text-lg">Squadra 2</span>
                     {myTeam === 1 && (
                       <Badge variant="secondary" className="text-xs">
-                        Tuo
+                        La tua
                       </Badge>
                     )}
                   </div>
@@ -127,14 +127,14 @@ const GameFinishedDialog = ({
           <div className="space-y-3">
             <h3 className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
-              Statistiche Partita
+              Statistiche della partita
             </h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
               {/* Round giocati */}
               <div className="p-4 rounded-lg bg-secondary/50">
                 <div className="flex items-center gap-2 mb-2">
                   <Award className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium">Round Giocati</span>
+                  <span className="text-sm font-medium">Smazzate giocate</span>
                 </div>
                 <div className="text-2xl font-bold">{totalRounds}</div>
               </div>
@@ -144,7 +144,7 @@ const GameFinishedDialog = ({
                 <div className="flex items-center gap-2 mb-2">
                   <Trophy className="h-4 w-4 text-primary" />
                   <span className="text-sm font-medium">
-                    Team 1 Round Vinti
+                    Smazzate vinte · Squadra 1
                   </span>
                 </div>
                 <div className="text-2xl font-bold">{roundsWon.team0}</div>
@@ -155,7 +155,7 @@ const GameFinishedDialog = ({
                 <div className="flex items-center gap-2 mb-2">
                   <Trophy className="h-4 w-4 text-primary" />
                   <span className="text-sm font-medium">
-                    Team 2 Round Vinti
+                    Smazzate vinte · Squadra 2
                   </span>
                 </div>
                 <div className="text-2xl font-bold">{roundsWon.team1}</div>
@@ -165,14 +165,14 @@ const GameFinishedDialog = ({
               <div className="p-4 rounded-lg bg-secondary/50">
                 <div className="flex items-center gap-2 mb-2">
                   <Target className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium">Media Punti</span>
+                  <span className="text-sm font-medium">Media punti</span>
                 </div>
                 <div className="text-xl font-bold">
                   {(
                     (finalScores.team0 + finalScores.team1) /
                     totalRounds
                   ).toFixed(1)}{" "}
-                  <span className="text-xs text-muted-foreground">/ round</span>
+                  <span className="text-xs text-muted-foreground">/ smazzata</span>
                 </div>
               </div>
             </div>
@@ -192,7 +192,7 @@ const GameFinishedDialog = ({
                   Uscita in corso...
                 </>
               ) : (
-                "Torna alla Home"
+                "Torna alla home"
               )}
             </Button>
           </div>

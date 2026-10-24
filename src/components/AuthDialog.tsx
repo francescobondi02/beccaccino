@@ -76,10 +76,6 @@ const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
     }
   };
 
-  const handleGoogleLogin = () => {
-    toast.info("Accesso con Google non ancora disponibile");
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md bg-card" data-testid="auth-dialog">
@@ -153,11 +149,10 @@ const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
             type="button"
             variant="outline"
             className="w-full"
-            onClick={handleGoogleLogin}
             disabled
           >
             <Mail className="mr-2 h-4 w-4" />
-            Continua con Google
+            Google non disponibile
           </Button>
 
           <div className="text-center text-sm">

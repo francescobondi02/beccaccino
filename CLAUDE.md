@@ -57,6 +57,8 @@ src/
     sentryUser.ts       Browser error-reporting identity
     utils.ts            cn() utility for Tailwind class merging
   assets/               Static images used in components
+  styles/arcade.css      Default arcade theme, shared hero styles, scoped live-page styling
+  preview/              Development-only interactive design prototype
   __tests__/            Vitest unit tests for components and socket handlers
 e2e/
   helpers/
@@ -150,6 +152,12 @@ npx playwright show-report  # HTML report with traces after failures
 
 ## UI Notes
 
+- The default interface is the arcade design. `next-themes` sets `html[data-ui="arcade"]`
+  and persists the choice in `becca-ui`. The account menu (or the layout button when
+  signed out) switches to `classic`, retaining the previous lobby and theme.
+- `ArcadeHero` and `ArcadeRules` are shared between the real lobby and `/preview`
+  (development only). Real room actions continue through `LobbyPage`; never connect
+  production routes to the prototype's sample data.
 - All UI text is in Italian
 - Card images: `/images/cards/{value}_{suit}.png` where suit uses "denari" (not "denara") in filenames
 - Practice games show "Pausa e torna alla home" alongside the confirmed, destructive "Abbandona" action, including inside the mandatory briscola and signal dialogs. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".

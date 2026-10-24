@@ -29,15 +29,15 @@ const LastTrickDialog = ({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-center">
-            Ultima Mano
+            Ultima presa
           </DialogTitle>
           <DialogDescription className="text-center">
-            Le carte giocate nella mano precedente
+            Le carte giocate nella presa precedente.
           </DialogDescription>
         </DialogHeader>
 
         {lastHand.length > 0 ? (
-          <div className="grid grid-cols-4 gap-4 mt-4 justify-items-center">
+          <div className="grid grid-cols-2 gap-4 mt-4 justify-items-center sm:grid-cols-4">
             {lastHand.map((card, idx) => {
               const player = players.find((p) => p.userId === card.userId);
               const playerName =
@@ -48,7 +48,7 @@ const LastTrickDialog = ({
               return (
                 <div key={idx} className="flex flex-col items-center gap-2">
                   <PlayingCard suit={card.suit} value={card.value} size="md" />
-                  <span className="text-xs text-muted-foreground font-medium">
+                  <span className="max-w-full break-all text-xs text-muted-foreground font-medium">
                     {playerName}
                   </span>
                 </div>
@@ -57,7 +57,7 @@ const LastTrickDialog = ({
           </div>
         ) : (
           <div className="text-center py-8 text-muted-foreground">
-            Nessuna mano completata ancora.
+            Nessuna presa ancora completata.
           </div>
         )}
       </DialogContent>

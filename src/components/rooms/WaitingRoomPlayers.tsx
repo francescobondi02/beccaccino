@@ -13,7 +13,8 @@ function initials(username: string): string {
     .split(" ")
     .map((name) => name[0])
     .join("")
-    .toUpperCase();
+    .toUpperCase()
+    .slice(0, 2);
 }
 
 export default function WaitingRoomPlayers({
@@ -21,23 +22,23 @@ export default function WaitingRoomPlayers({
   currentUserId,
 }: WaitingRoomPlayersProps) {
   return (
-    <div className="grid md:grid-cols-2 gap-4 mb-8">
+    <div className="grid grid-cols-1 gap-4 mb-8 md:grid-cols-2">
       {players.map((player, index) => {
         const isCurrentUser = player?.userId === currentUserId;
         return (
           <Card
             key={player?.id ?? `empty-${index}`}
-            className={`bg-gradient-card border-border/50 transition-all duration-300 ${
+            className={`circolo-surface transition-[transform,border-color,box-shadow] duration-200 ${
               player
-                ? "hover:border-primary/50 hover:scale-[1.02]"
+                ? "hover:border-accent/70 hover:-translate-y-0.5"
                 : "opacity-50"
             } ${isCurrentUser ? "ring-2 ring-primary" : ""}`}
           >
             <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
+                    className={`w-12 h-12 shrink-0 rounded-full flex items-center justify-center font-bold text-lg ${
                       player
                         ? "bg-gradient-primary text-primary-foreground"
                         : "bg-secondary text-muted-foreground"
@@ -49,9 +50,9 @@ export default function WaitingRoomPlayers({
                       <X className="h-6 w-6" />
                     )}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="font-semibold text-lg">
+                      <p className="truncate font-semibold text-lg" title={player?.username}>
                         {player ? player.username : "In attesa..."}
                       </p>
                       {isCurrentUser && (
@@ -82,7 +83,7 @@ export default function WaitingRoomPlayers({
                         </div>
                         {player.team !== null && (
                           <Badge variant="outline" className="text-xs mt-1">
-                            Team {player.team + 1}
+                            Squadra {player.team + 1}
                           </Badge>
                         )}
                       </>
@@ -92,7 +93,7 @@ export default function WaitingRoomPlayers({
 
                 {player && (
                   <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-colors ${
                       player.isReady
                         ? "bg-accent/20 text-accent"
                         : "bg-muted text-muted-foreground"

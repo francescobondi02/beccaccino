@@ -40,7 +40,7 @@ const TableCenter = ({
   countdown,
 }: TableCenterProps) => (
   <div
-    className="relative w-[25rem] h-[25rem] [@media(max-height:800px)]:w-72 [@media(max-height:800px)]:h-72 [@media(max-height:800px)]:translate-y-6 rounded-full bg-gradient-to-br from-primary/5 to-accent/5 border-4 border-primary/20 shadow-2xl flex items-center justify-center"
+    className="circolo-table relative flex h-[25rem] w-[25rem] min-h-64 min-w-64 items-center justify-center rounded-[46%] border border-[hsl(39_55%_62%_/_0.7)] [@media(max-height:800px)]:h-72 [@media(max-height:800px)]:w-72 [@media(max-height:800px)]:translate-y-6"
     data-testid="game-table-center"
   >
     {cards.length > 0 ? (
@@ -62,7 +62,7 @@ const TableCenter = ({
       ))
     ) : (
       <div className="text-center">
-        <p className="text-muted-foreground text-sm">
+        <p className="max-w-44 text-sm font-medium text-[hsl(43_46%_93%)]">
           {briscolaChosen
             ? `In attesa di ${waitingForUsername}...`
             : `${waitingForUsername} sta selezionando la briscola...`}

@@ -62,13 +62,13 @@ describe("Leaderboard request states", () => {
       await screen.findByText("Impossibile caricare la classifica"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("Nessuna partita completata ancora"),
+      screen.queryByText("Nessuna partita ancora completata"),
     ).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Riprova" }));
 
     expect(
-      await screen.findByText("Nessuna partita completata ancora"),
+      await screen.findByText("Nessuna partita ancora completata"),
     ).toBeInTheDocument();
     await waitFor(() =>
       expect(

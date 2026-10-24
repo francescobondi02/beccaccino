@@ -66,7 +66,7 @@ const GameRoom = () => {
   useEffect(() => {
     if (!gameStarted || !roomCode) return;
 
-    toast.success("La partita sta per iniziare! Redirecting...");
+    toast.success("La partita sta per iniziare! Ti portiamo al tavolo.");
     const timeout = setTimeout(() => {
       navigate(`/game/${roomCode}`);
     }, GAME_START_REDIRECT_MS);
@@ -122,11 +122,11 @@ const GameRoom = () => {
     try {
       await apiPost(`/rooms/${roomCode}/choose-team`, { team });
       setPlayerTeam(userId, team);
-      toast.success(`Sei nel Team ${team + 1}!`);
+      toast.success(`Sei nella squadra ${team + 1}!`);
     } catch (error) {
       console.error("Error choosing team:", error);
       toast.error(
-        error instanceof Error ? error.message : "Errore nella scelta del team",
+        error instanceof Error ? error.message : "Errore nella scelta della squadra",
       );
     }
   };
@@ -166,15 +166,15 @@ const GameRoom = () => {
   const team1Players = room.players.filter((player) => player.team === 1).length;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="circolo-shell">
       <ConnectionBanner status={connectionStatus} />
       <Header />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto animate-fade-in">
-          <Card className="bg-gradient-card border-border/50 mb-8">
+          <Card className="circolo-surface mb-8">
             <CardHeader>
-              <CardTitle className="flex items-center justify-between">
+              <CardTitle className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <Users className="h-6 w-6 text-primary" />
                   <span data-testid="room-code-display">Stanza: {roomCode}</span>
@@ -230,19 +230,19 @@ const GameRoom = () => {
           </div>
 
           {myPlayer?.team === null && (
-            <Card className="bg-gradient-card border-border/50 mt-6">
+            <Card className="circolo-surface mt-6">
               <CardContent className="p-6 text-center">
                 <p className="text-muted-foreground mb-4">
                   Scegli una squadra prima di poterti mettere pronto
                 </p>
-                <div className="flex gap-4 justify-center">
+                <div className="flex flex-col justify-center gap-3 sm:flex-row sm:gap-4">
                   <Button
                     variant="outline"
                     onClick={() => void handleChooseTeam(0)}
                     disabled={team0Players >= 2}
                     data-testid="team-0-button"
                   >
-                    Team 1 ({team0Players}/2)
+                    Squadra 1 ({team0Players}/2)
                   </Button>
                   <Button
                     variant="outline"
@@ -250,7 +250,7 @@ const GameRoom = () => {
                     disabled={team1Players >= 2}
                     data-testid="team-1-button"
                   >
-                    Team 2 ({team1Players}/2)
+                    Squadra 2 ({team1Players}/2)
                   </Button>
                 </div>
               </CardContent>

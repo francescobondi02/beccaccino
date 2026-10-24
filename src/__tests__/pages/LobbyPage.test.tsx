@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
     retry: vi.fn(),
   },
   navigate: vi.fn(),
+  theme: "arcade",
   unregisterLobby: vi.fn(),
   leaveLobby: vi.fn(),
   reconnectLobby: null as (() => void) | null,
@@ -32,6 +33,9 @@ const mocks = vi.hoisted(() => ({
     error: vi.fn(),
     success: vi.fn(),
   },
+}));
+vi.mock("next-themes", () => ({
+  useTheme: () => ({ theme: mocks.theme }),
 }));
 
 vi.mock("@/lib/api", async () => {
@@ -110,10 +114,29 @@ describe("LobbyPage room commands", () => {
     mocks.auth.user = { id: 1, username: "alice" };
     mocks.auth.loading = false;
     mocks.auth.error = null;
+    mocks.theme = "arcade";
     mocks.apiGet.mockResolvedValue({
       availableRooms: [{ id: 10, code: "LIST01", players: [] }],
       activeGames: [],
     });
+  });
+
+  it("uses the approved design for real room actions, without demo rooms", async () => {
+    mocks.apiPost.mockResolvedValue({ code: "NEW123" });
+    renderLobby();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("NON È SOLO FORTUNA.");
+    expect(screen.queryByText(/dati demo|tavoli dimostrativi/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("hero-primary-action"));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/", {}));
+    expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");
+  });
+
+  it("retains the classic lobby with the same real room controls", async () => {
+    mocks.theme = "classic";
+    renderLobby();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ogni carta");
+    expect(await screen.findByText("LIST01")).toBeInTheDocument();
+    expect(screen.getByTestId("create-room-button")).toBeInTheDocument();
   });
 
   it("joins listed and typed rooms through the same API contract", async () => {

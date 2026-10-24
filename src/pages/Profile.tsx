@@ -152,13 +152,13 @@ const Profile = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="circolo-shell">
       <Header />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Profile Header */}
-          <Card className="bg-gradient-card border-border/50">
+          <Card className="circolo-surface">
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span className="text-2xl">Il mio profilo</span>
@@ -263,7 +263,7 @@ const Profile = () => {
             <>
               {/* Stats Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="bg-gradient-card border-border/50">
+                <Card className="circolo-surface">
                   <CardContent className="pt-6 text-center">
                     <Users className="h-8 w-8 mx-auto mb-2 text-primary" />
                     <p className="text-2xl font-bold">{stats.totalGames}</p>
@@ -294,7 +294,7 @@ const Profile = () => {
               </div>
 
               {/* Recent Games */}
-              <Card className="bg-gradient-card border-border/50">
+              <Card className="circolo-surface">
                 <CardHeader>
                   <CardTitle>Partite recenti</CardTitle>
                 </CardHeader>

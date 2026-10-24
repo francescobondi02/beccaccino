@@ -194,9 +194,9 @@ describe("AnnotationScenario", () => {
     expect(
       screen.getAllByRole("radio", { name: /come briscola$/ }),
     ).toHaveLength(4);
-    expect(screen.queryByText("Mano in corso")).not.toBeInTheDocument();
+    expect(screen.queryByText("Presa in corso")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Apri storico del round" }),
+      screen.queryByRole("button", { name: "Apri storico della smazzata" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/^Briscola$/)).not.toBeInTheDocument();
 
@@ -324,11 +324,11 @@ describe("AnnotationScenario", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Apri storico del round" }),
+      screen.getByRole("button", { name: "Apri storico della smazzata" }),
     );
     const history = screen.getByTestId("annotation-history");
-    expect(within(history).getByText("Mano 1")).toBeInTheDocument();
-    expect(within(history).getByText("Mano 2 · in corso")).toBeInTheDocument();
+    expect(within(history).getByText("Presa 1")).toBeInTheDocument();
+    expect(within(history).getByText("Presa 2 · in corso")).toBeInTheDocument();
     expect(within(history).getByText("busso")).toBeInTheDocument();
     expect(within(history).getByText("volo")).toBeInTheDocument();
   });

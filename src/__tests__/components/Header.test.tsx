@@ -5,10 +5,15 @@ import Header from "@/components/Header";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
+  theme: "arcade",
+  setTheme: vi.fn(),
   auth: {
     user: null as { id: number; username: string } | null,
     logout: vi.fn(),
   },
+}));
+vi.mock("next-themes", () => ({
+  useTheme: () => ({ theme: mocks.theme, setTheme: mocks.setTheme }),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -41,16 +46,17 @@ describe("Header", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.auth.user = null;
+    mocks.theme = "arcade";
   });
 
   it("renders the brand title", () => {
     renderHeader();
-    expect(screen.getByText(/beccaccino/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Beccaccino, torna alla lobby" })).toHaveTextContent("BECCA");
   });
 
   it("navigates to home when clicking the brand title", () => {
     renderHeader();
-    fireEvent.click(screen.getByText(/beccaccino/i));
+    fireEvent.click(screen.getByRole("button", { name: "Beccaccino, torna alla lobby" }));
     expect(mocks.navigate).toHaveBeenCalledWith("/");
   });
 
@@ -71,7 +77,8 @@ describe("Header", () => {
 
   it("does not show an avatar when anonymous", () => {
     renderHeader();
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Menu account" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accedi" })).toBeInTheDocument();
   });
 
   it("shows the shared username", () => {
@@ -82,9 +89,23 @@ describe("Header", () => {
   it("opens expert data from the account menu", async () => {
     renderHeader("TestPlayer");
 
-    fireEvent.keyDown(screen.getByRole("button"), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Menu account" }), { key: "Enter" });
     fireEvent.click(await screen.findByText("Dati esperti"));
 
     expect(mocks.navigate).toHaveBeenCalledWith("/annotate");
+  });
+
+  it("keeps the classic interface available to anonymous users", () => {
+    renderHeader();
+    fireEvent.click(screen.getByRole("button", { name: "Usa interfaccia classica" }));
+    expect(mocks.setTheme).toHaveBeenCalledWith("classic");
+  });
+
+  it("renders the retained classic header and can restore the new interface", () => {
+    mocks.theme = "classic";
+    renderHeader();
+    expect(screen.getByText("Beccaccino")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Usa nuova interfaccia" }));
+    expect(mocks.setTheme).toHaveBeenCalledWith("arcade");
   });
 });

@@ -51,11 +51,12 @@ export default function GameBoard({
 
   return (
     <div
-      className="container mx-auto h-screen flex flex-col items-center pt-32 pb-4 px-4"
+      className="arcade-game-layout container mx-auto flex h-[100dvh] flex-col items-center px-3 pb-3 pt-28 sm:px-4"
       data-testid="game-layout"
     >
       <div className="flex-1 min-h-0 flex items-center justify-center w-full">
-        <div className="relative w-full h-full max-h-[34rem] max-w-[50rem] flex items-center justify-center">
+        <div className="arcade-arena relative flex h-full w-full max-h-[34rem] max-w-[50rem] items-center justify-center">
+          <span className="arcade-table-mark" aria-hidden="true">BECCA!</span>
           <div
             className="absolute left-1/2 top-0 -translate-x-1/2"
             data-testid="player-position-top"
@@ -73,7 +74,7 @@ export default function GameBoard({
           </div>
 
           <div
-            className="absolute left-8 top-1/2 -translate-y-1/2"
+            className="absolute left-0 top-1/2 -translate-y-1/2 sm:left-8"
             data-testid="player-position-left"
           >
             {leftPlayer && (
@@ -87,7 +88,7 @@ export default function GameBoard({
           </div>
 
           <div
-            className="absolute right-8 top-1/2 -translate-y-1/2"
+            className="absolute right-0 top-1/2 -translate-y-1/2 sm:right-8"
             data-testid="player-position-right"
           >
             {rightPlayer && (
@@ -118,7 +119,7 @@ export default function GameBoard({
 
       <div className="flex flex-col items-center gap-3 w-full">
         <div
-          className="flex gap-2 xl:gap-1 flex-wrap justify-center max-w-5xl"
+          className="arcade-player-hand flex max-w-5xl flex-wrap justify-center gap-1.5 sm:gap-2"
           data-testid="player-hand"
         >
           {hand

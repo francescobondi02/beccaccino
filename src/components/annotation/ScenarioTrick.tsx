@@ -67,7 +67,7 @@ function CurrentTrick({
       ))}
       <div className="col-start-2 row-start-2 min-w-0 text-center">
         <p className="text-xs font-semibold uppercase text-muted-foreground">
-          Mano {trick.number}
+          Presa {trick.number}
         </p>
         <p className="mt-1 text-sm font-medium">Tocca a te</p>
         {trick.signal && (
@@ -95,13 +95,13 @@ export default function ScenarioTrick({
   return (
     <Card className="border-border/70">
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-lg">Mano in corso</CardTitle>
+        <CardTitle className="text-lg">Presa in corso</CardTitle>
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          title="Storico del round"
-          aria-label="Apri storico del round"
+          title="Storico della smazzata"
+          aria-label="Apri storico della smazzata"
           onClick={onOpenHistory}
         >
           <History className="h-4 w-4" />

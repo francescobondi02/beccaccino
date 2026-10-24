@@ -153,7 +153,7 @@ describe("GameRoom state synchronization", () => {
       });
     });
 
-    expect(screen.getByText("Team 2")).toBeInTheDocument();
+    expect(screen.getByText("Squadra 2")).toBeInTheDocument();
     expect(screen.getByText("Pronto")).toBeInTheDocument();
 
     act(() => {

@@ -19,7 +19,7 @@ type TrumpSuitDialogProps = {
 };
 
 const italianSuits = [
-  { name: "Denara", value: "denara", img: "/images/semi/denara_seme.png" },
+  { name: "Denari", value: "denara", img: "/images/semi/denara_seme.png" },
   { name: "Coppe", value: "coppe", img: "/images/semi/coppe_seme.png" },
   { name: "Spade", value: "spade", img: "/images/semi/spade_seme.png" },
   { name: "Bastoni", value: "bastoni", img: "/images/semi/bastoni_seme.png" },
@@ -34,7 +34,7 @@ const TrumpSuitDialog = ({
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
-        className="sm:max-w-4xl max-h-[90vh] overflow-y-auto"
+        className="sm:max-w-4xl max-h-[90vh] overflow-y-auto border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
@@ -44,7 +44,7 @@ const TrumpSuitDialog = ({
           </DialogTitle>
           <DialogDescription className="text-center">
             Osserva la tua mano e seleziona il seme che sarà la briscola per
-            questo round
+            questa smazzata.
           </DialogDescription>
         </DialogHeader>
 
@@ -72,13 +72,13 @@ const TrumpSuitDialog = ({
           <h3 className="text-sm font-semibold text-muted-foreground mb-3 text-center">
             Seleziona la briscola
           </h3>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {italianSuits.map((suit) => (
               <Button
                 key={suit.value}
                 variant="outline"
                 size="lg"
-                className="h-24 flex flex-col gap-2 hover:bg-primary/10 hover:border-primary hover:text-foreground transition-all"
+                className="h-24 flex flex-col gap-2 border-border/80 bg-secondary/35 hover:border-accent hover:bg-accent/10 hover:text-foreground transition-[transform,border-color,background-color] hover:-translate-y-0.5"
                 onClick={() => onSelectSuit(suit.value)}
                 data-testid={`suit-button-${suit.value}`}
               >

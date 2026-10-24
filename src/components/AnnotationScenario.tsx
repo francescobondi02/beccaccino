@@ -186,8 +186,8 @@ const AnnotationScenario = ({
         <TrickHistoryDialog
           open={historyOpen}
           onOpenChange={setHistoryOpen}
-          title="Storico del round"
-          description="Carte giocate e segnali, mano per mano"
+          title="Storico della smazzata"
+          description="Carte giocate e segnali, presa per presa"
           tricks={history}
           testId="annotation-history"
         />

@@ -80,7 +80,7 @@ const Practice = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="circolo-shell">
       <Header />
 
       <div className="container max-w-3xl mx-auto p-4 pt-24">
@@ -90,12 +90,13 @@ const Practice = () => {
         </Button>
 
         <div className="text-center mb-10">
-          <h1 className="text-4xl font-bold bg-gradient-primary bg-clip-text text-transparent mb-3">
-            Pratica contro i bot
+          <p className="circolo-kicker mb-3">Tavolo d'allenamento</p>
+          <h1 className="font-display mb-3 text-4xl font-bold text-primary">
+            Allenati contro i bot
           </h1>
           <p className="text-muted-foreground">
-            Gioca da solo contro tre avversari controllati dall'intelligenza
-            artificiale. Scegli quanto devono essere forti.
+            Gioca con un socio e due avversari controllati dal computer.
+            Scegli il livello di difficoltà.
           </p>
         </div>
 
@@ -103,7 +104,7 @@ const Practice = () => {
           {TIERS.map((tier) => (
             <Card
               key={tier.name}
-              className="bg-gradient-card border-border/50 hover:border-primary/50 transition-all"
+              className="circolo-surface transition-[transform,border-color,box-shadow] hover:-translate-y-1 hover:border-accent/70"
             >
               <CardContent className="pt-6 flex flex-col h-full">
                 <div className="flex items-center gap-2 mb-2">
@@ -135,7 +136,7 @@ const Practice = () => {
         </div>
 
         <p className="text-xs text-muted-foreground text-center mt-8">
-          Le partite di pratica non contano per la classifica.
+          Gli allenamenti non contano per la classifica.
         </p>
       </div>
     </div>

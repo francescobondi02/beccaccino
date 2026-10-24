@@ -45,7 +45,7 @@ const SignalDialog = ({
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
-        className="sm:max-w-sm"
+        className="sm:max-w-sm border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
@@ -54,7 +54,7 @@ const SignalDialog = ({
             Vuoi dichiarare qualcosa?
           </DialogTitle>
           <DialogDescription className="text-center text-sm">
-            Stai aprendo la mano. Puoi comunicare con il tuo socio.
+            Stai aprendo la presa. I segnali sono visibili a tutti.
           </DialogDescription>
         </DialogHeader>
 
@@ -63,7 +63,7 @@ const SignalDialog = ({
             <Button
               key={s.value}
               variant="outline"
-              className={`w-full justify-start gap-3 h-auto py-3 ${s.color}`}
+              className={`w-full justify-start whitespace-normal gap-3 h-auto py-3 ${s.color}`}
               onClick={() => onSelect(s.value)}
               data-testid={`signal-button-${s.value}`}
             >

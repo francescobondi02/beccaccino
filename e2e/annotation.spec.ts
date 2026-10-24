@@ -210,9 +210,9 @@ test("expert selects and submits a briscola scenario", async ({
   await expect(
     expert.page.getByRole("radio", { name: /come briscola$/ }),
   ).toHaveCount(4);
-  await expect(expert.page.getByText("Mano in corso")).toHaveCount(0);
+  await expect(expert.page.getByText("Presa in corso")).toHaveCount(0);
   await expect(
-    expert.page.getByRole("button", { name: "Apri storico del round" }),
+    expert.page.getByRole("button", { name: "Apri storico della smazzata" }),
   ).toHaveCount(0);
   await verifyVisualState(expert.page, testInfo, "briscola-desktop");
   await expert.page.setViewportSize({ width: 390, height: 844 });

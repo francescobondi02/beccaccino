@@ -71,7 +71,7 @@ const Leaderboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="circolo-shell">
       <Header />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
@@ -88,11 +88,11 @@ const Leaderboard = () => {
           </Button>
 
           {/* Page Header */}
-          <Card className="bg-gradient-card border-border/50 mb-8">
+          <Card className="circolo-surface mb-8">
             <CardHeader>
               <CardTitle className="flex items-center gap-3 text-2xl">
                 <Trophy className="h-7 w-7 text-primary" />
-                Classifica Globale
+                Classifica generale
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -145,7 +145,7 @@ const Leaderboard = () => {
               <CardContent className="p-12 text-center">
                 <Users className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-50" />
                 <p className="text-muted-foreground text-lg">
-                  Nessuna partita completata ancora
+                  Nessuna partita ancora completata
                 </p>
                 <p className="text-sm text-muted-foreground mt-2">
                   Completa la tua prima partita per apparire in classifica!
@@ -163,7 +163,7 @@ const Leaderboard = () => {
                 <div className="col-span-4">Giocatore</div>
                 <div className="col-span-2 text-center">Vittorie</div>
                 <div className="col-span-2 text-center">Partite</div>
-                <div className="col-span-1 text-center">Win%</div>
+                <div className="col-span-1 text-center">% vittorie</div>
                 <div className="col-span-2 text-right">Punti</div>
               </div>
 

@@ -31,18 +31,18 @@ const RoundEndDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-center flex items-center justify-center gap-2">
             <Trophy
               className={`h-6 w-6 ${isMyTeamWinner ? "text-yellow-500" : "text-muted-foreground"}`}
             />
-            Round {roundNumber} Terminato!
+            Smazzata {roundNumber} conclusa
           </DialogTitle>
           <DialogDescription className="text-center">
             {isMyTeamWinner
-              ? "La tua squadra ha vinto questo round! 🎉"
-              : "L'altra squadra ha vinto questo round"}
+              ? "La tua squadra ha vinto questa smazzata."
+              : "Gli avversari hanno vinto questa smazzata."}
           </DialogDescription>
         </DialogHeader>
 
@@ -57,10 +57,10 @@ const RoundEndDialog = ({
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="font-bold">Team 1</span>
+                <span className="font-bold">Squadra 1</span>
                 {myTeam === 0 && (
                   <Badge variant="secondary" className="text-xs">
-                    Tuo
+                    La tua
                   </Badge>
                 )}
                 {winnerTeam === 0 && (
@@ -84,10 +84,10 @@ const RoundEndDialog = ({
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="font-bold">Team 2</span>
+                <span className="font-bold">Squadra 2</span>
                 {myTeam === 1 && (
                   <Badge variant="secondary" className="text-xs">
-                    Tuo
+                    La tua
                   </Badge>
                 )}
                 {winnerTeam === 1 && (
@@ -103,7 +103,7 @@ const RoundEndDialog = ({
         </div>
 
         <div className="text-center text-sm text-muted-foreground mt-4">
-          Preparazione del prossimo round in corso...
+          Prepariamo la prossima smazzata...
         </div>
       </DialogContent>
     </Dialog>

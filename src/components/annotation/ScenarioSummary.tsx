@@ -22,7 +22,7 @@ export default function ScenarioSummary({ scenario }: ScenarioSummaryProps) {
         <div className="flex min-w-0 items-center gap-3 border-b border-border px-1 py-3 sm:border-b-0 sm:border-r">
           <Target className="h-5 w-5 shrink-0 text-primary" />
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">Round</p>
+            <p className="text-xs text-muted-foreground">Smazzata</p>
             <p className="truncate font-semibold">
               {scenario.roundNumber} · obiettivo {scenario.targetPoints}
             </p>
@@ -47,7 +47,7 @@ export default function ScenarioSummary({ scenario }: ScenarioSummaryProps) {
             <div className="flex min-w-0 items-center gap-3 border-b border-border px-1 py-3 sm:border-b-0 sm:border-r">
               <Flag className="h-5 w-5 shrink-0 text-accent" />
               <div className="min-w-0">
-                <p className="text-xs text-muted-foreground">Apre la mano</p>
+                <p className="text-xs text-muted-foreground">Apre la presa</p>
                 <p className="truncate font-semibold">
                   {seatLabel(scenario.trickStarter, scenario.actingSeat)}
                 </p>
@@ -62,7 +62,7 @@ export default function ScenarioSummary({ scenario }: ScenarioSummaryProps) {
               <div className="min-w-0">
                 <p className="text-xs text-muted-foreground">Briscola</p>
                 <p className="truncate font-semibold capitalize">
-                  {scenario.briscola}
+                  {scenario.briscola === "denara" ? "denari" : scenario.briscola}
                 </p>
               </div>
             </div>

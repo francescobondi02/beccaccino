@@ -238,9 +238,8 @@ describe("AuthDialog", () => {
     });
   });
 
-  it("shows Google login not available toast", () => {
+  it("clearly labels unavailable Google login and keeps it disabled", () => {
     render(<AuthDialog {...defaultProps} />);
-    // Google button is disabled, but let's verify the text is there
-    expect(screen.getByText("Continua con Google")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Google non disponibile" })).toBeDisabled();
   });
 });

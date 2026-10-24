@@ -303,7 +303,7 @@ const GameTable = () => {
       });
       applyLocalBriscola(suit);
       setTrumpDialogOpen(false);
-      toast.success(`Briscola scelta: ${suit}`);
+      toast.success(`Briscola scelta: ${suit === "denara" ? "denari" : suit}`);
     } catch (error) {
       if (error instanceof ApiError) {
         toast.error(error.body?.error || "Errore nella scelta della briscola");
@@ -424,14 +424,13 @@ const GameTable = () => {
 
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 relative overflow-hidden"
+      className="circolo-shell relative overflow-hidden"
       data-testid="game-table-page"
       data-current-turn-userid={currentTurnUserId ?? ""}
       data-briscola={currentRound?.briscola ?? ""}
       data-game-finished={gameFinishedDialogOpen}
     >
-      {/* Background decorative elements */}
-      <div className="absolute inset-0 bg-gradient-warm opacity-20 pointer-events-none" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(157_42%_25%_/_0.11),transparent_58%)]" />
 
       {/* Connection Status Banner */}
       <ConnectionBanner status={connectionStatus} />
@@ -460,7 +459,7 @@ const GameTable = () => {
       />
 
       {/* Game Action Buttons */}
-      <div className="absolute bottom-4 right-4 flex flex-col gap-2">
+      <div className="arcade-game-tools absolute bottom-4 right-4 flex flex-col gap-2">
         {showPracticeHistory && !practiceHistoryBlocked && (
           <Button
             variant="secondary"
@@ -482,7 +481,7 @@ const GameTable = () => {
           size="sm"
           onClick={() => setLastTrickDialogOpen(true)}
         >
-          Ultima Mano
+          Ultima presa
         </Button>
         {currentRound?.briscola === null && callerUserId === userId && (
           <Button
@@ -491,7 +490,7 @@ const GameTable = () => {
             onClick={() => setTrumpDialogOpen(true)}
             data-testid="choose-trump-button"
           >
-            Scegli Briscola
+            Scegli la briscola
           </Button>
         )}
         {!trumpDialogOpen && !signalDialogOpen && practiceActions}

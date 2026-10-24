@@ -64,10 +64,10 @@ describe("PracticeHistoryDialog", () => {
 
     const history = screen.getByTestId("practice-history");
     expect(within(history).queryByText(/Round/)).not.toBeInTheDocument();
-    expect(within(history).getByText("Mano 1")).toBeInTheDocument();
-    expect(within(history).getByText("Mano 2")).toBeInTheDocument();
+    expect(within(history).getByText("Presa 1")).toBeInTheDocument();
+    expect(within(history).getByText("Presa 2")).toBeInTheDocument();
     expect(
-      within(history).getByAltText("quattro di denara"),
+      within(history).getByAltText("quattro di denari"),
     ).toBeInTheDocument();
     expect(within(history).getByAltText("asso di coppe")).toBeInTheDocument();
     expect(within(history).getByText("busso")).toBeInTheDocument();
@@ -78,12 +78,12 @@ describe("PracticeHistoryDialog", () => {
     const onToggleHands = vi.fn();
     renderDialog({ onToggleHands });
 
-    expect(screen.queryByAltText("re di denara")).not.toBeInTheDocument();
+    expect(screen.queryByAltText("re di denari")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Mostra mani" }));
     expect(onToggleHands).toHaveBeenCalledOnce();
 
     renderDialog({ handsRevealed: true });
-    expect(screen.getByAltText("re di denara")).toBeInTheDocument();
+    expect(screen.getByAltText("re di denari")).toBeInTheDocument();
     expect(screen.getByAltText("sette di spade")).toBeInTheDocument();
     expect(screen.getByText("forte")).toBeInTheDocument();
   });

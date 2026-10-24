@@ -61,15 +61,19 @@ const PlayingCard = ({
 
   const suitFile = suitFileMap[suit] ?? suit;
   const imgSrc = `/images/cards/${value}_${suitFile}.png`;
+  const Component = onClick ? "button" : "div";
 
   return (
-    <div
+    <Component
+      type={onClick ? "button" : undefined}
+      disabled={onClick ? disabled || !clickable : undefined}
+      aria-label={onClick ? `Gioca ${value} di ${suitFile}` : undefined}
       className={cn(
-        "relative rounded-lg overflow-hidden shadow-lg border-2 border-primary/20 bg-card transition-all duration-200",
+        "circolo-card relative overflow-hidden rounded-md border border-[hsl(39_45%_50%_/_0.52)] bg-card transition-[transform,box-shadow,border-color,opacity] duration-200",
         sizeClasses[size],
         clickable &&
           !disabled &&
-          "cursor-pointer hover:scale-110 hover:shadow-xl hover:border-primary/60 hover:-translate-y-2",
+          "circolo-card-playable cursor-pointer hover:-translate-y-2 hover:scale-[1.06] hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         disabled && "opacity-40 grayscale cursor-not-allowed",
         className,
       )}
@@ -90,12 +94,12 @@ const PlayingCard = ({
       ) : (
         <img
           src={imgSrc}
-          alt={`${value} di ${suit}`}
+          alt={`${value} di ${suitFile}`}
           className="w-full h-full object-cover"
           onError={() => setImgError(true)}
         />
       )}
-    </div>
+    </Component>
   );
 };
 

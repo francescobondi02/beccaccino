@@ -20,24 +20,25 @@ export default function GameScoreHeader({
   totalPoints,
 }: GameScoreHeaderProps) {
   const points = pointsForPlayerTeam(totalPoints, playerTeam);
+  const briscolaLabel = briscola === "denara" ? "denari" : briscola;
 
   return (
     <>
-      <div className="absolute top-4 right-4 text-sm text-muted-foreground">
-        Room: <span className="font-semibold text-foreground">{roomCode}</span>
+      <div className="absolute right-4 top-4 hidden rounded-full border border-border/70 bg-card/80 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm sm:block">
+        Tavolo <span className="font-mono font-semibold tracking-wider text-foreground">{roomCode}</span>
       </div>
 
       {briscola && (
-        <Card className="absolute top-4 left-4 px-4 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm">
+        <Card className="circolo-panel absolute left-4 top-4 hidden border-[hsl(39_45%_50%_/_0.5)] px-4 py-3 backdrop-blur-sm sm:block">
           <div className="flex items-center gap-3">
             <img
               src={`/images/semi/${briscola}_seme.png`}
-              alt={briscola}
+              alt={briscolaLabel ?? ""}
               className="w-8 h-8 object-contain"
             />
             <div>
               <div className="text-xs text-muted-foreground">Briscola</div>
-              <div className="text-sm font-bold capitalize">{briscola}</div>
+              <div className="text-sm font-bold capitalize">{briscolaLabel}</div>
             </div>
           </div>
         </Card>
@@ -45,21 +46,21 @@ export default function GameScoreHeader({
 
       <div className="container absolute inset-x-0 top-4 mx-auto flex justify-center px-4">
         <Card
-          className="px-6 py-3 shadow-lg border-2 bg-card/80 backdrop-blur-sm"
+          className="arcade-score-panel circolo-panel border-[hsl(39_45%_50%_/_0.6)] px-5 py-2.5 backdrop-blur-sm"
           data-testid="team-points-panel"
         >
           {handNumber && roundNumber && (
             <div className="text-center text-xs text-muted-foreground mb-2 border-b border-border pb-1">
-              Round {roundNumber} &middot; Mano {handNumber}/10
+              Smazzata {roundNumber} &middot; Presa {handNumber}/10
             </div>
           )}
           <div className="flex items-center gap-6">
             <div className="text-center">
               <div className="text-xs text-muted-foreground mb-1">
-                La tua squadra (Team {(playerTeam ?? 0) + 1})
+                Noi · Squadra {(playerTeam ?? 0) + 1}
               </div>
               <div
-                className="text-2xl font-bold text-primary"
+                className="font-mono text-2xl font-bold tabular-nums text-primary"
                 data-testid="my-team-points"
               >
                 {points.own}
@@ -68,16 +69,19 @@ export default function GameScoreHeader({
             <div className="h-8 w-px bg-border" />
             <div className="text-center">
               <div className="text-xs text-muted-foreground mb-1">
-                Avversari (Team {((playerTeam ?? 0) === 0 ? 1 : 0) + 1})
+                Loro · Squadra {((playerTeam ?? 0) === 0 ? 1 : 0) + 1}
               </div>
               <div
-                className="text-2xl font-bold text-accent"
+                className="font-mono text-2xl font-bold tabular-nums text-accent"
                 data-testid="opponent-team-points"
               >
                 {points.opponents}
               </div>
             </div>
           </div>
+          {briscola && (
+            <div className="arcade-mobile-trump">Briscola: <strong>{briscolaLabel}</strong></div>
+          )}
         </Card>
       </div>
     </>

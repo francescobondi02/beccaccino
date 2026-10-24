@@ -28,7 +28,7 @@ const SUIT_OPTIONS: Array<{
 }> = [
   {
     value: "denara",
-    label: "Denara",
+    label: "Denari",
     image: "/images/semi/denara_seme.png",
   },
   { value: "coppe", label: "Coppe", image: "/images/semi/coppe_seme.png" },

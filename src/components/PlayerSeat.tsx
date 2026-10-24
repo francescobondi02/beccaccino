@@ -38,11 +38,11 @@ const PlayerSeat = ({
   return (
     <Card
       {...testAttrs}
-      className={`${padding} py-2 bg-card/80 backdrop-blur-sm transition-all ${
-        isTurn ? "ring-2 ring-primary shadow-lg" : ""
+      className={`circolo-seat ${padding} border-[hsl(39_45%_50%_/_0.52)] py-2.5 bg-card/95 backdrop-blur-sm transition-[box-shadow,transform] ${
+        isTurn ? "circolo-seat-active ring-2 ring-primary" : ""
       }`}
     >
-      <p className="text-sm font-semibold">{player.username}</p>
+      <p className="text-sm font-semibold leading-tight" title={player.username}>{player.username}</p>
       {showRole && (
         <p className="text-xs text-muted-foreground">
           {player.isTeammate ? "Socio" : "Avversario"}
@@ -53,7 +53,7 @@ const PlayerSeat = ({
           className={`text-xs font-bold mt-0.5 ${
             countdown <= 10
               ? "text-destructive animate-pulse"
-              : "text-muted-foreground"
+              : "text-accent"
           }`}
         >
           {countdown}s

@@ -12,7 +12,7 @@ describe("PlayingCard", () => {
 
   it("maps denara suit to denari for the image filename", () => {
     render(<PlayingCard suit="denara" value="tre" />);
-    const img = screen.getByAltText("tre di denara");
+    const img = screen.getByAltText("tre di denari");
     expect(img).toHaveAttribute("src", "/images/cards/tre_denari.png");
   });
 
@@ -38,6 +38,7 @@ describe("PlayingCard", () => {
     );
     fireEvent.click(container.firstElementChild!);
     expect(onClick).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Gioca asso di bastoni" })).toBeEnabled();
   });
 
   it("does not fire onClick when disabled", () => {
@@ -47,6 +48,7 @@ describe("PlayingCard", () => {
     );
     fireEvent.click(container.firstElementChild!);
     expect(onClick).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Gioca asso di bastoni" })).toBeDisabled();
   });
 
   it("applies disabled styles", () => {
@@ -62,7 +64,7 @@ describe("PlayingCard", () => {
   describe("fallback placeholder", () => {
     it("shows fallback with suit symbol when image fails to load", () => {
       render(<PlayingCard suit="denara" value="asso" />);
-      const img = screen.getByAltText("asso di denara");
+      const img = screen.getByAltText("asso di denari");
 
       // Simulate image load failure
       act(() => {
@@ -70,7 +72,7 @@ describe("PlayingCard", () => {
       });
 
       // Image should be gone, fallback should show
-      expect(screen.queryByAltText("asso di denara")).not.toBeInTheDocument();
+      expect(screen.queryByAltText("asso di denari")).not.toBeInTheDocument();
 
       // Fallback should show the suit symbol
       expect(screen.getByText("♦")).toBeInTheDocument();
@@ -88,7 +90,7 @@ describe("PlayingCard", () => {
 
       for (const { suit, symbol } of suitMap) {
         const { unmount } = render(<PlayingCard suit={suit} value="re" />);
-        const img = screen.getByAltText(`re di ${suit}`);
+        const img = screen.getByAltText(`re di ${suit === "denara" ? "denari" : suit}`);
 
         act(() => {
           fireEvent.error(img);

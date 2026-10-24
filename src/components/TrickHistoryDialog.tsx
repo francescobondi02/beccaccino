@@ -79,7 +79,7 @@ const TrickHistoryDialog = ({
               >
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-sm font-medium text-muted-foreground">
-                    {trick.number ? `Mano ${trick.number}` : "Mano"}
+                    {trick.number ? `Presa ${trick.number}` : "Presa"}
                     {trick.current ? " · in corso" : ""}
                   </h3>
                   {trick.winnerLabel && (

@@ -31,7 +31,7 @@ export default function LobbyRoomLists({
     0;
 
   return (
-    <div className="space-y-6">
+    <div className="arcade-live-rooms space-y-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Users className="h-5 w-5 text-primary" />
@@ -44,7 +44,7 @@ export default function LobbyRoomLists({
             }`}
           />
           <span className="text-xs text-muted-foreground">
-            {isConnected ? "Live" : "Offline"}
+            {isConnected ? "Connesso" : "Non connesso"}
           </span>
         </div>
       </div>
@@ -187,7 +187,7 @@ export default function LobbyRoomLists({
               {availableRooms.map((room) => (
                 <Card
                   key={room.id}
-                  className="bg-gradient-card border-border/50 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
+                  className="arcade-room-card bg-gradient-card border-border/50 hover:border-primary/50 transition-all duration-300 hover:scale-[1.02]"
                 >
                   <CardContent className="p-5">
                     <div className="flex items-center justify-between">
