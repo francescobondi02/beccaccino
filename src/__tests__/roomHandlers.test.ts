@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { JoinRoomResult } from "@/sockets/events";
 
 type Listener = (...args: unknown[]) => void;
 const serverListeners = new Map<string, Set<Listener>>();
@@ -47,7 +48,7 @@ function lastJoinAcknowledgement() {
     .filter(([name]) => name === "join_room")
     .at(-1);
   if (!call) throw new Error("No join_room emission");
-  return call[2] as (result: { ok: boolean; error?: string }) => void;
+  return call[2] as (result: JoinRoomResult) => void;
 }
 
 describe("roomHandlers", () => {
@@ -55,6 +56,12 @@ describe("roomHandlers", () => {
     vi.clearAllMocks();
     serverListeners.clear();
     mockSocket.connected = true;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   it("joins immediately and rejoins after reconnect", () => {
@@ -96,6 +103,80 @@ describe("roomHandlers", () => {
     socketListener("connect")();
     lastJoinAcknowledgement()({ ok: true });
     expect(onJoined).toHaveBeenCalledOnce();
+  });
+
+  it("retries failed room joins and reconciles after recovery without reconnecting", () => {
+    const onJoined = vi.fn();
+    const unregister = registerRoomHandlers(
+      "ROOM",
+      { userId: 1, username: "alice" },
+      onJoined,
+    );
+    lastJoinAcknowledgement()({ ok: false, error: "Failed to join room" });
+    expect(onJoined).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(5000);
+    expect(mockSocket.emit).toHaveBeenCalledTimes(2);
+    lastJoinAcknowledgement()({ ok: false, error: "Failed to join room" });
+    vi.advanceTimersByTime(5000);
+    expect(mockSocket.emit).toHaveBeenCalledTimes(3);
+    lastJoinAcknowledgement()({ ok: true });
+
+    vi.advanceTimersByTime(10000);
+    expect(mockSocket.emit).toHaveBeenCalledTimes(3);
+    expect(onJoined).toHaveBeenCalledOnce();
+    expect(mockSocket.disconnect).not.toHaveBeenCalled();
+    unregister();
+  });
+
+  it.each(["Room not found", "You are not in this room", "Not authenticated"])(
+    "does not retry a rejected room join: %s",
+    (error) => {
+      const unregister = registerRoomHandlers("ROOM", {
+        userId: 1,
+        username: "alice",
+      });
+      lastJoinAcknowledgement()({ ok: false, error });
+      vi.advanceTimersByTime(10000);
+      expect(mockSocket.emit).toHaveBeenCalledOnce();
+      unregister();
+    },
+  );
+
+  it("cancels retries and ignores late acknowledgements after unregistering", () => {
+    const onJoined = vi.fn();
+    const unregister = registerRoomHandlers(
+      "ROOM",
+      { userId: 1, username: "alice" },
+      onJoined,
+    );
+    const acknowledge = lastJoinAcknowledgement();
+    acknowledge({ ok: false, error: "Failed to join room" });
+    unregister();
+    acknowledge({ ok: false, error: "Failed to join room" });
+    acknowledge({ ok: true });
+    vi.advanceTimersByTime(10000);
+
+    expect(mockSocket.emit).toHaveBeenCalledOnce();
+    expect(onJoined).not.toHaveBeenCalled();
+  });
+
+  it("waits for reconnection instead of buffering a room retry while disconnected", () => {
+    const unregister = registerRoomHandlers("ROOM", {
+      userId: 1,
+      username: "alice",
+    });
+    lastJoinAcknowledgement()({ ok: false, error: "Failed to join room" });
+    mockSocket.connected = false;
+    vi.advanceTimersByTime(5000);
+    expect(mockSocket.emit).toHaveBeenCalledOnce();
+
+    mockSocket.connected = true;
+    socketListener("connect")();
+    lastJoinAcknowledgement()({ ok: true });
+    vi.advanceTimersByTime(10000);
+    expect(mockSocket.emit).toHaveBeenCalledTimes(2);
+    unregister();
   });
 
   it("unregisters only its own reconnect listener", () => {

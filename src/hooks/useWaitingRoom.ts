@@ -42,7 +42,7 @@ export function useWaitingRoom({
     }
   }, [roomCode, userId]);
 
-  const connectionStatus = useConnectionStatus(refetchRoom);
+  const connectionStatus = useConnectionStatus();
 
   useEffect(() => {
     if (!userId || !roomCode) return;
@@ -68,10 +68,11 @@ export function useWaitingRoom({
     if (!userId || !username || !roomCode) return;
 
     gameStarted.current = false;
-    const unregisterRoom = registerRoomHandlers(roomCode, {
-      userId,
-      username,
-    });
+    const unregisterRoom = registerRoomHandlers(
+      roomCode,
+      { userId, username },
+      () => void refetchRoom(),
+    );
     const unsubscribers = [
       subscribeToRoomEvent("player_joined", ({ player }) => {
         dispatch({ type: "player_joined", player });
@@ -103,7 +104,7 @@ export function useWaitingRoom({
       unregisterRoom();
       if (!gameStarted.current) leaveRoom(roomCode);
     };
-  }, [roomCode, userId, username]);
+  }, [refetchRoom, roomCode, userId, username]);
 
   return {
     ...state,

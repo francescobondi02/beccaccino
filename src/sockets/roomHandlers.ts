@@ -28,11 +28,16 @@ export function registerRoomHandlers(
   onJoined?: () => void,
 ): () => void {
   const socket = getSocket();
+  let active = true;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
   if (!isSocketConnected()) {
     socket.connect();
   }
 
   const joinRoom = () => {
+    clearTimeout(retryTimer);
+    if (!active || !socket.connected) return;
+
     socket.emit(
       "join_room",
       {
@@ -41,7 +46,11 @@ export function registerRoomHandlers(
         username: user.username,
       },
       (result) => {
+        if (!active || !socket.connected) return;
         if (result.ok) onJoined?.();
+        else if (result.error === "Failed to join room") {
+          retryTimer = setTimeout(joinRoom, 5000);
+        }
       },
     );
   };
@@ -50,6 +59,8 @@ export function registerRoomHandlers(
   socket.on("connect", joinRoom);
 
   return () => {
+    active = false;
+    clearTimeout(retryTimer);
     socket.off("connect", joinRoom);
   };
 }
