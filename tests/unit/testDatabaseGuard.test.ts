@@ -1,6 +1,4 @@
-const { assertSafeTestDatabase } = require("../../scripts/prepareTestDatabase") as {
-  assertSafeTestDatabase: (env: NodeJS.ProcessEnv) => void;
-};
+import { assertSafeTestDatabase } from "../loadTestEnv";
 
 const testUrl = "postgresql://postgres:postgres@localhost:5432/becca_test?connection_limit=5";
 
@@ -16,6 +14,20 @@ function testEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 describe("test database guard", () => {
   it("accepts the isolated local test database", () => {
     expect(() => assertSafeTestDatabase(testEnv())).not.toThrow();
+  });
+
+  it("rejects an unsafe test database before loading application modules", () => {
+    const env = jest.replaceProperty(process, "env", {
+      ...process.env,
+      TEST_DATABASE_URL: "postgresql://user:password@db.example.com:5432/becca_test",
+    });
+    try {
+      expect(() => jest.isolateModules(() => require("../loadTestEnv"))).toThrow(
+        "DATABASE_URL",
+      );
+    } finally {
+      env.restore();
+    }
   });
 
   it.each([
