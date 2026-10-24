@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => {
       teamChosen: null as ((payload: TeamChosenPayload) => void) | null,
       readyChanged: null as ((payload: ReadyChangedPayload) => void) | null,
       gameStarted: null as (() => void) | null,
+      joined: null as (() => void) | null,
     },
     statusListeners: new Set<(status: ConnectionStatus) => void>(),
     leaveRoom: vi.fn(),
@@ -48,7 +49,14 @@ vi.mock("@/components/Header", () => ({
   default: () => <div data-testid="header" />,
 }));
 vi.mock("@/sockets/roomHandlers", () => ({
-  registerRoomHandlers: () => mocks.unregisterRoom,
+  registerRoomHandlers: (
+    _roomCode: string,
+    _user: unknown,
+    onJoined?: () => void,
+  ) => {
+    mocks.callbacks.joined = onJoined ?? null;
+    return mocks.unregisterRoom;
+  },
   leaveRoom: mocks.leaveRoom,
   subscribeToRoomEvent: (
     event: string,
@@ -212,7 +220,7 @@ describe("GameRoom state synchronization", () => {
     expect(screen.getByTestId("ready-button")).toHaveTextContent("Non pronto");
   });
 
-  it("hydrates authoritative room state after reconnecting", async () => {
+  it("hydrates authoritative room state only after the server confirms rejoining", async () => {
     mocks.apiGet.mockImplementation((path) => {
       if (path === "/rooms/ROOM?userId=1") {
         return Promise.resolve(room([alice]));
@@ -238,6 +246,11 @@ describe("GameRoom state synchronization", () => {
 
     act(() => {
       mocks.statusListeners.forEach((listener) => listener("connected"));
+    });
+    expect(mocks.apiGet).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      mocks.callbacks.joined?.();
     });
 
     expect(await screen.findByText("bob")).toBeInTheDocument();

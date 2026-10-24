@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { io } from "socket.io-client";
 
 // Mock socket.io-client
 const mockSocket = {
   connected: false,
+  active: true,
   connect: vi.fn(),
   disconnect: vi.fn(),
   on: vi.fn(),
@@ -28,16 +30,48 @@ import {
   getSocket,
   isSocketConnected,
   disconnectSocket,
+  getConnectionStatus,
 } from "@/sockets/socketClient";
+
+function emitSocketEvent(event: string, ...args: unknown[]) {
+  const listener = mockSocket.on.mock.calls.find(([name]) => name === event)?.[1];
+  if (!listener) throw new Error(`No listener registered for ${event}`);
+  listener(...args);
+}
 
 describe("socketClient", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    // Reset the module singleton by disconnecting
     disconnectSocket();
+    vi.clearAllMocks();
+    mockSocket.connected = false;
+    mockSocket.active = true;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    disconnectSocket();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   describe("getSocket", () => {
+    it("uses the page origin in production instead of a configured backend URL", async () => {
+      vi.stubEnv("PROD", true);
+      vi.stubEnv("VITE_SOCKET_URL", "https://other-backend.invalid");
+      vi.resetModules();
+      const client = await import("@/sockets/socketClient");
+      try {
+        client.getSocket();
+        expect(io).toHaveBeenCalledWith(
+          window.location.origin,
+          expect.any(Object),
+        );
+      } finally {
+        client.disconnectSocket();
+      }
+    });
+
     it("creates a socket on first call", () => {
       const socket = getSocket();
       expect(socket).toBeDefined();
@@ -98,5 +132,81 @@ describe("socketClient", () => {
         mockSocket.on.mock.calls.filter(([event]) => event === "error"),
       ).toHaveLength(1);
     });
+  });
+
+  describe("connection recovery", () => {
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    it("retries unavailable authentication without declaring the socket connected early", () => {
+      getSocket();
+      mockSocket.active = false;
+      emitSocketEvent("connect_error", new Error("Authentication unavailable"));
+      expect(getConnectionStatus()).toBe("reconnecting");
+
+      const reconnect = mockSocket.io.on.mock.calls.find(
+        ([event]) => event === "reconnect",
+      )?.[1];
+      reconnect?.();
+      expect(getConnectionStatus()).toBe("reconnecting");
+      expect(mockSocket.connect).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(5000);
+      expect(mockSocket.connect).toHaveBeenCalledOnce();
+
+      emitSocketEvent("connect_error", new Error("Authentication unavailable"));
+      vi.advanceTimersByTime(5000);
+      expect(mockSocket.connect).toHaveBeenCalledTimes(2);
+
+      mockSocket.connected = true;
+      emitSocketEvent("connect");
+      expect(getConnectionStatus()).toBe("connected");
+      vi.advanceTimersByTime(10000);
+      expect(mockSocket.connect).toHaveBeenCalledTimes(2);
+    });
+
+    it.each(["Authentication required", "Invalid or expired token"])(
+      "cancels pending retries when the session is rejected: %s",
+      (message) => {
+        getSocket();
+        emitSocketEvent("connect_error", new Error("Authentication unavailable"));
+        emitSocketEvent("connect_error", new Error(message));
+        vi.advanceTimersByTime(10000);
+
+        expect(mockSocket.connect).not.toHaveBeenCalled();
+        expect(mockSocket.disconnect).toHaveBeenCalledOnce();
+        expect(getConnectionStatus()).toBe("disconnected");
+        expect(toastError).toHaveBeenCalledWith(
+          "Sessione scaduta. Accedi di nuovo per continuare.",
+        );
+      },
+    );
+
+    it("does not reconnect a logged-out socket", () => {
+      getSocket();
+      emitSocketEvent("connect_error", new Error("Authentication unavailable"));
+
+      disconnectSocket();
+      vi.advanceTimersByTime(10000);
+
+      expect(mockSocket.connect).not.toHaveBeenCalled();
+      expect(getConnectionStatus()).toBe("disconnected");
+    });
+
+    it.each([true, false])(
+      "leaves other connection failures to Socket.IO when active=%s",
+      (active) => {
+        getSocket();
+        mockSocket.active = active;
+        emitSocketEvent("connect_error", new Error("Other connection failure"));
+        vi.advanceTimersByTime(10000);
+
+        expect(mockSocket.connect).not.toHaveBeenCalled();
+        expect(getConnectionStatus()).toBe(
+          active ? "reconnecting" : "disconnected",
+        );
+      },
+    );
   });
 });

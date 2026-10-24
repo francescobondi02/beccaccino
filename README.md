@@ -39,12 +39,12 @@ available at `http://localhost:18081` for manual testing until Ctrl-C.
 | Var | Purpose |
 |---|---|
 | `VITE_API_URL` | Backend REST base URL, e.g. `http://localhost:8000/api` |
-| `VITE_SOCKET_URL` | Backend WebSocket URL, e.g. `http://localhost:8000` |
+| `VITE_SOCKET_URL` | Development-only Socket.IO URL, e.g. `http://localhost:8000` |
 | `VITE_SENTRY_DSN` | Optional — Sentry DSN for browser error tracking |
 | `VITE_SENTRY_RELEASE` | Sentry release identifier supplied by the deployment workflow |
 
-Vite bakes these into the bundle at build time. GitHub Actions supplies the
-public production backend URLs explicitly; local development can override them.
+Vite bakes these into the bundle at build time. Production Socket.IO connections
+always use the page origin; `VITE_SOCKET_URL` only overrides local development.
 Source maps are disabled unless `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`,
 `SENTRY_PROJECT`, and a release identifier are all present. Configured builds
 generate hidden maps, upload them to Sentry, and delete them after upload.
@@ -60,8 +60,9 @@ project IDs through the API under the `francesco-bondi-s-projects` scope before
 building. Direct Vercel Git deployments are disabled in `vercel.json`, and a
 missing Vercel token fails the deployment workflow.
 
-Production builds require `VITE_API_URL` and `VITE_SOCKET_URL` to be valid HTTPS
-URLs; the deployment workflow sets them to the Render backend. Builds also
+Production REST defaults to `/api`. Vercel proxies both `/api` and `/socket.io`
+to Render, keeping the authentication cookie on the frontend origin. Socket.IO
+uses polling if WebSocket cannot connect through the proxy. Builds also
 require a commit SHA from Vercel or GitHub Actions and write that non-secret
 revision to `/version.json`. After deployment, GitHub Actions waits for the exact
 commit and then verifies the frontend document, backend database readiness, and

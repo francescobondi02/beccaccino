@@ -3,11 +3,14 @@ import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
 import type { ServerToClientEvents, ClientToServerEvents } from "./events";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
+const SOCKET_URL = import.meta.env.PROD
+  ? window.location.origin
+  : import.meta.env.VITE_SOCKET_URL || window.location.origin;
 
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 let socket: AppSocket | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
 export type ConnectionStatus = "connected" | "disconnected" | "reconnecting";
 let connectionStatus: ConnectionStatus = "disconnected";
@@ -29,6 +32,7 @@ export function getSocket(): AppSocket {
   if (!socket) {
     socket = io(SOCKET_URL, {
       transports: ["websocket", "polling"],
+      tryAllTransports: true,
       path: "/socket.io/",
       withCredentials: true,
       // Reconnection configuration
@@ -41,6 +45,7 @@ export function getSocket(): AppSocket {
 
     // Track connection status
     socket.on("connect", () => {
+      clearTimeout(reconnectTimer);
       setStatus("connected");
     });
 
@@ -61,16 +66,19 @@ export function getSocket(): AppSocket {
       setStatus("reconnecting");
     });
 
-    socket.io.on("reconnect", () => {
-      setStatus("connected");
-    });
-
     socket.io.on("reconnect_failed", () => {
       setStatus("disconnected");
     });
 
     socket.on("connect_error", (error) => {
       console.error("🔴 Socket connection error:", error.message);
+      clearTimeout(reconnectTimer);
+
+      if (error.message === "Authentication unavailable") {
+        setStatus("reconnecting");
+        reconnectTimer = setTimeout(() => socket?.connect(), 5000);
+        return;
+      }
 
       // The server rejects the handshake with these exact messages when the
       // auth cookie is missing or expired (backend src/index.ts io.use).
@@ -91,6 +99,8 @@ export function getSocket(): AppSocket {
             },
           },
         });
+      } else {
+        setStatus(socket?.active ? "reconnecting" : "disconnected");
       }
     });
 
@@ -125,6 +135,7 @@ export function onConnectionStatusChange(
 }
 
 export function disconnectSocket() {
+  clearTimeout(reconnectTimer);
   if (socket) {
     socket.disconnect();
     socket = null;
