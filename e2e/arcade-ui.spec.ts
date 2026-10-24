@@ -1,19 +1,19 @@
 import { test, expect } from "./helpers/fixtures";
 
 test.describe("Arcade interface", () => {
-  test("defaults to arcade and preserves the classic interface across reloads", async ({ page }) => {
+  test("ignores retired interface preferences and removes layout switches", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("becca-ui", "classic"));
     await page.goto("/");
     await expect(page.locator("html")).toHaveAttribute("data-ui", "arcade");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("NON È SOLO FORTUNA.");
     await expect(page.getByText(/dati demo|tavoli dimostrativi/i)).toHaveCount(0);
-    await page.getByRole("button", { name: "Usa interfaccia classica", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Ogni carta");
+    await expect(page.getByRole("heading", { name: "TROVA IL TUO SOCIO.", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /interfaccia/i })).toHaveCount(0);
     await page.reload();
-    await expect(page.locator("html")).toHaveAttribute("data-ui", "classic");
+    await expect(page.locator("html")).toHaveAttribute("data-ui", "arcade");
     await page.getByTestId("open-auth-button").click();
     await expect(page.getByTestId("auth-dialog")).toBeVisible();
     await page.getByRole("button", { name: "Chiudi", exact: true }).click();
-    await page.getByRole("button", { name: "Usa nuova interfaccia", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("NON È SOLO FORTUNA.");
   });
 
@@ -35,7 +35,13 @@ test.describe("Arcade interface", () => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/");
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await expect(page.locator(".club-fan svg[data-landing-card]")).toHaveCount(5);
+      await expect(page.locator(".club-fan img, .club-fan image, .club-fan text")).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      const codeInput = await page.getByTestId("room-code-input").boundingBox();
+      const codeButton = await page.getByTestId("join-by-code-button").boundingBox();
+      expect(codeInput?.height).toBeGreaterThanOrEqual(44);
+      expect(codeInput?.height).toBe(codeButton?.height);
       await expect(page.locator(".club-fan-card").last()).toHaveCSS("opacity", "1");
       await page.screenshot({ path: test.info().outputPath(`arcade-home-${width}.png`), fullPage: true });
       await page.getByTestId("open-auth-button").click();
@@ -45,7 +51,173 @@ test.describe("Arcade interface", () => {
       expect(bounds?.x).toBeGreaterThanOrEqual(0);
       expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(width);
       await page.getByRole("button", { name: "Chiudi", exact: true }).click();
+      await page.getByTestId("room-code-input").fill("abc123");
+      await expect(page.getByTestId("room-code-input")).toHaveValue("ABC123");
+      await page.getByTestId("room-code-input").press("Enter");
+      await expect(dialog).toBeVisible();
+      await page.getByRole("button", { name: "Chiudi", exact: true }).click();
     }
+  });
+
+  test("simulates fullscreen gameplay with a larger circle and a complete four-card trick", async ({ page }) => {
+    await page.goto("/preview");
+    await page.getByRole("button", { name: "Tavolo demo", exact: true }).click();
+    const table = page.locator(".club-match-preview .arcade-arena");
+    await expect(table).toBeVisible();
+    await expect(page.locator(".club-header, .club-preview-bar, .club-footer")).toHaveCount(0);
+    await expect(page.getByTestId("player-hand").locator("button")).toHaveCount(10);
+    await expect(page.getByRole("button", { name: "Completa la presa", exact: true })).toBeDisabled();
+    await page.getByTestId("hand-card-denara-asso").click();
+    await page.getByTestId("signal-button-busso").click();
+    await expect(page.getByTestId("table-card-position-bottom")).toBeVisible();
+    await page.getByRole("button", { name: "Completa la presa", exact: true }).click();
+    await expect(page.getByTestId("game-table-center").locator(".circolo-card")).toHaveCount(4);
+    await page.getByTestId("game-table-center").evaluate((element) =>
+      Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished)),
+    );
+    await expect(page.locator(".club-match-status")).toContainText("Presa completa: quattro carte in tavola · busso");
+
+    for (const [width, height] of [[1280, 720], [1440, 900], [1920, 1080], [768, 1024], [390, 844], [320, 780]]) {
+      await page.setViewportSize({ width, height });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      const bounds = await table.boundingBox();
+      if (!bounds) throw new Error("Demo table has no bounds");
+      expect(Math.abs(bounds.width - bounds.height)).toBeLessThan(1);
+      await expect(table).toHaveCSS("border-radius", "50%");
+      const centerX = bounds.x + bounds.width / 2;
+      const centerY = bounds.y + bounds.height / 2;
+      const score = await page.getByTestId("team-points-panel").boundingBox();
+      if (!score) throw new Error("Missing demo score header");
+      const cardBoxes = [];
+      for (const side of ["top", "left", "right", "bottom"]) {
+        const seat = side === "bottom" ? page.getByTestId("player-seat-bottom") : page.getByTestId(`player-position-${side}`);
+        await expect(seat).toBeVisible();
+        const box = await seat.boundingBox();
+        if (!box) throw new Error(`Missing ${side} demo seat`);
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        expect(box.y + box.height).toBeLessThanOrEqual(height);
+        const seatX = box.x + box.width / 2;
+        const seatY = box.y + box.height / 2;
+        if (side === "top") expect(box.y).toBeGreaterThan(score.y + score.height);
+        if (side === "top" || side === "bottom") {
+          expect(Math.abs(seatX - centerX)).toBeLessThan(1);
+          expect(side === "top" ? seatY < centerY : seatY > centerY).toBe(true);
+        } else {
+          expect(Math.abs(seatY - centerY)).toBeLessThan(1);
+          expect(side === "left" ? seatX < centerX : seatX > centerX).toBe(true);
+        }
+        const card = page.getByTestId(`table-card-position-${side}`).locator(".circolo-card");
+        const cardBox = await card.boundingBox();
+        if (!cardBox) throw new Error(`Missing ${side} demo card`);
+        cardBoxes.push(cardBox);
+        expect(
+          box.x + box.width <= cardBox.x || box.x >= cardBox.x + cardBox.width ||
+          box.y + box.height <= cardBox.y || box.y >= cardBox.y + cardBox.height,
+          `${side} player overlaps their demo card at ${width}x${height}`,
+        ).toBe(true);
+        expect(cardBox.x).toBeGreaterThan(bounds.x);
+        expect(cardBox.y).toBeGreaterThan(bounds.y);
+        expect(cardBox.x + cardBox.width).toBeLessThan(bounds.x + bounds.width);
+        expect(cardBox.y + cardBox.height).toBeLessThan(bounds.y + bounds.height);
+      }
+      for (let index = 0; index < cardBoxes.length; index++) {
+        for (const other of cardBoxes.slice(index + 1)) {
+          const card = cardBoxes[index];
+          expect(
+            card.x + card.width <= other.x || card.x >= other.x + other.width ||
+            card.y + card.height <= other.y || card.y >= other.y + other.height,
+            `Demo cards overlap at ${width}x${height}`,
+          ).toBe(true);
+        }
+      }
+      expect(await page.evaluate(() => ({
+        horizontal: document.documentElement.scrollWidth <= innerWidth,
+        vertical: document.documentElement.scrollHeight <= innerHeight,
+      }))).toEqual({ horizontal: true, vertical: true });
+      if (width >= 1280) expect(bounds.width).toBeGreaterThan(height * 0.55);
+      await expect(page.getByTestId("player-hand").locator("img")).toHaveCount(9);
+      await expect(page.locator(".club-match-preview svg[data-landing-card]")).toHaveCount(0);
+      await page.screenshot({ path: test.info().outputPath(`fullscreen-demo-${width}.png`), fullPage: true });
+    }
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.getByRole("button", { name: "Ricomincia", exact: true }).click();
+    await expect(page.getByTestId("player-hand").locator("button")).toHaveCount(10);
+    await expect(page.getByTestId("game-table-center").locator(".circolo-card")).toHaveCount(0);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.getByTestId("hand-card-spade-sette").click();
+    await page.getByTestId("signal-button-none").click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.locator(".animate-table-card-from-bottom")).toHaveCSS("animation-name", "none");
+    await page.getByRole("button", { name: "Completa la presa", exact: true }).click();
+    const faces = await page.getByTestId("game-table-center").locator("img").evaluateAll((images) =>
+      images.map((image) => image.getAttribute("src")),
+    );
+    expect(new Set(faces).size).toBe(4);
+    for (const face of faces) expect(face).toMatch(/\/images\/cards\/.+_spade\.png$/);
+    await page.getByRole("button", { name: "Regole", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Chiudi le regole", exact: true })).toBeFocused();
+    // Autofocus precedes Radix's modal-layer registration.
+    await expect(page.getByRole("dialog")).toHaveAttribute("style", /pointer-events:\s*auto/);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await page.getByRole("button", { name: "Tutti i tavoli", exact: true }).click();
+    await expect(page.locator(".club-header")).toBeVisible();
+  });
+
+  test("shows comic signal bubbles at all four seats without clipping or blocking play", async ({ page }) => {
+    await page.goto("/preview");
+    await page.getByRole("button", { name: "Tavolo demo", exact: true }).click();
+    for (const [width, height] of [[1440, 900], [320, 780]]) {
+      await page.setViewportSize({ width, height });
+      for (const [userId, side] of [["1", "bottom"], ["2", "left"], ["3", "top"], ["4", "right"]]) {
+        for (const word of ["striscio", "busso", "volo"]) {
+          await page.getByRole("button", { name: "Fumetti", exact: true }).click();
+          await page.getByLabel("Chi parla?").selectOption(userId);
+          await page.getByRole("button", { name: word, exact: true }).click();
+          await expect(page.getByRole("dialog")).toHaveCount(0);
+          const bubble = page.locator(".signal-callout");
+          await expect(bubble).toHaveCount(1);
+          await expect(bubble).toHaveAttribute("data-position", side);
+          await expect(bubble).toHaveAttribute("data-signal", word);
+          await expect(bubble).toHaveCSS("pointer-events", "none");
+          await bubble.evaluate((element) => Promise.all(
+            element.getAnimations().filter((animation) => animation.effect?.getTiming().delay === 0).map((animation) => animation.finished),
+          ));
+          const box = await bubble.boundingBox();
+          if (!box) throw new Error("Missing comic signal bubble");
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.y).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+          expect(box.y + box.height).toBeLessThanOrEqual(height);
+          if (word === "striscio") {
+            await page.screenshot({ path: test.info().outputPath(`comic-${side}-${width}.png`) });
+          }
+        }
+      }
+    }
+    await expect(page.locator(".signal-callout")).toHaveCount(0, { timeout: 4000 });
+    await page.getByRole("button", { name: "Pausa effetti", exact: true }).click();
+    await page.getByRole("button", { name: "Fumetti", exact: true }).click();
+    await page.getByRole("button", { name: "volo", exact: true }).click();
+    await expect(page.locator(".signal-callout")).toBeVisible();
+    await expect(page.locator(".signal-callout")).toHaveCSS("animation-name", "none");
+    await page.getByRole("button", { name: "Ricomincia", exact: true }).click();
+    await expect(page.locator(".signal-callout")).toHaveCount(0);
+    await page.getByRole("button", { name: "Attiva effetti", exact: true }).click();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.getByTestId("hand-card-denara-asso").click();
+    await page.getByTestId("signal-button-striscio").click();
+    await expect(page.locator(".signal-callout")).toHaveAttribute("data-position", "bottom");
+    await expect(page.locator(".signal-callout")).toHaveCSS("animation-name", "none");
+    await expect(page.getByTestId("table-card-position-bottom")).toBeVisible();
+    await page.getByRole("button", { name: "Fumetti", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveAttribute("style", /pointer-events:\s*auto/);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Fumetti", exact: true })).toBeFocused();
   });
 
   test("keeps profile, rankings, and practice in the new layout", async ({ createBot }) => {

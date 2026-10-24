@@ -24,7 +24,6 @@ const mocks = vi.hoisted(() => ({
     retry: vi.fn(),
   },
   navigate: vi.fn(),
-  theme: "arcade",
   unregisterLobby: vi.fn(),
   leaveLobby: vi.fn(),
   reconnectLobby: null as (() => void) | null,
@@ -34,10 +33,6 @@ const mocks = vi.hoisted(() => ({
     success: vi.fn(),
   },
 }));
-vi.mock("next-themes", () => ({
-  useTheme: () => ({ theme: mocks.theme }),
-}));
-
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
@@ -114,7 +109,6 @@ describe("LobbyPage room commands", () => {
     mocks.auth.user = { id: 1, username: "alice" };
     mocks.auth.loading = false;
     mocks.auth.error = null;
-    mocks.theme = "arcade";
     mocks.apiGet.mockResolvedValue({
       availableRooms: [{ id: 10, code: "LIST01", players: [] }],
       activeGames: [],
@@ -125,18 +119,22 @@ describe("LobbyPage room commands", () => {
     mocks.apiPost.mockResolvedValue({ code: "NEW123" });
     renderLobby();
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("NON È SOLO FORTUNA.");
+    expect(screen.getByRole("heading", { name: "TROVA IL TUO SOCIO." })).toBeInTheDocument();
     expect(screen.queryByText(/dati demo|tavoli dimostrativi/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("hero-primary-action"));
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/", {}));
     expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");
   });
 
-  it("retains the classic lobby with the same real room controls", async () => {
-    mocks.theme = "classic";
+  it("submits invitation codes through the native form", async () => {
+    mocks.apiPost.mockResolvedValue({});
     renderLobby();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ogni carta");
-    expect(await screen.findByText("LIST01")).toBeInTheDocument();
-    expect(screen.getByTestId("create-room-button")).toBeInTheDocument();
+    const input = screen.getByRole("textbox", { name: "Codice stanza" });
+    fireEvent.change(input, { target: { value: "abc123" } });
+    expect(input).toHaveValue("ABC123");
+    fireEvent.submit(input.closest("form")!);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/join", { roomCode: "ABC123" }));
+    expect(mocks.navigate).toHaveBeenCalledWith("/room/ABC123");
   });
 
   it("joins listed and typed rooms through the same API contract", async () => {

@@ -53,6 +53,10 @@ test.describe("First Trick", () => {
           '[data-testid="player-hand"] [data-testid^="hand-card-"]',
         ),
       ).toHaveCount(10);
+      await expect(
+        player.page.getByTestId("player-hand").locator('img[src^="/images/cards/"]'),
+      ).toHaveCount(10);
+      await expect(player.page.getByTestId("player-hand").locator("svg[data-landing-card]")).toHaveCount(0);
     }
 
     // --- Verify briscola selection ---
@@ -63,6 +67,7 @@ test.describe("First Trick", () => {
     );
     expect(callerMatches.reduce((total, count) => total + count, 0)).toBe(1);
     const caller = players[callerMatches.findIndex((count) => count === 1)];
+    await expect(caller.page.getByTestId("suit-button-denara").locator("img")).toHaveAttribute("src", "/images/semi/denara_seme.png");
     await caller.chooseTrumpSuit("denara");
 
     for (const player of players) {

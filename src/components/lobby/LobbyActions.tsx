@@ -1,6 +1,4 @@
-import { Bot, Hash, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { ArrowRight, ArrowUpRight, Bot, Hash, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 interface LobbyActionsProps {
@@ -19,70 +17,36 @@ export default function LobbyActions({
   onJoinByCode,
 }: LobbyActionsProps) {
   return (
-    <div className="arcade-lobby-actions space-y-4">
-      <Card className="arcade-create-card border-[#cdb77f]/50 bg-[#fffdf7] shadow-none transition-[transform,border-color,box-shadow] hover:-translate-y-1 hover:border-[#9f6b16]">
-        <CardContent className="pt-5">
-          <Button
-            variant="gradient"
-            size="lg"
-            className="arcade-create-button w-full rounded-xl bg-[#123d36] shadow-[0_10px_24px_rgba(18,61,54,.2)] hover:bg-[#1b564a]"
-            onClick={onCreateRoom}
-            data-testid="create-room-button"
-          >
-            <Plus className="mr-2 h-5 w-5" />
-            Crea una nuova stanza
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card className="arcade-practice-card border-[#cdb77f]/50 bg-[#fffdf7] shadow-none transition-[transform,border-color,box-shadow] hover:-translate-y-1 hover:border-[#9f6b16]">
-        <CardContent className="pt-5">
-          <Button
-            variant="outline"
-            size="lg"
-            className="arcade-practice-button w-full rounded-xl border-[#1b564a]/45 text-[#123d36] hover:bg-[#123d36]/5"
-            onClick={onPractice}
-            data-testid="practice-button"
-          >
-            <Bot className="mr-2 h-5 w-5" />
-            Allenati contro i bot
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card className="arcade-join-card border-[#cdb77f]/50 bg-[#fffdf7] shadow-none">
-        <CardContent className="pt-5">
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="room-code" className="mb-2 block text-sm font-medium text-[#123d36]">
-                Codice stanza
-              </label>
-              <Input
-                id="room-code"
-                placeholder="Es. ABC123"
-                value={roomCode}
-                onChange={(event) =>
-                  onRoomCodeChange(event.target.value.toUpperCase())
-                }
-                className="border-[#cdb77f]/65 bg-[#f9f0dc] uppercase focus:border-[#1b564a]"
-                maxLength={6}
-                data-testid="room-code-input"
-              />
-            </div>
-
-            <Button
-              variant="outline"
-              size="lg"
-              className="arcade-join-button w-full rounded-xl border-[#1b564a]/45 text-[#123d36] hover:bg-[#123d36]/5"
-              onClick={onJoinByCode}
-              data-testid="join-by-code-button"
-            >
-              <Hash className="mr-2 h-5 w-5" />
-              Entra con il codice
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="arcade-lobby-actions">
+      <button type="button" className="arcade-entry arcade-entry-create" onClick={onCreateRoom} data-testid="create-room-button">
+        <span className="arcade-entry-top" aria-hidden="true"><Plus size={32} /><ArrowUpRight size={25} /></span>
+        <span className="arcade-entry-copy"><strong>Crea una stanza.</strong><span>Chiama gli amici. Al tavolo ci pensi tu.</span></span>
+        <span className="arcade-entry-link">Si gioca <ArrowRight size={19} aria-hidden="true" /></span>
+      </button>
+      <button type="button" className="arcade-entry arcade-entry-practice" onClick={onPractice} data-testid="practice-button">
+        <span className="arcade-entry-top" aria-hidden="true"><Bot size={32} /><ArrowUpRight size={25} /></span>
+        <span className="arcade-entry-copy"><strong>Scalda la mano.</strong><span>Fai pratica con un socio e due avversari bot.</span></span>
+        <span className="arcade-entry-link">Allenati con i bot <ArrowRight size={19} aria-hidden="true" /></span>
+      </button>
+      <form className="arcade-entry arcade-entry-join" onSubmit={(event) => { event.preventDefault(); onJoinByCode(); }}>
+        <span className="arcade-entry-top" aria-hidden="true"><Hash size={32} /><span>INVITO IN TASCA?</span></span>
+        <div className="arcade-entry-copy"><label htmlFor="room-code" className="arcade-entry-title">Hai il codice?</label><span>Il tuo posto ti aspetta.</span></div>
+        <div className="arcade-code-row">
+          <Input
+            id="room-code"
+            aria-label="Codice stanza"
+            placeholder="ABC123"
+            value={roomCode}
+            onChange={(event) => onRoomCodeChange(event.target.value.toUpperCase())}
+            className="arcade-code-input"
+            maxLength={6}
+            autoComplete="off"
+            spellCheck={false}
+            data-testid="room-code-input"
+          />
+          <button type="submit" className="arcade-code-submit" aria-label="Entra con il codice" data-testid="join-by-code-button"><ArrowRight size={24} aria-hidden="true" /></button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import PlayerSeat from "@/components/PlayerSeat";
 import PlayingCard from "@/components/PlayingCard";
 import TableCenter from "@/components/TableCenter";
+import SignalCallout from "./SignalCallout";
 import type {
   PlayedCardData,
   PlayerCard,
@@ -11,7 +12,7 @@ import type { PositionedPlayer } from "@/game/presentation";
 interface GameBoardProps {
   players: PositionedPlayer[];
   currentTurnUserId: number | null;
-  currentSignal: { userId: number; signal: Signal } | null;
+  currentSignal: { userId: number; signal: Signal; cardKey?: string } | null;
   countdown: number | null;
   playedCards: PlayedCardData[];
   briscola: string | null | undefined;
@@ -49,6 +50,18 @@ export default function GameBoard({
   const signalFor = (userId: number): Signal | null =>
     currentSignal?.userId === userId ? currentSignal.signal : null;
 
+  const calloutFor = (player: PositionedPlayer) => {
+    const signal = signalFor(player.userId);
+    return signal ? (
+      <SignalCallout
+        key={`${currentSignal?.cardKey ?? ""}-${signal}`}
+        signal={signal}
+        position={player.position}
+        username={player.username}
+      />
+    ) : null;
+  };
+
   return (
     <div
       className="arcade-game-layout container mx-auto flex h-[100dvh] flex-col items-center px-3 pb-3 pt-28 sm:px-4"
@@ -58,7 +71,7 @@ export default function GameBoard({
         <div className="arcade-arena relative flex h-full w-full max-h-[34rem] max-w-[50rem] items-center justify-center">
           <span className="arcade-table-mark" aria-hidden="true">BECCA!</span>
           <div
-            className="absolute left-1/2 top-0 -translate-x-1/2"
+            className="absolute left-1/2 top-0 z-10 -translate-x-1/2"
             data-testid="player-position-top"
           >
             {topPlayer && (
@@ -71,10 +84,11 @@ export default function GameBoard({
                 signal={signalFor(topPlayer.userId)}
               />
             )}
+            {topPlayer && calloutFor(topPlayer)}
           </div>
 
           <div
-            className="absolute left-0 top-1/2 -translate-y-1/2 sm:left-8"
+            className="absolute left-0 top-1/2 z-10 -translate-y-1/2 sm:left-8"
             data-testid="player-position-left"
           >
             {leftPlayer && (
@@ -85,10 +99,11 @@ export default function GameBoard({
                 signal={signalFor(leftPlayer.userId)}
               />
             )}
+            {leftPlayer && calloutFor(leftPlayer)}
           </div>
 
           <div
-            className="absolute right-0 top-1/2 -translate-y-1/2 sm:right-8"
+            className="absolute right-0 top-1/2 z-10 -translate-y-1/2 sm:right-8"
             data-testid="player-position-right"
           >
             {rightPlayer && (
@@ -99,6 +114,7 @@ export default function GameBoard({
                 signal={signalFor(rightPlayer.userId)}
               />
             )}
+            {rightPlayer && calloutFor(rightPlayer)}
           </div>
 
           <TableCenter
@@ -149,11 +165,14 @@ export default function GameBoard({
         </div>
 
         {bottomPlayer && (
-          <PlayerSeat
-            testId="player-seat-bottom"
-            player={bottomPlayer}
-            isTurn={currentTurnUserId === bottomPlayer.userId}
-          />
+          <div className="relative z-10">
+            <PlayerSeat
+              testId="player-seat-bottom"
+              player={bottomPlayer}
+              isTurn={currentTurnUserId === bottomPlayer.userId}
+            />
+            {calloutFor(bottomPlayer)}
+          </div>
         )}
       </div>
     </div>

@@ -25,7 +25,7 @@ src/
     rooms/               Waiting-room player presentation
     AuthDialog.tsx      Login/register modal
     Header.tsx          Nav bar with auth state
-    PlayingCard.tsx     Single card renderer (suit + value → image)
+    PlayingCard.tsx     Single card renderer (suit + value → original image)
     TrumpSuitDialog.tsx Briscola selection (4 suit buttons + hand preview)
     SignalDialog.tsx     Signal declaration (striscio/busso/volo/niente)
     SignalBadge.tsx     Declared signal, shown on every seat
@@ -152,14 +152,24 @@ npx playwright show-report  # HTML report with traces after failures
 
 ## UI Notes
 
-- The default interface is the arcade design. `next-themes` sets `html[data-ui="arcade"]`
-  and persists the choice in `becca-ui`. The account menu (or the layout button when
-  signed out) switches to `classic`, retaining the previous lobby and theme.
+- Arcade is the only active interface. `next-themes` forces `html[data-ui="arcade"]`,
+  ignoring older `becca-ui` preferences. There is no interface switch or classic lobby.
 - `ArcadeHero` and `ArcadeRules` are shared between the real lobby and `/preview`
   (development only). Real room actions continue through `LobbyPage`; never connect
   production routes to the prototype's sample data.
+- The anonymous table demo reuses `GameBoard`, `GameScoreHeader`, and `SignalDialog`
+  in a full-viewport layout. Circular-table overrides stay scoped to `.club-match-preview`;
+  demo actions and four-card tricks are local only.
+- `GameBoard` anchors transient comic `SignalCallout` bubbles to each declaring
+  player without changing hand/table layout. Persistent signal badges remain.
+  The demo's `Fumetti` control previews all players and signals; reduced motion
+  and the effects toggle keep bubbles static.
 - All UI text is in Italian
-- Card images: `/images/cards/{value}_{suit}.png` where suit uses "denari" (not "denara") in filenames
+- Gameplay, history, annotations, briscola icons, and the table demo use the original
+  PNG assets in `public/images/`. Card filenames use "denari", not the DB enum "denara".
+- Only the landing hero uses `lobby/LandingCardArtwork.tsx`: five decorative SVG
+  illustrations inspired by the existing Italian deck, without poker corner indices.
+  Keep these illustrations separate from `PlayingCard` and gameplay.
 - Practice games show "Pausa e torna alla home" alongside the confirmed, destructive "Abbandona" action, including inside the mandatory briscola and signal dialogs. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".
 - When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`

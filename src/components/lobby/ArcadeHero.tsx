@@ -1,7 +1,8 @@
 import { motion, useMotionValue, useSpring } from "framer-motion";
 import { ArrowDown, ArrowUpRight, Layers3, Play, Zap } from "lucide-react";
+import LandingCardArtwork from "@/components/lobby/LandingCardArtwork";
 
-const heroCards = ["asso_denari", "tre_spade", "re_coppe", "cavallo_bastoni", "due_denari"];
+const heroCards = ["asso_denari", "tre_spade", "re_coppe", "cavallo_bastoni", "due_denari"] as const;
 
 interface ArcadeHeroProps {
   onPlay: () => void;
@@ -49,7 +50,7 @@ export default function ArcadeHero({ onPlay, onRules, motionStopped }: ArcadeHer
                 transition={{ type: "spring", duration: 0.8, bounce: 0, delay: motionStopped ? 0 : 0.1 + index * 0.07 }}
                 whileHover={motionStopped ? undefined : { y: Math.abs(index - 2) * 15 - 35, scale: 1.08 }}>
                 <div className="club-card-float" style={{ animationDelay: `${index * -0.65}s` }}>
-                  <img className="club-card" src={`/images/cards/${card}.png`} alt="" width={126} height={200} draggable={false} />
+                  <LandingCardArtwork className="club-card" card={card} />
                 </div>
               </motion.div>
             ))}

@@ -5,17 +5,11 @@ import Header from "@/components/Header";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
-  theme: "arcade",
-  setTheme: vi.fn(),
   auth: {
     user: null as { id: number; username: string } | null,
     logout: vi.fn(),
   },
 }));
-vi.mock("next-themes", () => ({
-  useTheme: () => ({ theme: mocks.theme, setTheme: mocks.setTheme }),
-}));
-
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual("react-router-dom");
   return {
@@ -46,7 +40,6 @@ describe("Header", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.auth.user = null;
-    mocks.theme = "arcade";
   });
 
   it("renders the brand title", () => {
@@ -95,17 +88,15 @@ describe("Header", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/annotate");
   });
 
-  it("keeps the classic interface available to anonymous users", () => {
+  it("does not expose an interface switch to anonymous users", () => {
     renderHeader();
-    fireEvent.click(screen.getByRole("button", { name: "Usa interfaccia classica" }));
-    expect(mocks.setTheme).toHaveBeenCalledWith("classic");
+    expect(screen.queryByRole("button", { name: /interfaccia/i })).not.toBeInTheDocument();
   });
 
-  it("renders the retained classic header and can restore the new interface", () => {
-    mocks.theme = "classic";
-    renderHeader();
-    expect(screen.getByText("Beccaccino")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Usa nuova interfaccia" }));
-    expect(mocks.setTheme).toHaveBeenCalledWith("arcade");
+  it("does not expose retired interfaces in the account menu", async () => {
+    renderHeader("TestPlayer");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Menu account" }), { key: "Enter" });
+    await screen.findByText("Il mio account");
+    expect(screen.queryByText(/interfaccia classica|nuova interfaccia/i)).not.toBeInTheDocument();
   });
 });

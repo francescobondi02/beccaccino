@@ -198,6 +198,7 @@ describe("gameTableReducer", () => {
     expect(signalled.currentSignal).toEqual({
       userId: 11,
       signal: "busso",
+      cardKey: "spade-re",
     });
 
     const emptyTrick = gameTableReducer(signalled, {
@@ -242,11 +243,11 @@ describe("gameTableReducer", () => {
       initialGameTableState,
       cardPlayed({ position: 0, signal: "busso" }),
     );
-    expect(led.currentSignal).toEqual({ userId: 11, signal: "busso" });
+    expect(led.currentSignal).toEqual({ userId: 11, signal: "busso", cardKey: "denara-asso" });
 
     // Followers (position > 0) never carry a signal and must not clear it.
     const followed = playCard(led, cardPlayed({ position: 1 }));
-    expect(followed.currentSignal).toEqual({ userId: 11, signal: "busso" });
+    expect(followed.currentSignal).toEqual({ userId: 11, signal: "busso", cardKey: "denara-asso" });
 
     const newTrick = playCard(followed, cardPlayed({ position: 0 }));
     expect(newTrick.currentSignal).toBeNull();

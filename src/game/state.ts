@@ -29,7 +29,7 @@ export interface GameTableState {
   currentHandNumber: number | null;
   totalPoints: TotalPoints;
   turnTimer: TurnTimer | null;
-  currentSignal: { userId: number; signal: Signal } | null;
+  currentSignal: { userId: number; signal: Signal; cardKey?: string } | null;
   isPractice: boolean;
   allHands: RevealedHand[] | null;
   moveLog: MoveLogEntry[];
@@ -125,7 +125,7 @@ export function gameTableReducer(
           : null,
         currentSignal:
           leadCard?.signal
-            ? { userId: leadCard.userId, signal: leadCard.signal }
+            ? { userId: leadCard.userId, signal: leadCard.signal, cardKey: `${leadCard.suit}-${leadCard.value}` }
             : null,
       };
     }
@@ -156,7 +156,7 @@ export function gameTableReducer(
         ],
         // Signals only occur on a trick's first card.
         currentSignal: data.signal
-          ? { userId: data.userId, signal: data.signal }
+          ? { userId: data.userId, signal: data.signal, cardKey: `${data.suit}-${data.value}` }
           : data.position === 0
             ? null
             : state.currentSignal,

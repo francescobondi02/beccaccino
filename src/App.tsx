@@ -24,7 +24,8 @@ const App = () => (
     <ThemeProvider
       attribute="data-ui"
       defaultTheme="arcade"
-      themes={["arcade", "classic"]}
+      forcedTheme="arcade"
+      themes={["arcade"]}
       storageKey="becca-ui"
       enableSystem={false}
       enableColorScheme={false}

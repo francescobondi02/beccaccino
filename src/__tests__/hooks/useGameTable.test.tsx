@@ -164,6 +164,7 @@ describe("useGameTable turn synchronization", () => {
     expect(result.current.currentSignal).toEqual({
       userId: 2,
       signal: "busso",
+      cardKey: "coppe-tre",
     });
     expect(result.current.turnTimer).toMatchObject({
       turnUserId: 1,
@@ -640,6 +641,7 @@ describe("useGameTable turn synchronization", () => {
     expect(result.current.currentSignal).toEqual({
       userId: 2,
       signal: "busso",
+      cardKey: "coppe-tre",
     });
     expect(result.current.currentTurnUserId).toBe(1);
   });

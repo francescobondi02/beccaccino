@@ -29,7 +29,7 @@ export default function ArcadeLobby({ children, onPlay }: { children: ReactNode;
           </div>
           <section id="entra-al-tavolo" className="arcade-lounge" aria-labelledby="arcade-lounge-title">
             <span className="club-eyebrow"><Zap size={14} /> SCEGLI LA TUA ARENA</span>
-            <h2 id="arcade-lounge-title">TROVA LA TUA <em>GANG.</em></h2>
+            <h2 id="arcade-lounge-title">TROVA IL TUO <em>SOCIO.</em></h2>
             <p>Crea una stanza, entra con il codice degli amici o allenati contro i bot.</p>
             <div className="arcade-lobby-grid">{children}</div>
           </section>
