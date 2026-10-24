@@ -124,14 +124,15 @@ See `frontend/DEVELOPMENT.md` for full E2E documentation.
 ```
 backend/tests/
   unit/
-    computePoints.test.ts       # scoring logic, deterministic seeded shuffle
-    determineHandWinner.test.ts # trick-winner logic
+    roundScore.test.ts          # round scoring, deterministic seeded shuffle
+    gameScore.test.ts           # cumulative scores and game winner
+    trickWinner.test.ts         # trick-winner logic
   integration/
     users.test.ts               # user registration via API + DB check
     game.test.ts                # full round flow (setup → briscola → play)
     fullGame.test.ts            # multi-round game until one team wins
   helpers/
-    gameHelpers.ts              # shared helpers: setupGame, oneRound, etc.
+    gameDriver.ts               # shared helpers: setupGame, oneRound, etc.
   loadTestEnv.ts                # sets DATABASE_URL before PrismaClient loads
   setup.ts                      # mocks Socket.io, sets NODE_ENV=test
   teardown.ts                   # disconnects Prisma after all tests
