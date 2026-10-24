@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,8 @@ import {
   Trophy,
   Users,
   Star,
-  Clock,
+  Zap,
+  ArrowUpRight,
   Edit2,
   Trash2,
   Loader2,
@@ -20,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { apiGet, apiPatch, apiDelete } from "@/lib/api";
 import { useAuth, type AuthUser } from "@/hooks/useAuth";
+import { profileDemo } from "@/preview/profileDemo";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,7 +45,7 @@ interface RecentGame {
   opponents: string[];
 }
 
-interface UserStats {
+export interface UserStats {
   totalGames: number;
   wins: number;
   winRate: number;
@@ -51,24 +53,28 @@ interface UserStats {
   recentGames: RecentGame[];
 }
 
-const Profile = () => {
+const Profile = ({ preview = false }: { preview?: boolean }) => {
+  const isPreview = import.meta.env.DEV && preview;
   const navigate = useNavigate();
   const {
-    user,
+    user: authenticatedUser,
     loading: authLoading,
     error: authError,
     retry: retryAuth,
     setUser,
     clearUser,
-  } = useAuth({ redirectOnFail: true });
+  } = useAuth({ redirectOnFail: !isPreview });
+  const user = isPreview ? profileDemo.user : authenticatedUser;
   const username = user?.username ?? "";
   const [isEditing, setIsEditing] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [stats, setStats] = useState<UserStats | null>(null);
-  const [statsStatus, setStatsStatus] = useState<
+  const [loadedStats, setStats] = useState<UserStats | null>(null);
+  const [requestStatus, setStatsStatus] = useState<
     "loading" | "error" | "ready"
   >("loading");
+  const stats = isPreview ? profileDemo.stats : loadedStats;
+  const statsStatus = isPreview ? "ready" : requestStatus;
 
   const fetchStats = useCallback(async () => {
     setStatsStatus("loading");
@@ -89,9 +95,9 @@ const Profile = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (isPreview || !user?.id) return;
     void fetchStats();
-  }, [fetchStats, user?.id]);
+  }, [fetchStats, isPreview, user?.id]);
 
   const handleSaveUsername = async () => {
     if (!newUsername.trim()) {
@@ -135,11 +141,11 @@ const Profile = () => {
     }
   };
 
-  if (authError) {
+  if (authError && !isPreview) {
     return <AuthErrorState onRetry={retryAuth} />;
   }
 
-  if (authLoading || !user) {
+  if (!user || (authLoading && !isPreview)) {
     return (
       <div
         className="min-h-screen bg-background flex items-center justify-center"
@@ -155,17 +161,28 @@ const Profile = () => {
     <div className="circolo-shell">
       <Header />
 
-      <div className="container mx-auto px-4 pt-24 pb-12">
-        <div className="max-w-4xl mx-auto space-y-6">
-          {/* Profile Header */}
-          <Card className="circolo-surface">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
-                <span className="text-2xl">Il mio profilo</span>
-              </CardTitle>
+      <main className="arcade-dashboard">
+        {isPreview && (
+          <div className="mb-6 rounded-lg border border-primary/30 bg-primary/10 p-4 text-sm text-primary">
+            <p>Anteprima locale · dati dimostrativi · nessun accesso necessario.</p>
+            <Link className="club-text-button" to="/">Torna alla landing <ArrowUpRight size={16} /></Link>
+          </div>
+        )}
+        <section className="arcade-dashboard-hero" aria-labelledby="profile-title">
+          <div className="arcade-dashboard-copy">
+            <span className="club-eyebrow"><Zap size={15} /> IL TUO ANGOLO DI BECCA</span>
+            <h1 id="profile-title" className="arcade-page-title">Il mio <em>profilo</em></h1>
+            <p>Il tuo nome. Le tue vittorie.<br />La prossima partita è tutta da scrivere.</p>
+            <Link className="club-text-button" to="/leaderboard">Sfida la classifica <ArrowUpRight size={19} /></Link>
+          </div>
+          <Card className="arcade-player-card">
+            <CardHeader className="arcade-player-heading flex-row space-y-0">
+              <span className="arcade-player-avatar" aria-hidden="true">{username.slice(0, 2).toUpperCase()}</span>
+              <h2>La tua identità</h2>
+              <Zap size={28} aria-hidden="true" />
             </CardHeader>
             <CardContent className="space-y-4">
-              {isEditing ? (
+              {isEditing && !isPreview ? (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="username">Nome utente</Label>
@@ -204,24 +221,26 @@ const Profile = () => {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="arcade-player-name">
+                  <div className="min-w-0">
                     <p className="text-sm text-muted-foreground">Nome utente</p>
-                    <p className="text-xl font-semibold">{username}</p>
+                    <p className="arcade-username">{username}</p>
                   </div>
-                  <Button
+                  {!isPreview && <Button
                     onClick={() => setIsEditing(true)}
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                   >
                     <Edit2 className="h-4 w-4 mr-2" />
                     Modifica
-                  </Button>
+                  </Button>}
                 </div>
               )}
             </CardContent>
           </Card>
+        </section>
 
+        <div className="space-y-6">
           {statsStatus === "loading" && (
             <Card
               className="bg-gradient-card border-border/50"
@@ -261,42 +280,35 @@ const Profile = () => {
 
           {statsStatus === "ready" && stats && (
             <>
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="circolo-surface">
-                  <CardContent className="pt-6 text-center">
-                    <Users className="h-8 w-8 mx-auto mb-2 text-primary" />
-                    <p className="text-2xl font-bold">{stats.totalGames}</p>
-                    <p className="text-sm text-muted-foreground">Partite</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-gradient-card border-border/50">
-                  <CardContent className="pt-6 text-center">
-                    <Trophy className="h-8 w-8 mx-auto mb-2 text-accent" />
-                    <p className="text-2xl font-bold">{stats.wins}</p>
-                    <p className="text-sm text-muted-foreground">Vittorie</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-gradient-card border-border/50">
-                  <CardContent className="pt-6 text-center">
-                    <Star className="h-8 w-8 mx-auto mb-2 text-primary" />
-                    <p className="text-2xl font-bold">{stats.winRate}%</p>
-                    <p className="text-sm text-muted-foreground">Win Rate</p>
-                  </CardContent>
-                </Card>
-                <Card className="bg-gradient-card border-border/50">
-                  <CardContent className="pt-6 text-center">
-                    <Clock className="h-8 w-8 mx-auto mb-2 text-accent" />
-                    <p className="text-2xl font-bold">{stats.totalPoints}</p>
-                    <p className="text-sm text-muted-foreground">Punti</p>
-                  </CardContent>
-                </Card>
-              </div>
+              <section aria-labelledby="profile-stats-title">
+                <div className="arcade-section-heading">
+                  <h2 id="profile-stats-title">I tuoi numeri.</h2>
+                  <span>Partite completate</span>
+                </div>
+                <div className="arcade-stats-grid">
+                  {[
+                    { label: "Partite", value: stats.totalGames, Icon: Users, tone: "purple" },
+                    { label: "Vittorie", value: stats.wins, Icon: Trophy, tone: "lime" },
+                    { label: "Percentuale vittorie", value: `${stats.winRate}%`, Icon: Star, tone: "pink" },
+                    { label: "Punti", value: stats.totalPoints, Icon: Zap, tone: "purple" },
+                  ].map(({ label, value, Icon, tone }) => (
+                    <Card key={label} className="arcade-stat" data-tone={tone}>
+                      <CardContent>
+                        <Icon size={22} aria-hidden="true" />
+                        <p className="arcade-stat-value">{value}</p>
+                        <p>{label}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </section>
 
-              {/* Recent Games */}
-              <Card className="circolo-surface">
+              <Card className="arcade-history-card">
                 <CardHeader>
-                  <CardTitle>Partite recenti</CardTitle>
+                  <div className="arcade-section-heading">
+                    <h2>Partite recenti</h2>
+                    <span>La tua ultima mano, e non solo.</span>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {stats.recentGames.length === 0 ? (
@@ -308,15 +320,18 @@ const Profile = () => {
                       <p className="text-sm text-muted-foreground mt-1">
                         Gioca la tua prima partita per vedere le statistiche!
                       </p>
+                      <Button asChild className="mt-5"><Link to="/">Vai ai tavoli <ArrowUpRight className="ml-2 h-4 w-4" /></Link></Button>
                     </div>
                   ) : (
-                    <div className="space-y-3">
+                    <ol className="arcade-match-list">
                       {stats.recentGames.map((game) => (
-                        <div
+                        <li
                           key={game.id}
-                          className="flex items-center justify-between p-3 bg-secondary rounded-lg"
+                          className="arcade-match-row"
+                          data-result={game.result}
                         >
-                          <div className="flex-1">
+                          <span className="arcade-match-icon" aria-hidden="true">{game.result === "Vittoria" ? <Trophy size={20} /> : <Users size={20} />}</span>
+                          <div className="min-w-0 flex-1">
                             <p className="font-medium">
                               vs {game.opponents.join(", ")}
                             </p>
@@ -330,64 +345,60 @@ const Profile = () => {
                             </p>
                           </div>
                           <div className="text-right">
-                            <p
-                              className={`font-semibold ${
-                                game.result === "Vittoria"
-                                  ? "text-accent"
-                                  : "text-muted-foreground"
-                              }`}
-                            >
+                            <p className="arcade-match-result">
                               {game.result}
                             </p>
-                            <p className="text-sm text-muted-foreground">
+                            <p className="arcade-match-score">
                               {game.myTeamPoints} - {game.opponentTeamPoints}
                             </p>
                           </div>
-                        </div>
+                        </li>
                       ))}
-                    </div>
+                    </ol>
                   )}
                 </CardContent>
               </Card>
             </>
           )}
 
-          {/* Danger Zone */}
-          <Card className="bg-gradient-card border-destructive/50">
-            <CardHeader>
-              <CardTitle className="text-destructive">Zona pericolosa</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" className="w-full">
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Elimina account
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="bg-card">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Questa azione non può essere annullata. Tutti i tuoi dati
-                      verranno eliminati permanentemente.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Annulla</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDeleteAccount}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      Elimina
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </CardContent>
-          </Card>
+          {!isPreview && <details className="arcade-account-settings">
+            <summary>Gestione account</summary>
+            <Card className="mt-4 border-destructive/30">
+              <CardHeader>
+                <CardTitle className="text-destructive">Eliminazione account</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="w-full">
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Elimina account
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="bg-card">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Sei sicuro?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Questa azione non può essere annullata. Tutti i tuoi dati
+                        verranno eliminati permanentemente.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Annulla</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleDeleteAccount}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Elimina
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </CardContent>
+            </Card>
+          </details>}
         </div>
-      </div>
+      </main>
     </div>
   );
 };

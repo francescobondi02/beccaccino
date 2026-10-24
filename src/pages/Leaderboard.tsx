@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Link } from "react-router-dom";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Trophy,
-  Medal,
   Users,
   Loader2,
   ArrowLeft,
@@ -24,7 +23,6 @@ interface LeaderboardEntry {
 }
 
 const Leaderboard = () => {
-  const navigate = useNavigate();
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [status, setStatus] = useState<"loading" | "error" | "ready">(
     "loading",
@@ -46,63 +44,35 @@ const Leaderboard = () => {
     }
   }, []);
 
-  // Fetch leaderboard
   useEffect(() => {
     fetchLeaderboard();
   }, [fetchLeaderboard]);
-
-  // Podium icon for top 3
-  const getRankIcon = (index: number) => {
-    if (index === 0) return <Trophy className="h-5 w-5 text-yellow-500" />;
-    if (index === 1) return <Medal className="h-5 w-5 text-gray-400" />;
-    if (index === 2) return <Medal className="h-5 w-5 text-amber-700" />;
-    return (
-      <span className="text-sm font-bold text-muted-foreground w-5 text-center">
-        {index + 1}
-      </span>
-    );
-  };
-
-  const getRankBg = (index: number) => {
-    if (index === 0) return "bg-yellow-500/10 border-yellow-500/30";
-    if (index === 1) return "bg-gray-300/10 border-gray-400/30";
-    if (index === 2) return "bg-amber-700/10 border-amber-700/30";
-    return "bg-card border-border/50";
-  };
 
   return (
     <div className="circolo-shell">
       <Header />
 
-      <div className="container mx-auto px-4 pt-24 pb-12">
-        <div className="max-w-3xl mx-auto">
-          {/* Back button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate("/")}
-            className="mb-4 gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Torna alla home
+      <main className="arcade-dashboard">
+          <Button variant="ghost" size="sm" asChild className="mb-6">
+            <Link to="/"><ArrowLeft className="mr-2 h-4 w-4" />Torna alla home</Link>
           </Button>
 
-          {/* Page Header */}
-          <Card className="circolo-surface mb-8">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-3 text-2xl">
-                <Trophy className="h-7 w-7 text-primary" />
-                Classifica generale
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-muted-foreground">
-                I migliori giocatori di Beccaccino, ordinati per vittorie e percentuale di successo.
+          <section className="arcade-dashboard-hero" aria-labelledby="leaderboard-title">
+            <div className="arcade-dashboard-copy">
+              <span className="club-eyebrow"><Trophy size={15} /> IL BELLO È ARRIVARE IN ALTO</span>
+              <h1 id="leaderboard-title" className="arcade-page-title">Classifica <em>generale</em></h1>
+              <p>
+                Le vittorie parlano. Le scuse un po' meno.<br />
+                Prima le vittorie, poi la percentuale di successo.
               </p>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="arcade-ranking-banner" aria-hidden="true">
+              <Trophy size={68} strokeWidth={1.5} />
+              <p>GIOCA BENE.<br /><em>LASCIA IL SEGNO.</em></p>
+              <span>40 CARTE. NESSUNA SCUSA.</span>
+            </div>
+          </section>
 
-          {/* Loading State */}
           {status === "loading" && (
             <Card
               className="bg-gradient-card border-border/50"
@@ -115,7 +85,6 @@ const Leaderboard = () => {
             </Card>
           )}
 
-          {/* Error State */}
           {status === "error" && (
             <Card
               className="bg-gradient-card border-destructive/50"
@@ -139,7 +108,6 @@ const Leaderboard = () => {
             </Card>
           )}
 
-          {/* Empty State */}
           {status === "ready" && leaderboard.length === 0 && (
             <Card className="bg-gradient-card border-border/50">
               <CardContent className="p-12 text-center">
@@ -150,78 +118,60 @@ const Leaderboard = () => {
                 <p className="text-sm text-muted-foreground mt-2">
                   Completa la tua prima partita per apparire in classifica!
                 </p>
+                <Button asChild className="mt-5"><Link to="/">Vai ai tavoli</Link></Button>
               </CardContent>
             </Card>
           )}
 
-          {/* Leaderboard Table */}
           {status === "ready" && leaderboard.length > 0 && (
-            <div className="space-y-3">
-              {/* Table Header */}
-              <div className="grid grid-cols-12 gap-2 px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                <div className="col-span-1">#</div>
-                <div className="col-span-4">Giocatore</div>
-                <div className="col-span-2 text-center">Vittorie</div>
-                <div className="col-span-2 text-center">Partite</div>
-                <div className="col-span-1 text-center">% vittorie</div>
-                <div className="col-span-2 text-right">Punti</div>
-              </div>
-
-              {/* Entries */}
-              {leaderboard.map((entry, index) => (
-                <Card
-                  key={`${entry.username}-${index}`}
-                  className={`transition-all duration-200 hover:scale-[1.01] ${getRankBg(index)}`}
-                >
-                  <CardContent className="p-4">
-                    <div className="grid grid-cols-12 gap-2 items-center">
-                      {/* Rank */}
-                      <div className="col-span-1 flex items-center justify-center">
-                        {getRankIcon(index)}
-                      </div>
-
-                      {/* Username */}
-                      <div className="col-span-4">
-                        <p className="font-semibold text-foreground truncate">
-                          {entry.username}
-                        </p>
-                      </div>
-
-                      {/* Wins */}
-                      <div className="col-span-2 text-center">
-                        <span className="text-lg font-bold text-primary">
-                          {entry.wins}
-                        </span>
-                      </div>
-
-                      {/* Total Games */}
-                      <div className="col-span-2 text-center">
-                        <span className="text-sm text-muted-foreground">
-                          {entry.totalGames}
-                        </span>
-                      </div>
-
-                      {/* Win Rate */}
-                      <div className="col-span-1 text-center">
-                        <span className="text-sm font-medium text-accent">
-                          {entry.winRate}%
-                        </span>
-                      </div>
-
-                      {/* Total Points */}
-                      <div className="col-span-2 text-right">
-                        <span className="text-sm font-medium text-muted-foreground">
-                          {entry.totalPoints}
-                        </span>
-                      </div>
+            <>
+              <ol className="arcade-podium" aria-label="Podio">
+                {leaderboard.slice(0, 3).map((entry, index) => (
+                  <li
+                    key={`${entry.username}-${index}`}
+                    className="arcade-podium-card"
+                    data-rank={index + 1}
+                  >
+                    <div className="arcade-podium-top">
+                      <span aria-label={`${index + 1}° posto`}>0{index + 1}</span>
+                      <Trophy size={25} aria-hidden="true" />
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    <div className="arcade-podium-avatar" aria-hidden="true">{entry.username.slice(0, 2).toUpperCase()}</div>
+                    <h2>{entry.username}</h2>
+                    <p className="arcade-podium-wins"><strong>{entry.wins}</strong> vittorie</p>
+                    <dl className="arcade-ranking-stats">
+                      <div><dt>Partite</dt><dd>{entry.totalGames}</dd></div>
+                      <div><dt>% vittorie</dt><dd>{entry.winRate}%</dd></div>
+                      <div><dt>Punti</dt><dd>{entry.totalPoints}</dd></div>
+                    </dl>
+                  </li>
+                ))}
+              </ol>
+              {leaderboard.length > 3 && (
+                <section aria-labelledby="rankings-rest-title" className="mt-12">
+                  <div className="arcade-section-heading">
+                    <h2 id="rankings-rest-title">La sfida continua.</h2>
+                    <span>Ogni vittoria conta.</span>
+                  </div>
+                  <ol className="arcade-ranking-list" start={4} aria-label="Classifica dal quarto posto">
+                    {leaderboard.slice(3).map((entry, index) => (
+                      <li key={`${entry.username}-${index}`} className="arcade-ranking-row">
+                        <span className="arcade-ranking-place">{index + 4}</span>
+                        <h3>{entry.username}</h3>
+                        <dl className="arcade-ranking-stats">
+                          <div><dt>Vittorie</dt><dd>{entry.wins}</dd></div>
+                          <div><dt>Partite</dt><dd>{entry.totalGames}</dd></div>
+                          <div><dt>% vittorie</dt><dd>{entry.winRate}%</dd></div>
+                          <div><dt>Punti</dt><dd>{entry.totalPoints}</dd></div>
+                        </dl>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              )}
+            </>
           )}
-        </div>
-      </div>
+      </main>
     </div>
   );
 };

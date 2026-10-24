@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -102,6 +102,30 @@ describe("Leaderboard request states", () => {
 
     expect(await screen.findByText("120")).toBeInTheDocument();
     expect(screen.getAllByText("alice")).toHaveLength(2);
+    expect(within(screen.getByRole("list", { name: "Podio" })).getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.queryByLabelText("2° posto")).not.toBeInTheDocument();
     expect(screen.queryByText("Caricamento classifica...")).not.toBeInTheDocument();
+  });
+
+  it("keeps server ranking order across the podium and remaining players", async () => {
+    const usernames = ["primo", "secondo", "terzo", "quarto"];
+    mocks.apiGet.mockImplementation((path) => {
+      if (path === "/users/me") return Promise.resolve({ id: 1, username: "alice" });
+      if (path === "/users/leaderboard") {
+        return Promise.resolve({
+          leaderboard: usernames.map((username, index) => ({
+            username, wins: 10 - index, totalGames: 20, winRate: 50 - index * 5, totalPoints: 120 - index,
+          })),
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    renderLeaderboard();
+    const podium = within(await screen.findByRole("list", { name: "Podio" }));
+    expect(podium.getAllByRole("heading").map((heading) => heading.textContent)).toEqual(usernames.slice(0, 3));
+    const rest = within(screen.getByRole("list", { name: "Classifica dal quarto posto" }));
+    expect(rest.getByRole("heading", { name: "quarto" })).toBeInTheDocument();
+    expect(rest.getByText("4")).toBeInTheDocument();
+    expect(rest.getByText("117")).toBeInTheDocument();
   });
 });
