@@ -20,7 +20,7 @@ export default function ArcadeHero({ onPlay, onRules, motionStopped }: ArcadeHer
     <>
       <section className="club-hero" aria-labelledby="club-title">
         <motion.div className="club-hero-copy" initial={{ opacity: 0, y: motionStopped ? 0 : 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
-          <span className="club-eyebrow"><span className="club-tiny-star" aria-hidden="true">✳</span> Finalmente anche online</span>
+          <span className="club-eyebrow"><span className="club-tiny-star" aria-hidden="true">✳</span> FINALMENTE ANCHE ONLINE</span>
           <h1 id="club-title" tabIndex={-1}><span>NON È </span><span className="club-title-outline">SOLO </span><em>FORTUNA.</em></h1>
           <p>Sfida la chat di gruppo. Trova il tuo socio.<br />Fai quella presa che non si dimentica</p>
           <div className="club-hero-actions">
