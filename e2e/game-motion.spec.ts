@@ -1,102 +1,123 @@
 import { test, expect, type WebSocketRoute } from "@playwright/test";
 import type { GameStateResponse, PlayedCardData } from "../src/game/model";
 
-test("keeps central messages, seats, cards and controls separate on every screen size", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  const players = ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-    id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-    botModel: seat === 1 || seat === 2 ? "forte" : null,
-  }));
-  const state: GameStateResponse = {
-    status: "playing", pausedAt: null,
-    round: { id: 30, number: 1, briscola: "spade" },
-    callerUserId: 3, currentTurnUserId: 1, currentHandNumber: 1,
-    myCards: ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
-      .map((value, index) => ({ id: 40 + index, suit: "denara", value, playerId: 10, roundId: 30, inHand: true })),
-    playedCards: [
-      { playerId: 12, userId: 3, suit: "coppe", value: "cavallo", position: 0, signal: "busso" },
-      { playerId: 11, userId: 2, suit: "coppe", value: "tre", position: 1 },
-      { playerId: 13, userId: 4, suit: "spade", value: "due", position: 2 },
-    ],
-    lastHandCards: [], finishedGame: null, isPractice: false, allHands: null,
-    totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
-    turnTimer: { turnUserId: 1, remainingMs: 45000, totalMs: 60000, phase: "play_card" },
-    playerControls: players.map(({ userId, botModel }) => ({ userId, botModel, abandonedAt: null })),
-  };
-  await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: players[0].username } }));
-  await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-    id: 20, code: "ROOM", started: true, finished: false, isPractice: state.isPractice, players,
-  } }));
-  let holdSnapshot = false;
-  let pendingSnapshots = 0;
-  await page.route("**/games/ROOM/state", (route) => {
-    if (!holdSnapshot) return route.fulfill({ json: state });
-    pendingSnapshots += 1;
-  });
-  await page.route("**/games/playable-cards/ROOM", (route) => route.fulfill({ json: { playableCards: [] } }));
-  let socket: WebSocketRoute | undefined;
-  await page.routeWebSocket(/\/socket\.io\//, (wire) => {
-    socket = wire;
-    wire.send('0{"sid":"layout","upgrades":[],"pingInterval":25000,"pingTimeout":20000}');
-    wire.onMessage((message) => {
-      if (message === "40") wire.send('40{"sid":"layout"}');
-      const ack = String(message).match(/^42(\d+)\["join_room"/);
-      if (ack) wire.send(`43${ack[1]}[{"ok":true}]`);
-    });
-  });
-  for (const [width, height, mode] of [
-    [1280, 900, "multiplayer"], [1280, 720, "multiplayer"], [820, 1180, "multiplayer"],
-    [390, 844, "multiplayer"], [320, 700, "multiplayer"], [320, 700, "afk"], [320, 700, "practice"],
-  ] as const) {
-    holdSnapshot = false;
-    state.isPractice = mode === "practice";
-    state.playerControls = players.map(({ userId, botModel }) => ({
-      userId, botModel: userId === 1 && mode === "afk" ? "forte" : botModel, abandonedAt: null,
+test.describe("Responsive table", () => {
+  test.use({ hasTouch: true, screen: { width: 390, height: 844 } });
+  test("keeps central messages, seats, cards and controls separate on every screen size", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const players = ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
+      id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
+      botModel: seat === 1 || seat === 2 ? "forte" : null,
     }));
-    await page.setViewportSize({ width, height });
-    await page.goto("/game/ROOM");
-    await expect(page.locator("[data-card-user-id]")).toHaveCount(3);
-    await expect(page.getByTestId("table-status")).toContainText("Marta dichiara busso");
-    pendingSnapshots = 0;
-    holdSnapshot = true;
-    if (!socket) throw new Error("Test socket is not connected");
-    socket.send(`42${JSON.stringify(["card_played", {
-      playerId: 10, userId: 1, suit: "coppe", value: "asso", position: 3, handNumber: 1,
-    }])}`);
-    await expect(page.locator("[data-card-user-id]")).toHaveCount(4);
-    const collisions = await page.evaluate(() => {
-      const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
-      const arena = rect(".arcade-arena");
-      const status = rect('[data-testid="table-status"]');
-      const hand = rect('[data-testid="player-hand"]');
-      const controls = rect(".arcade-game-tools");
-      const seats = [...document.querySelectorAll("[data-player-user-id]")].map((seat) => seat.getBoundingClientRect());
-      const cards = [...document.querySelectorAll("[data-card-user-id]")].map((card) => card.getBoundingClientRect());
-      const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-      return [
-        ...cards.flatMap((card, index) => [
-          seats.some((seat) => overlaps(card, seat)) && `card ${index} / seat`,
-          overlaps(card, status) && `card ${index} / status`,
-          card.top < arena.top || card.bottom > arena.bottom ? `card ${index} outside table` : false,
-          cards.some((other) => other !== card && overlaps(card, other)) && `card ${index} / card`,
-        ]),
-        seats.some((seat) => overlaps(status, seat)) && "status / seat",
-        status.top < arena.top || status.bottom > arena.bottom ? "status outside table" : false,
-        overlaps(hand, controls) && "hand / controls",
-        seats.some((seat) => overlaps(seat, controls)) && "seat / controls",
-        document.documentElement.scrollWidth > innerWidth && "horizontal overflow",
-      ].filter(Boolean);
+    const state: GameStateResponse = {
+      status: "playing", pausedAt: null,
+      round: { id: 30, number: 1, briscola: "spade" },
+      callerUserId: 3, currentTurnUserId: 1, currentHandNumber: 1,
+      myCards: ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
+        .map((value, index) => ({ id: 40 + index, suit: "denara", value, playerId: 10, roundId: 30, inHand: true })),
+      playedCards: [
+        { playerId: 12, userId: 3, suit: "coppe", value: "cavallo", position: 0, signal: "busso" },
+        { playerId: 11, userId: 2, suit: "coppe", value: "tre", position: 1 },
+        { playerId: 13, userId: 4, suit: "spade", value: "due", position: 2 },
+      ],
+      lastHandCards: [], finishedGame: null, isPractice: false, allHands: null,
+      totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
+      turnTimer: { turnUserId: 1, remainingMs: 45000, totalMs: 60000, phase: "play_card" },
+      playerControls: players.map(({ userId, botModel }) => ({ userId, botModel, abandonedAt: null })),
+    };
+    await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: players[0].username } }));
+    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
+      id: 20, code: "ROOM", started: true, finished: false, isPractice: state.isPractice, players,
+    } }));
+    let holdSnapshot = false;
+    let pendingSnapshots = 0;
+    await page.route("**/games/ROOM/state", (route) => {
+      if (!holdSnapshot) return route.fulfill({ json: state });
+      pendingSnapshots += 1;
     });
-    expect(collisions, `${mode} ${width}x${height}`).toEqual([]);
-    await expect(page.locator("[data-card-user-id]")).toHaveCount(0);
-    expect(pendingSnapshots).toBeGreaterThan(0);
-  }
+    await page.route("**/games/playable-cards/ROOM", (route) => route.fulfill({ json: { playableCards: [] } }));
+    let socket: WebSocketRoute | undefined;
+    await page.routeWebSocket(/\/socket\.io\//, (wire) => {
+      socket = wire;
+      wire.send('0{"sid":"layout","upgrades":[],"pingInterval":25000,"pingTimeout":20000}');
+      wire.onMessage((message) => {
+        if (message === "40") wire.send('40{"sid":"layout"}');
+        const ack = String(message).match(/^42(\d+)\["join_room"/);
+        if (ack) wire.send(`43${ack[1]}[{"ok":true}]`);
+      });
+    });
+    for (const [width, height, mode] of [
+      [1280, 900, "multiplayer"], [1280, 720, "multiplayer"], [820, 1180, "multiplayer"],
+      [390, 844, "multiplayer"], [320, 700, "multiplayer"], [320, 700, "afk"], [320, 700, "practice"],
+      [844, 390, "multiplayer"], [640, 360, "multiplayer"], [568, 320, "multiplayer"],
+      [640, 360, "afk"], [568, 360, "practice"],
+    ] as const) {
+      holdSnapshot = false;
+      state.isPractice = mode === "practice";
+      state.playerControls = players.map(({ userId, botModel }) => ({
+        userId, botModel: userId === 1 && mode === "afk" ? "forte" : botModel, abandonedAt: null,
+      }));
+      await page.setViewportSize({ width, height });
+      await page.goto("/game/ROOM");
+      await expect(page.locator("[data-card-user-id]")).toHaveCount(3);
+      const portraitPrompt = page.getByRole("button", { name: "Continua in verticale", exact: true });
+      if (await portraitPrompt.isVisible()) await portraitPrompt.click();
+      await expect(page.getByTestId("table-status")).toContainText("Marta dichiara busso");
+      pendingSnapshots = 0;
+      holdSnapshot = true;
+      if (!socket) throw new Error("Test socket is not connected");
+      socket.send(`42${JSON.stringify(["card_played", {
+        playerId: 10, userId: 1, suit: "coppe", value: "asso", position: 3, handNumber: 1,
+      }])}`);
+      await expect(page.locator("[data-card-user-id]")).toHaveCount(4);
+      const collisions = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const arena = rect(".arcade-arena");
+        const status = rect('[data-testid="table-status"]');
+        const hand = rect('[data-testid="player-hand"]');
+        const controls = rect(".arcade-game-tools");
+        const notice = rect(".arcade-table-notice");
+        const score = rect(".arcade-score-panel");
+        const seats = [...document.querySelectorAll("[data-player-user-id]")].map((seat) => seat.getBoundingClientRect());
+        const cards = [...document.querySelectorAll("[data-card-user-id]")].map((card) => card.getBoundingClientRect());
+        const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        return [
+          ...cards.flatMap((card, index) => [
+            seats.some((seat) => overlaps(card, seat)) && `card ${index} / seat`,
+            overlaps(card, status) && `card ${index} / status`,
+            overlaps(card, notice) && `card ${index} / notice`,
+            card.top < arena.top || card.bottom > arena.bottom ? `card ${index} outside table` : false,
+            cards.some((other) => other !== card && overlaps(card, other)) && `card ${index} / card`,
+          ]),
+          seats.some((seat) => overlaps(status, seat)) && "status / seat",
+          seats.some((seat) => overlaps(notice, seat)) && "notice / seat",
+          seats.some((seat, index) => seats.some((other, otherIndex) => index !== otherIndex && overlaps(seat, other))) && "seat / seat",
+          overlaps(notice, score) && "notice / score",
+          status.top < arena.top || status.bottom > arena.bottom ? "status outside table" : false,
+          overlaps(hand, controls) && "hand / controls",
+          seats.some((seat) => overlaps(seat, controls)) && "seat / controls",
+          innerHeight <= 540 && hand.bottom > innerHeight && "hand outside viewport",
+          document.documentElement.scrollWidth > innerWidth && "horizontal overflow",
+        ].filter(Boolean);
+      });
+      expect(collisions, `${mode} ${width}x${height}`).toEqual([]);
+      if (height <= 540) {
+        await page.screenshot({ path: test.info().outputPath(`${mode}-${width}x${height}.png`) });
+      }
+      await expect(page.locator("[data-card-user-id]")).toHaveCount(0);
+      expect(pendingSnapshots).toBeGreaterThan(0);
+    }
+  });
 });
 
-for (const reducedMotion of ["no-preference", "reduce"] as const) {
-  test(`live cards travel and collect at every winning seat (${reducedMotion})`, async ({ page }) => {
+for (const [view, reducedMotion, width, height] of [
+  ["desktop", "no-preference", 1440, 900],
+  ["portrait", "reduce", 390, 900],
+  ["landscape", "no-preference", 844, 390],
+] as const) {
+  test(`live cards travel and collect at every winning seat (${view}, ${reducedMotion})`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion });
-    await page.setViewportSize({ width: reducedMotion === "reduce" ? 390 : 1440, height: 900 });
+    await page.setViewportSize({ width, height });
     const names = ["Giulia", "Luca", "Marta", "Diego"];
     const state: GameStateResponse = {
       status: "playing", pausedAt: null,

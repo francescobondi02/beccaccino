@@ -46,8 +46,12 @@ const PlayerSeat = ({
       <p className="text-sm font-semibold leading-tight" title={player.username}>{player.username}</p>
       {(showRole || player.botModel) && (
         <p className="text-xs text-muted-foreground">
-          {showRole ? player.isTeammate ? "Socio" : "Avversario" : ""}
-          {player.botModel ? `${showRole ? " · " : ""}Bot in gioco` : ""}
+          {showRole && (
+            <span className={player.botModel ? "arcade-seat-bot-role" : undefined}>
+              {player.isTeammate ? "Socio" : "Avversario"}{player.botModel ? " · " : ""}
+            </span>
+          )}
+          {player.botModel && "Bot in gioco"}
         </p>
       )}
       {isTurn && countdown != null && (

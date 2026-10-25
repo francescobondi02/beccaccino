@@ -14,10 +14,16 @@ import GameBoard from "@/components/game/GameBoard";
 import GameScoreHeader from "@/components/game/GameScoreHeader";
 import PausedPracticeDialog from "@/components/game/PausedPracticeDialog";
 import GameActions from "@/components/game/GameActions";
-import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import RotateDevicePrompt from "@/components/game/RotateDevicePrompt";
+import { AlertCircle, Crown, History, Loader2, Maximize2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import {
+  canEnterGameFullscreen,
+  enterGameFullscreen,
+  exitGameFullscreen,
+} from "@/lib/fullscreen";
 import { useAuth } from "@/hooks/useAuth";
 import { useGameTable } from "@/hooks/useGameTable";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
@@ -97,6 +103,16 @@ const GameTable = () => {
   const [signalDialogOpen, setSignalDialogOpen] = useState(false);
 
   const [isPlayingCard, setIsPlayingCard] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement));
+
+  useEffect(() => {
+    const update = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", update);
+    return () => {
+      document.removeEventListener("fullscreenchange", update);
+      exitGameFullscreen();
+    };
+  }, []);
 
   const cleanupRoom = useCallback(async (): Promise<void> => {
     if (!room || (!room.isPractice && gameFinishedData) || !gameRoomCode) return;
@@ -492,11 +508,19 @@ const GameTable = () => {
             size="sm"
             onClick={() => setLastTrickDialogOpen(true)}
           >
-            Ultima presa
+            <History className="h-4 w-4" aria-hidden="true" />
+            <span className="arcade-tool-label">Ultima presa</span>
           </Button>
+          {!isFullscreen && canEnterGameFullscreen() && (
+            <Button variant="secondary" size="sm" onClick={() => void enterGameFullscreen()}>
+              <Maximize2 className="h-4 w-4" aria-hidden="true" />
+              <span className="arcade-tool-label">Schermo intero</span>
+            </Button>
+          )}
           {myBotControlled && !gameFinishedData && (
             <Button size="sm" disabled={isResuming} onClick={() => void handleResumeControl()}>
-              Riprendi controllo
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+              <span className="arcade-tool-label">Riprendi controllo</span>
             </Button>
           )}
           {!myBotControlled && currentRound?.briscola === null && callerUserId === userId && (
@@ -507,12 +531,15 @@ const GameTable = () => {
               disabled={deal.phase !== "ready"}
               data-testid="choose-trump-button"
             >
-              Scegli la briscola
+              <Crown className="h-4 w-4" aria-hidden="true" />
+              <span className="arcade-tool-label">Scegli la briscola</span>
             </Button>
           )}
           {!trumpDialogOpen && gameActions}
         </div>
       </GameBoard>
+
+      <RotateDevicePrompt />
 
       {/* Dialogs */}
       <SignalDialog

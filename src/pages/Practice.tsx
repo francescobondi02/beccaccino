@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { apiPost } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { handleActiveRoomConflict } from "@/lib/roomRedirect";
+import { enterGameFullscreen, exitGameFullscreen } from "@/lib/fullscreen";
 
 const Practice = () => {
   const navigate = useNavigate();
@@ -22,10 +23,13 @@ const Practice = () => {
 
   const startPractice = async () => {
     setStarting(true);
+    // Fullscreen needs this click's user activation, so it starts before the request.
+    void enterGameFullscreen();
     try {
       const data = await apiPost<{ code: string }>("/rooms/practice", { tier: "forte" });
       navigate(`/game/${data.code}`);
     } catch (error) {
+      exitGameFullscreen();
       if (handleActiveRoomConflict(error, navigate)) return;
       toast.error(
         error instanceof Error ? error.message : "Impossibile iniziare la partita",

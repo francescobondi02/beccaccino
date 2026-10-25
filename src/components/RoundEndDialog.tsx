@@ -18,7 +18,7 @@ export default function RoundEndDialog({
 }: RoundEndDialogProps) {
   return (
     <Dialog open={open}>
-      <DialogContent className="sm:max-w-lg [&>button:last-child]:hidden" onEscapeKeyDown={(event) => event.preventDefault()} onPointerDownOutside={(event) => event.preventDefault()}>
+      <DialogContent className="arcade-round-dialog sm:max-w-lg [&>button:last-child]:hidden" onEscapeKeyDown={(event) => event.preventDefault()} onPointerDownOutside={(event) => event.preventDefault()}>
         <DialogHeader>
           <DialogTitle>Smazzata {result.roundNumber} conclusa</DialogTitle>
           <DialogDescription>

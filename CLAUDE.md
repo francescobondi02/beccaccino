@@ -195,3 +195,19 @@ npx playwright show-report  # HTML report with traces after failures
   Native animations cancel on unmount or OS reduced motion; restored cards do not
   replay. Effects controls stay in the development preview, never live pages.
 - Responsive: mobile-friendly layout, cards resize based on viewport
+- Phones play the table in landscape. `(orientation: landscape) and (max-height: 540px)` in
+  `arcade.css` moves score/briscola to a left rail and table tools to a right rail of 44px
+  icon buttons, keeps the ten-card hand on one row, and compacts in-game dialogs and page chrome.
+  Tool labels stay in the accessible name via `.arcade-tool-label`.
+  Primary messages keep their central grid row; supplementary signal/system notices use the
+  left rail below the score. The local seat stays below the hand, and short landscape
+  layouts retain at least 320px of content height rather than clipping controls.
+- Portrait phones see `RotateDevicePrompt` over the table, with "Continua in verticale" so
+  portrait play stays possible. `lib/fullscreen.ts` requests fullscreen plus a landscape
+  orientation lock on phones only (Practice "Gioca", the prompt, and the "Schermo intero"
+  tool); iPhone Safari supports neither, so failures are ignored. Leaving the table exits fullscreen.
+- `public/manifest.webmanifest` makes the app installable (fullscreen display, any orientation,
+  separate maskable icon, wide/narrow screenshots for the richer Android install sheet).
+  `public/sw.js`, registered in production only, never caches the app: it passes navigations
+  to the network and shows the cached `offline.html` when that fails. Its fetch handler is
+  what lets Chrome show its own install prompt. Offline play is deliberately out of scope.

@@ -34,7 +34,7 @@ const TrumpSuitDialog = ({
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
-        className="sm:max-w-4xl max-h-[90vh] overflow-y-auto border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl [&>button]:hidden"
+        className="arcade-trump-dialog sm:max-w-4xl max-h-[90vh] overflow-y-auto border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl [&>button]:hidden"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >

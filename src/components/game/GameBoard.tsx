@@ -278,7 +278,7 @@ export default function GameBoard({
         </div>
       </div>
 
-      <div className="flex flex-col items-center gap-3 w-full">
+      <div className="arcade-hand-area flex flex-col items-center gap-3 w-full">
         <div
           className="arcade-player-hand flex max-w-5xl flex-wrap justify-center gap-1.5 sm:gap-2"
           data-testid="player-hand"
