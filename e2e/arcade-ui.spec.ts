@@ -225,7 +225,8 @@ test.describe("Arcade interface", () => {
       { width: 1920, height: 1080 }, { width: 1280, height: 800 },
       { width: 1024, height: 768 }, { width: 900, height: 900 },
       { width: 768, height: 1024 }, { width: 390, height: 844 },
-      { width: 320, height: 780 },
+      { width: 320, height: 780 }, { width: 844, height: 390 },
+      { width: 640, height: 360 },
     ]) {
       await page.setViewportSize(viewport);
       state.myCards = [card];

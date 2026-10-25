@@ -40,7 +40,7 @@ export default function PracticeActions({
         ) : (
           <Pause className="mr-2 h-4 w-4" />
         )}
-        <span>Pausa<span className="hidden sm:inline"> e torna alla home</span></span>
+        <span className="arcade-tool-label">Pausa<span className="hidden sm:inline"> e torna alla home</span></span>
       </Button>
       <AlertDialog>
         <AlertDialogTrigger asChild>
@@ -51,7 +51,7 @@ export default function PracticeActions({
             data-testid="abandon-practice-button"
           >
             <LogOut className="mr-2 h-4 w-4" />
-            Abbandona
+            <span className="arcade-tool-label">Abbandona</span>
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent className="bg-card">

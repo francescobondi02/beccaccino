@@ -175,7 +175,7 @@ const GameRoom = () => {
       <ConnectionBanner status={connectionStatus} />
       <Header onBeforeNavigate={leaveWaitingRoom} />
 
-      <div className="container mx-auto px-4 pt-24 pb-12">
+      <div className="arcade-waiting-room container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto animate-fade-in">
           <Card className="circolo-surface mb-8">
             <CardHeader>

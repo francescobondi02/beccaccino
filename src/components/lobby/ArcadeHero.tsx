@@ -2,6 +2,9 @@ import { motion, useMotionValue, useSpring } from "framer-motion";
 import { ArrowDown, ArrowUpRight, Layers3, Play, Zap } from "lucide-react";
 import LandingCardArtwork from "@/components/lobby/LandingCardArtwork";
 
+// U+FE0E keeps iOS from rendering the asterisk as a green emoji.
+const STAR = "\u2733\uFE0E";
+
 const heroCards = ["asso_denari", "tre_spade", "re_coppe", "cavallo_bastoni", "due_denari"] as const;
 
 interface ArcadeHeroProps {
@@ -20,7 +23,7 @@ export default function ArcadeHero({ onPlay, onRules, motionStopped }: ArcadeHer
     <>
       <section className="club-hero" aria-labelledby="club-title">
         <motion.div className="club-hero-copy" initial={{ opacity: 0, y: motionStopped ? 0 : 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45 }}>
-          <span className="club-eyebrow"><span className="club-tiny-star" aria-hidden="true">✳</span> FINALMENTE ANCHE ONLINE</span>
+          <span className="club-eyebrow"><span className="club-tiny-star" aria-hidden="true">{STAR}</span> FINALMENTE ANCHE ONLINE</span>
           <h1 id="club-title" tabIndex={-1}><span>NON È </span><span className="club-title-outline">SOLO </span><em>FORTUNA.</em></h1>
           <p>Sfida la chat di gruppo. Trova il tuo socio.<br />Fai quella presa che non si dimentica</p>
           <div className="club-hero-actions">
@@ -58,13 +61,13 @@ export default function ArcadeHero({ onPlay, onRules, motionStopped }: ArcadeHer
           <div className="club-roundel"><span>TUTTA</span><Zap size={27} fill="currentColor" /><span>L'ENERGIA DI BECCA</span></div>
           <span className="club-art-caption"><span><Layers3 size={15} /> 40 CARTE. DUE SQUADRE.</span><span>2 VS 2 <ArrowUpRight size={15} /></span></span>
           <span className="club-handwritten">LA PRESA<br />È TUA. <ArrowDown size={25} /></span>
-          <span className="club-art-spark club-art-spark-one">✳</span>
-          <span className="club-art-spark club-art-spark-two">✳</span>
+          <span className="club-art-spark club-art-spark-one">{STAR}</span>
+          <span className="club-art-spark club-art-spark-two">{STAR}</span>
         </motion.div>
       </section>
       <div className="club-manifesto" aria-label="Quattro amici. Due squadre. Quaranta carte. Zero noia.">
         <div className="club-ticker" aria-hidden="true">
-          {[0, 1].map((copy) => <span key={copy}>QUATTRO AMICI <span>✳</span> DUE SQUADRE <span>✳</span> QUARANTA CARTE <span>✳</span> ZERO NOIA <span>✳</span> </span>)}
+          {[0, 1].map((copy) => <span key={copy}>QUATTRO AMICI <span>{STAR}</span> DUE SQUADRE <span>{STAR}</span> QUARANTA CARTE <span>{STAR}</span> ZERO NOIA <span>{STAR}</span> </span>)}
         </div>
       </div>
     </>
