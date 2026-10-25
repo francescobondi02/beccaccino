@@ -28,11 +28,12 @@ export function startRuntimeTurn(
   phase: TurnPhase,
   pauseEpoch: number,
   identity: TurnIdentity,
+  delayMs = 0,
 ): void {
   const botTier = botTierForTurn(roomCode, userId);
   const isBot = botTier !== null;
   const durationMs = isBot
-    ? botThinkDelayMs()
+    ? botThinkDelayMs() + delayMs
     : isPlayerKicked(roomCode, userId)
       ? 500
       : turnDurationMs(phase);

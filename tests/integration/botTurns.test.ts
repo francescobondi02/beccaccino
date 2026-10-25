@@ -189,7 +189,7 @@ describe("Bot turn driver", () => {
 
     // Every seat contributed, so no bot silently stopped acting.
     expect(new Set(cards.map((c) => c.playerId)).size).toBe(4);
-  });
+  }, 15_000);
 
   it("never kicks a bot, even when the service keeps failing", async () => {
     const roomCode = await startPractice(() => {

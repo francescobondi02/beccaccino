@@ -133,6 +133,7 @@ async function seedFromFixture(state: BotState, actingSeat: number) {
     data: {
       number: state.round_number,
       briscola: state.briscola as Suit | null,
+      cricca: state.cricca,
       gameRoomId: room.id,
     },
   });
