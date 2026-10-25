@@ -64,6 +64,7 @@ const GameTable = () => {
     gameStatus,
     gameStateStatus,
     refetchGameState,
+    setRequestsEnabled,
     dismissRoundEnd,
     applyLocalBriscola,
   } = useGameTable(gameRoomCode, userId, username, room?.players ?? []);
@@ -287,6 +288,7 @@ const GameTable = () => {
   // "go home, tearing down the practice room first if this is one".
   const handleReturnHome = async () => {
     setIsReturningHome(true);
+    setRequestsEnabled(false);
     try {
       await cleanupPracticeRoom();
       navigate("/");
@@ -294,6 +296,7 @@ const GameTable = () => {
       console.error("Error cleaning up practice room:", error);
       toast.error("Impossibile chiudere la partita di pratica. Riprova.");
       setIsReturningHome(false);
+      setRequestsEnabled(true);
     }
   };
 

@@ -49,6 +49,7 @@ export function useGameTable(
   const stateRequestSequence = useRef(0);
   const playableRequestSequence = useRef(0);
   const hasLoadedGameState = useRef(false);
+  const requestController = useRef<AbortController | null>(null);
   const visibleCompletedTrick = state.completedTricks[0];
 
   useEffect(() => {
@@ -69,18 +70,21 @@ export function useGameTable(
   );
 
   const fetchPlayableCards = useCallback(async (code: string) => {
+    const signal = requestController.current?.signal;
+    if (!signal || signal.aborted) return;
     const requestId = ++playableRequestSequence.current;
     try {
       const data = await apiGet<{ playableCards?: PlayerCard[] }>(
         `/games/playable-cards/${code}`,
+        signal,
       );
-      if (requestId !== playableRequestSequence.current) return;
+      if (signal.aborted || requestId !== playableRequestSequence.current) return;
       dispatch({
         type: "playable_cards_fetched",
         cards: data.playableCards ?? [],
       });
     } catch (error) {
-      if (requestId !== playableRequestSequence.current) return;
+      if (signal.aborted || requestId !== playableRequestSequence.current) return;
       console.error("Error fetching playable cards:", error);
     }
   }, []);
@@ -88,15 +92,16 @@ export function useGameTable(
   const refetchGameState = useCallback(async () => {
     const uid = userIdRef.current;
     const code = gameRoomCodeRef.current;
-    if (!uid || !code) return;
+    const signal = requestController.current?.signal;
+    if (!uid || !code || !signal || signal.aborted) return;
 
     const requestId = ++stateRequestSequence.current;
     if (!hasLoadedGameState.current) {
       setGameStateStatus("loading");
     }
     try {
-      const data = await apiGet<GameStateResponse>(`/games/${code}/state`);
-      if (requestId !== stateRequestSequence.current) return;
+      const data = await apiGet<GameStateResponse>(`/games/${code}/state`, signal);
+      if (signal.aborted || requestId !== stateRequestSequence.current) return;
 
       dispatch({ type: "state_fetched", data, now: Date.now() });
       hasLoadedGameState.current = true;
@@ -116,7 +121,7 @@ export function useGameTable(
         dispatch({ type: "playable_cards_fetched", cards: [] });
       }
     } catch (error) {
-      if (requestId !== stateRequestSequence.current) return;
+      if (signal.aborted || requestId !== stateRequestSequence.current) return;
       console.error("Error refetching game state:", error);
       if (!hasLoadedGameState.current) {
         setGameStateStatus("error");
@@ -124,12 +129,28 @@ export function useGameTable(
     }
   }, [fetchPlayableCards]);
 
+  const setRequestsEnabled = useCallback((enabled: boolean) => {
+    const controller = requestController.current;
+    if (!controller) return;
+    if (!enabled) {
+      controller.abort();
+    } else if (controller.signal.aborted) {
+      requestController.current = new AbortController();
+      void refetchGameState();
+    }
+  }, [refetchGameState]);
+
   // Initial load
   useEffect(() => {
     if (!userId || !gameRoomCode) return;
+    requestController.current = new AbortController();
     hasLoadedGameState.current = false;
     setGameStateStatus("loading");
     void refetchGameState();
+    return () => {
+      requestController.current?.abort();
+      requestController.current = null;
+    };
   }, [userId, gameRoomCode, refetchGameState]);
 
   // Fetch playable cards when it's my turn
@@ -302,6 +323,11 @@ export function useGameTable(
         "practice_resumed",
         handlePracticeLifecycleChanged,
       ),
+      subscribeToRoomEvent("practice_abandoned", ({ roomCode }) => {
+        if (roomCode !== gameRoomCode) return;
+        setRequestsEnabled(false);
+        cancelScheduledRefetches();
+      }),
     ];
 
     return () => {
@@ -312,7 +338,7 @@ export function useGameTable(
       leaveRoom(gameRoomCode);
       cancelScheduledRefetches();
     };
-  }, [userId, username, gameRoomCode, refetchGameState, usernameOf]);
+  }, [userId, username, gameRoomCode, refetchGameState, usernameOf, setRequestsEnabled]);
 
   const dismissRoundEnd = useCallback(
     () => dispatch({ type: "round_end_dismissed" }),
@@ -347,6 +373,7 @@ export function useGameTable(
       completedTricks.length > 0 ? [] : visibleState.playableCards,
     gameStateStatus,
     refetchGameState,
+    setRequestsEnabled,
     dismissRoundEnd,
     applyLocalBriscola,
   };

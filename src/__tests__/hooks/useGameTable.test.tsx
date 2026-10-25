@@ -1,4 +1,5 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useGameTable } from "@/hooks/useGameTable";
 import type { GameStateResponse, PlayerCard } from "@/game/model";
@@ -9,7 +10,7 @@ const mocks = vi.hoisted(() => {
   const handlers = new Map<string, Handler>();
 
   return {
-    apiGet: vi.fn<(path: string) => Promise<unknown>>(),
+    apiGet: vi.fn<(path: string, signal?: AbortSignal) => Promise<unknown>>(),
     handlers,
     leaveRoom: vi.fn(),
     registerRoomHandlers: vi.fn(),
@@ -543,6 +544,71 @@ describe("useGameTable turn synchronization", () => {
       await Promise.resolve();
     });
     expect(stateRequestCount()).toBe(1);
+  });
+
+  it("cancels table reads before leaving and restores them if leaving fails", async () => {
+    const pendingCards = deferred<{ playableCards: PlayerCard[] }>();
+    const pendingState = deferred<GameStateResponse>();
+    mocks.apiGet.mockImplementation((path) => {
+      if (path === "/games/ROOM/state") {
+        return stateRequestCount() === 1
+          ? Promise.resolve(gameState({ currentTurnUserId: 1 }))
+          : pendingState.promise;
+      }
+      return pendingCards.promise;
+    });
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", []),
+    );
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(1));
+    act(() => { void result.current.refetchGameState(); });
+    const signals = mocks.apiGet.mock.calls.map(([, signal]) => signal);
+    expect(signals.every((signal) => signal && !signal.aborted)).toBe(true);
+
+    act(() => result.current.setRequestsEnabled(false));
+    expect(signals.every((signal) => signal?.aborted)).toBe(true);
+    const countBeforeLeaving = mocks.apiGet.mock.calls.length;
+    emitSocket("turn_timer_started", {
+      turnUserId: 1, totalMs: 60_000, phase: "play_card", isBot: false,
+    });
+    await act(async () => { await result.current.refetchGameState(); });
+    expect(mocks.apiGet).toHaveBeenCalledTimes(countBeforeLeaving);
+
+    await act(async () => {
+      pendingCards.resolve({ playableCards: [myCard] });
+      pendingState.resolve(gameState({ currentTurnUserId: 3 }));
+    });
+    expect(result.current.playableCards).toEqual([]);
+    expect(result.current.currentTurnUserId).toBe(1);
+
+    mocks.apiGet.mockResolvedValue(gameState({ currentTurnUserId: 2 }));
+    act(() => result.current.setRequestsEnabled(true));
+    await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
+    expect(mocks.apiGet.mock.lastCall?.[1]?.aborted).toBe(false);
+  });
+
+  it("cancels pending reads on remote abandonment and on unmount in StrictMode", async () => {
+    mocks.apiGet.mockResolvedValue(gameState());
+    const { result, unmount } = renderHook(
+      () => useGameTable("ROOM", 1, "alice", []),
+      { wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode> },
+    );
+    await waitFor(() => expect(result.current.gameStateStatus).toBe("ready"));
+    const signal = mocks.apiGet.mock.lastCall?.[1];
+    expect(signal?.aborted).toBe(false);
+    emitSocket("practice_abandoned", { roomCode: "OTHER" });
+    expect(signal?.aborted).toBe(false);
+    emitSocket("practice_abandoned", { roomCode: "ROOM" });
+    expect(signal?.aborted).toBe(true);
+
+    act(() => result.current.setRequestsEnabled(true));
+    const resumedSignal = mocks.apiGet.mock.lastCall?.[1];
+    expect(resumedSignal?.aborted).toBe(false);
+    unmount();
+    expect(resumedSignal?.aborted).toBe(true);
+    const count = mocks.apiGet.mock.calls.length;
+    act(() => result.current.setRequestsEnabled(true));
+    expect(mocks.apiGet).toHaveBeenCalledTimes(count);
   });
 
   it("ignores a state request failure after unmount", async () => {

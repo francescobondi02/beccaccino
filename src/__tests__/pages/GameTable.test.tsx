@@ -80,6 +80,7 @@ const mocks = vi.hoisted(() => ({
       | "finished",
     gameStateStatus: "ready" as "loading" | "ready" | "error",
     refetchGameState: vi.fn<() => Promise<void>>(),
+    setRequestsEnabled: vi.fn(),
     dismissRoundEnd: vi.fn(),
     applyLocalBriscola: vi.fn(),
   },
@@ -439,6 +440,9 @@ describe("GameTable page behavior", () => {
     );
 
     expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {});
+    expect(mocks.gameHook.setRequestsEnabled).toHaveBeenCalledWith(false);
+    expect(mocks.gameHook.setRequestsEnabled.mock.invocationCallOrder[0])
+      .toBeLessThan(mocks.apiPost.mock.invocationCallOrder[0]);
     expect(mocks.navigate).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -694,6 +698,7 @@ describe("GameTable page behavior", () => {
     );
     expect(mocks.navigate).not.toHaveBeenCalled();
 
+    expect(mocks.gameHook.setRequestsEnabled).toHaveBeenLastCalledWith(true);
     fireEvent.click(
       screen.getByRole("button", { name: "Torna alla Home" }),
     );
