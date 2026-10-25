@@ -1,7 +1,9 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import GameRoom from "@/pages/GameRoom";
+import { ApiError } from "@/lib/api";
 import type {
   PlayerJoinedPayload,
   PlayerLeftPayload,
@@ -46,7 +48,14 @@ vi.mock("@/hooks/useAuth", () => ({
   }),
 }));
 vi.mock("@/components/Header", () => ({
-  default: () => <div data-testid="header" />,
+  default: function Header() {
+    const navigate = useNavigate();
+    return (
+      <div data-testid="header">
+        <button onClick={() => navigate("/")}>Gioca</button>
+      </div>
+    );
+  },
 }));
 vi.mock("@/sockets/roomHandlers", () => ({
   registerRoomHandlers: (
@@ -123,11 +132,13 @@ function room(players: unknown[]) {
 
 function renderGameRoom() {
   return render(
-    <MemoryRouter initialEntries={["/room/ROOM"]}>
+    <BrowserRouter>
       <Routes>
         <Route path="/room/:roomCode" element={<GameRoom />} />
+        <Route path="/" element={<p>Lobby</p>} />
+        <Route path="/game/:roomCode" element={<p>Tavolo</p>} />
       </Routes>
-    </MemoryRouter>,
+    </BrowserRouter>,
   );
 }
 
@@ -136,6 +147,8 @@ describe("GameRoom state synchronization", () => {
     vi.clearAllMocks();
     mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
+    mocks.apiPost.mockResolvedValue({ success: true });
+    window.history.replaceState({}, "", "/room/ROOM");
     mocks.statusListeners.clear();
     Object.keys(mocks.callbacks).forEach((key) => {
       mocks.callbacks[key as keyof typeof mocks.callbacks] = null;
@@ -269,6 +282,69 @@ describe("GameRoom state synchronization", () => {
 
     expect(mocks.unregisterRoom).toHaveBeenCalledOnce();
     expect(mocks.leaveRoom).toHaveBeenCalledWith("ROOM");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("removes persistent membership when Gioca leaves the waiting room", async () => {
+    mocks.apiGet.mockResolvedValue(room([{ ...alice, isReady: true }, bob]));
+    renderGameRoom();
+    await screen.findByText("Giocatori: 2 / 4");
+
+    fireEvent.click(screen.getByRole("button", { name: "Gioca" }));
+
+    expect(await screen.findByText("Lobby")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
+      "/rooms/ROOM/leave",
+      {},
+    ));
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+  });
+
+  it("does not send a second departure after explicitly leaving", async () => {
+    mocks.apiGet.mockResolvedValue(room([alice, bob]));
+    renderGameRoom();
+    await screen.findByText("Giocatori: 2 / 4");
+
+    fireEvent.click(screen.getByTestId("leave-room-button"));
+
+    expect(await screen.findByText("Lobby")).toBeInTheDocument();
+    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {});
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+  });
+
+  it("reports an unsuccessful automatic departure", async () => {
+    mocks.apiGet.mockResolvedValue(room([alice, bob]));
+    mocks.apiPost.mockRejectedValue(new Error("Network unavailable"));
+    renderGameRoom();
+    await screen.findByText("Giocatori: 2 / 4");
+
+    fireEvent.click(screen.getByRole("button", { name: "Gioca" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Errore nel lasciare la stanza",
+    ));
+  });
+
+  it("returns to the game if it starts before automatic departure completes", async () => {
+    mocks.apiGet.mockResolvedValue(room([alice, bob]));
+    mocks.apiPost.mockRejectedValue(
+      new ApiError(409, "Cannot leave an active multiplayer game"),
+    );
+    renderGameRoom();
+    await screen.findByText("Giocatori: 2 / 4");
+
+    fireEvent.click(screen.getByRole("button", { name: "Gioca" }));
+
+    expect(await screen.findByText("Tavolo")).toBeInTheDocument();
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+  });
+
+  it("does not try to leave a room that failed to load", async () => {
+    mocks.apiGet.mockRejectedValue(new ApiError(403, "Not a player"));
+    renderGameRoom();
+
+    expect(await screen.findByText("Lobby")).toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
   it("keeps socket room membership during the game transition", async () => {
@@ -280,9 +356,23 @@ describe("GameRoom state synchronization", () => {
     act(() => {
       mocks.callbacks.gameStarted?.();
     });
+    window.history.pushState({}, "", "/game/ROOM");
     unmount();
 
     expect(mocks.unregisterRoom).toHaveBeenCalledOnce();
+    expect(mocks.leaveRoom).not.toHaveBeenCalled();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("preserves an already-started game loaded without a socket start event", async () => {
+    mocks.apiGet.mockResolvedValue({ ...room([alice]), started: true });
+    const { unmount } = renderGameRoom();
+    await screen.findByText("La partita è iniziata!");
+
+    window.history.pushState({}, "", "/game/ROOM");
+    unmount();
+
+    expect(mocks.apiPost).not.toHaveBeenCalled();
     expect(mocks.leaveRoom).not.toHaveBeenCalled();
   });
 });

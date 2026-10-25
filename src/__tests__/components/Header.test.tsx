@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Header from "@/components/Header";
@@ -27,11 +27,11 @@ vi.mock("sonner", () => ({
   },
 }));
 
-function renderHeader(username?: string) {
+function renderHeader(username?: string, onBeforeNavigate?: () => Promise<boolean>) {
   mocks.auth.user = username ? { id: 1, username } : null;
   return render(
     <MemoryRouter>
-      <Header />
+      <Header onBeforeNavigate={onBeforeNavigate} />
     </MemoryRouter>,
   );
 }
@@ -51,6 +51,37 @@ describe("Header", () => {
     renderHeader();
     fireEvent.click(screen.getByRole("button", { name: "Beccaccino, torna alla lobby" }));
     expect(mocks.navigate).toHaveBeenCalledWith("/");
+  });
+
+  it("waits for room departure before navigating", async () => {
+    let finishDeparture!: (left: boolean) => void;
+    const departure = new Promise<boolean>((resolve) => { finishDeparture = resolve; });
+    renderHeader("Mario", () => departure);
+    fireEvent.click(screen.getByRole("button", { name: "Beccaccino, torna alla lobby" }));
+    expect(mocks.navigate).not.toHaveBeenCalled();
+
+    await act(async () => finishDeparture(true));
+    expect(mocks.navigate).toHaveBeenCalledWith("/");
+  });
+
+  it("keeps the page when room departure fails", async () => {
+    const leave = vi.fn().mockResolvedValue(false);
+    renderHeader("Mario", leave);
+    fireEvent.click(screen.getByRole("button", { name: "Beccaccino, torna alla lobby" }));
+
+    await waitFor(() => expect(leave).toHaveBeenCalledOnce());
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("leaves the room before clearing the authentication cookie", async () => {
+    const leave = vi.fn().mockResolvedValue(true);
+    mocks.auth.logout.mockResolvedValue(undefined);
+    renderHeader("Mario", leave);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Menu account" }), { key: "Enter" });
+    fireEvent.click(await screen.findByText("Esci"));
+
+    await waitFor(() => expect(mocks.auth.logout).toHaveBeenCalledOnce());
+    expect(leave.mock.invocationCallOrder[0]).toBeLessThan(mocks.auth.logout.mock.invocationCallOrder[0]);
   });
 
   it("shows user avatar when authenticated", () => {

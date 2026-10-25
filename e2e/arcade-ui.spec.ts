@@ -2,6 +2,51 @@ import { test, expect } from "./helpers/fixtures";
 import type { GameStateResponse } from "../src/game/model";
 
 test.describe("Arcade interface", () => {
+  for (const exit of ["Gioca", "brand", "back", "logout"]) {
+    test(`leaves a waiting room through ${exit} without leaving on reload`, async ({ page }) => {
+      const departures: string[] = [];
+      await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
+      await page.route("**/rooms/available", (route) => route.fulfill({
+        json: { availableRooms: [], activeGames: [] },
+      }));
+      await page.route("**/rooms", (route) => route.fulfill({ json: { code: "ROOM" } }));
+      await page.route("**/rooms/ROOM?*", (route) => route.fulfill({ json: {
+        id: 20, code: "ROOM", started: false, finished: false,
+        players: [{ id: 10, userId: 1, username: "Giulia", seat: 0, team: 0, isReady: true }],
+      } }));
+      await page.route("**/rooms/ROOM/leave", (route) => {
+        departures.push("leave");
+        return route.fulfill({ json: { success: true } });
+      });
+      await page.route("**/users/logout", (route) => {
+        departures.push("logout");
+        return route.fulfill({ json: { success: true } });
+      });
+
+      await page.goto("/");
+      await page.getByTestId("create-room-button").click();
+      await expect(page).toHaveURL(/\/room\/ROOM$/);
+      await expect(page.getByTestId("ready-button")).toBeVisible();
+      await page.reload();
+      await expect(page.getByTestId("ready-button")).toBeVisible();
+      expect(departures).toEqual([]);
+
+      if (exit === "Gioca") {
+        await page.getByRole("button", { name: "Gioca", exact: true }).click();
+      } else if (exit === "brand") {
+        await page.getByRole("button", { name: "Beccaccino, torna alla lobby" }).click();
+      } else if (exit === "back") {
+        await page.goBack();
+      } else {
+        await page.getByRole("button", { name: "Menu account" }).click();
+        await page.getByRole("menuitem", { name: "Esci" }).click();
+      }
+      await expect(page).toHaveURL(/\/$/);
+      await expect(page.locator(".arcade-lobby")).toBeVisible();
+      await expect.poll(() => departures).toEqual(exit === "logout" ? ["leave", "logout"] : ["leave"]);
+    });
+  }
+
   test("keeps the table and hand space fixed after the last card", async ({ page }) => {
     const card = {
       id: 40, suit: "coppe", value: "asso", playerId: 10, roundId: 30, inHand: true,

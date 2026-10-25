@@ -46,11 +46,25 @@ const GameRoom = () => {
     [navigate],
   );
 
+  const handleLeaveError = useCallback(
+    (error: unknown) => {
+      if (error instanceof ApiError && error.status === 409) {
+        toast.error("La partita è già iniziata: ti riportiamo al tavolo.");
+        navigate(`/game/${roomCode}`);
+        return;
+      }
+      console.error("Errore nel lasciare la stanza:", error);
+      toast.error("Errore nel lasciare la stanza");
+    },
+    [navigate, roomCode],
+  );
+
   const {
     room,
     isLoading,
     gameStarted,
     connectionStatus,
+    leaveWaitingRoom,
     setPlayerReady,
     setPlayerTeam,
   } = useWaitingRoom({
@@ -58,6 +72,7 @@ const GameRoom = () => {
     userId,
     username,
     onLoadError: handleLoadError,
+    onLeaveError: handleLeaveError,
   });
   const myPlayer =
     room?.players.find((player) => player.userId === userId) ?? null;
@@ -106,13 +121,9 @@ const GameRoom = () => {
   };
 
   const handleLeaveRoom = async () => {
-    try {
-      await apiPost(`/rooms/${roomCode}/leave`, {});
+    if (await leaveWaitingRoom()) {
       toast.success("Hai lasciato la stanza");
       navigate("/");
-    } catch (error) {
-      console.error("Errore nel lasciare la stanza:", error);
-      toast.error("Errore nel lasciare la stanza");
     }
   };
 
@@ -168,7 +179,7 @@ const GameRoom = () => {
   return (
     <div className="circolo-shell">
       <ConnectionBanner status={connectionStatus} />
-      <Header />
+      <Header onBeforeNavigate={leaveWaitingRoom} />
 
       <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto animate-fade-in">

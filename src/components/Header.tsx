@@ -15,24 +15,32 @@ import { toast } from "sonner";
 
 interface HeaderProps {
   onAuthenticate?: () => void;
+  onBeforeNavigate?: () => Promise<boolean>;
 }
 
-const Header = ({ onAuthenticate }: HeaderProps) => {
+const Header = ({ onAuthenticate, onBeforeNavigate }: HeaderProps) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { user, logout } = useAuth();
   const username = user?.username;
 
-  const handleProfile = () => {
-    navigate("/profile");
+  const handleNavigate = async (path: string) => {
+    if (onBeforeNavigate && !(await onBeforeNavigate())) return;
+    navigate(path);
   };
 
   const handleLogout = async () => {
+    let leftRoom = false;
     try {
+      if (onBeforeNavigate) {
+        if (!(await onBeforeNavigate())) return;
+        leftRoom = true;
+      }
       await logout();
       toast.success("Disconnessione effettuata");
     } catch {
       toast.error("Impossibile disconnettersi");
+      if (leftRoom) navigate("/");
     }
   };
 
@@ -52,7 +60,7 @@ const Header = ({ onAuthenticate }: HeaderProps) => {
           type="button"
           aria-label="Beccaccino, torna alla lobby"
           className="club-brand"
-          onClick={() => navigate("/")}
+          onClick={() => void handleNavigate("/")}
         >
           <span className="club-brand-symbol" aria-hidden="true"><Zap size={31} fill="currentColor" /></span>
           <span>BECCA<span className="club-brand-caption">VECCHIA SCUOLA. NUOVA ENERGIA.</span></span>
@@ -60,8 +68,8 @@ const Header = ({ onAuthenticate }: HeaderProps) => {
 
         {pathname !== "/" && (
           <nav aria-label="Navigazione principale">
-            <button onClick={() => navigate("/")}>Gioca</button>
-            <button aria-current={pathname === "/leaderboard" ? "page" : undefined} onClick={() => navigate("/leaderboard")}>Classifica</button>
+            <button onClick={() => void handleNavigate("/")}>Gioca</button>
+            <button aria-current={pathname === "/leaderboard" ? "page" : undefined} onClick={() => void handleNavigate("/leaderboard")}>Classifica</button>
           </nav>
         )}
 
@@ -84,15 +92,15 @@ const Header = ({ onAuthenticate }: HeaderProps) => {
             <DropdownMenuContent align="end" className="w-56 bg-popover z-50">
               <DropdownMenuLabel>Il mio account</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleProfile}>
+              <DropdownMenuItem onClick={() => void handleNavigate("/profile")}>
                 <User className="mr-2 h-4 w-4" />
                 <span>Profilo</span>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/leaderboard")}>
+              <DropdownMenuItem onClick={() => void handleNavigate("/leaderboard")}>
                 <Trophy className="mr-2 h-4 w-4" />
                 <span>Classifica</span>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/annotate")}>
+              <DropdownMenuItem onClick={() => void handleNavigate("/annotate")}>
                 <ClipboardCheck className="mr-2 h-4 w-4" />
                 <span>Dati esperti</span>
               </DropdownMenuItem>
@@ -104,7 +112,7 @@ const Header = ({ onAuthenticate }: HeaderProps) => {
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <Button onClick={() => onAuthenticate ? onAuthenticate() : navigate("/")} data-testid="open-auth-button">Accedi</Button>
+          <Button onClick={() => onAuthenticate ? onAuthenticate() : void handleNavigate("/")} data-testid="open-auth-button">Accedi</Button>
         )}
       </div>
     </header>
