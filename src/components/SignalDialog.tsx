@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +11,6 @@ import type { Signal } from "@/game/model";
 interface SignalDialogProps {
   open: boolean;
   onSelect: (signal: Signal | null) => void;
-  practiceActions?: ReactNode;
 }
 
 const signals = [
@@ -37,13 +35,9 @@ const signals = [
   },
 ];
 
-const SignalDialog = ({
-  open,
-  onSelect,
-  practiceActions,
-}: SignalDialogProps) => {
+const SignalDialog = ({ open, onSelect }: SignalDialogProps) => {
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
+    <Dialog open={open} onOpenChange={() => {}} modal={false}>
       <DialogContent
         className="sm:max-w-sm border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl"
         onInteractOutside={(e) => e.preventDefault()}
@@ -84,12 +78,6 @@ const SignalDialog = ({
           >
             Niente
           </Button>
-
-          {practiceActions && (
-            <div className="mt-2 border-t border-border pt-3">
-              {practiceActions}
-            </div>
-          )}
         </div>
       </DialogContent>
     </Dialog>

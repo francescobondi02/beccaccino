@@ -29,7 +29,6 @@ src/
     TrumpSuitDialog.tsx Briscola selection (4 suit buttons + hand preview)
     SignalDialog.tsx     Signal declaration (striscio/busso/volo/niente)
     SignalBadge.tsx     Declared signal, shown on every seat
-    PracticeHistoryDialog.tsx Development-only practice history dialog
     GameChat.tsx        In-game chat panel (Socket.IO)
     LastTrickDialog.tsx View last completed trick
     RoundEndDialog.tsx  Round score summary
@@ -111,7 +110,7 @@ public/
 - REST loads `/annotations/status`, then `/annotations/next`
 - The acting seat is always rendered at the bottom and scores convert raw thirds
   into points plus figures
-- The full round history reuses `TrickHistoryDialog`, shared with practice games
+- The full round history uses `TrickHistoryDialog`; live games expose only the last completed trick
 - Card, signal, and briscola options come only from `scenario.legalActions`
 - Leaders must choose an explicit signal, including `Niente`; followers do not
   receive a signal prompt
@@ -170,8 +169,8 @@ npx playwright show-report  # HTML report with traces after failures
 - Only the landing hero uses `lobby/LandingCardArtwork.tsx`: five decorative SVG
   illustrations inspired by the existing Italian deck, without poker corner indices.
   Keep these illustrations separate from `PlayingCard` and gameplay.
-- Practice games show "Pausa e torna alla home" alongside the confirmed, destructive "Abbandona" action, including inside the mandatory briscola and signal dialogs. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".
-- When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
+- Practice games keep "Pausa e torna alla home" and the confirmed, destructive "Abbandona" action in the fixed bottom-right toolbar. Signal selection is non-modal so those controls stay accessible outside the signal choices. Briscola selection retains its own practice controls. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".
+- Live games retain chat and "Ultima presa", which displays only the previous completed trick's four cards. No full practice history or revealed-hand controls, including in development.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`
 - Animations: card-from-bottom for chat; directional table-card animations for plays
 - Responsive: mobile-friendly layout, cards resize based on viewport

@@ -16,31 +16,27 @@ describe("SignalDialog", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps practice actions reachable inside the mandatory dialog", () => {
+  it("keeps external practice actions reachable without adding them to signal choices", () => {
     const onPause = vi.fn();
     const onLeave = vi.fn();
     render(
-      <SignalDialog
-        open
-        onSelect={vi.fn()}
-        practiceActions={
-          <div>
-            <button type="button" onClick={onPause}>
-              Pausa e torna alla home
-            </button>
-            <button type="button" onClick={onLeave}>
-              Abbandona
-            </button>
-          </div>
-        }
-      />,
+      <>
+        <button type="button" onClick={onPause}>
+          Pausa e torna alla home
+        </button>
+        <button type="button" onClick={onLeave}>
+          Abbandona
+        </button>
+        <SignalDialog open onSelect={vi.fn()} />
+      </>,
     );
 
     const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.queryByRole("button", { name: "Abbandona" })).toBeNull();
     fireEvent.click(
-      dialog.getByRole("button", { name: "Pausa e torna alla home" }),
+      screen.getByRole("button", { name: "Pausa e torna alla home" }),
     );
-    fireEvent.click(dialog.getByRole("button", { name: "Abbandona" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abbandona" }));
 
     expect(onPause).toHaveBeenCalledOnce();
     expect(onLeave).toHaveBeenCalledOnce();

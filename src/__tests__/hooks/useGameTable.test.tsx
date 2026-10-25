@@ -402,6 +402,72 @@ describe("useGameTable turn synchronization", () => {
     expect(result.current.playableCards).toEqual([myCard]);
   });
 
+  it("keeps queued cards and signals together without restarting the visible trick's hold", async () => {
+    const cardsFor = (handNumber: number, signal: "busso" | "striscio") =>
+      [0, 1, 2, 3].map((position) => ({
+        playerId: position + 10,
+        userId: position + 1,
+        suit: handNumber === 1 ? "coppe" : "spade",
+        value: ["asso", "tre", "re", "sette"][position],
+        position,
+        handNumber,
+        signal: position === 0 ? signal : null,
+      }));
+    const firstTrick = cardsFor(1, "busso");
+    const secondTrick = cardsFor(2, "striscio");
+    let playedCards = firstTrick.slice(0, 3);
+    mocks.apiGet.mockImplementation((path) =>
+      Promise.resolve(
+        path === "/games/ROOM/state"
+          ? gameState({ playedCards, currentTurnUserId: 4 })
+          : { playableCards: [myCard] },
+      ),
+    );
+    const { result } = renderHook(() =>
+      useGameTable("ROOM", 1, "alice", []),
+    );
+    await waitFor(() => expect(result.current.playedCards).toHaveLength(3));
+    vi.useFakeTimers();
+
+    emitSocket("card_played", firstTrick[3]);
+    act(() => vi.advanceTimersByTime(1_000));
+    playedCards = secondTrick;
+    secondTrick.forEach((card) => emitSocket("card_played", card));
+    emitSocket("turn_timer_started", {
+      turnUserId: 4,
+      totalMs: 60_000,
+      serverTimestamp: 1,
+      phase: "play_card",
+      isBot: false,
+    });
+
+    expect(result.current.playedCards).toEqual(firstTrick);
+    expect(result.current.currentSignal).toMatchObject({ signal: "busso" });
+    expect(result.current.currentTurnUserId).toBeNull();
+    expect(result.current.turnTimer).toBeNull();
+    expect(result.current.playableCards).toEqual([]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_999);
+    });
+    expect(result.current.playedCards).toEqual(firstTrick);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(result.current.playedCards).toEqual(secondTrick);
+    expect(result.current.currentSignal).toMatchObject({ signal: "striscio" });
+    expect(result.current.currentTurnUserId).toBeNull();
+
+    playedCards = [];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(result.current.playedCards).toEqual([]);
+    expect(result.current.currentSignal).toBeNull();
+    expect(result.current.currentTurnUserId).toBe(4);
+  });
+
   it("shows the next caller while the new-round state fetch is pending", async () => {
     const nextRoundState = deferred<GameStateResponse>();
     mocks.apiGet

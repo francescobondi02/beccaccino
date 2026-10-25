@@ -49,6 +49,7 @@ export function useGameTable(
   const stateRequestSequence = useRef(0);
   const playableRequestSequence = useRef(0);
   const hasLoadedGameState = useRef(false);
+  const visibleCompletedTrick = state.completedTricks[0];
 
   useEffect(() => {
     userIdRef.current = userId;
@@ -165,7 +166,7 @@ export function useGameTable(
   // Keep the completed trick visible while authoritative state continues to
   // reconcile underneath it.
   useEffect(() => {
-    if (state.completedTricks.length === 0) return;
+    if (!visibleCompletedTrick) return;
 
     const timer = setTimeout(() => {
       dispatch({ type: "completed_trick_released" });
@@ -173,7 +174,7 @@ export function useGameTable(
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, [state.completedTricks, refetchGameState]);
+  }, [visibleCompletedTrick, refetchGameState]);
 
   // Game socket events
   useEffect(() => {
@@ -326,11 +327,22 @@ export function useGameTable(
   );
 
   const { completedTricks, ...visibleState } = state;
-  const visibleCompletedTrick = completedTricks[0];
+  const visibleCards = visibleCompletedTrick ?? visibleState.playedCards;
+  const visibleLead = visibleCards.find((card) => card.position === 0);
 
   return {
     ...visibleState,
-    playedCards: visibleCompletedTrick ?? visibleState.playedCards,
+    playedCards: visibleCards,
+    currentSignal: visibleLead?.signal
+      ? {
+          userId: visibleLead.userId,
+          signal: visibleLead.signal,
+          cardKey: `${visibleLead.suit}-${visibleLead.value}`,
+        }
+      : null,
+    currentTurnUserId:
+      visibleCompletedTrick ? null : visibleState.currentTurnUserId,
+    turnTimer: visibleCompletedTrick ? null : visibleState.turnTimer,
     playableCards:
       completedTricks.length > 0 ? [] : visibleState.playableCards,
     gameStateStatus,
