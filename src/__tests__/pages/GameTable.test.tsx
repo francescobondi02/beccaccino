@@ -10,7 +10,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameTable from "@/pages/GameTable";
-import type { RoundEndData } from "@/game/model";
+import type { PlayedCardData, RoundEndData } from "@/game/model";
 import type { GameFinishedPayload } from "@/sockets/events";
 
 const mocks = vi.hoisted(() => ({
@@ -58,7 +58,7 @@ const mocks = vi.hoisted(() => ({
         inHand: true,
       },
     ],
-    lastHand: [],
+    lastHand: [] as PlayedCardData[],
     currentHandNumber: 1,
     totalPoints: {
       team0Points: 6,
@@ -155,25 +155,6 @@ vi.mock("@/components/PlayingCard", () => ({
     </button>
   ),
 }));
-vi.mock("@/components/SignalDialog", () => ({
-  default: ({
-    open,
-    onSelect,
-    practiceActions,
-  }: {
-    open: boolean;
-    onSelect: (signal: null) => void;
-    practiceActions?: ReactNode;
-  }) =>
-    open ? (
-      <div data-testid="signal-dialog">
-        <button type="button" onClick={() => onSelect(null)}>
-          Nessun segnale
-        </button>
-        {practiceActions}
-      </div>
-    ) : null,
-}));
 vi.mock("@/components/PlayerSeat", () => ({
   default: ({
     player,
@@ -201,9 +182,6 @@ vi.mock("@/components/TrumpSuitDialog", () => ({
       <div data-testid="trump-suit-dialog">{practiceActions}</div>
     ) : null,
 }));
-vi.mock("@/components/LastTrickDialog", () => ({
-  default: () => null,
-}));
 vi.mock("@/components/RoundEndDialog", () => ({
   default: () => null,
 }));
@@ -227,31 +205,6 @@ vi.mock("@/components/GameFinishedDialog", () => ({
       </button>
     ) : null,
 }));
-vi.mock("@/components/PracticeHistoryDialog", () => ({
-  default: ({
-    open,
-    onOpenChange,
-    handsRevealed,
-    onToggleHands,
-  }: {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    handsRevealed: boolean;
-    onToggleHands: () => void;
-  }) =>
-    open ? (
-      <div data-testid="practice-history-dialog">
-        <span>{handsRevealed ? "Mani visibili" : "Mani nascoste"}</span>
-        <button type="button" onClick={onToggleHands}>
-          Cambia visibilità
-        </button>
-        <button type="button" onClick={() => onOpenChange(false)}>
-          Chiudi storico
-        </button>
-      </div>
-    ) : null,
-}));
-
 const room = {
   id: 20,
   code: "ROOM",
@@ -341,6 +294,7 @@ describe("GameTable page behavior", () => {
     mocks.gameHook.callerUserId = 1;
     mocks.gameHook.currentTurnUserId = 1;
     mocks.gameHook.playedCards = [];
+    mocks.gameHook.lastHand = [];
     mocks.gameHook.isPractice = false;
     mocks.gameHook.allHands = null;
     mocks.gameHook.moveLog = [];
@@ -382,7 +336,7 @@ describe("GameTable page behavior", () => {
     fireEvent.click(screen.getByTestId("hand-card-coppe-asso"));
     expect(mocks.apiPost).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Nessun segnale" }));
+    fireEvent.click(screen.getByRole("button", { name: "Niente" }));
 
     await waitFor(() =>
       expect(mocks.apiPost).toHaveBeenCalledWith("/games/play-card", {
@@ -394,70 +348,27 @@ describe("GameTable page behavior", () => {
     );
   });
 
-  it("opens practice history without shifting the table and resets revealed hands", async () => {
+  it("shows only the previous trick's four cards instead of full practice history", async () => {
     usePracticeRoom();
-
-    renderGameTable();
-
-    const layout = await screen.findByTestId("game-layout");
-    const toggle = screen.getByTestId("open-practice-history");
-    expect(layout).not.toHaveClass("xl:pr-80");
-    expect(
-      screen.queryByTestId("practice-history-dialog"),
-    ).not.toBeInTheDocument();
-    expect(toggle).toHaveAccessibleName("Apri storico pratica");
-
-    fireEvent.click(toggle);
-
-    expect(screen.getByTestId("practice-history-dialog")).toBeInTheDocument();
-    expect(screen.getByText("Mani nascoste")).toBeInTheDocument();
-    expect(layout).not.toHaveClass("xl:pr-80");
-    expect(screen.getByTestId("player-position-right")).toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Cambia visibilità" }),
-    );
-    expect(screen.getByText("Mani visibili")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Chiudi storico" }));
-    fireEvent.click(toggle);
-    expect(screen.getByText("Mani nascoste")).toBeInTheDocument();
-  });
-
-  it("does not expose practice history in normal games", async () => {
+    mocks.gameHook.lastHand = room.players.map((player, position) => ({
+      playerId: player.id,
+      userId: player.userId,
+      suit: "coppe",
+      value: ["asso", "due", "tre", "quattro"][position],
+      position,
+    }));
     renderGameTable();
 
     await screen.findByTestId("game-table-page");
     expect(
       screen.queryByTestId("open-practice-history"),
     ).not.toBeInTheDocument();
-  });
-
-  it("closes practice history before a round result opens", async () => {
-    usePracticeRoom();
-    const view = renderGameTable();
-
-    fireEvent.click(await screen.findByTestId("open-practice-history"));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Cambia visibilità" }),
-    );
-    expect(screen.getByText("Mani visibili")).toBeInTheDocument();
-
-    mocks.gameHook.roundEndData = {
-      roundNumber: 1,
-      team0Points: 6,
-      team1Points: 5,
-      winnerTeam: 0,
-    };
-    view.rerender(gameTableRoute());
-
-    await waitFor(() =>
-      expect(
-        screen.queryByTestId("practice-history-dialog"),
-      ).not.toBeInTheDocument(),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Ultima presa" }));
+    const lastTrick = within(screen.getByRole("dialog", { name: "Ultima presa" }));
+    expect(lastTrick.getAllByText("Carta")).toHaveLength(4);
+    expect(lastTrick.getByText("Tu")).toBeInTheDocument();
     expect(
-      screen.queryByTestId("open-practice-history"),
+      screen.queryByTestId("toggle-reveal-hands"),
     ).not.toBeInTheDocument();
   });
 
@@ -484,7 +395,7 @@ describe("GameTable page behavior", () => {
       }),
     );
     expect(
-      screen.queryByRole("button", { name: "Nessun segnale" }),
+      screen.queryByRole("button", { name: "Niente" }),
     ).not.toBeInTheDocument();
   });
 
@@ -560,15 +471,22 @@ describe("GameTable page behavior", () => {
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
   });
 
-  it("reaches manual pause from the signal dialog", async () => {
+  it("keeps pause and abandon in the toolbar, not in the signal choices", async () => {
     usePracticeRoom();
     renderGameTable();
 
     fireEvent.click(await screen.findByTestId("hand-card-coppe-asso"));
-    const signalDialog = await screen.findByTestId("signal-dialog");
-    fireEvent.click(
-      within(signalDialog).getByTestId("pause-practice-button"),
-    );
+    const signalDialog = await screen.findByRole("dialog", {
+      name: "Vuoi dichiarare qualcosa?",
+    });
+    expect(within(signalDialog).queryByTestId("pause-practice-button")).toBeNull();
+    expect(within(signalDialog).queryByTestId("abandon-practice-button")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Abbandona" }));
+    const confirmation = within(screen.getByRole("alertdialog"));
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    fireEvent.click(confirmation.getByRole("button", { name: "Annulla" }));
+    expect(signalDialog).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pausa e torna alla home" }));
 
     await waitFor(() =>
       expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/pause", {}),

@@ -26,12 +26,13 @@ export default function PracticeActions({
   onLeave,
 }: PracticeActionsProps) {
   return (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
       <Button
         variant="outline"
         size="sm"
         onClick={onPause}
         disabled={isPausing || isLeaving}
+        aria-label="Pausa e torna alla home"
         data-testid="pause-practice-button"
       >
         {isPausing ? (
@@ -39,7 +40,7 @@ export default function PracticeActions({
         ) : (
           <Pause className="mr-2 h-4 w-4" />
         )}
-        Pausa e torna alla home
+        <span>Pausa<span className="hidden sm:inline"> e torna alla home</span></span>
       </Button>
       <AlertDialog>
         <AlertDialogTrigger asChild>

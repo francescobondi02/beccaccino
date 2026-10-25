@@ -9,18 +9,12 @@ import GameFinishedDialog from "@/components/GameFinishedDialog";
 import GameChat from "@/components/GameChat";
 import SignalDialog from "@/components/SignalDialog";
 import ConnectionBanner from "@/components/ConnectionBanner";
-import PracticeHistoryDialog from "@/components/PracticeHistoryDialog";
 import AuthErrorState from "@/components/AuthErrorState";
 import GameBoard from "@/components/game/GameBoard";
 import GameScoreHeader from "@/components/game/GameScoreHeader";
 import PausedPracticeDialog from "@/components/game/PausedPracticeDialog";
 import PracticeActions from "@/components/game/PracticeActions";
-import {
-  AlertCircle,
-  History,
-  Loader2,
-  RefreshCw,
-} from "lucide-react";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
@@ -65,8 +59,6 @@ const GameTable = () => {
     turnTimer,
     currentSignal,
     isPractice,
-    allHands,
-    moveLog,
     roundEndData,
     gameFinishedData,
     gameStatus,
@@ -93,8 +85,6 @@ const GameTable = () => {
   const [signalDialogOpen, setSignalDialogOpen] = useState(false);
 
   const [isPlayingCard, setIsPlayingCard] = useState(false);
-  const [practiceHistoryOpen, setPracticeHistoryOpen] = useState(false);
-  const [handsRevealed, setHandsRevealed] = useState(false);
 
   const cleanupPracticeRoom = useCallback(async (): Promise<void> => {
     if (!room?.isPractice || !gameRoomCode) return;
@@ -215,27 +205,6 @@ const GameTable = () => {
   }, [gameFinishedData]);
 
   const playersWithPositions = positionPlayers(room?.players ?? [], userId);
-  const showPracticeHistory = import.meta.env.DEV && isPractice;
-  const practiceHistoryBlocked =
-    gameStatus === "paused" ||
-    trumpDialogOpen ||
-    signalDialogOpen ||
-    roundEndDialogOpen ||
-    gameFinishedDialogOpen;
-
-  useEffect(() => {
-    if (!showPracticeHistory || practiceHistoryBlocked) {
-      setPracticeHistoryOpen(false);
-      setHandsRevealed(false);
-    }
-  }, [practiceHistoryBlocked, showPracticeHistory]);
-
-  const handlePracticeHistoryOpenChange = (open: boolean) => {
-    setPracticeHistoryOpen(open);
-    if (!open) {
-      setHandsRevealed(false);
-    }
-  };
 
   const sendPlayCard = async (
     card: PlayerCard,
@@ -460,18 +429,6 @@ const GameTable = () => {
 
       {/* Game Action Buttons */}
       <div className="arcade-game-tools absolute bottom-4 right-4 flex flex-col gap-2">
-        {showPracticeHistory && !practiceHistoryBlocked && (
-          <Button
-            variant="secondary"
-            size="icon"
-            onClick={() => setPracticeHistoryOpen(true)}
-            aria-label="Apri storico pratica"
-            title="Storico pratica"
-            data-testid="open-practice-history"
-          >
-            <History className="h-4 w-4" />
-          </Button>
-        )}
         <GameChat
           roomCode={gameRoomCode ?? ""}
           userId={userId}
@@ -493,14 +450,13 @@ const GameTable = () => {
             Scegli la briscola
           </Button>
         )}
-        {!trumpDialogOpen && !signalDialogOpen && practiceActions}
+        {!trumpDialogOpen && practiceActions}
       </div>
 
       {/* Dialogs */}
       <SignalDialog
         open={signalDialogOpen}
         onSelect={handleSignalSelect}
-        practiceActions={practiceActions}
       />
       <TrumpSuitDialog
         open={trumpDialogOpen}
@@ -525,20 +481,6 @@ const GameTable = () => {
         players={playersWithPositions}
         userId={userId}
       />
-      {showPracticeHistory && (
-        <PracticeHistoryDialog
-          open={practiceHistoryOpen}
-          onOpenChange={handlePracticeHistoryOpenChange}
-          moveLog={moveLog}
-          hands={allHands}
-          handsRevealed={handsRevealed}
-          onToggleHands={() => setHandsRevealed((revealed) => !revealed)}
-          usernameOf={(id) =>
-            room.players.find((player) => player.userId === id)?.username ??
-            `#${id}`
-          }
-        />
-      )}
       {roundEndData && (
         <RoundEndDialog
           open={roundEndDialogOpen}
