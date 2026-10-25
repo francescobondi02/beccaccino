@@ -16,7 +16,8 @@ export default defineConfig({
       VITE_SOCKET_URL: "http://localhost:8000",
     },
     setupFiles: ["./src/__tests__/setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "server/**/*.test.ts"],
+    environmentMatchGlobs: [["server/**", "node"]],
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary", "html"],

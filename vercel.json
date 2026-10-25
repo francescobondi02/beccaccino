@@ -1,6 +1,16 @@
 {
+  "fluid": true,
+  "regions": ["fra1"],
   "git": { "deploymentEnabled": false },
+  "functions": {
+    "api/socket-proxy.ts": { "maxDuration": 300 }
+  },
   "rewrites": [
+    {
+      "source": "/socket.io/",
+      "has": [{ "type": "query", "key": "transport", "value": "websocket" }],
+      "destination": "/api/socket-proxy"
+    },
     {
       "source": "/api/:path*",
       "destination": "https://beccaccino-server.onrender.com/api/:path*"

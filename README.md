@@ -60,11 +60,25 @@ project IDs through the API under the `francesco-bondi-s-projects` scope before
 building. Direct Vercel Git deployments are disabled in `vercel.json`, and a
 missing Vercel token fails the deployment workflow.
 
-Production REST defaults to `/api`. Vercel proxies both `/api` and `/socket.io`
-to Render, keeping the authentication cookie on the frontend origin. Socket.IO
-uses polling if WebSocket cannot connect through the proxy. Builds also
-require a commit SHA from Vercel or GitHub Actions and write that non-secret
-revision to `/version.json`. After deployment, GitHub Actions waits for the exact
+Production REST defaults to `/api`. Vercel forwards REST and Socket.IO polling
+to Render through external rewrites. WebSocket upgrades on `/socket.io/` use
+`api/socket-proxy.ts`, a Vercel Function that bridges to Render and forwards the
+existing HttpOnly authentication cookie. The bridge accepts only the same HTTPS
+origin as the request host; backend session validation remains unchanged.
+Only `authToken` is forwarded, not Vercel's platform cookies. Routing matches
+Socket.IO's `transport=websocket` query; polling keeps its external rewrite.
+No browser token storage or cross-site cookies are required.
+
+The function uses Fluid compute with a 300-second maximum duration. Vercel closes
+connections at that limit; the existing Socket.IO reconnect and room hydration
+must restore the session. Polling remains available when WebSocket cannot connect.
+Before production promotion, verify authenticated events and reconnects through a
+Vercel deployment, including a connection lasting beyond five minutes. Local
+tests do not prove Vercel's routing or runtime behavior. Function CPU, memory and
+data transfer contribute to Vercel usage.
+
+Builds also require a commit SHA from Vercel or GitHub Actions and write that
+non-secret revision to `/version.json`. After deployment, GitHub Actions waits for the exact
 commit and then verifies the frontend document, backend database readiness, and
 AI model health.
 
