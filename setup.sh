@@ -4,11 +4,13 @@
 
 set -e
 
-echo "🐘 Starting database (creates becca + becca_test)..."
-finch compose up db -d
+# Never let an inherited production URL affect local setup or migrations.
+export NODE_ENV=development
+export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca'
+export DIRECT_URL="$DATABASE_URL"
 
-echo "⏳ Waiting for Postgres to be ready..."
-sleep 3
+echo "🐘 Starting database (creates becca + becca_test)..."
+docker compose --env-file backend/.env up db -d --wait
 
 echo "📦 Installing backend dependencies..."
 cd backend
@@ -21,7 +23,9 @@ echo "🗃️  Running migrations on becca..."
 npx prisma migrate deploy
 
 echo "🗃️  Pushing schema to becca_test..."
-DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' npx prisma db push --skip-generate
+DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' \
+DIRECT_URL='postgresql://postgres:postgres@localhost:5432/becca_test' \
+npx prisma db push --skip-generate
 
 cd ..
 
@@ -34,8 +38,7 @@ echo ""
 echo "✅ Setup complete!"
 echo ""
 echo "To start developing:"
-echo "  Terminal 1: cd backend && npm run dev"
-echo "  Terminal 2: cd frontend && npm run dev"
+echo "  make dev"
 echo ""
 echo "To run tests:"
 echo "  cd backend && npm test"
