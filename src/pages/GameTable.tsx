@@ -396,7 +396,7 @@ const GameTable = () => {
 
   return (
     <div
-      className="circolo-shell relative overflow-hidden"
+      className="arcade-game-page circolo-shell relative overflow-hidden"
       data-testid="game-table-page"
       data-current-turn-userid={currentTurnUserId ?? ""}
       data-briscola={currentRound?.briscola ?? ""}

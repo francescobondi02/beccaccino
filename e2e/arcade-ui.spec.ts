@@ -2,6 +2,70 @@ import { test, expect } from "./helpers/fixtures";
 import type { GameStateResponse } from "../src/game/model";
 
 test.describe("Arcade interface", () => {
+  test("keeps the table and hand space fixed after the last card", async ({ page }) => {
+    const card = {
+      id: 40, suit: "coppe", value: "asso", playerId: 10, roundId: 30, inHand: true,
+    };
+    const state: GameStateResponse = {
+      status: "playing", pausedAt: null,
+      round: { id: 30, number: 1, briscola: "spade" },
+      callerUserId: 1, currentTurnUserId: 2, currentHandNumber: 10,
+      myCards: [card], playedCards: [], lastHandCards: [],
+      totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
+      turnTimer: null, finishedGame: null, isPractice: true, allHands: null,
+    };
+    await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
+    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
+      id: 20, code: "ROOM", started: true, finished: false, isPractice: true,
+      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
+        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
+      })),
+    } }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
+
+    for (const viewport of [
+      { width: 1920, height: 1080 }, { width: 1280, height: 800 },
+      { width: 1024, height: 768 }, { width: 900, height: 900 },
+      { width: 768, height: 1024 }, { width: 390, height: 844 },
+      { width: 320, height: 780 },
+    ]) {
+      await page.setViewportSize(viewport);
+      state.myCards = [card];
+      await page.goto("/game/ROOM");
+      const hand = page.getByTestId("player-hand");
+      await expect(hand.getByRole("button")).toHaveCount(1);
+      await expect(page.locator(".arcade-arena")).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const occupied = {
+        arena: await page.locator(".arcade-arena").boundingBox(),
+        hand: await hand.boundingBox(),
+        seat: await page.getByTestId("player-seat-bottom").boundingBox(),
+      };
+      await page.getByTestId("pause-practice-button").click({ trial: true });
+      await page.getByTestId("abandon-practice-button").click({ trial: true });
+      const tools = await page.locator(".arcade-game-tools").boundingBox();
+      if (!occupied.seat || !tools) throw new Error("Missing player seat or practice controls");
+      expect.soft(
+        occupied.seat.x + occupied.seat.width <= tools.x ||
+        occupied.seat.x >= tools.x + tools.width ||
+        occupied.seat.y + occupied.seat.height <= tools.y ||
+        occupied.seat.y >= tools.y + tools.height,
+        `Practice controls cover the player at ${viewport.width}px`,
+      ).toBe(true);
+      for (const remaining of [[], [{ ...card, inHand: false }]]) {
+        state.myCards = remaining;
+        await page.reload();
+        await expect(page.getByTestId("game-layout")).toBeVisible();
+        await expect(hand.getByRole("button")).toHaveCount(0);
+        await page.evaluate(() => document.fonts.ready);
+        expect.soft(await page.locator(".arcade-arena").boundingBox(), `Table moved at ${viewport.width}px`).toEqual(occupied.arena);
+        expect.soft(await hand.boundingBox(), `Hand collapsed at ${viewport.width}px`).toEqual(occupied.hand);
+        expect.soft(await page.getByTestId("player-seat-bottom").boundingBox()).toEqual(occupied.seat);
+        expect.soft(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      }
+    }
+  });
+
   test("requires briscola but allows cancelling and changing a leading card", async ({ page }) => {
     const cards = ["asso", "tre"].map((value, index) => ({
       id: 40 + index, suit: "coppe", value, playerId: 10, roundId: 30, inHand: true,

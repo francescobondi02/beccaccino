@@ -138,6 +138,12 @@ export default function GameBoard({
           className="arcade-player-hand flex max-w-5xl flex-wrap justify-center gap-1.5 sm:gap-2"
           data-testid="player-hand"
         >
+          {hand.every((card) => !card.inHand) && (
+            <div
+              aria-hidden="true"
+              className="h-28 w-20 xl:h-[7.75rem] xl:w-[5.5rem]"
+            />
+          )}
           {hand
             .filter((card) => card.inHand)
             .map((card) => {
