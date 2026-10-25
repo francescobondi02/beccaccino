@@ -135,9 +135,10 @@ backend verify the requested tier and shared credential before creating a
 practice room. The service refuses to start without `BOT_SERVICE_TOKEN`;
 `/ready` and `POST /act` require `Authorization: Bearer <token>`.
 
-Run D2's selected update-1,200 policy is committed as a verified, model-only
-artifact and backs both `forte` and `esperto`. The latter adds experimental PIMC
-search; it does not carry a separate strength claim.
+`forte` serves the locally tested Kaggle policy: 82,280,448 training actions,
+366/400 wins against random. Its frozen 1888-feature encoder is selected by the
+artifact's input size. This is an operator-selected deployment, not evidence of
+superiority over Run D2. `esperto` retains Run D2 with experimental PIMC search.
 
 The supported online target is a Render Free Docker service. Its cold start is
 handled by the backend before practice-room creation. See

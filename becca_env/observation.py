@@ -51,6 +51,8 @@ import numpy as np
 
 from becca_env.deck import DECK, Card, Suit, card_points
 from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase, Signal  # noqa: F401
+from becca_env.kaggle_observation import OBS_SIZE as KAGGLE_OBS_SIZE
+from becca_env.kaggle_observation import encode_observation as encode_kaggle_observation
 
 # Card indexing: 40 cards total, ordered by suit then value
 CARD_INDEX: dict[Card, int] = {card: i for i, card in enumerate(DECK)}
@@ -187,6 +189,8 @@ def _compute_signal_history(game: BeccaGame, viewer_seat: int) -> np.ndarray:
 
 def encode_observation(game: BeccaGame, seat: int, obs_size: int = OBS_SIZE) -> np.ndarray:
     """Encode the game state from `seat`'s perspective into a feature vector."""
+    if obs_size == KAGGLE_OBS_SIZE:
+        return encode_kaggle_observation(game, seat)
     supported_sizes = (LEGACY_OBS_SIZE, A2_OBS_SIZE, OBS_SIZE)
     if obs_size not in supported_sizes:
         raise ValueError(

@@ -59,8 +59,8 @@ TIERS: dict[str, Tier] = {
     "forte": Tier(
         name="forte",
         label="Forte",
-        checkpoint="serving/models/run_d2_champion.pt",
-        description="Run D2 champion; 62.9% head-to-head against the prior Run C policy.",
+        checkpoint="serving/models/kaggle_2026_10_25.pt",
+        description="Operator-approved Kaggle policy; 91.5% over 400 games against random.",
         inference_artifact=True,
     ),
     "esperto": Tier(

@@ -1,6 +1,7 @@
 FROM python:3.12.12-slim-bookworm
 
 ARG TORCH_VERSION=2.8.0
+ARG PIP_INDEX_URL=https://pypi.org/simple
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -22,6 +23,7 @@ RUN python -m pip install --no-cache-dir \
         "torch==${TORCH_VERSION}" \
     && python -m pip install --no-cache-dir ".[serve]" \
     && python -c "from pathlib import Path; import torch; from serving.artifact import load_inference_artifact; from training.checkpoint import build_net; artifact = load_inference_artifact(Path('serving/models/run_d2_champion.pt')); build_net(artifact, torch.device('cpu'))" \
+    && python -c "from serving.tiers import get_agent; get_agent('forte')" \
     && useradd --create-home --uid 10001 app
 
 USER app

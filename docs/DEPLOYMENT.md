@@ -29,8 +29,21 @@ individual moves retain a short timeout after the model is warm.
 
 ## Artifact
 
-`serving/models/run_d2_champion.pt` is the deployed policy. It is a model-only
-export of the selected Run D2 update-1,200 checkpoint:
+`forte` deploys `serving/models/kaggle_2026_10_25.pt`, exported from the locally
+tested Kaggle checkpoint at 82,280,448 actions / 299,315 games. The operator
+selected this policy after local gameplay and a 366/400 result against random.
+That benchmark does not establish superiority over Run D2 or perfect play.
+Its frozen 1888-feature observation is dispatched by the stamped input size;
+240 recorded decisions matched the tested ONNX policy exactly.
+
+The reproducible training source is preserved on `archive/kaggle-local-20261025`.
+It is not compatible with the default 518-feature training encoder on `main`.
+The artifact records the original checkpoint hash, update, and selection
+provenance. Both weights and their SHA-256 sidecar are committed.
+
+`esperto` retains `serving/models/run_d2_champion.pt` with experimental PIMC.
+This model-only export of the selected Run D2 update-1,200 checkpoint remains
+available for rollback:
 
 - source SHA-256:
   `2d281bf0d1150c7629c33360c840b5c3e051599c2a977801a29d8eac79407775`
@@ -42,9 +55,9 @@ It excludes optimizer, critic, RNG, rollout, and opponent-pool state. Runtime
 loading requires its SHA-256 sidecar and uses PyTorch's restricted
 `weights_only=True` loader.
 
-Run D2 is the current champion. It has not passed NearPerfect-v1.
+Run D2 retains its champion benchmark. Neither policy has passed NearPerfect-v1.
 
-Regenerate the artifact only from the selected full checkpoint:
+Regenerate the Run D2 artifact only from its selected full checkpoint:
 
 ```bash
 python -m scripts.export_inference_artifact \
