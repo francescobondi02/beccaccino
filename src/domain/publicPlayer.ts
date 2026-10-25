@@ -6,6 +6,8 @@ export const PUBLIC_PLAYER_SELECT = {
   seat: true,
   team: true,
   isReady: true,
+  botModel: true,
+  abandonedAt: true,
   user: {
     select: {
       id: true,

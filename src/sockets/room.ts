@@ -6,6 +6,8 @@ import { prisma } from "../db";
 import { logger } from "../logger";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 import { sanitizeChatMessage } from "../utils/sanitizeChatMessage";
+import { changePlayerControlUnlocked } from "../services/playerControl";
+import { withRoomLock } from "../utils/roomLock";
 
 interface JoinRoomData {
   roomCode: string;
@@ -59,61 +61,67 @@ export function registerRoomSocket(socket: Socket, io: Server) {
       }
 
       try {
-        // Verifica che la room esista e l'utente sia un player
-        const room = await prisma.gameRoom.findUnique({
-          where: { code: roomCode },
-          include: {
-            players: {
-              select: PUBLIC_PLAYER_SELECT,
-            },
-          },
-        });
-
-        if (!room) {
-          socket.emit("error", { message: "Room not found" });
-          acknowledge?.({ ok: false, error: "Room not found" });
-          return;
-        }
-
-        const player = room.players.find((p) => p.userId === userId);
-        if (!player) {
-          socket.emit("error", { message: "You are not in this room" });
-          acknowledge?.({ ok: false, error: "You are not in this room" });
-          return;
-        }
-
-        const existingSocketIds = io.sockets.adapter.rooms.get(roomCode);
-        const alreadyPresent = [...(existingSocketIds ?? [])].some(
-          (socketId) =>
-            io.sockets.sockets.get(socketId)?.data.user?.userId === userId,
-        );
-
-        const previousRoomCode = socket.data.roomCode;
-        if (previousRoomCode && previousRoomCode !== roomCode) {
-          socket.leave(previousRoomCode);
-        }
-
-        // Unisce l'utente alla room socket e salva il riferimento per il disconnect handler
-        socket.join(roomCode);
-        socket.data.roomCode = roomCode;
-        // Store user info for use by other handlers (chat, disconnect, etc.)
-        // In production this comes from JWT; in test from client data.
-        socket.data.user = { userId, username, id: userId };
-
-        // Notifica tutti gli altri nella room che un nuovo player si è unito
-        if (!alreadyPresent) {
-          socket.to(roomCode).emit("player_joined", {
-            player: {
-              id: player.id,
-              userId: player.userId,
-              username: player.user.username,
-              seat: player.seat,
-              team: player.team,
-              isReady: player.isReady,
+        await withRoomLock(roomCode, async () => {
+          const room = await prisma.gameRoom.findUnique({
+            where: { code: roomCode },
+            include: {
+              players: {
+                select: PUBLIC_PLAYER_SELECT,
+              },
             },
           });
-        }
-        acknowledge?.({ ok: true });
+
+          if (!room) {
+            socket.emit("error", { message: "Room not found" });
+            acknowledge?.({ ok: false, error: "Room not found" });
+            return;
+          }
+
+          const player = room.players.find((p) => p.userId === userId);
+          if (!player) {
+            socket.emit("error", { message: "You are not in this room" });
+            acknowledge?.({ ok: false, error: "You are not in this room" });
+            return;
+          }
+          if (player.abandonedAt && !room.finished) {
+            const error = "Hai abbandonato questa partita";
+            socket.emit("error", { message: error });
+            acknowledge?.({ ok: false, error });
+            return;
+          }
+          if (room.started && !room.finished && player.botModel !== null) {
+            await changePlayerControlUnlocked({ roomCode, userId, action: "resume" });
+          }
+
+          const existingSocketIds = io.sockets.adapter.rooms.get(roomCode);
+          const alreadyPresent = [...(existingSocketIds ?? [])].some(
+            (socketId) =>
+              io.sockets.sockets.get(socketId)?.data.user?.userId === userId,
+          );
+
+          const previousRoomCode = socket.data.roomCode;
+          if (previousRoomCode && previousRoomCode !== roomCode) {
+            socket.leave(previousRoomCode);
+          }
+
+          socket.join(roomCode);
+          socket.data.roomCode = roomCode;
+          socket.data.user = { userId, username, id: userId };
+
+          if (!alreadyPresent) {
+            socket.to(roomCode).emit("player_joined", {
+              player: {
+                id: player.id,
+                userId: player.userId,
+                username: player.user.username,
+                seat: player.seat,
+                team: player.team,
+                isReady: player.isReady,
+              },
+            });
+          }
+          acknowledge?.({ ok: true });
+        });
       } catch (error) {
         logger.error({ err: error, roomCode, userId }, "join_room_failed");
         socket.emit("error", { message: "Failed to join room" });

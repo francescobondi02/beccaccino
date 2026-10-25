@@ -11,9 +11,6 @@ import {
 } from "./botRegistry";
 import {
   botThinkDelayMs,
-  clearAllTimeoutPolicy,
-  clearTimeoutPolicy,
-  isPlayerKicked,
   turnDurationMs,
 } from "./timeoutPolicy";
 import {
@@ -34,9 +31,7 @@ export function startRuntimeTurn(
   const isBot = botTier !== null;
   const turnMs = isBot
     ? botThinkDelayMs()
-    : isPlayerKicked(roomCode, userId)
-      ? 500
-      : turnDurationMs(phase);
+    : turnDurationMs(phase);
   const durationMs = turnMs + (isBot || phase === "choose_briscola" ? delayMs : 0);
 
   scheduleTurnTimer({
@@ -97,12 +92,10 @@ export function startRuntimeTurn(
 
 export function clearRuntimeRoom(roomCode: string): void {
   clearTurnTimer(roomCode);
-  clearTimeoutPolicy(roomCode);
   clearBotSeats(roomCode);
 }
 
 export function clearAllRuntime(): void {
   clearAllTurnTimers();
-  clearAllTimeoutPolicy();
   clearAllBotSeats();
 }

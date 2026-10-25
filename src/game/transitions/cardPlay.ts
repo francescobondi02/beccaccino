@@ -18,6 +18,7 @@ import { readGameResult } from "../../services/gameResult";
 import { withRoomLock } from "../../utils/roomLock";
 import {
   claimPracticeTransition,
+  assertPlayerControl,
   logRoundSetup,
   PracticeTurnCancelledError,
   RuntimeTurnCancelledError,
@@ -42,7 +43,14 @@ async function persistPlayedCard(
   tx: Prisma.TransactionClient,
   playerCardId: number,
   data: PlayedCardInput,
+  expectedBotModel?: string | null,
 ) {
+  if (expectedBotModel === undefined || expectedBotModel === null) {
+    await tx.player.update({
+      where: { id: data.playerId },
+      data: { timeoutCount: expectedBotModel === null ? { increment: 1 } : 0 },
+    });
+  }
   await tx.playerCard.delete({ where: { id: playerCardId } });
   return tx.playedCard.create({ data });
 }
@@ -56,6 +64,7 @@ export async function playCard(args: {
   autoPlayed?: boolean;
   expectedPauseEpoch?: number;
   expectedTurn?: TurnIdentity;
+  expectedBotModel?: string | null;
 }) {
   return withRoomLock(args.roomCode, () => playCardUnlocked(args));
 }
@@ -69,6 +78,7 @@ async function playCardUnlocked({
   autoPlayed = false,
   expectedPauseEpoch,
   expectedTurn,
+  expectedBotModel,
 }: {
   roomCode: string;
   userId: number;
@@ -78,6 +88,7 @@ async function playCardUnlocked({
   autoPlayed?: boolean;
   expectedPauseEpoch?: number;
   expectedTurn?: TurnIdentity;
+  expectedBotModel?: string | null;
 }): Promise<void> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -104,6 +115,7 @@ async function playCardUnlocked({
 
   const player = room.players.find((candidate) => candidate.userId === userId);
   if (!player) throw new GameError("It's not this player's turn", 403);
+  assertPlayerControl(player, expectedBotModel);
   if (room.pausedAt) throw new PracticeTurnCancelledError();
 
   const currentRound = room.rounds[0];
@@ -194,7 +206,7 @@ async function playCardUnlocked({
   if (position < 3) {
     await prisma.$transaction(async (tx) => {
       await claimPracticeTransition(tx, room, expectedPauseEpoch);
-      await persistPlayedCard(tx, playerCard.id, playedCardData);
+      await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
     });
     logger.info({ roomCode, userId, suit, value, position }, "card_played");
 
@@ -235,7 +247,7 @@ async function playCardUnlocked({
   if (currentHand.number < 10) {
     const nextHand = await prisma.$transaction(async (tx) => {
       await claimPracticeTransition(tx, room, expectedPauseEpoch);
-      await persistPlayedCard(tx, playerCard.id, playedCardData);
+      await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
       await tx.hand.update({
         where: { id: currentHand.id },
         data: { winnerId: trickWinnerPlayerId },
@@ -354,7 +366,7 @@ async function playCardUnlocked({
 
   const { nextRound, finishedGame } = await prisma.$transaction(async (tx) => {
     await claimPracticeTransition(tx, room, expectedPauseEpoch);
-    await persistPlayedCard(tx, playerCard.id, playedCardData);
+    await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
     await tx.hand.update({
       where: { id: currentHand.id },
       data: { winnerId: trickWinnerPlayerId },

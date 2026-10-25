@@ -27,6 +27,8 @@ import {
 } from "../turn";
 import { readCallerPlayerId } from "../snapshots/turnState";
 import { roundDealPresentation } from "../../gameConfig";
+import { BotTier } from "../../services/botUsers";
+import { restoreBotSeats } from "../../runtime/botRegistry";
 
 export class PracticeTurnCancelledError extends GameError {
   constructor() {
@@ -39,6 +41,17 @@ export class RuntimeTurnCancelledError extends GameError {
   constructor() {
     super("Runtime turn is no longer current", 409);
     this.name = "RuntimeTurnCancelledError";
+  }
+}
+
+export function assertPlayerControl(
+  player: { botModel: string | null; abandonedAt: Date | null },
+  expectedBotModel?: string | null,
+): void {
+  if (expectedBotModel !== undefined) {
+    if (player.botModel !== expectedBotModel) throw new RuntimeTurnCancelledError();
+  } else if (player.botModel !== null || player.abandonedAt) {
+    throw new GameError("Un bot sta giocando al tuo posto. Riprendi prima il controllo.", 409);
   }
 }
 
@@ -211,9 +224,13 @@ export async function setupRound(
 export async function startFirstRound(
   gameRoomId: number,
   roomCode: string,
+  multiplayer?: {
+    readyPlayerId: number;
+    bots: { userId: number; team: number; botModel: BotTier }[];
+  },
 ): Promise<void> {
   try {
-    const { callerUserId, pauseEpoch, roundSetup } =
+    const { callerUserId, pauseEpoch, roundSetup, players } =
       await prisma.$transaction(async (tx) => {
         const claim = await tx.gameRoom.updateMany({
           where: { id: gameRoomId, started: false },
@@ -223,25 +240,44 @@ export async function startFirstRound(
           throw new GameError("Game has already started", 409);
         }
 
+        if (multiplayer) {
+          await tx.player.update({
+            where: { id: multiplayer.readyPlayerId, gameRoomId },
+            data: { isReady: true },
+          });
+          if (multiplayer.bots.length > 0) {
+            await tx.player.createMany({
+              data: multiplayer.bots.map((bot) => ({
+                ...bot,
+                gameRoomId,
+                isReady: true,
+              })),
+            });
+          }
+        }
+
         const roundSetup = await setupRound(gameRoomId, 1, tx);
         const room = await tx.gameRoom.findUniqueOrThrow({
           where: { id: gameRoomId },
           select: { pauseEpoch: true },
         });
-        const caller = await tx.player.findUnique({
-          where: { id: roundSetup.callerPlayerId },
-          select: { userId: true },
+        const players = await tx.player.findMany({
+          where: { gameRoomId },
+          select: { id: true, userId: true, botModel: true },
         });
+        const caller = players.find((player) => player.id === roundSetup.callerPlayerId);
         if (!caller) throw new Error("Briscola caller not found");
 
         return {
           callerUserId: caller.userId,
           pauseEpoch: room.pauseEpoch,
           roundSetup,
+          players,
         };
       });
 
     logRoundSetup(roundSetup);
+    restoreBotSeats(roomCode, players);
     startRuntimeTurn(
       roomCode,
       callerUserId,
@@ -281,6 +317,7 @@ export async function setBriscola(args: {
   /** Bot moves must belong to the same pause/resume generation they started in. */
   expectedPauseEpoch?: number;
   expectedTurn?: TurnIdentity;
+  expectedBotModel?: string | null;
 }) {
   // We need the roomCode to key the lock. Look it up once; the inner function
   // will re-fetch the full room with players for correctness.
@@ -299,6 +336,7 @@ async function setBriscolaUnlocked({
   autoChosen = false,
   expectedPauseEpoch,
   expectedTurn,
+  expectedBotModel,
 }: {
   gameRoomId: number;
   playerId: number;
@@ -306,6 +344,7 @@ async function setBriscolaUnlocked({
   autoChosen?: boolean;
   expectedPauseEpoch?: number;
   expectedTurn?: TurnIdentity;
+  expectedBotModel?: string | null;
 }) {
   const gameRoom = await prisma.gameRoom.findUnique({
     where: { id: gameRoomId },
@@ -315,6 +354,7 @@ async function setBriscolaUnlocked({
 
   const player = gameRoom.players.find((p) => p.id === playerId);
   if (!player) throw new GameError("Player not in this game room", 403);
+  assertPlayerControl(player, expectedBotModel);
   if (gameRoom.pausedAt) throw new PracticeTurnCancelledError();
 
   const currentRound = await prisma.round.findFirst({
@@ -353,6 +393,12 @@ async function setBriscolaUnlocked({
 
   const { updatedRound, firstHand } = await prisma.$transaction(async (tx) => {
     await claimPracticeTransition(tx, gameRoom, expectedPauseEpoch);
+    if (player.botModel === null) {
+      await tx.player.update({
+        where: { id: player.id },
+        data: { timeoutCount: expectedBotModel === null ? { increment: 1 } : 0 },
+      });
+    }
     const claim = await tx.round.updateMany({
       where: { id: currentRound.id, briscola: null },
       data: { briscola: suit, cricca: hasCricca, briscolaAutoChosen: autoChosen },

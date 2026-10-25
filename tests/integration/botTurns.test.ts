@@ -7,7 +7,6 @@ import {
   BotServiceStub,
 } from "../helpers/botServiceStub";
 import { getTurnTimerState } from "../../src/runtime/turnTimer";
-import { getTimeoutState } from "../../src/runtime/timeoutPolicy";
 import { readPlayableCards } from "../../src/services/playableCards";
 import { logger } from "../../src/logger";
 
@@ -213,9 +212,11 @@ describe("Bot turn driver", () => {
     // ...and no bot accrued a timeout or a kick. Three timeouts would swap the
     // model for the dumb heuristic permanently, and we would never notice.
     for (const botUserId of await botUserIdsIn(roomCode)) {
-      expect(getTimeoutState(roomCode, botUserId)).toEqual({
-        timeouts: 0,
-        kicked: false,
+      expect(await prisma.player.findFirstOrThrow({
+        where: { userId: botUserId, gameRoom: { code: roomCode } },
+      })).toMatchObject({
+        timeoutCount: 0,
+        botModel: "forte",
       });
     }
   });
@@ -234,7 +235,10 @@ describe("Bot turn driver", () => {
     // Presentation plus think time, never the human briscola timeout.
     expect(timer.totalMs).toBeGreaterThan(SETTLE_TIMEOUT_MS);
     expect(timer.totalMs).toBeLessThanOrEqual(SETTLE_TIMEOUT_MS + 4000);
-    expect(getTimeoutState(roomCode, timer.turnUserId).timeouts).toBe(0);
+    const bot = await prisma.player.findFirstOrThrow({
+      where: { userId: timer.turnUserId, gameRoom: { code: roomCode } },
+    });
+    expect(bot.timeoutCount).toBe(0);
   });
 
   it("sends the legal card set so the service can reject a wrong board", async () => {

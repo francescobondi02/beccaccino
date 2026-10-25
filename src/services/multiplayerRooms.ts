@@ -6,6 +6,8 @@ import { assertNoActiveMultiplayerGame } from "./roomQueries";
 import { generateUniqueRoomCode } from "./roomCode";
 import { startFirstRound } from "../game/transitions/round";
 import { publishEvent } from "../runtime/eventPublisher";
+import { ensureBotServiceReady } from "./botClient";
+import { BotTier, ensureBotUsers, isBotTier } from "./botUsers";
 
 export async function createMultiplayerRoom(userId: number) {
   await assertNoActiveMultiplayerGame(userId);
@@ -157,6 +159,41 @@ export async function chooseMultiplayerTeam(args: {
   return { success: true, player: result.player };
 }
 
+export async function configureMultiplayerBots(args: {
+  roomCode: string;
+  userId: number;
+  tier: BotTier | null;
+}) {
+  return withRoomLock(args.roomCode, async () => {
+    const room = await prisma.gameRoom.findUnique({
+      where: { code: args.roomCode },
+      include: { players: { select: PUBLIC_PLAYER_SELECT } },
+    });
+    if (!room) throw new GameError("Room not found", 404);
+    if (!room.players.some((player) => player.userId === args.userId)) {
+      throw new GameError("You are not a player in this room", 403);
+    }
+    if (room.started || room.isPractice) {
+      throw new GameError("Cannot configure bots in this room", 409);
+    }
+    if (room.botTier === args.tier) return room;
+
+    const updatedRoom = await prisma.$transaction(async (tx) => {
+      await tx.player.updateMany({
+        where: { gameRoomId: room.id },
+        data: { isReady: false },
+      });
+      return tx.gameRoom.update({
+        where: { id: room.id },
+        data: { botTier: args.tier },
+        include: { players: { select: PUBLIC_PLAYER_SELECT } },
+      });
+    });
+    publishEvent(args.roomCode, "room_settings_changed", { room: updatedRoom });
+    return updatedRoom;
+  });
+}
+
 export async function setMultiplayerReady(args: {
   roomCode: string;
   userId: number;
@@ -200,12 +237,7 @@ export async function setMultiplayerReady(args: {
     }
 
     const changed = player.isReady !== args.isReady;
-    const updatedPlayer = changed
-      ? await prisma.player.update({
-          where: { id: player.id },
-          data: { isReady: args.isReady },
-        })
-      : player;
+    const updatedPlayer = { ...player, isReady: args.isReady };
     const players = room.players.map((candidate) =>
       candidate.id === player.id ? updatedPlayer : candidate,
     );
@@ -214,16 +246,42 @@ export async function setMultiplayerReady(args: {
       players.filter((candidate) => candidate.team === 0).length === 2 &&
       players.filter((candidate) => candidate.team === 1).length === 2;
 
+    const fillWithBots =
+      isBotTier(room.botTier) &&
+      players.every((candidate) => candidate.team !== null);
+    if (allReady && (teamsComplete || fillWithBots)) {
+      const bots: { userId: number; team: number; botModel: BotTier }[] = [];
+      if (isBotTier(room.botTier) && players.length < 4) {
+        await ensureBotServiceReady(room.botTier);
+        const botUserIds = await ensureBotUsers();
+        for (const team of [0, 1]) {
+          const teamCount = players.filter((candidate) => candidate.team === team).length;
+          for (let count = teamCount; count < 2; count++) {
+            bots.push({
+              userId: botUserIds[bots.length],
+              team,
+              botModel: room.botTier,
+            });
+          }
+        }
+      }
+      await startFirstRound(room.id, args.roomCode, {
+        readyPlayerId: player.id,
+        bots,
+      });
+      return { player: updatedPlayer, allReady };
+    }
+
     if (changed) {
+      await prisma.player.update({
+        where: { id: player.id },
+        data: { isReady: args.isReady },
+      });
       publishEvent(args.roomCode, "ready_changed", {
         userId: args.userId,
         playerId: updatedPlayer.id,
         isReady: args.isReady,
       });
-    }
-
-    if (allReady && teamsComplete) {
-      await startFirstRound(room.id, args.roomCode);
     }
 
     return { player: updatedPlayer, allReady };

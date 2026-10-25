@@ -22,6 +22,15 @@ export function isBotTier(tier: unknown): tier is BotTier {
   return typeof tier === "string" && BOT_TIERS.includes(tier as BotTier);
 }
 
+export function replacementBotTier(room: {
+  botTier: string | null;
+  players: { botModel: string | null }[];
+}): BotTier {
+  const tier = room.botTier ?? room.players.find((player) => player.botModel)?.botModel ?? "forte";
+  if (!isBotTier(tier)) throw new Error("Invalid persisted bot difficulty");
+  return tier;
+}
+
 /** The reserved pool. These names show up at the table, so they read like players. */
 const BOT_USERNAMES = ["Anna (bot)", "Bruno (bot)", "Carla (bot)"];
 

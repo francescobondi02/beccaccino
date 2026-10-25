@@ -5,10 +5,10 @@ import { prisma } from "../db";
 import { playCard } from "../game/transitions/cardPlay";
 import { setBriscola } from "../game/transitions/round";
 import { readPlayableCards } from "../services/playableCards";
-import { resetTimeoutCount } from "../runtime/timeoutPolicy";
 import { loadGameState } from "../services/gameState";
 import { forbidden } from "../http/errors";
 import { requireUser } from "../http/request";
+import { getRoomForUser } from "../services/roomQueries";
 
 export const chooseBriscola = async (req: Request, res: Response) => {
   const { gameRoomId, suit } = req.body;
@@ -26,7 +26,6 @@ export const chooseBriscola = async (req: Request, res: Response) => {
   }
 
   const result = await setBriscola({ gameRoomId, playerId: player.id, suit });
-  resetTimeoutCount(result.roomCode, userId);
   return res.status(200).json({
     message: "Briscola set successfully",
     round: result.round,
@@ -38,13 +37,13 @@ export const handlePlayCard = async (req: Request, res: Response) => {
   const { userId } = requireUser(req);
   const { roomCode, suit, value, signal } = req.body;
   await playCard({ roomCode, userId, suit, value, signal });
-  resetTimeoutCount(roomCode, userId);
   return res.status(200).json({ message: "Card played successfully" });
 };
 
 export const getPlayableCards = async (req: Request, res: Response) => {
   const { roomCode } = req.params;
   const { userId } = requireUser(req);
+  await getRoomForUser(roomCode, userId);
   const cards = await readPlayableCards({ roomCode, userId });
   return res.status(200).json({ playableCards: cards });
 };

@@ -13,6 +13,7 @@ export async function findActiveMultiplayerGame(userId: number) {
   return prisma.player.findFirst({
     where: {
       userId,
+      abandonedAt: null,
       gameRoom: { started: true, finished: false, isPractice: false },
     },
     select: {
@@ -49,7 +50,7 @@ export async function listRoomsForLobby(userId: number) {
     where: {
       started: true,
       finished: false,
-      players: { some: { userId } },
+      players: { some: { userId, abandonedAt: null } },
     },
     include: {
       players: { select: PUBLIC_PLAYER_SELECT },
@@ -75,8 +76,12 @@ export function findRoomByCode(roomCode: string) {
 export async function getRoomForUser(roomCode: string, userId: number) {
   const room = await findRoomByCode(roomCode);
   if (!room) throw notFound("Room not found");
-  if (!room.players.some((player) => player.userId === userId)) {
+  const player = room.players.find((player) => player.userId === userId);
+  if (!player) {
     throw forbidden("You are not a player in this room");
+  }
+  if (!room.finished && player.abandonedAt) {
+    throw forbidden("Hai abbandonato questa partita");
   }
   return room;
 }

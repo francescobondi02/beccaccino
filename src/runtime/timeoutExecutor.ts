@@ -1,4 +1,3 @@
-import { prisma } from "../db";
 import { TurnIdentity, TurnPhase } from "../game/turn";
 import { logger } from "../logger";
 import {
@@ -7,7 +6,7 @@ import {
 } from "../game/transitions/round";
 import { autoChooseBriscola, autoPlayCard } from "./autoPlay";
 import { publishEvent } from "./eventPublisher";
-import { recordTimeout } from "./timeoutPolicy";
+import { changePlayerControl } from "../services/playerControl";
 
 export async function executeTimedOutTurn(args: {
   roomCode: string;
@@ -23,6 +22,7 @@ export async function executeTimedOutTurn(args: {
         args.userId,
         args.expectedPauseEpoch,
         args.expectedTurn,
+        null,
       );
     } else {
       await autoPlayCard(
@@ -30,6 +30,7 @@ export async function executeTimedOutTurn(args: {
         args.userId,
         args.expectedPauseEpoch,
         args.expectedTurn,
+        null,
       );
     }
     publishEvent(args.roomCode, "auto_played", {
@@ -37,20 +38,7 @@ export async function executeTimedOutTurn(args: {
       phase: args.phase,
     });
 
-    const { newlyKicked } = recordTimeout(args.roomCode, args.userId);
-    if (newlyKicked) {
-      const player = await prisma.player.findFirst({
-        where: {
-          userId: args.userId,
-          gameRoom: { code: args.roomCode },
-        },
-        include: { user: true },
-      });
-      publishEvent(args.roomCode, "player_kicked_timeout", {
-        userId: args.userId,
-        username: player?.user.username ?? "Giocatore",
-      });
-    }
+    await changePlayerControl({ roomCode: args.roomCode, userId: args.userId, action: "timeout" });
   } catch (error) {
     if (
       error instanceof PracticeTurnCancelledError ||

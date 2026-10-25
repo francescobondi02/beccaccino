@@ -108,6 +108,16 @@ Runtime responsibilities are separate:
 - `reconciler.ts`: periodic, non-overlapping runtime repair
 - `eventPublisher.ts`: best-effort Socket.IO publication
 
+Player control survives restarts in `Player.botModel`, `timeoutCount`, and
+`abandonedAt`. Three consecutive human timeouts hand the retained seat to a
+real bot; successful manual moves reset the count atomically. Socket rejoin or
+`POST /api/rooms/:roomCode/resume-control` reclaims AFK control, never a
+permanently abandoned seat. Multiplayer leave preserves player identity,
+cards, history, and ranking eligibility, but removes the abandoned membership
+from active-game conflicts. Control changes fence in-flight runtime moves and
+rearm only the affected current turn. Recovery also completes interrupted
+third-timeout handoffs. Ordinary disconnects do not remove or pause players.
+
 The backend assumes one active runtime instance. Distributed timer ownership is
 not implemented.
 

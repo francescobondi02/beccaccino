@@ -13,6 +13,10 @@ export function parsePracticeTier(body: Body): BotTier {
   return tier;
 }
 
+export function parseRoomBotTier(body: Body): BotTier | null {
+  return body?.tier === null ? null : parsePracticeTier(body);
+}
+
 export function parseJoinRoom(body: Body): string {
   const roomCode = body?.roomCode;
   if (typeof roomCode !== "string" || roomCode.length === 0) {

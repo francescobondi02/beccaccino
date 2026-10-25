@@ -85,6 +85,7 @@ export async function executeBotTurn(args: {
         suit: move.suit,
         expectedPauseEpoch: args.expectedPauseEpoch,
         expectedTurn: args.expectedTurn,
+        expectedBotModel: args.tier,
       });
     } else {
       await playCard({
@@ -95,6 +96,7 @@ export async function executeBotTurn(args: {
         signal: move.signal,
         expectedPauseEpoch: args.expectedPauseEpoch,
         expectedTurn: args.expectedTurn,
+        expectedBotModel: args.tier,
       });
     }
   } catch (error) {
@@ -122,6 +124,7 @@ export async function executeBotTurn(args: {
           args.userId,
           args.expectedPauseEpoch,
           args.expectedTurn,
+          args.tier,
         );
       } else {
         await autoPlayCard(
@@ -129,6 +132,7 @@ export async function executeBotTurn(args: {
           args.userId,
           args.expectedPauseEpoch,
           args.expectedTurn,
+          args.tier,
         );
       }
     } catch (fallbackError) {

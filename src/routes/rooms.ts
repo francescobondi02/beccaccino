@@ -4,7 +4,9 @@ import {
   createPracticeRoom,
   joinRoom,
   setPlayerReady,
+  setRoomBots,
   leaveRoom,
+  resumePlayerControl,
   pausePracticeRoom,
   resumePracticeRoom,
   chooseTeam,
@@ -25,8 +27,10 @@ router.get("/:roomCode", authenticateToken, generalRateLimiter, getRoomByCode);
 router.post("/:roomCode/choose-team", authenticateToken, generalRateLimiter, chooseTeam);
 router.post("/join", authenticateToken, generalRateLimiter, joinRoom);
 router.post("/:roomCode/ready", authenticateToken, generalRateLimiter, setPlayerReady);
+router.post("/:roomCode/bots", authenticateToken, generalRateLimiter, setRoomBots);
 router.post("/:roomCode/pause", authenticateToken, generalRateLimiter, pausePracticeRoom);
 router.post("/:roomCode/resume", authenticateToken, generalRateLimiter, resumePracticeRoom);
 router.post("/:roomCode/leave", authenticateToken, generalRateLimiter, leaveRoom);
+router.post("/:roomCode/resume-control", authenticateToken, generalRateLimiter, resumePlayerControl);
 
 export default router;

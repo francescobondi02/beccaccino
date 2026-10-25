@@ -47,8 +47,12 @@ async function readGameStateSnapshot(
   if (!gameRoom) {
     throw new GameError("Room not found", 404);
   }
-  if (!gameRoom.players.some((player) => player.userId === userId)) {
+  const myPlayer = gameRoom.players.find((player) => player.userId === userId);
+  if (!myPlayer) {
     throw new GameError("You are not in this room", 403);
+  }
+  if (!gameRoom.finished && myPlayer.abandonedAt) {
+    throw new GameError("Hai abbandonato questa partita", 403);
   }
   if (!gameRoom.started) {
     throw new GameError("Game has not started yet", 400);
@@ -70,12 +74,9 @@ async function readGameStateSnapshot(
   const callerUserId =
     gameRoom.players.find((player) => player.id === callerPlayerId)?.userId ??
     null;
-  const myPlayer = gameRoom.players.find(
-    (player) => player.userId === userId,
-  );
   const myCards = await client.playerCard.findMany({
     where: {
-      playerId: myPlayer!.id,
+      playerId: myPlayer.id,
       roundId: currentRound.id,
     },
     orderBy: [{ suit: "asc" }, { value: "asc" }],
@@ -266,7 +267,10 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       team0Figures: cumulative.team0.figures,
       team1Figures: cumulative.team1.figures,
     },
-    turnTimer: timerState,
+    turnTimer: timerState ? { ...timerState, totalMs: timerState.isBot ? null : timerState.totalMs } : null,
+    playerControls: gameRoom.players.map(({ userId, botModel, abandonedAt }) => ({
+      userId, botModel, abandonedAt,
+    })),
     pausedAt: gameRoom.pausedAt,
     finishedGame,
     isPractice: gameRoom.isPractice,

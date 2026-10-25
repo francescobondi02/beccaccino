@@ -14,6 +14,8 @@ import {
   CreatedServer,
 } from "../../src/server";
 import { clearDatabase } from "../helpers/database";
+import { getTurnTimerState } from "../../src/runtime/turnTimer";
+import { changePlayerControl } from "../../src/services/playerControl";
 
 // ---------------------------------------------------------------------------
 // Test server setup
@@ -189,6 +191,22 @@ async function chooseTeamRest(
     .set(authHeaders(user))
     .send({ team });
   expect(res.statusCode).toBe(200);
+}
+
+async function createStartedGame() {
+  const users: TestUser[] = [];
+  for (const username of ["Alice", "Bob", "Carla", "Diego"]) {
+    users.push(await createUser(username));
+  }
+  const roomCode = await createRoom(users[0]);
+  for (const user of users.slice(1)) await joinRoom(roomCode, user);
+  for (let index = 0; index < users.length; index++) {
+    await chooseTeamRest(roomCode, users[index], index % 2);
+    const ready = await request(httpServer).post(`/api/rooms/${roomCode}/ready`)
+      .set(authHeaders(users[index])).send({ isReady: true });
+    expect(ready.statusCode).toBe(200);
+  }
+  return { roomCode, users };
 }
 
 // ---------------------------------------------------------------------------
@@ -566,6 +584,62 @@ describe("Socket.IO real WebSocket integration", () => {
   // disconnect
   // =========================================================================
   describe("disconnect", () => {
+    it("preserves seat, team, hand, and the running deadline across an ordinary disconnect", async () => {
+      const { roomCode, users } = await createStartedGame();
+      const user = users[0];
+      const client = createClient();
+      await waitForConnect(client);
+      await joinSocketRoom(client, roomCode, user);
+      const before = await request(httpServer).get(`/api/games/${roomCode}/state`).set(authHeaders(user));
+      const player = await prisma.player.findFirstOrThrow({ where: { userId: user.id, gameRoom: { code: roomCode } } });
+      const timer = getTurnTimerState(roomCode)!;
+      client.disconnect();
+      const returning = createClient();
+      await waitForConnect(returning);
+      expect(await joinSocketRoom(returning, roomCode, user)).toEqual({ ok: true });
+      const after = await request(httpServer).get(`/api/games/${roomCode}/state`).set(authHeaders(user));
+      expect(after.body.myCards).toEqual(before.body.myCards);
+      expect(after.body.round.id).toBe(before.body.round.id);
+      expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
+        seat: player.seat, team: player.team, botModel: null, abandonedAt: null,
+      });
+      expect(getTurnTimerState(roomCode)!.remainingMs).toBeLessThanOrEqual(timer.remainingMs);
+    });
+
+    it("reclaims an AFK seat on socket rejoin but never a permanently abandoned seat", async () => {
+      const originalDelay = process.env.BOT_THINK_DELAY_MS;
+      process.env.BOT_THINK_DELAY_MS = "60000";
+      try {
+        const { roomCode, users } = await createStartedGame();
+        const user = users.find((candidate) => candidate.id === getTurnTimerState(roomCode)!.turnUserId)!;
+        const player = await prisma.player.findFirstOrThrow({ where: { userId: user.id, gameRoom: { code: roomCode } } });
+        await prisma.player.update({ where: { id: player.id }, data: { timeoutCount: 3 } });
+        await changePlayerControl({ roomCode, userId: user.id, action: "timeout" });
+        expect(getTurnTimerState(roomCode)?.isBot).toBe(true);
+        const client = createClient();
+        await waitForConnect(client);
+        expect(await joinSocketRoom(client, roomCode, user)).toEqual({ ok: true });
+        expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
+          botModel: null, abandonedAt: null, timeoutCount: 0,
+        });
+        expect(getTurnTimerState(roomCode)?.isBot).toBe(false);
+
+        const left = await request(httpServer).post(`/api/rooms/${roomCode}/leave`).set(authHeaders(user)).send({});
+        expect(left.statusCode).toBe(200);
+        client.disconnect();
+        const abandoned = createClient();
+        await waitForConnect(abandoned);
+        expect(await joinSocketRoom(abandoned, roomCode, user)).toEqual({
+          ok: false, error: "Hai abbandonato questa partita",
+        });
+        expect(ioServer.sockets.adapter.rooms.get(roomCode)?.has(abandoned.id!)).not.toBe(true);
+        expect((await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).botModel).toBe("forte");
+      } finally {
+        if (originalDelay === undefined) delete process.env.BOT_THINK_DELAY_MS;
+        else process.env.BOT_THINK_DELAY_MS = originalDelay;
+      }
+    });
+
     it("should emit player_disconnected to remaining room members", async () => {
       const u1 = await createUser("Alice");
       const u2 = await createUser("Bob");

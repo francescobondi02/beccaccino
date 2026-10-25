@@ -4,6 +4,7 @@ import { retirePracticeRoom } from "./practiceRooms";
 import { logger } from "../logger";
 import { publishEvent } from "../runtime/eventPublisher";
 import { withRoomLock } from "../utils/roomLock";
+import { changePlayerControlUnlocked } from "./playerControl";
 
 export async function leaveRoom(args: {
   roomCode: string;
@@ -41,7 +42,8 @@ export async function leaveRoom(args: {
     );
     if (!player) throw new GameError("Player not found in room", 404);
     if (room.started && !room.finished) {
-      throw new GameError("Cannot leave an active multiplayer game", 409);
+      await changePlayerControlUnlocked({ ...args, action: "abandon" });
+      return { success: true, deletedRoom: false, preservedHistory: true, abandoned: true };
     }
     if (room.finished) {
       return {

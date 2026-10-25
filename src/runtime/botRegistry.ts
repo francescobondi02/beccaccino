@@ -13,14 +13,13 @@ export function restoreBotSeats(
   roomCode: string,
   players: { userId: number; botModel: string | null }[],
 ): void {
-  if (botSeats.has(roomCode)) return;
   const seats = players
     .filter((player) => isBotTier(player.botModel))
     .map((player) => ({
       userId: player.userId,
       tier: player.botModel as BotTier,
     }));
-  if (seats.length > 0) registerBotSeats(roomCode, seats);
+  registerBotSeats(roomCode, seats);
 }
 
 export function botTierForTurn(

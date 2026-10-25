@@ -20,6 +20,8 @@ async function createUser(username: string): Promise<{
 function expectPublicPlayers(players: Array<Record<string, unknown>>) {
   for (const player of players) {
     expect(Object.keys(player).sort()).toEqual([
+      "abandonedAt",
+      "botModel",
       "id",
       "isReady",
       "seat",

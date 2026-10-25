@@ -143,7 +143,8 @@ describe("first-round startup", () => {
       null,
     ]);
     expect(await prisma.playerCard.count()).toBe(0);
-    expect(events).toContain("ready_changed");
+    expect(failedRoom!.players[3].isReady).toBe(false);
+    expect(events).not.toContain("ready_changed");
     expect(events).not.toContain("game_started");
     expect(getTurnTimerState(code)).toBeNull();
   });

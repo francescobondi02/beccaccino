@@ -126,6 +126,8 @@ model Player {
   isReady    Boolean   @default(false)
   team       Int?                 // 0 o 1
   botModel   String?              // Difficulty tier driving this seat; null = human
+  timeoutCount Int     @default(0)
+  abandonedAt DateTime?
 
   userId     Int
   gameRoomId Int
@@ -149,6 +151,7 @@ model GameRoom {
   started        Boolean   @default(false)
   finished       Boolean   @default(false)
   isPractice     Boolean   @default(false)  // Human vs bots: excluded from all aggregates
+  botTier        String?   // Fill empty multiplayer seats at startup; null = humans only
   pausedAt       DateTime?
   pauseEpoch     Int       @default(0)
   createdAt      DateTime  @default(now())

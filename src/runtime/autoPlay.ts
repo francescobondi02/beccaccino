@@ -12,6 +12,7 @@ export async function autoPlayCard(
   userId: number,
   expectedPauseEpoch?: number,
   expectedTurn?: TurnIdentity,
+  expectedBotModel?: string | null,
 ): Promise<void> {
   const cards = await readPlayableCards({ roomCode, userId });
   if (cards.length === 0) {
@@ -26,6 +27,7 @@ export async function autoPlayCard(
     autoPlayed: true,
     expectedPauseEpoch,
     expectedTurn,
+    expectedBotModel,
   });
 }
 
@@ -34,6 +36,7 @@ export async function autoChooseBriscola(
   userId: number,
   expectedPauseEpoch?: number,
   expectedTurn?: TurnIdentity,
+  expectedBotModel?: string | null,
 ): Promise<void> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -72,5 +75,6 @@ export async function autoChooseBriscola(
     autoChosen: true,
     expectedPauseEpoch,
     expectedTurn,
+    expectedBotModel,
   });
 }
