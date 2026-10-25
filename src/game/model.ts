@@ -35,6 +35,12 @@ export interface PlayedCardData {
   handNumber?: number;
 }
 
+export interface CompletedTrick {
+  cards: PlayedCardData[];
+  roundId: number | null;
+  winnerUserId: number | null;
+}
+
 export interface TotalPoints {
   team0Points: number;
   team1Points: number;

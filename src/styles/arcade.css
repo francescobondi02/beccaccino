@@ -650,6 +650,19 @@ html[data-ui="arcade"] .club-match-preview [data-testid="player-position-top"] {
 .arcade-dealt-card[data-position="right"] { --deal-x: clamp(5rem, 22vw, 18rem); --deal-y: 0px; }
 .arcade-deal-revealed { animation: arcade-deal-reveal 200ms ease-out both; }
 
+.arcade-game-page [data-card-user-id] > div { animation: none; }
+.arcade-game-page [data-winning-card="true"] .circolo-card { outline: 2px solid hsl(var(--primary)); }
+.arcade-trick-result {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: .75rem;
+  font-weight: 600;
+  color: hsl(43 46% 93%);
+  white-space: nowrap;
+}
+
 @keyframes arcade-deal-flight {
   0% { opacity: 0; transform: translate(-50%, -50%) scale(.8); }
   15% { opacity: 1; }

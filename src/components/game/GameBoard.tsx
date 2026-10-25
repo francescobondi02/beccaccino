@@ -1,15 +1,17 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import PlayerSeat from "@/components/PlayerSeat";
 import PlayingCard from "@/components/PlayingCard";
 import TableCenter from "@/components/TableCenter";
 import SignalCallout from "./SignalCallout";
 import type {
+  CompletedTrick,
   PlayedCardData,
   PlayerCard,
   Signal,
   RoundDealView,
 } from "@/game/model";
 import type { PositionedPlayer } from "@/game/presentation";
+import { useReducedMotion } from "@/v2/hooks/useReducedMotion";
 
 interface GameBoardProps {
   players: PositionedPlayer[];
@@ -24,6 +26,13 @@ interface GameBoardProps {
   playableCards: PlayerCard[];
   onCardClick: (card: PlayerCard) => void;
   deal?: RoundDealView;
+  animatedCard?: PlayedCardData | null;
+  completedTrick?: CompletedTrick;
+  fastCollection?: boolean;
+}
+
+function travelOffset(from: DOMRect, to: DOMRect) {
+  return `translate(${from.x + from.width / 2 - to.x - to.width / 2}px, ${from.y + from.height / 2 - to.y - to.height / 2}px)`;
 }
 
 function CardDeal({ deal }: { deal: RoundDealView }) {
@@ -57,7 +66,77 @@ export default function GameBoard({
   playableCards,
   onCardClick,
   deal,
+  animatedCard,
+  completedTrick,
+  fastCollection = false,
 }: GameBoardProps) {
+  const board = useRef<HTMLDivElement>(null);
+  const cardOrigin = useRef<{ key: string; rect: DOMRect } | null>(null);
+  const lastAnimatedCard = useRef(animatedCard);
+  const animations = useRef(new Set<Animation>());
+  const reducedMotion = useReducedMotion();
+
+  useLayoutEffect(() => {
+    const active = animations.current;
+    return () => {
+      active.forEach((animation) => animation.cancel());
+      active.clear();
+    };
+  }, [reducedMotion]);
+
+  useLayoutEffect(() => {
+    if (!animatedCard || lastAnimatedCard.current === animatedCard) return;
+    lastAnimatedCard.current = animatedCard;
+    if (reducedMotion) return;
+    const slot = board.current?.querySelector<HTMLElement>(`[data-card-user-id="${animatedCard.userId}"]`);
+    const element = slot?.firstElementChild;
+    const seat = board.current?.querySelector(`[data-player-user-id="${animatedCard.userId}"]`);
+    const key = `${animatedCard.suit}-${animatedCard.value}`;
+    const origin = cardOrigin.current?.key === key && animatedCard.userId === currentUserId
+      ? cardOrigin.current.rect : seat?.getBoundingClientRect();
+    cardOrigin.current = null;
+    if (!slot || !element?.animate || !origin) return;
+    const animation = element.animate([
+      { transform: `${travelOffset(origin, slot.getBoundingClientRect())} rotate(-12deg) scale(.65)`, opacity: .3 },
+      { transform: "none", opacity: 1 },
+    ], { duration: 420, easing: "cubic-bezier(.16,1,.3,1)" });
+    animations.current.add(animation);
+    animation.onfinish = () => animations.current.delete(animation);
+  }, [animatedCard, currentUserId, reducedMotion]);
+
+  useLayoutEffect(() => {
+    if (!completedTrick || reducedMotion) return;
+    if (completedTrick.winnerUserId === null) {
+      console.warn("Skipping trick collection: missing trump or incomplete trick");
+      return;
+    }
+    const seat = board.current?.querySelector(`[data-player-user-id="${completedTrick.winnerUserId}"]`);
+    if (!seat) return;
+    const destination = seat.getBoundingClientRect();
+    const collection: Animation[] = [];
+    const active = animations.current;
+    completedTrick.cards.forEach((card, index) => {
+      const slot = board.current?.querySelector<HTMLElement>(`[data-card-user-id="${card.userId}"]`);
+      const element = slot?.firstElementChild;
+      if (!slot || !element?.animate) return;
+      const animation = element.animate([
+        { transform: "none", opacity: 1 },
+        { transform: `${travelOffset(destination, slot.getBoundingClientRect())} rotate(12deg) scale(.2)`, opacity: 0 },
+      ], {
+        duration: fastCollection ? 350 : 650,
+        delay: (fastCollection ? 500 : 1800) + index * (fastCollection ? 30 : 40),
+        easing: "cubic-bezier(.4,0,.2,1)",
+        fill: "forwards",
+      });
+      collection.push(animation);
+      active.add(animation);
+    });
+    return () => collection.forEach((animation) => {
+      animation.cancel();
+      active.delete(animation);
+    });
+  }, [completedTrick, fastCollection, reducedMotion]);
+
   const playerAt = (position: PositionedPlayer["position"]) =>
     players.find((player) => player.position === position);
   const topPlayer = playerAt("top");
@@ -87,6 +166,7 @@ export default function GameBoard({
 
   return (
     <div
+      ref={board}
       className="arcade-game-layout container mx-auto flex h-[100dvh] flex-col items-center px-3 pb-3 pt-28 sm:px-4"
       data-testid="game-layout"
     >
@@ -96,6 +176,7 @@ export default function GameBoard({
           <div
             className="absolute left-1/2 top-0 z-10 -translate-x-1/2"
             data-testid="player-position-top"
+            data-player-user-id={topPlayer?.userId}
           >
             {topPlayer && (
               <PlayerSeat
@@ -113,6 +194,7 @@ export default function GameBoard({
           <div
             className="absolute left-0 top-1/2 z-10 -translate-y-1/2 sm:left-8"
             data-testid="player-position-left"
+            data-player-user-id={leftPlayer?.userId}
           >
             {leftPlayer && (
               <PlayerSeat
@@ -128,6 +210,7 @@ export default function GameBoard({
           <div
             className="absolute right-0 top-1/2 z-10 -translate-y-1/2 sm:right-8"
             data-testid="player-position-right"
+            data-player-user-id={rightPlayer?.userId}
           >
             {rightPlayer && (
               <PlayerSeat
@@ -141,6 +224,7 @@ export default function GameBoard({
           </div>
 
           <TableCenter
+            winnerUserId={completedTrick?.winnerUserId}
             cards={playedCards.map((card) => ({
               userId: card.userId,
               suit: card.suit,
@@ -160,6 +244,11 @@ export default function GameBoard({
                 ? "Guarda le tue carte..."
                 : undefined}
           />
+          {completedTrick?.winnerUserId != null && (
+            <p className="arcade-trick-result" role="status">
+              Presa a {players.find((player) => player.userId === completedTrick.winnerUserId)?.username}
+            </p>
+          )}
           {deal?.phase === "dealing" && (
             <CardDeal key={hand[0]?.roundId} deal={deal} />
           )}
@@ -192,7 +281,14 @@ export default function GameBoard({
                   key={card.id}
                   suit={card.suit}
                   value={card.value}
-                  onClick={() => onCardClick(card)}
+                  onClick={() => {
+                    const element = board.current?.querySelector(`[data-testid="hand-card-${card.suit}-${card.value}"]`);
+                    if (element) cardOrigin.current = {
+                      key: `${card.suit}-${card.value}`,
+                      rect: element.getBoundingClientRect(),
+                    };
+                    onCardClick(card);
+                  }}
                   size="lg"
                   className={`xl:w-[5.5rem] xl:h-[7.75rem] xl:hover:scale-105 ${
                     presentingHand
@@ -210,7 +306,7 @@ export default function GameBoard({
         </div>
 
         {bottomPlayer && (
-          <div className="relative z-10">
+          <div className="relative z-10" data-player-user-id={bottomPlayer.userId}>
             <PlayerSeat
               testId="player-seat-bottom"
               player={bottomPlayer}

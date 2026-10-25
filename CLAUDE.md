@@ -175,16 +175,22 @@ npx playwright show-report  # HTML report with traces after failures
   reserves 2.4 seconds to distribute cards to all seats and 1.6 seconds to read
   the hand before briscola selection. Later rounds first retain the completed
   score summary for 4 seconds instead of adding another collection pause.
+  Live last tricks collect within the first second of that existing window,
+  before the recap; ordinary tricks retain their 3-second hold.
   `roundSummary` comes from the same snapshot, including after refresh.
   Remaining time is anchored to the client clock, so
   reconnect does not replay the deal. Reduced motion keeps the reading time
   without flying cards; practice controls remain available throughout.
-- Finished results replace the table without a new route or automatic dismissal.
+- Finished results replace the table after any live last-trick collection,
+  without a new route or automatic dismissal. Restored results appear immediately.
   `game_finished` and refreshed snapshots carry the same statistics. Show only
   positive-count awards (busso, enemy aces captured, own aces lost), including
   all tied players. Per-round details use native `details`; no new tracking,
   dependencies or permanent medal system. Missing statistics are supported
   during rolling deployment; the existing scores remain visible.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`
-- Animations: card-from-bottom for chat; directional table-card animations for plays
+- Live card motion uses server events and measured hand/seat positions. Completed
+  tricks capture their display winner before the next round changes trump.
+  Native animations cancel on unmount or OS reduced motion; restored cards do not
+  replay. Effects controls stay in the development preview, never live pages.
 - Responsive: mobile-friendly layout, cards resize based on viewport

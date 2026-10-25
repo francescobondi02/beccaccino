@@ -99,6 +99,8 @@ test.describe("Arcade interface", () => {
 
   for (const reducedMotion of ["no-preference", "reduce"] as const) {
     test(`deals to four players before trump selection (${reducedMotion})`, async ({ page }) => {
+      // REST fixtures have no authenticated Socket.IO session.
+      await page.routeWebSocket(/\/socket\.io\//, () => {});
       await page.emulateMedia({ reducedMotion });
       const cards = ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
         .map((value, index) => ({ id: 40 + index, suit: "coppe", value, playerId: 10, roundId: 30, inHand: true }));
@@ -493,15 +495,14 @@ test.describe("Arcade interface", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("NON È SOLO FORTUNA.");
   });
 
-  test("keeps rules accessible and lets the user stop decorative motion", async ({ page }) => {
+  test("keeps rules accessible and uses system motion preferences without public effects controls", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Come si gioca", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText("I segnali sono visibili a tutti");
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: "Come si gioca", exact: true })).toBeFocused();
-    await page.getByRole("button", { name: "Pausa effetti", exact: true }).click();
-    await expect(page.locator(".arcade-live-hero")).toHaveAttribute("data-motion", "off");
-    await page.getByRole("button", { name: "Attiva effetti", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pausa effetti", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Attiva effetti", exact: true })).toHaveCount(0);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await expect(page.locator(".arcade-live-hero")).toHaveAttribute("data-motion", "off");
   });

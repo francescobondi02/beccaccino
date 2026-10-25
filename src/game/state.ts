@@ -3,6 +3,7 @@ import type {
   NewRoundStartedPayload,
 } from "@/sockets/events";
 import type {
+  CompletedTrick,
   GameStateResponse,
   MoveLogEntry,
   PlayedCardData,
@@ -14,6 +15,7 @@ import type {
   TotalPoints,
   TurnTimer,
 } from "@/game/model";
+import { trickWinner } from "@/game/presentation";
 
 export interface GameTableState {
   gameStatus: GameStateResponse["status"] | null;
@@ -25,7 +27,8 @@ export interface GameTableState {
   currentTurnUserId: number | null;
   playedCards: PlayedCardData[];
   playableCards: PlayerCard[];
-  completedTricks: PlayedCardData[][];
+  completedTricks: CompletedTrick[];
+  animatedCard: PlayedCardData | null;
   lastHand: PlayedCardData[];
   currentHandNumber: number | null;
   totalPoints: TotalPoints;
@@ -71,6 +74,7 @@ export const initialGameTableState: GameTableState = {
   playedCards: [],
   playableCards: [],
   completedTricks: [],
+  animatedCard: null,
   lastHand: [],
   currentHandNumber: null,
   totalPoints: EMPTY_POINTS,
@@ -179,9 +183,14 @@ export function gameTableReducer(
               )
             : state.myCards,
         playedCards,
+        animatedCard: data,
         completedTricks:
           playedCards.length === 4
-            ? [...state.completedTricks, playedCards]
+            ? [...state.completedTricks, {
+                cards: playedCards,
+                roundId: state.currentRound?.id ?? null,
+                winnerUserId: trickWinner(playedCards, state.currentRound?.briscola),
+              }]
             : state.completedTricks,
       };
     }
@@ -213,6 +222,7 @@ export function gameTableReducer(
         myCards: [],
         currentTurnUserId: action.data.callerUserId,
         playedCards: [],
+        animatedCard: null,
         playableCards: [],
         currentHandNumber: null,
         turnTimer: null,

@@ -14,6 +14,7 @@ interface TableCenterProps {
   waitingForUsername: string;
   countdown: number | null;
   statusText?: string;
+  winnerUserId?: number | null;
 }
 
 const ANIMATION_CLASS: Record<PlayerPosition, string> = {
@@ -40,6 +41,7 @@ const TableCenter = ({
   waitingForUsername,
   countdown,
   statusText,
+  winnerUserId,
 }: TableCenterProps) => (
   <div
     className="circolo-table relative flex h-[25rem] w-[25rem] min-h-64 min-w-64 items-center justify-center rounded-[46%] border border-[hsl(39_55%_62%_/_0.7)] [@media(max-height:800px)]:h-72 [@media(max-height:800px)]:w-72 [@media(max-height:800px)]:translate-y-6"
@@ -51,6 +53,8 @@ const TableCenter = ({
           key={`${card.userId}-${card.suit}-${card.value}`}
           className={`absolute ${PLACEMENT_CLASS[card.position]}`}
           data-testid={`table-card-position-${card.position}`}
+          data-card-user-id={card.userId}
+          data-winning-card={card.userId === winnerUserId}
         >
           <div className={ANIMATION_CLASS[card.position]}>
             <PlayingCard

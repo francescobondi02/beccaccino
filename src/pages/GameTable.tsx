@@ -54,6 +54,9 @@ const GameTable = () => {
     myCards,
     currentTurnUserId,
     playedCards,
+    animatedCard,
+    completedTrick,
+    fastCollection,
     playableCards,
     lastHand,
     currentHandNumber,
@@ -73,7 +76,7 @@ const GameTable = () => {
   const countdown = useTurnCountdown(turnTimer);
   const deal = useRoundDeal(
     roundDeal,
-    gameStatus === "choosing_briscola" && currentRound?.briscola === null,
+    !completedTrick && gameStatus === "choosing_briscola" && currentRound?.briscola === null,
   );
   const showRoundSummary = Boolean(roundEndData) && deal.phase === "collecting";
 
@@ -173,6 +176,7 @@ const GameTable = () => {
   useEffect(() => {
     setTrumpDialogOpen(
       gameStatus !== "paused" &&
+      !completedTrick &&
       deal.phase === "ready" &&
       myCards.length > 0 &&
       currentRound?.briscola === null &&
@@ -189,6 +193,7 @@ const GameTable = () => {
     myCards.length,
     showRoundSummary,
     gameFinishedData,
+    completedTrick,
   ]);
 
   useEffect(() => {
@@ -390,7 +395,7 @@ const GameTable = () => {
     );
   }
 
-  if (gameFinishedData) {
+  if (gameFinishedData && !completedTrick) {
     return (
       <GameResult
         result={gameFinishedData}
@@ -430,10 +435,13 @@ const GameTable = () => {
         currentSignal={currentSignal}
         countdown={deal.phase === "ready" ? countdown : null}
         playedCards={playedCards}
+        animatedCard={animatedCard}
+        completedTrick={completedTrick}
+        fastCollection={fastCollection}
         briscola={currentRound?.briscola}
         callerUserId={callerUserId}
         currentUserId={userId}
-        hand={myCards}
+        hand={completedTrick && completedTrick.roundId !== currentRound?.id ? [] : myCards}
         playableCards={playableCards}
         onCardClick={(card) => void handleCardClick(card)}
         deal={deal}

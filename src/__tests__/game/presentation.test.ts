@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   pointsForPlayerTeam,
   positionPlayers,
+  trickWinner,
 } from "@/game/presentation";
 
 const players = [
@@ -68,6 +69,26 @@ describe("positionPlayers", () => {
 
   it("returns no presentation state for a user outside the room", () => {
     expect(positionPlayers(players, 99)).toEqual([]);
+  });
+
+  describe("trickWinner presentation", () => {
+    const cards = ["tre", "due", "asso", "quattro"].map((value, position) => ({
+      playerId: position + 10, userId: position + 1,
+      suit: position === 3 ? "spade" : "coppe", value, position,
+    }));
+
+    it("uses the strongest lead card unless even the weakest trump is present", () => {
+      expect(trickWinner(cards, "denara")).toBe(1);
+      expect(trickWinner([...cards].reverse(), "spade")).toBe(4);
+      expect(trickWinner(cards.map((card) => ({ ...card, suit: "spade" })), "spade")).toBe(1);
+      expect(trickWinner(cards.map((card) => ({ ...card, value: ["quattro", "asso", "due", "re"][card.position] })), "coppe")).toBe(3);
+    });
+
+    it("does not invent a winner for incomplete or restored-without-trump state", () => {
+      expect(trickWinner(cards.slice(0, 3), "spade")).toBeNull();
+      expect(trickWinner(cards, null)).toBeNull();
+      expect(trickWinner(cards.map((card) => ({ ...card, value: "unknown" })), "spade")).toBeNull();
+    });
   });
 });
 

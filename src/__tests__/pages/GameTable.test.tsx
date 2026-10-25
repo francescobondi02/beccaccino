@@ -10,7 +10,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameTable from "@/pages/GameTable";
-import type { PlayedCardData, RoundEndData, RoundDeal } from "@/game/model";
+import type { CompletedTrick, PlayedCardData, RoundEndData, RoundDeal } from "@/game/model";
 import type { GameFinishedPayload } from "@/sockets/events";
 
 const mocks = vi.hoisted(() => ({
@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
     } as { id: number; number: number; briscola: string | null },
     callerUserId: 1,
     roundDeal: null as RoundDeal | null,
+    completedTrick: undefined as CompletedTrick | undefined,
     myCards: [
       {
         id: 40,
@@ -292,6 +293,7 @@ describe("GameTable page behavior", () => {
     };
     mocks.gameHook.callerUserId = 1;
     mocks.gameHook.roundDeal = null;
+    mocks.gameHook.completedTrick = undefined;
     mocks.gameHook.currentTurnUserId = 1;
     mocks.gameHook.playedCards = [];
     mocks.gameHook.lastHand = [];
@@ -597,6 +599,18 @@ describe("GameTable page behavior", () => {
       expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {}),
     );
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+  });
+
+  it("finishes collecting before replacing the table with results", async () => {
+    mocks.gameHook.gameFinishedData = finishedGame;
+    mocks.gameHook.completedTrick = { cards: [], winnerUserId: 1, roundId: 30 };
+    const view = renderGameTable();
+    await screen.findByTestId("game-layout");
+    expect(screen.queryByRole("button", { name: "Torna alla Home" })).not.toBeInTheDocument();
+    mocks.gameHook.completedTrick = undefined;
+    view.rerender(gameTableRoute());
+    await screen.findByRole("button", { name: "Torna alla Home" });
+    expect(screen.queryByTestId("game-layout")).not.toBeInTheDocument();
   });
 
   it("offers no mid-play abandon after a practice game finishes", async () => {

@@ -50,6 +50,11 @@ export function useGameTable(
   const hasLoadedGameState = useRef(false);
   const requestController = useRef<AbortController | null>(null);
   const visibleCompletedTrick = state.completedTricks[0];
+  const fastCollection = Boolean(visibleCompletedTrick && (
+    visibleCompletedTrick.cards[0].handNumber === 10 ||
+    visibleCompletedTrick.roundId !== state.currentRound?.id ||
+    state.gameFinishedData
+  ));
 
   useEffect(() => {
     userIdRef.current = userId;
@@ -191,10 +196,10 @@ export function useGameTable(
     const timer = setTimeout(() => {
       dispatch({ type: "completed_trick_released" });
       void refetchGameState();
-    }, 3000);
+    }, fastCollection ? 1000 : 3000);
 
     return () => clearTimeout(timer);
-  }, [visibleCompletedTrick, refetchGameState]);
+  }, [visibleCompletedTrick, fastCollection, refetchGameState]);
 
   // Game socket events
   useEffect(() => {
@@ -235,8 +240,7 @@ export function useGameTable(
         username: usernameOf(data.userId) ?? `#${data.userId}`,
       });
       // position is the card's index in the trick, so position + 1 is the
-      // trick size after this play. The completed-trick case is handled by
-      // the 3-second effect above.
+      // trick size after this play. Completed tricks use the hold effect above.
       if (data.position + 1 < 4) {
         scheduleRefetch(300);
       }
@@ -341,11 +345,13 @@ export function useGameTable(
   );
 
   const { completedTricks, ...visibleState } = state;
-  const visibleCards = visibleCompletedTrick ?? visibleState.playedCards;
+  const visibleCards = visibleCompletedTrick?.cards ?? visibleState.playedCards;
   const visibleLead = visibleCards.find((card) => card.position === 0);
 
   return {
     ...visibleState,
+    completedTrick: visibleCompletedTrick,
+    fastCollection,
     playedCards: visibleCards,
     currentSignal: visibleLead?.signal
       ? {

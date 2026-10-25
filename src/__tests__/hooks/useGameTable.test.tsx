@@ -379,6 +379,8 @@ describe("useGameTable turn synchronization", () => {
     expect(result.current.playedCards).toHaveLength(4);
     expect(result.current.playableCards).toEqual([]);
     expect(result.current.currentRound?.id).toBe(21);
+    expect(result.current.completedTrick?.winnerUserId).toBe(4);
+    expect(result.current.fastCollection).toBe(true);
     expect(stateCalls).toBe(2);
 
     await act(async () => {
@@ -388,7 +390,7 @@ describe("useGameTable turn synchronization", () => {
     expect(stateCalls).toBe(2);
     expect(result.current.playedCards).toHaveLength(4);
 
-    act(() => vi.advanceTimersByTime(2_699));
+    act(() => vi.advanceTimersByTime(699));
     expect(result.current.playedCards).toHaveLength(4);
     expect(result.current.playableCards).toEqual([]);
 
@@ -401,6 +403,36 @@ describe("useGameTable turn synchronization", () => {
     expect(stateCalls).toBe(3);
     expect(result.current.playedCards).toEqual([]);
     expect(result.current.playableCards).toEqual([myCard]);
+  });
+
+  it("collects the last trick before exposing the final result, without replay on reload", async () => {
+    const cards = ["tre", "due", "asso", "quattro"].map((value, position) => ({
+      playerId: position + 10, userId: position + 1, suit: "coppe",
+      value, position, handNumber: 10,
+    }));
+    const final = { winnerTeam: 0, totalRounds: 1, finalScores: { team0: 7, team1: 4 }, roundsWon: { team0: 1, team1: 0 } };
+    let snapshot = gameState({ playedCards: cards.slice(0, 3) });
+    mocks.apiGet.mockResolvedValue(snapshot);
+    const { result, unmount } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    await waitFor(() => expect(result.current.playedCards).toHaveLength(3));
+    vi.useFakeTimers();
+    emitSocket("card_played", cards[3]);
+    emitSocket("game_finished", final);
+    snapshot = gameState({ status: "finished", finishedGame: final, myCards: [] });
+    mocks.apiGet.mockResolvedValue(snapshot);
+    expect(result.current.completedTrick?.winnerUserId).toBe(1);
+    expect(result.current.fastCollection).toBe(true);
+    act(() => vi.advanceTimersByTime(999));
+    expect(result.current.completedTrick).toBeDefined();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(result.current.completedTrick).toBeUndefined();
+    expect(result.current.gameFinishedData).toEqual(final);
+    unmount();
+    vi.useRealTimers();
+    const restored = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    await waitFor(() => expect(restored.result.current.gameFinishedData).toEqual(final));
+    expect(restored.result.current.completedTrick).toBeUndefined();
+    expect(restored.result.current.animatedCard).toBeNull();
   });
 
   it("keeps queued cards and signals together without restarting the visible trick's hold", async () => {

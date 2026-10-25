@@ -310,7 +310,7 @@ describe("gameTableReducer", () => {
     );
 
     expect(completed.completedTricks).toHaveLength(1);
-    expect(completed.completedTricks[0]).toHaveLength(4);
+    expect(completed.completedTricks[0].cards).toHaveLength(4);
     expect(completed.playableCards).toEqual([]);
 
     const reconciled = gameTableReducer(completed, {
@@ -365,14 +365,37 @@ describe("gameTableReducer", () => {
     const secondCompleted = completeTrick(firstCompleted, 2, 20);
 
     expect(secondCompleted.completedTricks).toHaveLength(2);
-    expect(secondCompleted.completedTricks[0][0].handNumber).toBe(1);
-    expect(secondCompleted.completedTricks[1][0].handNumber).toBe(2);
+    expect(secondCompleted.completedTricks[0].cards[0].handNumber).toBe(1);
+    expect(secondCompleted.completedTricks[1].cards[0].handNumber).toBe(2);
 
     const firstReleased = gameTableReducer(secondCompleted, {
       type: "completed_trick_released",
     });
     expect(firstReleased.completedTricks).toHaveLength(1);
-    expect(firstReleased.completedTricks[0][0].handNumber).toBe(2);
+    expect(firstReleased.completedTricks[0].cards[0].handNumber).toBe(2);
+  });
+
+  it("captures the old trump's winner before the next round changes it", () => {
+    const cards = ["tre", "due", "asso", "quattro"].map((value, position) =>
+      cardPlayed({ value, position, userId: position + 11, suit: position === 3 ? "spade" : "coppe" }),
+    );
+    const completed = playCard({
+      ...initialGameTableState,
+      currentRound: { id: 7, number: 1, briscola: "spade" },
+      playedCards: cards.slice(0, 3),
+    }, cards[3]);
+    const nextRound = gameTableReducer(completed, {
+      type: "state_fetched",
+      data: { ...stateResponse, round: { id: 8, number: 2, briscola: "coppe" } },
+      now: 1000,
+    });
+    expect(nextRound.completedTricks[0]).toEqual({
+      cards, roundId: 7, winnerUserId: 14,
+    });
+    expect(nextRound.animatedCard).toBe(cards[3]);
+    expect(gameTableReducer(initialGameTableState, {
+      type: "state_fetched", data: stateResponse, now: 1000,
+    }).animatedCard).toBeNull();
   });
 
   it("briscola_chosen updates the round and clears the timer", () => {
