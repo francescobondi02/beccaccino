@@ -32,11 +32,12 @@ export function startRuntimeTurn(
 ): void {
   const botTier = botTierForTurn(roomCode, userId);
   const isBot = botTier !== null;
-  const durationMs = isBot
-    ? botThinkDelayMs() + delayMs
+  const turnMs = isBot
+    ? botThinkDelayMs()
     : isPlayerKicked(roomCode, userId)
       ? 500
       : turnDurationMs(phase);
+  const durationMs = turnMs + (isBot || phase === "choose_briscola" ? delayMs : 0);
 
   scheduleTurnTimer({
     roomCode,

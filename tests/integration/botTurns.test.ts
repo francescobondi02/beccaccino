@@ -32,7 +32,7 @@ describe("Bot turn driver", () => {
   // long a human waits.
   const THINK_DELAY_MS = 20;
   const POLL_INTERVAL_MS = 25;
-  const SETTLE_TIMEOUT_MS = 5_000;
+  const SETTLE_TIMEOUT_MS = 10_000;
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -125,11 +125,19 @@ describe("Bot turn driver", () => {
     });
 
   it("has a bot caller choose briscola and lead without the human acting", async () => {
-    const roomCode = await startPractice();
+    let briscolaChosenAt = 0;
+    const roomCode = await startPractice((request) => {
+      if (request.state.phase === "choose_briscola") briscolaChosenAt = Date.now();
+      return playFirstLegalMove(request);
+    });
+    const initialState = await apiAs(userId, "human").get(`/api/games/${roomCode}/state`);
+    expect(initialState.body.round.briscola).toBeNull();
+    expect(initialState.body.round.deal.remainingMs).toBeGreaterThan(0);
     await settle(roomCode);
 
     const round = await loadRound(roomCode);
     expect(round!.briscola).not.toBeNull();
+    expect(briscolaChosenAt - round!.createdAt.getTime()).toBeGreaterThanOrEqual(4000);
     expect(stub.readyHeaders).toHaveLength(1);
     expect(stub.readyHeaders[0].authorization).toBe(`Bearer ${TOKEN}`);
     expect(stub.requests[0].state.phase).toBe("choose_briscola");
@@ -223,8 +231,9 @@ describe("Bot turn driver", () => {
     const timer = getTurnTimerState(roomCode)!;
     expect(timer.isBot).toBe(true);
     expect(timer.turnUserId).not.toBe(userId);
-    // The pending timer IS the think delay, not a briscola/turn timeout.
-    expect(timer.totalMs).toBe(SETTLE_TIMEOUT_MS);
+    // Presentation plus think time, never the human briscola timeout.
+    expect(timer.totalMs).toBeGreaterThan(SETTLE_TIMEOUT_MS);
+    expect(timer.totalMs).toBeLessThanOrEqual(SETTLE_TIMEOUT_MS + 4000);
     expect(getTimeoutState(roomCode, timer.turnUserId).timeouts).toBe(0);
   });
 

@@ -26,6 +26,7 @@ import {
   TurnIdentity,
 } from "../turn";
 import { readCallerPlayerId } from "../snapshots/turnState";
+import { roundDealPresentation } from "../../gameConfig";
 
 export class PracticeTurnCancelledError extends GameError {
   constructor() {
@@ -89,6 +90,7 @@ type RoundSetupResult = {
   roundNumber: number;
   roundId: number;
   callerPlayerId: number;
+  createdAt: Date;
 };
 
 export function logRoundSetup(result: RoundSetupResult): void {
@@ -202,6 +204,7 @@ export async function setupRound(
     roundNumber: newRoundNumber,
     roundId: round.id,
     callerPlayerId,
+    createdAt: round.createdAt,
   };
 }
 
@@ -249,6 +252,10 @@ export async function startFirstRound(
         handId: null,
         playedCardCount: 0,
       },
+      roundDealPresentation({
+        number: roundSetup.roundNumber,
+        createdAt: roundSetup.createdAt,
+      }).remainingMs,
     );
     publishEvents([{ target: roomCode, event: "game_started", payload: {} }]);
   } catch (error) {

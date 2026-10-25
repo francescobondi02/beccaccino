@@ -200,8 +200,9 @@ describe("first-round startup", () => {
     expect(events).toEqual(["turn_timer_started", "game_started"]);
     expect(runtimeAtStart).toMatchObject({
       phase: "choose_briscola",
-      totalMs: 90_000,
     });
+    expect(runtimeAtStart!.totalMs).toBeGreaterThan(90_000);
+    expect(runtimeAtStart!.totalMs).toBeLessThanOrEqual(94_000);
   });
 
   it("clears failed runtime startup without undoing the committed deal", async () => {

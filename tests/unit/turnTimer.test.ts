@@ -25,7 +25,7 @@ describe("turn timer storage", () => {
   });
 
   it.each(["play_card", "choose_briscola"] as const)(
-    "delays only bots during collection before %s",
+    "preserves human play time and adds presentation time before %s",
     (phase) => {
       registerBotSeats("ROOM01", [{ userId: 2, tier: "forte" }]);
       startRuntimeTurn("ROOM01", 2, phase, 0, firstTurn);
@@ -36,7 +36,9 @@ describe("turn timer storage", () => {
       startRuntimeTurn("ROOM01", 1, phase, 0, firstTurn);
       const humanDuration = getTurnTimerState("ROOM01")!.totalMs;
       startRuntimeTurn("ROOM01", 1, phase, 0, firstTurn, 3_000);
-      expect(getTurnTimerState("ROOM01")!.totalMs).toBe(humanDuration);
+      expect(getTurnTimerState("ROOM01")!.totalMs).toBe(
+        humanDuration + (phase === "choose_briscola" ? 3_000 : 0),
+      );
     },
   );
 

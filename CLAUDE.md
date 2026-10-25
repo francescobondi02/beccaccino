@@ -111,6 +111,13 @@ Runtime responsibilities are separate:
 The backend assumes one active runtime instance. Distributed timer ownership is
 not implemented.
 
+Round presentation timing lives in `gameConfig.ts`: 2.4 seconds for dealing,
+then 1.6 seconds to read the hand, after the existing 3-second trick collection
+on later rounds. Deadlines derive from persisted `Round.createdAt`, including
+runtime recovery. Bots wait until presentation ends before thinking about
+briscola; human callers retain their full choice timeout. Game-state snapshots
+expose remaining presentation time in `round.deal`; reads stay side-effect free.
+
 ## Backend and AI Boundary
 
 The backend is the online source of truth: it owns persisted game state,

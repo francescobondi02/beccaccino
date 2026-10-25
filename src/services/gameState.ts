@@ -6,7 +6,7 @@ import {
   decideGameWinner,
   Team,
 } from "../domain/game/gameScore";
-import { GAME_WIN_POINTS } from "../gameConfig";
+import { GAME_WIN_POINTS, roundDealPresentation } from "../gameConfig";
 import {
   readCallerPlayerId,
   readCurrentTurnUserId,
@@ -243,6 +243,7 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       number: currentRound.number,
       briscola: currentRound.briscola,
       cricca: currentRound.cricca,
+      deal: currentRound.briscola === null ? roundDealPresentation(currentRound) : null,
     },
     currentHandNumber,
     callerUserId,

@@ -1,5 +1,24 @@
 import { logger } from "./logger";
 
+export const TRICK_DISPLAY_MS = 3_000;
+
+export function roundDealPresentation(
+  round: { number: number; createdAt: Date },
+  now = Date.now(),
+) {
+  const animationMs = 2_400;
+  const reviewMs = 1_600;
+  const collectionMs = round.number > 1 ? TRICK_DISPLAY_MS : 0;
+  return {
+    remainingMs: Math.max(
+      0,
+      round.createdAt.getTime() + collectionMs + animationMs + reviewMs - now,
+    ),
+    animationMs,
+    reviewMs,
+  };
+}
+
 export const GAME_WIN_POINTS = (() => {
   const parsed = parseInt(process.env.GAME_WIN_POINTS || "41", 10);
   if (isNaN(parsed) || parsed < 1) {

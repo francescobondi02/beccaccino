@@ -6,7 +6,7 @@ import { isLegalCard } from "../../domain/game/legalCards";
 import { sumRoundScores, decideGameWinner } from "../../domain/game/gameScore";
 import { resolveTurnSeat } from "../../domain/game/turnOrder";
 import { CardSignal, Suit, Value } from "../../domain/game/cards";
-import { GAME_WIN_POINTS } from "../../gameConfig";
+import { GAME_WIN_POINTS, TRICK_DISPLAY_MS, roundDealPresentation } from "../../gameConfig";
 import { logger } from "../../logger";
 import { GameEvent, publishEvents } from "../../runtime/eventPublisher";
 import {
@@ -26,9 +26,6 @@ import {
   isSameTurn,
   TurnIdentity,
 } from "../turn";
-
-// Match the frontend's completed-trick display before the next bot acts.
-const TRICK_DISPLAY_MS = 3_000;
 
 type PlayedCardInput = {
   handId: number;
@@ -470,7 +467,10 @@ async function playCardUnlocked({
         handId: null,
         playedCardCount: 0,
       },
-      TRICK_DISPLAY_MS,
+      roundDealPresentation({
+        number: nextRound!.roundNumber,
+        createdAt: nextRound!.createdAt,
+      }).remainingMs,
     );
   }
   publishEvents(events);

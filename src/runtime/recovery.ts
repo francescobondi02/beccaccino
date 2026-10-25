@@ -8,6 +8,7 @@ import { restoreBotSeats } from "./botRegistry";
 import { startRuntimeTurn } from "./turnRuntime";
 import { hasTurnRuntime } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
+import { roundDealPresentation } from "../gameConfig";
 
 export type RuntimeRecoverySummary = {
   activeRooms: number;
@@ -81,6 +82,7 @@ export async function recoverRoomRuntime(
       turn.phase,
       room.pauseEpoch,
       turn.identity,
+      turn.phase === "choose_briscola" ? roundDealPresentation(round).remainingMs : 0,
     );
     logger.info(
       { roomCode, userId: turn.userId, phase: turn.phase },
