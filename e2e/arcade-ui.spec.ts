@@ -1,6 +1,63 @@
 import { test, expect } from "./helpers/fixtures";
+import type { GameStateResponse } from "../src/game/model";
 
 test.describe("Arcade interface", () => {
+  test("requires briscola but allows cancelling and changing a leading card", async ({ page }) => {
+    const cards = ["asso", "tre"].map((value, index) => ({
+      id: 40 + index, suit: "coppe", value, playerId: 10, roundId: 30, inHand: true,
+    }));
+    const room = {
+      id: 20, code: "ROOM", started: true, finished: false, isPractice: false,
+      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
+        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
+      })),
+    };
+    let state: GameStateResponse = {
+      status: "choosing_briscola", pausedAt: null,
+      round: { id: 30, number: 1, briscola: null },
+      callerUserId: 1, currentTurnUserId: 1, currentHandNumber: null,
+      myCards: cards, playedCards: [], lastHandCards: [],
+      totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
+      turnTimer: null, finishedGame: null, isPractice: false, allHands: null,
+    };
+    const plays: unknown[] = [];
+    await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
+    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: room }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
+    await page.route("**/games/playable-cards/ROOM", (route) => route.fulfill({ json: { playableCards: cards } }));
+    await page.route("**/games/choose-briscola", (route) => {
+      state = { ...state, status: "playing", currentHandNumber: 1, round: { ...state.round, briscola: "spade" } };
+      return route.fulfill({ json: {} });
+    });
+    await page.route("**/games/play-card", (route) => {
+      plays.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+
+    await page.goto("/game/ROOM");
+    const trump = page.getByRole("dialog", { name: "Scegli la briscola" });
+    await expect(trump).toBeVisible();
+    await expect(trump.getByRole("button", { name: "Chiudi" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.mouse.click(8, 8);
+    await expect(trump).toBeVisible();
+    await trump.getByTestId("suit-button-spade").click();
+    await expect(trump).toBeHidden();
+    await page.reload();
+
+    const signal = page.getByRole("dialog", { name: "Vuoi dichiarare qualcosa?" });
+    await page.getByTestId("hand-card-coppe-asso").click();
+    await signal.getByRole("button", { name: "Chiudi" }).click();
+    await expect(signal).toBeHidden();
+    expect(plays).toHaveLength(0);
+
+    await page.getByTestId("hand-card-coppe-tre").click();
+    await signal.getByRole("button", { name: "Niente", exact: true }).click();
+    await expect.poll(() => plays).toEqual([
+      { roomCode: "ROOM", suit: "coppe", value: "tre", signal: null },
+    ]);
+  });
+
   test("uses wide monitors without adding horizontal overflow on mobile", async ({ page }) => {
     await page.route("**/users/me", (route) => route.fulfill({
       status: 401, json: { error: "Not authenticated" },

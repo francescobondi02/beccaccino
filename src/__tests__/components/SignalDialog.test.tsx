@@ -4,7 +4,7 @@ import SignalDialog from "@/components/SignalDialog";
 
 describe("SignalDialog", () => {
   it("describes Striscio by card count without implying strength", () => {
-    render(<SignalDialog open onSelect={vi.fn()} />);
+    render(<SignalDialog open onOpenChange={vi.fn()} onSelect={vi.fn()} />);
 
     expect(
       screen.getByText(
@@ -27,7 +27,7 @@ describe("SignalDialog", () => {
         <button type="button" onClick={onLeave}>
           Abbandona
         </button>
-        <SignalDialog open onSelect={vi.fn()} />
+        <SignalDialog open onOpenChange={vi.fn()} onSelect={vi.fn()} />
       </>,
     );
 
@@ -40,5 +40,18 @@ describe("SignalDialog", () => {
 
     expect(onPause).toHaveBeenCalledOnce();
     expect(onLeave).toHaveBeenCalledOnce();
+  });
+
+  it("cancels without selecting a signal using the close button", () => {
+    const onOpenChange = vi.fn();
+    const onSelect = vi.fn();
+    render(
+      <SignalDialog open onOpenChange={onOpenChange} onSelect={onSelect} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Chiudi" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

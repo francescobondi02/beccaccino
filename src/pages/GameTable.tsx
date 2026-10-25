@@ -459,6 +459,10 @@ const GameTable = () => {
       {/* Dialogs */}
       <SignalDialog
         open={signalDialogOpen}
+        onOpenChange={(open) => {
+          setSignalDialogOpen(open);
+          if (!open) setPendingCard(null);
+        }}
         onSelect={handleSignalSelect}
       />
       <TrumpSuitDialog

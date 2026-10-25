@@ -122,7 +122,9 @@ export default function PreviewGameTable({
         </Button>
         <Button variant="ghost" onClick={onBack}><ArrowLeft size={16} /> Tutti i tavoli</Button>
       </aside>
-      {pendingCard && <SignalDialog open onSelect={(selectedSignal) => {
+      {pendingCard && <SignalDialog open onOpenChange={(open) => {
+        if (!open) setPendingCard(null);
+      }} onSelect={(selectedSignal) => {
         setSpeakerId(1);
         setSignal(selectedSignal);
         setCard(pendingCard);

@@ -10,6 +10,7 @@ import type { Signal } from "@/game/model";
 
 interface SignalDialogProps {
   open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSelect: (signal: Signal | null) => void;
 }
 
@@ -35,9 +36,9 @@ const signals = [
   },
 ];
 
-const SignalDialog = ({ open, onSelect }: SignalDialogProps) => {
+const SignalDialog = ({ open, onOpenChange, onSelect }: SignalDialogProps) => {
   return (
-    <Dialog open={open} onOpenChange={() => {}} modal={false}>
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
       <DialogContent
         className="sm:max-w-sm border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl"
         onInteractOutside={(e) => e.preventDefault()}
