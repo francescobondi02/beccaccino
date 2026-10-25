@@ -12,22 +12,22 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
-interface PracticeActionsProps {
-  isPausing: boolean;
+interface GameActionsProps {
+  isPausing?: boolean;
   isLeaving: boolean;
-  onPause: () => void;
+  onPause?: () => void;
   onLeave: () => void;
 }
 
-export default function PracticeActions({
-  isPausing,
+export default function GameActions({
+  isPausing = false,
   isLeaving,
   onPause,
   onLeave,
-}: PracticeActionsProps) {
+}: GameActionsProps) {
   return (
     <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
-      <Button
+      {onPause && <Button
         variant="outline"
         size="sm"
         onClick={onPause}
@@ -41,14 +41,14 @@ export default function PracticeActions({
           <Pause className="mr-2 h-4 w-4" />
         )}
         <span>Pausa<span className="hidden sm:inline"> e torna alla home</span></span>
-      </Button>
+      </Button>}
       <AlertDialog>
         <AlertDialogTrigger asChild>
           <Button
             variant="destructive"
             size="sm"
             disabled={isPausing || isLeaving}
-            data-testid="abandon-practice-button"
+            data-testid={onPause ? "abandon-practice-button" : "abandon-multiplayer-button"}
           >
             <LogOut className="mr-2 h-4 w-4" />
             Abbandona
@@ -56,9 +56,11 @@ export default function PracticeActions({
         </AlertDialogTrigger>
         <AlertDialogContent className="bg-card">
           <AlertDialogHeader>
-            <AlertDialogTitle>Abbandonare l'allenamento?</AlertDialogTitle>
+            <AlertDialogTitle>{onPause ? "Abbandonare l'allenamento?" : "Abbandonare la partita?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              La partita verrà chiusa e non potrai riprenderla.
+              {onPause
+                ? "La partita verrà chiusa e non potrai riprenderla."
+                : "Un bot continuerà al tuo posto. L'abbandono è definitivo: non potrai riprendere il controllo. La partita conterà nelle statistiche e in classifica."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

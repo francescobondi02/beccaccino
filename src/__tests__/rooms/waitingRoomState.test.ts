@@ -79,8 +79,29 @@ describe("waitingRoomSlots", () => {
     const slots = waitingRoomSlots(room, 1);
 
     expect(slots).toHaveLength(4);
-    expect(slots[0]?.username).toBe("alice");
-    expect(slots[1]?.username).toBe("bob");
+    expect(slots[0]).toMatchObject({ username: "alice" });
+    expect(slots[1]).toMatchObject({ username: "bob" });
     expect(slots.slice(2)).toEqual([null, null]);
+  });
+
+  it("previews bots in missing teams without adding room members", () => {
+    const mixed = {
+      ...room,
+      botTier: "forte",
+      players: room.players.map((player) => ({ ...player, team: 0 })),
+    };
+
+    expect(waitingRoomSlots(mixed, 1).slice(2)).toEqual([
+      { isBotPlaceholder: true, team: 1 },
+      { isBotPlaceholder: true, team: 1 },
+    ]);
+    expect(mixed.players).toHaveLength(2);
+  });
+
+  it("keeps placeholder teams undecided until every human chooses", () => {
+    expect(waitingRoomSlots({ ...room, botTier: "medio" }, 1).slice(2)).toEqual([
+      { isBotPlaceholder: true, team: null },
+      { isBotPlaceholder: true, team: null },
+    ]);
   });
 });

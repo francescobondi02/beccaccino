@@ -38,14 +38,6 @@ vi.mock("@/sockets/roomHandlers", () => ({
   },
 }));
 
-vi.mock("sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    warning: vi.fn(),
-    info: vi.fn(),
-  },
-}));
-
 const myCard: PlayerCard = {
   id: 1,
   suit: "denara",
@@ -117,6 +109,48 @@ describe("useGameTable turn synchronization", () => {
     cleanup();
     vi.clearAllTimers();
     vi.useRealTimers();
+  });
+
+  it("never exposes collected cards while the next snapshot is still pending", async () => {
+    const cards = ["tre", "due", "asso", "quattro"].map((value, position) => ({
+      playerId: position + 10, userId: position + 1, suit: "coppe", value, position, handNumber: 1,
+    }));
+    const pending = deferred<GameStateResponse>();
+    mocks.apiGet
+      .mockResolvedValueOnce(gameState({ playedCards: cards.slice(0, 3) }))
+      .mockReturnValue(pending.promise);
+    const { result } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    await waitFor(() => expect(result.current.playedCards).toHaveLength(3));
+    vi.useFakeTimers();
+    emitSocket("card_played", cards[3]);
+    expect(result.current.playedCards).toHaveLength(4);
+    act(() => vi.advanceTimersByTime(3000));
+    expect(result.current.completedTrick).toBeUndefined();
+    expect(result.current.playedCards).toEqual([]);
+    await act(async () => pending.resolve(gameState({ playedCards: [], currentHandNumber: 2 })));
+    expect(result.current.playedCards).toEqual([]);
+  });
+
+  it("announces bot takeover immediately and restores control from an authoritative reconnect snapshot", async () => {
+    mocks.apiGet.mockResolvedValue(gameState());
+    const { result } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    await waitFor(() => expect(result.current.gameStateStatus).toBe("ready"));
+    const pending = deferred<GameStateResponse>();
+    mocks.apiGet.mockReturnValue(pending.promise);
+    emitSocket("player_control_changed", {
+      userId: 1, username: "alice", botModel: "forte", abandonedAt: null,
+    });
+    expect(result.current.playerControls).toMatchObject([{ userId: 1, botModel: "forte" }]);
+    expect(result.current.notice).toContain("gioca un bot");
+    await act(async () => pending.resolve(gameState({
+      playerControls: [{ userId: 1, botModel: "forte", abandonedAt: null }],
+    })));
+    mocks.apiGet.mockResolvedValue(gameState({
+      playerControls: [{ userId: 1, botModel: null, abandonedAt: null }],
+    }));
+    const onJoined = mocks.registerRoomHandlers.mock.calls[0][2] as () => void;
+    await act(async () => onJoined());
+    expect(result.current.playerControls[0].botModel).toBeNull();
   });
 
   it("reconciles state after the socket room join is acknowledged", async () => {

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import PlayingCard from "@/components/PlayingCard";
 import type { PlayerPosition } from "@/game/model";
 
@@ -10,11 +11,8 @@ interface PlacedCard {
 
 interface TableCenterProps {
   cards: PlacedCard[];
-  briscolaChosen: boolean;
-  waitingForUsername: string;
-  countdown: number | null;
-  statusText?: string;
   winnerUserId?: number | null;
+  children?: ReactNode;
 }
 
 const ANIMATION_CLASS: Record<PlayerPosition, string> = {
@@ -37,18 +35,14 @@ const PLACEMENT_CLASS: Record<PlayerPosition, string> = {
 
 const TableCenter = ({
   cards,
-  briscolaChosen,
-  waitingForUsername,
-  countdown,
-  statusText,
   winnerUserId,
+  children,
 }: TableCenterProps) => (
   <div
     className="circolo-table relative flex h-[25rem] w-[25rem] min-h-64 min-w-64 items-center justify-center rounded-[46%] border border-[hsl(39_55%_62%_/_0.7)] [@media(max-height:800px)]:h-72 [@media(max-height:800px)]:w-72 [@media(max-height:800px)]:translate-y-6"
     data-testid="game-table-center"
   >
-    {cards.length > 0 ? (
-      cards.map((card) => (
+    {cards.map((card) => (
         <div
           key={`${card.userId}-${card.suit}-${card.value}`}
           className={`absolute ${PLACEMENT_CLASS[card.position]}`}
@@ -65,23 +59,8 @@ const TableCenter = ({
             />
           </div>
         </div>
-      ))
-    ) : (
-      <div className="text-center">
-        <p role="status" className="max-w-44 text-sm font-medium text-[hsl(43_46%_93%)]">
-          {statusText ?? (briscolaChosen
-            ? `In attesa di ${waitingForUsername}...`
-            : `${waitingForUsername} sta selezionando la briscola...`)}
-        </p>
-        {countdown !== null && (
-          <div
-            className={`mt-2 text-2xl font-bold ${countdown <= 10 ? "text-destructive animate-pulse" : "text-primary"}`}
-          >
-            {countdown}s
-          </div>
-        )}
-      </div>
-    )}
+      ))}
+    {children}
   </div>
 );
 

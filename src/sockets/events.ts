@@ -9,8 +9,8 @@
  * by the library and must NOT be declared here.
  */
 
-import type { Signal } from "@/game/model";
-import type { RoomPlayer } from "@/rooms/model";
+import type { PlayerControl, Signal } from "@/game/model";
+import type { RoomPlayer, RoomResponse } from "@/rooms/model";
 
 export type { Signal };
 export type Phase = "play_card" | "choose_briscola";
@@ -125,8 +125,7 @@ export interface AutoPlayedPayload {
   userId: number;
   phase: Phase;
 }
-export interface PlayerKickedTimeoutPayload {
-  userId: number;
+export interface PlayerControlChangedPayload extends PlayerControl {
   username: string;
 }
 export interface PracticePausedPayload extends RoomCodePayload {
@@ -156,6 +155,7 @@ export interface ServerToClientEvents {
   player_disconnected: (payload: PlayerDisconnectedPayload) => void;
   team_chosen: (payload: TeamChosenPayload) => void;
   ready_changed: (payload: ReadyChangedPayload) => void;
+  room_settings_changed: (payload: { room: RoomResponse }) => void;
   game_started: () => void;
   new_round_started: (payload: NewRoundStartedPayload) => void;
   briscola_chosen: (payload: BriscolaChosenPayload) => void;
@@ -164,7 +164,7 @@ export interface ServerToClientEvents {
   game_finished: (payload: GameFinishedPayload) => void;
   turn_timer_started: (payload: TurnTimerStartedPayload) => void;
   auto_played: (payload: AutoPlayedPayload) => void;
-  player_kicked_timeout: (payload: PlayerKickedTimeoutPayload) => void;
+  player_control_changed: (payload: PlayerControlChangedPayload) => void;
   practice_paused: (payload: PracticePausedPayload) => void;
   practice_resumed: (payload: RoomCodePayload) => void;
   practice_abandoned: (payload: RoomCodePayload) => void;

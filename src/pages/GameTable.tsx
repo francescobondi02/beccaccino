@@ -13,7 +13,7 @@ import AuthErrorState from "@/components/AuthErrorState";
 import GameBoard from "@/components/game/GameBoard";
 import GameScoreHeader from "@/components/game/GameScoreHeader";
 import PausedPracticeDialog from "@/components/game/PausedPracticeDialog";
-import PracticeActions from "@/components/game/PracticeActions";
+import GameActions from "@/components/game/GameActions";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
@@ -63,6 +63,8 @@ const GameTable = () => {
     totalPoints,
     turnTimer,
     currentSignal,
+    notice,
+    playerControls = [],
     isPractice,
     roundEndData,
     gameFinishedData,
@@ -79,6 +81,8 @@ const GameTable = () => {
     !completedTrick && gameStatus === "choosing_briscola" && currentRound?.briscola === null,
   );
   const showRoundSummary = Boolean(roundEndData) && deal.phase === "collecting";
+  const myControl = playerControls.find((player) => player.userId === userId);
+  const myBotControlled = Boolean(myControl?.botModel);
 
   // Dialog state
   const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);
@@ -94,16 +98,27 @@ const GameTable = () => {
 
   const [isPlayingCard, setIsPlayingCard] = useState(false);
 
-  const cleanupPracticeRoom = useCallback(async (): Promise<void> => {
-    if (!room?.isPractice || !gameRoomCode) return;
+  const cleanupRoom = useCallback(async (): Promise<void> => {
+    if (!room || (!room.isPractice && gameFinishedData) || !gameRoomCode) return;
 
     try {
       await apiPost(`/rooms/${gameRoomCode}/leave`, {});
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404) return;
+      if (room.isPractice && error instanceof ApiError && error.status === 404) return;
       throw error;
     }
-  }, [gameRoomCode, room?.isPractice]);
+  }, [gameRoomCode, room, gameFinishedData]);
+
+  useEffect(() => {
+    if (myControl?.abandonedAt && !gameFinishedData) {
+      setRequestsEnabled(false);
+      navigate("/");
+    }
+    if (myBotControlled) {
+      setSignalDialogOpen(false);
+      setPendingCard(null);
+    }
+  }, [myControl?.abandonedAt, myBotControlled, gameFinishedData, navigate, setRequestsEnabled]);
 
   // Carica i dati della stanza
   useEffect(() => {
@@ -176,6 +191,7 @@ const GameTable = () => {
   useEffect(() => {
     setTrumpDialogOpen(
       gameStatus !== "paused" &&
+      !myBotControlled &&
       !completedTrick &&
       deal.phase === "ready" &&
       myCards.length > 0 &&
@@ -189,6 +205,7 @@ const GameTable = () => {
     callerUserId,
     userId,
     gameStatus,
+    myBotControlled,
     deal.phase,
     myCards.length,
     showRoundSummary,
@@ -206,7 +223,13 @@ const GameTable = () => {
     setConfirmPausedAbandon(false);
   }, [gameStatus]);
 
-  const playersWithPositions = positionPlayers(room?.players ?? [], userId);
+  const playersWithPositions = positionPlayers(
+    (room?.players ?? []).map((player) => ({
+      ...player,
+      ...playerControls.find((control) => control.userId === player.userId),
+    })),
+    userId,
+  );
 
   const sendPlayCard = async (
     card: PlayerCard,
@@ -285,17 +308,15 @@ const GameTable = () => {
     }
   };
 
-  // Shared by the results screen and the practice abandon button: both mean
-  // "go home, tearing down the practice room first if this is one".
   const handleReturnHome = async () => {
     setIsReturningHome(true);
     setRequestsEnabled(false);
     try {
-      await cleanupPracticeRoom();
+      await cleanupRoom();
       navigate("/");
     } catch (error) {
-      console.error("Error cleaning up practice room:", error);
-      toast.error("Impossibile chiudere la partita di pratica. Riprova.");
+      console.error("Error leaving game:", error);
+      toast.error("Impossibile abbandonare la partita. Riprova.");
       setIsReturningHome(false);
       setRequestsEnabled(true);
     }
@@ -336,12 +357,26 @@ const GameTable = () => {
     }
   };
 
-  const practiceActions =
-    isPractice && !gameFinishedData && gameStatus !== "paused" ? (
-      <PracticeActions
+  const handleResumeControl = async () => {
+    if (!gameRoomCode) return;
+    setIsResuming(true);
+    try {
+      await apiPost(`/rooms/${gameRoomCode}/resume-control`, {});
+      await refetchGameState();
+    } catch (error) {
+      console.error("Error resuming player control:", error);
+      toast.error("Impossibile riprendere il controllo. Riprova.");
+    } finally {
+      setIsResuming(false);
+    }
+  };
+
+  const gameActions =
+    !gameFinishedData && gameStatus !== "paused" ? (
+      <GameActions
         isPausing={isPausing}
         isLeaving={isReturningHome}
-        onPause={() => void handlePause()}
+        onPause={isPractice ? () => void handlePause() : undefined}
         onLeave={() => void handleReturnHome()}
       />
     ) : null;
@@ -433,6 +468,7 @@ const GameTable = () => {
         players={playersWithPositions}
         currentTurnUserId={currentTurnUserId}
         currentSignal={currentSignal}
+        notice={myBotControlled ? "Un bot gioca al tuo posto. Premi Riprendi controllo per tornare a giocare." : notice}
         countdown={deal.phase === "ready" ? countdown : null}
         playedCards={playedCards}
         animatedCard={animatedCard}
@@ -442,37 +478,41 @@ const GameTable = () => {
         callerUserId={callerUserId}
         currentUserId={userId}
         hand={completedTrick && completedTrick.roundId !== currentRound?.id ? [] : myCards}
-        playableCards={playableCards}
+        playableCards={myBotControlled ? [] : playableCards}
         onCardClick={(card) => void handleCardClick(card)}
         deal={deal}
-      />
-
-      {/* Game Action Buttons */}
-      <div className="arcade-game-tools absolute bottom-4 right-4 flex flex-col gap-2">
-        <GameChat
-          roomCode={gameRoomCode ?? ""}
-          userId={userId}
-        />
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => setLastTrickDialogOpen(true)}
-        >
-          Ultima presa
-        </Button>
-        {currentRound?.briscola === null && callerUserId === userId && (
+      >
+        <div className="arcade-game-tools relative flex flex-wrap justify-end gap-2 self-end">
+          <GameChat
+            roomCode={gameRoomCode ?? ""}
+            userId={userId}
+          />
           <Button
-            variant="default"
+            variant="secondary"
             size="sm"
-            onClick={() => setTrumpDialogOpen(true)}
-            disabled={deal.phase !== "ready"}
-            data-testid="choose-trump-button"
+            onClick={() => setLastTrickDialogOpen(true)}
           >
-            Scegli la briscola
+            Ultima presa
           </Button>
-        )}
-        {!trumpDialogOpen && practiceActions}
-      </div>
+          {myBotControlled && !gameFinishedData && (
+            <Button size="sm" disabled={isResuming} onClick={() => void handleResumeControl()}>
+              Riprendi controllo
+            </Button>
+          )}
+          {!myBotControlled && currentRound?.briscola === null && callerUserId === userId && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setTrumpDialogOpen(true)}
+              disabled={deal.phase !== "ready"}
+              data-testid="choose-trump-button"
+            >
+              Scegli la briscola
+            </Button>
+          )}
+          {!trumpDialogOpen && gameActions}
+        </div>
+      </GameBoard>
 
       {/* Dialogs */}
       <SignalDialog
@@ -487,7 +527,7 @@ const GameTable = () => {
         open={trumpDialogOpen && deal.phase === "ready"}
         onSelectSuit={handleTrumpSelect}
         myCards={myCards}
-        practiceActions={practiceActions}
+        practiceActions={gameActions}
       />
       <PausedPracticeDialog
         open={gameStatus === "paused"}
@@ -513,7 +553,7 @@ const GameTable = () => {
           totalPoints={totalPoints}
           myTeam={myPlayer?.team ?? null}
           callerName={room.players.find((player) => player.userId === callerUserId)?.username ?? "Giocatore"}
-          practiceActions={practiceActions}
+          practiceActions={gameActions}
         />
       )}
     </div>

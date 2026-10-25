@@ -5,6 +5,7 @@ interface SeatPlayer {
   userId: number;
   username: string;
   isTeammate?: boolean;
+  botModel?: string | null;
 }
 
 interface PlayerSeatProps {
@@ -43,9 +44,10 @@ const PlayerSeat = ({
       }`}
     >
       <p className="text-sm font-semibold leading-tight" title={player.username}>{player.username}</p>
-      {showRole && (
+      {(showRole || player.botModel) && (
         <p className="text-xs text-muted-foreground">
-          {player.isTeammate ? "Socio" : "Avversario"}
+          {showRole ? player.isTeammate ? "Socio" : "Avversario" : ""}
+          {player.botModel ? `${showRole ? " · " : ""}Bot in gioco` : ""}
         </p>
       )}
       {isTurn && countdown != null && (

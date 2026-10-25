@@ -242,12 +242,13 @@ test.describe("Arcade interface", () => {
       await page.getByTestId("pause-practice-button").click({ trial: true });
       await page.getByTestId("abandon-practice-button").click({ trial: true });
       const tools = await page.locator(".arcade-game-tools").boundingBox();
-      if (!occupied.seat || !tools) throw new Error("Missing player seat or practice controls");
+      const seat = await page.getByTestId("player-seat-bottom").boundingBox();
+      if (!seat || !tools) throw new Error("Missing player seat or practice controls");
       expect.soft(
-        occupied.seat.x + occupied.seat.width <= tools.x ||
-        occupied.seat.x >= tools.x + tools.width ||
-        occupied.seat.y + occupied.seat.height <= tools.y ||
-        occupied.seat.y >= tools.y + tools.height,
+        seat.x + seat.width <= tools.x ||
+        seat.x >= tools.x + tools.width ||
+        seat.y + seat.height <= tools.y ||
+        seat.y >= tools.y + tools.height,
         `Practice controls cover the player at ${viewport.width}px`,
       ).toBe(true);
       for (const remaining of [[], [{ ...card, inHand: false }]]) {

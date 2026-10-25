@@ -7,24 +7,13 @@ describe("TableCenter", () => {
     render(
       <TableCenter
         cards={[]}
-        briscolaChosen
-        waitingForUsername="anna"
-        countdown={null}
         {...overrides}
       />,
     );
 
-  it("waits for the briscola before anything else", () => {
-    renderCenter({ briscolaChosen: false });
-    expect(
-      screen.getByText("anna sta selezionando la briscola..."),
-    ).toBeInTheDocument();
-  });
-
-  it("names the player everyone is waiting for, with the countdown", () => {
-    renderCenter({ countdown: 42 });
-    expect(screen.getByText("In attesa di anna...")).toBeInTheDocument();
-    expect(screen.getByText("42s")).toBeInTheDocument();
+  it("leaves an empty table free of messages", () => {
+    renderCenter();
+    expect(screen.getByTestId("game-table-center")).toBeEmptyDOMElement();
   });
 
   it("shows the played cards instead of the waiting text", () => {

@@ -5,6 +5,8 @@ export interface RoomPlayerResponse {
   seat: number | null;
   team: number | null;
   isReady: boolean;
+  botModel?: string | null;
+  abandonedAt?: string | null;
   user?: { username?: string };
 }
 
@@ -15,6 +17,8 @@ export interface RoomPlayer {
   seat: number | null;
   team: number | null;
   isReady: boolean;
+  botModel?: string | null;
+  abandonedAt?: string | null;
 }
 
 export interface Room {
@@ -23,6 +27,7 @@ export interface Room {
   started: boolean;
   finished: boolean;
   isPractice: boolean;
+  botTier?: string | null;
   players: RoomPlayer[];
 }
 
@@ -38,6 +43,8 @@ export function normalizeRoomPlayer(player: RoomPlayerResponse): RoomPlayer {
     seat: player.seat,
     team: player.team,
     isReady: player.isReady,
+    ...(player.botModel !== undefined ? { botModel: player.botModel } : {}),
+    ...(player.abandonedAt !== undefined ? { abandonedAt: player.abandonedAt } : {}),
   };
 }
 

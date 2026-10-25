@@ -339,6 +339,27 @@ describe("gameTableReducer", () => {
     expect(released.playableCards).toEqual([]);
   });
 
+  it("removes collected cards before a delayed snapshot without discarding the next trick", () => {
+    const cards = [0, 1, 2, 3].map((position) =>
+      cardPlayed({ userId: position + 11, position, handNumber: 3 }),
+    );
+    const completed = {
+      ...initialGameTableState,
+      currentRound: stateResponse.round,
+      playedCards: cards,
+      completedTricks: [{ cards, roundId: stateResponse.round.id, winnerUserId: 11 }],
+    };
+    const released = gameTableReducer(completed, { type: "completed_trick_released" });
+    expect(released.playedCards).toEqual([]);
+
+    const nextCards = [cardPlayed({ position: 0, handNumber: 4 })];
+    const advanced = gameTableReducer(
+      { ...completed, playedCards: nextCards },
+      { type: "completed_trick_released" },
+    );
+    expect(advanced.playedCards).toEqual(nextCards);
+  });
+
   it("queues rapid completed tricks and releases them in order", () => {
     const completeTrick = (
       state: GameTableState,

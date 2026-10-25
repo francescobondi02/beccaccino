@@ -12,6 +12,12 @@ export interface PlayerCard {
   inHand: boolean;
 }
 
+export interface PlayerControl {
+  userId: number;
+  botModel: string | null;
+  abandonedAt: string | null;
+}
+
 export interface RoundDeal {
   readyAt: number;
   animationMs: number;
@@ -102,10 +108,11 @@ export interface GameStateResponse {
   turnTimer: {
     turnUserId: number;
     remainingMs: number;
-    totalMs: number;
+    totalMs: number | null;
     phase: string;
   } | null;
   finishedGame: GameFinishedPayload | null;
   isPractice: boolean;
+  playerControls?: PlayerControl[];
   allHands: RevealedHand[] | null;
 }

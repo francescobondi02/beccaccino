@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import PlayerSeat from "@/components/PlayerSeat";
 import PlayingCard from "@/components/PlayingCard";
 import TableCenter from "@/components/TableCenter";
@@ -29,6 +29,8 @@ interface GameBoardProps {
   animatedCard?: PlayedCardData | null;
   completedTrick?: CompletedTrick;
   fastCollection?: boolean;
+  notice?: string | null;
+  children?: ReactNode;
 }
 
 function travelOffset(from: DOMRect, to: DOMRect) {
@@ -69,6 +71,8 @@ export default function GameBoard({
   animatedCard,
   completedTrick,
   fastCollection = false,
+  notice,
+  children,
 }: GameBoardProps) {
   const board = useRef<HTMLDivElement>(null);
   const cardOrigin = useRef<{ key: string; rect: DOMRect } | null>(null);
@@ -143,11 +147,27 @@ export default function GameBoard({
   const leftPlayer = playerAt("left");
   const rightPlayer = playerAt("right");
   const bottomPlayer = playerAt("bottom");
-  const waitingUserId = briscola === null ? callerUserId : currentTurnUserId;
-  const waitingForUsername =
-    players.find((player) => player.userId === waitingUserId)?.username ??
-    "giocatore";
+  const localBotControlled = Boolean(bottomPlayer?.botModel);
   const presentingHand = deal && deal.phase !== "ready";
+  const usernameOf = (userId: number | null | undefined) =>
+    players.find((player) => player.userId === userId)?.username ?? "Giocatore";
+  const statusText = completedTrick?.winnerUserId != null
+    ? `Presa a ${usernameOf(completedTrick.winnerUserId)}`
+    : deal?.phase === "collecting"
+      ? "Raccolta delle carte..."
+      : deal?.phase === "dealing"
+        ? "Distribuzione delle carte..."
+        : deal?.phase === "reviewing"
+          ? "Guarda le tue carte"
+          : briscola === null
+            ? callerUserId === currentUserId
+              ? localBotControlled ? "Il bot sceglie la briscola al tuo posto" : "Scegli la briscola"
+              : `${usernameOf(callerUserId)} sceglie la briscola`
+            : currentTurnUserId === null
+              ? "Aggiornamento della partita..."
+              : currentTurnUserId === currentUserId
+                ? localBotControlled ? "Il bot gioca al tuo posto" : "Tocca a te"
+                : `Tocca a ${usernameOf(currentTurnUserId)}`;
 
   const signalFor = (userId: number): Signal | null =>
     currentSignal?.userId === userId ? currentSignal.signal : null;
@@ -233,22 +253,25 @@ export default function GameBoard({
                 players.find((player) => player.userId === card.userId)
                   ?.position ?? "bottom",
             }))}
-            briscolaChosen={Boolean(briscola)}
-            waitingForUsername={waitingForUsername}
-            countdown={countdown}
-            statusText={deal?.phase === "collecting"
-              ? "Raccolta delle carte..."
-              : deal?.phase === "dealing"
-              ? "Distribuzione delle carte..."
-              : deal?.phase === "reviewing"
-                ? "Guarda le tue carte..."
-                : undefined}
-          />
-          {completedTrick?.winnerUserId != null && (
-            <p className="arcade-trick-result" role="status">
-              Presa a {players.find((player) => player.userId === completedTrick.winnerUserId)?.username}
-            </p>
-          )}
+          >
+            <div className="arcade-table-status" data-testid="table-status">
+              <div role="status" aria-live="polite" aria-atomic="true">
+                <p className="font-semibold">{statusText}</p>
+                <p className="arcade-table-notice">
+                  {[currentSignal && `${usernameOf(currentSignal.userId)} dichiara ${currentSignal.signal}`, notice]
+                    .filter(Boolean).join(" · ") || "\u00a0"}
+                </p>
+              </div>
+              {countdown !== null && !completedTrick && !presentingHand && (
+                <span
+                  aria-label={`${countdown} secondi rimanenti`}
+                  className={`shrink-0 font-bold tabular-nums ${countdown <= 10 ? "text-destructive" : "text-primary"}`}
+                >
+                  {countdown}s
+                </span>
+              )}
+            </div>
+          </TableCenter>
           {deal?.phase === "dealing" && (
             <CardDeal key={hand[0]?.roundId} deal={deal} />
           )}
@@ -316,6 +339,7 @@ export default function GameBoard({
           </div>
         )}
       </div>
+      {children}
     </div>
   );
 }

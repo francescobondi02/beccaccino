@@ -57,11 +57,11 @@ describe("SignalCallout", () => {
       myUserId: 1, username: "Luca",
     });
     rerender(board(state));
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByText("busso!")).not.toBeInTheDocument();
     state = gameTableReducer(state, {
       type: "card_played", data: { ...lead, value: "tre", handNumber: 2 }, myUserId: 1, username: "Alex",
     });
     rerender(board(state));
-    expect(screen.getByRole("status")).toHaveTextContent("Alex dichiara busso!");
+    expect(screen.getByText("busso!")).toBeInTheDocument();
   });
 });

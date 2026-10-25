@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Check, Loader2, LogOut, Share2, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ const GameRoom = () => {
   } = useAuth({ redirectOnFail: true });
   const userId = user?.id ?? null;
   const username = user?.username ?? "";
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const handleLoadError = useCallback(
     (error: unknown) => {
@@ -65,6 +66,7 @@ const GameRoom = () => {
     leaveWaitingRoom,
     setPlayerReady,
     setPlayerTeam,
+    configureBots,
   } = useWaitingRoom({
     roomCode,
     userId,
@@ -84,9 +86,10 @@ const GameRoom = () => {
   }, [gameStarted, room?.started, navigate, roomCode]);
 
   const handleReady = async () => {
-    if (!myPlayer || !userId) return;
+    if (!myPlayer || !userId || isUpdating) return;
     const isReady = !myPlayer.isReady;
 
+    setIsUpdating(true);
     try {
       const data = await apiPost<{ allReady?: boolean }>(
         `/rooms/${roomCode}/ready`,
@@ -95,16 +98,33 @@ const GameRoom = () => {
       setPlayerReady(userId, isReady);
       toast.success(isReady ? "Sei pronto!" : "Non più pronto");
 
-      if (data.allReady && room?.players.length === 4) {
+      if (data.allReady && (room?.players.length === 4 || room?.botTier)) {
         toast.success("Tutti pronti! La partita sta per iniziare...");
       }
     } catch (error) {
       console.error("Error setting ready:", error);
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Errore nell'impostare lo stato",
+        error instanceof ApiError && error.status === 503
+          ? "Bot non disponibili. Riprova tra poco."
+          : error instanceof Error
+            ? error.message
+            : "Errore nell'impostare lo stato",
       );
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleConfigureBots = async (tier: string | null) => {
+    setIsUpdating(true);
+    try {
+      await configureBots(tier);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Errore nella configurazione dei bot",
+      );
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -204,6 +224,30 @@ const GameRoom = () => {
               <p className="text-sm text-muted-foreground text-center mt-2">
                 Giocatori: {room.players.length} / 4
               </p>
+              <div className="mt-6 space-y-2">
+                <label htmlFor="room-bot-tier" className="block text-sm font-medium">
+                  Completa i posti liberi con bot
+                </label>
+                <select
+                  id="room-bot-tier"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={room.botTier ?? ""}
+                  disabled={isUpdating || room.started}
+                  onChange={(event) => void handleConfigureBots(event.target.value || null)}
+                  aria-describedby="room-bot-description"
+                >
+                  <option value="">No, aspettiamo altri giocatori</option>
+                  <option value="facile">Facile</option>
+                  <option value="medio">Medio</option>
+                  <option value="forte">Forte</option>
+                  <option value="esperto">Esperto</option>
+                </select>
+                <p id="room-bot-description" className="text-sm text-muted-foreground">
+                  {room.botTier
+                    ? "I bot entrano quando tutti sono pronti. Prima, ogni posto resta libero per un amico. La partita conta per la classifica e non si può mettere in pausa. Cambiare difficoltà azzera i pronti."
+                    : "Potete partire anche in meno di quattro. Cambiare questa impostazione azzera i pronti."}
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -215,11 +259,15 @@ const GameRoom = () => {
               size="lg"
               onClick={() => void handleReady()}
               className="w-full"
-              disabled={!myPlayer || myPlayer.team === null}
+              disabled={!myPlayer || myPlayer.team === null || isUpdating}
               data-testid="ready-button"
             >
-              <Check className="mr-2 h-5 w-5" />
-              {myPlayer?.isReady ? "Non pronto" : "Sono pronto!"}
+              {isUpdating ? (
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              ) : (
+                <Check className="mr-2 h-5 w-5" />
+              )}
+              {isUpdating ? "Preparo il tavolo..." : myPlayer?.isReady ? "Non pronto" : "Sono pronto!"}
             </Button>
 
             <Button

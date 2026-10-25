@@ -130,6 +130,9 @@ export function useWaitingRoom({
           });
         },
       ),
+      subscribeToRoomEvent("room_settings_changed", ({ room }) => {
+        dispatch({ type: "room_loaded", room });
+      }),
       subscribeToRoomEvent("game_started", () => {
         gameStarted.current = true;
         dispatch({ type: "game_started" });
@@ -153,6 +156,10 @@ export function useWaitingRoom({
     ...state,
     connectionStatus,
     leaveWaitingRoom,
+    configureBots: async (tier: string | null) => {
+      const room = await apiPost<RoomResponse>(`/rooms/${roomCode}/bots`, { tier });
+      dispatch({ type: "room_loaded", room });
+    },
     setPlayerTeam: (changedUserId: number, team: number) => {
       dispatch({ type: "team_chosen", userId: changedUserId, team });
     },

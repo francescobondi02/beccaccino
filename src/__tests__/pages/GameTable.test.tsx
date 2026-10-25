@@ -10,7 +10,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameTable from "@/pages/GameTable";
-import type { CompletedTrick, PlayedCardData, RoundEndData, RoundDeal } from "@/game/model";
+import type { CompletedTrick, PlayedCardData, PlayerControl, RoundEndData, RoundDeal } from "@/game/model";
 import type { GameFinishedPayload } from "@/sockets/events";
 
 const mocks = vi.hoisted(() => ({
@@ -70,6 +70,8 @@ const mocks = vi.hoisted(() => ({
     },
     turnTimer: null,
     currentSignal: null,
+    notice: null as string | null,
+    playerControls: [] as PlayerControl[],
     isPractice: false,
     allHands: null,
     moveLog: [],
@@ -300,6 +302,8 @@ describe("GameTable page behavior", () => {
     mocks.gameHook.isPractice = false;
     mocks.gameHook.allHands = null;
     mocks.gameHook.moveLog = [];
+    mocks.gameHook.notice = null;
+    mocks.gameHook.playerControls = [];
     mocks.gameHook.roundEndData = null;
     mocks.gameHook.gameFinishedData = null;
     mocks.gameHook.gameStatus = "playing";
@@ -321,7 +325,7 @@ describe("GameTable page behavior", () => {
     renderGameTable();
 
     expect(
-      await screen.findByText("bob sta selezionando la briscola..."),
+      await screen.findByText("bob sceglie la briscola"),
     ).toBeInTheDocument();
   });
 
@@ -624,13 +628,45 @@ describe("GameTable page behavior", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("offers no mid-play abandon in a multiplayer game", async () => {
+  it.each([false, true])("confirms permanent multiplayer abandonment, including during briscola selection (%s)", async (choosingBriscola) => {
+    if (choosingBriscola) mocks.gameHook.currentRound.briscola = null;
     renderGameTable();
-    await screen.findByTestId("game-table-page");
+    fireEvent.click(await screen.findByTestId("abandon-multiplayer-button"));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("L'abbandono è definitivo");
+    expect(screen.queryByTestId("pause-practice-button")).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Annulla" }));
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("abandon-multiplayer-button"));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Abbandona" }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {}));
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/"));
+  });
 
-    expect(
-      screen.queryByTestId("abandon-practice-button"),
-    ).not.toBeInTheDocument();
+  it("keeps turn and system messages in their own central area while a trick is in play", async () => {
+    mocks.gameHook.playedCards = [{ playerId: 11, userId: 2, suit: "spade", value: "tre", position: 0 }];
+    mocks.gameHook.notice = "bob si è disconnesso. Il suo posto resta riservato.";
+    renderGameTable();
+    const status = await screen.findByTestId("table-status");
+    expect(status).toHaveTextContent("Tocca a te");
+    expect(status).toHaveTextContent("Il suo posto resta riservato.");
+    expect(status.closest(".arcade-arena")).not.toBeNull();
+    expect(screen.getByTestId("game-table-center")).toContainElement(status);
+    expect(screen.getByTestId("table-card-position-left")).not.toContainElement(status);
+    expect(screen.getByTestId("table-card-position-left")).toBeInTheDocument();
+  });
+
+  it("lets an AFK player reclaim control without sending a card while a bot owns the seat", async () => {
+    mocks.gameHook.playerControls = [{ userId: 1, botModel: "forte", abandonedAt: null }];
+    renderGameTable();
+    const resume = await screen.findByRole("button", { name: "Riprendi controllo" });
+    expect(screen.getByTestId("table-status")).toHaveTextContent("Il bot gioca al tuo posto");
+    expect(screen.getByTestId("hand-card-coppe-asso")).toBeDisabled();
+    expect(screen.queryByTestId("trump-suit-dialog")).not.toBeInTheDocument();
+    fireEvent.click(resume);
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/resume-control", {}));
+    expect(mocks.gameHook.refetchGameState).toHaveBeenCalledOnce();
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   it("does not delete a practice room on unmount or page refresh", async () => {
@@ -706,7 +742,7 @@ describe("GameTable page behavior", () => {
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
-        "Impossibile chiudere la partita di pratica. Riprova.",
+        "Impossibile abbandonare la partita. Riprova.",
       ),
     );
     expect(mocks.navigate).not.toHaveBeenCalled();

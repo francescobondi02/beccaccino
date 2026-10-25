@@ -8,6 +8,7 @@ import type {
   MoveLogEntry,
   PlayedCardData,
   PlayerCard,
+  PlayerControl,
   RevealedHand,
   RoundEndData,
   RoundDeal,
@@ -35,6 +36,7 @@ export interface GameTableState {
   turnTimer: TurnTimer | null;
   currentSignal: { userId: number; signal: Signal; cardKey?: string } | null;
   isPractice: boolean;
+  playerControls: PlayerControl[];
   allHands: RevealedHand[] | null;
   moveLog: MoveLogEntry[];
   roundEndData: RoundEndData | null;
@@ -54,7 +56,8 @@ export type GameTableAction =
   | { type: "new_round_started"; data: NewRoundStartedPayload }
   | { type: "game_finished"; data: GameFinishedPayload }
   | { type: "turn_timer_started"; timer: TurnTimer }
-  | { type: "completed_trick_released" };
+  | { type: "completed_trick_released" }
+  | { type: "player_control_changed"; player: PlayerControl };
 
 const EMPTY_POINTS: TotalPoints = {
   team0Points: 0,
@@ -81,6 +84,7 @@ export const initialGameTableState: GameTableState = {
   turnTimer: null,
   currentSignal: null,
   isPractice: false,
+  playerControls: [],
   allHands: null,
   moveLog: [],
   roundEndData: null,
@@ -92,6 +96,15 @@ export function gameTableReducer(
   action: GameTableAction,
 ): GameTableState {
   switch (action.type) {
+    case "player_control_changed":
+      return {
+        ...state,
+        playerControls: [
+          ...state.playerControls.filter((player) => player.userId !== action.player.userId),
+          action.player,
+        ],
+        playableCards: [],
+      };
     case "state_fetched": {
       const { data, now } = action;
       const leadCard = data.playedCards?.find(
@@ -123,6 +136,7 @@ export function gameTableReducer(
         gameFinishedData: data.finishedGame ?? null,
         roundEndData: data.roundSummary ?? null,
         isPractice: data.isPractice ?? false,
+        playerControls: data.playerControls ?? [],
         allHands: data.allHands ?? null,
         moveLog: roundChanged ? [] : state.moveLog,
         turnTimer: data.turnTimer
@@ -131,7 +145,9 @@ export function gameTableReducer(
               totalMs: data.turnTimer.totalMs,
               // Rebuild the client start time from authoritative remaining time.
               startedAt:
-                now - (data.turnTimer.totalMs - data.turnTimer.remainingMs),
+                data.turnTimer.totalMs === null
+                  ? now
+                  : now - (data.turnTimer.totalMs - data.turnTimer.remainingMs),
               phase: data.turnTimer.phase,
             }
           : null,
@@ -248,11 +264,22 @@ export function gameTableReducer(
         turnTimer: action.timer,
       };
 
-    case "completed_trick_released":
+    case "completed_trick_released": {
+      const released = state.completedTricks[0];
+      const sameTrick = released &&
+        released.roundId === (state.currentRound?.id ?? null) &&
+        state.playedCards.length === released.cards.length &&
+        state.playedCards.every((card, index) =>
+          card.userId === released.cards[index].userId &&
+          card.suit === released.cards[index].suit &&
+          card.value === released.cards[index].value,
+        );
       return {
         ...state,
         completedTricks: state.completedTricks.slice(1),
+        playedCards: sameTrick ? [] : state.playedCards,
         playableCards: [],
       };
+    }
   }
 }

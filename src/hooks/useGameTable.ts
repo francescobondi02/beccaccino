@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { toast } from "sonner";
 import { apiGet } from "@/lib/api";
 import {
   leaveRoom,
@@ -13,7 +12,7 @@ import type {
   NewRoundStartedPayload,
   TurnTimerStartedPayload,
   AutoPlayedPayload,
-  PlayerKickedTimeoutPayload,
+  PlayerControlChangedPayload,
   PlayerDisconnectedPayload,
 } from "@/sockets/events";
 import type { GameStateResponse, PlayerCard } from "@/game/model";
@@ -37,6 +36,12 @@ export function useGameTable(
   players: { userId: number; username: string }[],
 ) {
   const [state, dispatch] = useReducer(gameTableReducer, initialGameTableState);
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 8000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   const [gameStateStatus, setGameStateStatus] = useState<
     "loading" | "ready" | "error"
   >("loading");
@@ -114,6 +119,7 @@ export function useGameTable(
       // Fetch playable cards immediately if it's our turn
       if (
         data.status !== "paused" &&
+        !data.playerControls?.some((player) => player.userId === uid && player.botModel !== null) &&
         data.currentTurnUserId === uid &&
         data.round?.briscola &&
         data.currentHandNumber !== null &&
@@ -161,6 +167,7 @@ export function useGameTable(
   useEffect(() => {
     const canRequestPlayableCards =
       state.gameStatus !== "paused" &&
+      !state.playerControls.some((player) => player.userId === userId && player.botModel !== null) &&
       state.completedTricks.length === 0 &&
       Boolean(state.currentRound?.briscola) &&
       state.currentHandNumber !== null &&
@@ -176,6 +183,7 @@ export function useGameTable(
     void fetchPlayableCards(gameRoomCode);
   }, [
     state.gameStatus,
+    state.playerControls,
     state.currentTurnUserId,
     userId,
     gameRoomCode,
@@ -257,7 +265,7 @@ export function useGameTable(
       invalidateStateRequests();
       playableRequestSequence.current += 1;
       dispatch({ type: "new_round_started", data });
-      toast.success("Nuovo round iniziato!");
+      setNotice(`Inizio del round ${data.roundNumber}`);
       void refetchGameState();
     };
 
@@ -267,7 +275,7 @@ export function useGameTable(
     };
 
     const handlePlayerDisconnected = (data: PlayerDisconnectedPayload) => {
-      toast.warning(`${data.username} si è disconnesso`);
+      setNotice(`${data.username} si è disconnesso. Il suo posto resta riservato.`);
     };
 
     const handleTurnTimerStarted = (data: TurnTimerStartedPayload) => {
@@ -287,11 +295,19 @@ export function useGameTable(
 
     const handleAutoPlayed = (data: AutoPlayedPayload) => {
       const playerName = usernameOf(data.userId) ?? "Giocatore";
-      toast.info(`${playerName} ha giocato automaticamente (tempo scaduto)`);
+      setNotice(`${playerName}: tempo scaduto, ${data.phase === "choose_briscola" ? "briscola scelta" : "carta giocata"} automaticamente.`);
     };
 
-    const handlePlayerKickedTimeout = (data: PlayerKickedTimeoutPayload) => {
-      toast.warning(`${data.username} è stato rimosso per inattività`);
+    const handlePlayerControlChanged = (data: PlayerControlChangedPayload) => {
+      invalidateStateRequests();
+      playableRequestSequence.current += 1;
+      dispatch({ type: "player_control_changed", player: data });
+      setNotice(data.abandonedAt
+        ? `${data.username} ha abbandonato. Continua un bot al suo posto.`
+        : data.botModel
+          ? `${data.username} è inattivo: gioca un bot finché non riprende il controllo.`
+          : `${data.username} ha ripreso il controllo.`);
+      void refetchGameState();
     };
 
     const handlePracticeLifecycleChanged = () => {
@@ -309,8 +325,8 @@ export function useGameTable(
       subscribeToRoomEvent("turn_timer_started", handleTurnTimerStarted),
       subscribeToRoomEvent("auto_played", handleAutoPlayed),
       subscribeToRoomEvent(
-        "player_kicked_timeout",
-        handlePlayerKickedTimeout,
+        "player_control_changed",
+        handlePlayerControlChanged,
       ),
       subscribeToRoomEvent(
         "practice_paused",
@@ -350,6 +366,7 @@ export function useGameTable(
 
   return {
     ...visibleState,
+    notice,
     completedTrick: visibleCompletedTrick,
     fastCollection,
     playedCards: visibleCards,

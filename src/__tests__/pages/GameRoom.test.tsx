@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import GameRoom from "@/pages/GameRoom";
 import { ApiError } from "@/lib/api";
+import type { RoomResponse } from "@/rooms/model";
 import type {
   PlayerJoinedPayload,
   PlayerLeftPayload,
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => {
       playerLeft: null as ((payload: PlayerLeftPayload) => void) | null,
       teamChosen: null as ((payload: TeamChosenPayload) => void) | null,
       readyChanged: null as ((payload: ReadyChangedPayload) => void) | null,
+      settingsChanged: null as ((payload: { room: RoomResponse }) => void) | null,
       gameStarted: null as (() => void) | null,
       joined: null as (() => void) | null,
     },
@@ -76,6 +78,7 @@ vi.mock("@/sockets/roomHandlers", () => ({
       player_left: "playerLeft",
       team_chosen: "teamChosen",
       ready_changed: "readyChanged",
+      room_settings_changed: "settingsChanged",
       game_started: "gameStarted",
     }[event] as keyof typeof mocks.callbacks;
     mocks.callbacks[key] = callback;
@@ -231,6 +234,77 @@ describe("GameRoom state synchronization", () => {
     });
 
     expect(screen.getByTestId("ready-button")).toHaveTextContent("Non pronto");
+  });
+
+  it("configures virtual bots and lets an arriving friend take a placeholder", async () => {
+    mocks.apiGet.mockResolvedValue(room([{ ...alice, isReady: true }]));
+    mocks.apiPost.mockResolvedValue({ ...room([alice]), botTier: "forte" });
+    renderGameRoom();
+    await screen.findByText("Giocatori: 1 / 4");
+
+    fireEvent.change(screen.getByLabelText("Completa i posti liberi con bot"), {
+      target: { value: "forte" },
+    });
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
+      "/rooms/ROOM/bots", { tier: "forte" },
+    ));
+    expect(await screen.findAllByText("Bot alla partenza")).toHaveLength(3);
+    expect(screen.getByTestId("ready-button")).toHaveTextContent("Sono pronto!");
+    expect(screen.getByText("Giocatori: 1 / 4")).toBeInTheDocument();
+
+    act(() => {
+      mocks.callbacks.playerJoined?.({
+        player: {
+          id: bob.id,
+          userId: bob.userId,
+          username: "bob",
+          seat: null,
+          team: null,
+          isReady: false,
+        },
+      });
+    });
+
+    expect(screen.getAllByText("Bot alla partenza")).toHaveLength(2);
+    expect(screen.getByText("bob")).toBeInTheDocument();
+    expect(screen.getByText("Giocatori: 2 / 4")).toBeInTheDocument();
+  });
+
+  it("syncs bot settings and reset readiness from another participant", async () => {
+    mocks.apiGet.mockResolvedValue(room([{ ...alice, isReady: true }]));
+    renderGameRoom();
+    await screen.findByText("Giocatori: 1 / 4");
+
+    act(() => {
+      mocks.callbacks.settingsChanged?.({
+        room: {
+          ...room([alice]),
+          isPractice: false,
+          botTier: "medio",
+          players: [alice],
+        },
+      });
+    });
+
+    expect(screen.getByLabelText("Completa i posti liberi con bot")).toHaveValue("medio");
+    expect(screen.getAllByText("Bot alla partenza")).toHaveLength(3);
+    expect(screen.getByTestId("ready-button")).toHaveTextContent("Sono pronto!");
+  });
+
+  it("reports unavailable bots and leaves ready controls usable for retry", async () => {
+    mocks.apiGet.mockResolvedValue({ ...room([alice]), botTier: "forte" });
+    mocks.apiPost.mockRejectedValue(new ApiError(503, "Bot service unavailable"));
+    renderGameRoom();
+    await screen.findByText("Giocatori: 1 / 4");
+
+    fireEvent.click(screen.getByTestId("ready-button"));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Bot non disponibili. Riprova tra poco.",
+    ));
+    expect(screen.getByTestId("ready-button")).toBeEnabled();
+    expect(screen.getByTestId("ready-button")).toHaveTextContent("Sono pronto!");
   });
 
   it("hydrates authoritative room state only after the server confirms rejoining", async () => {

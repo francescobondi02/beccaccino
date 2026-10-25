@@ -20,7 +20,7 @@ src/
   components/
     AnnotationScenario.tsx Shared scenario context with card/signal or briscola decisions
     annotation/          Annotation summary, trick, selection, and response views
-    game/                Table board, score header, and practice controls
+    game/                Table board, score header, and game controls
     lobby/               Lobby actions, room lists, and decorative background
     rooms/               Waiting-room player presentation
     AuthDialog.tsx      Login/register modal
@@ -169,7 +169,8 @@ npx playwright show-report  # HTML report with traces after failures
 - Only the landing hero uses `lobby/LandingCardArtwork.tsx`: five decorative SVG
   illustrations inspired by the existing Italian deck, without poker corner indices.
   Keep these illustrations separate from `PlayingCard` and gameplay.
-- Practice games keep "Pausa e torna alla home" and the confirmed, destructive "Abbandona" action in the fixed bottom-right toolbar. Signal selection is non-modal so those controls stay accessible outside the signal choices. Briscola selection and round summaries retain their own practice controls. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the full-page result's "Torna alla lobby".
+- Practice games keep "Pausa e torna alla home" and confirmed "Abbandona" in the bottom-right toolbar, anchored below the hand rather than overlaid on a scrolling viewport. Multiplayer offers confirmed permanent abandonment: a bot inherits the same seat and the match still counts in statistics. Neither disconnect nor unmount abandons or pauses a game. Three consecutive timeouts give control to a real bot; socket rejoin or "Riprendi controllo" restores a non-abandoned human seat. `GameActions` is shared by the toolbar, briscola dialog, and round summary. Paused practice links retain blocking resume/abandon controls; finished games use the result's "Torna alla lobby".
+- The live table reserves a central grid row for turn, collection, signal, and system messages, without a boxed panel. The partner's card sits above it; the other three cards sit below, away from player seats. The demo retains its circular layout and separate controls. Releasing a completed trick removes only that trick's underlying cards, preserving newer cards received during collection.
 - Live games retain chat and "Ultima presa", which displays only the previous completed trick's four cards. No full practice history or revealed-hand controls, including in development.
 - Round starts enter the table immediately. The server's `round.deal` snapshot
   reserves 2.4 seconds to distribute cards to all seats and 1.6 seconds to read

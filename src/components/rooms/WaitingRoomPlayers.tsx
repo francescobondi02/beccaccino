@@ -1,10 +1,10 @@
-import { Check, X } from "lucide-react";
+import { Bot, Check, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import type { RoomPlayer } from "@/rooms/model";
+import type { WaitingRoomSlot } from "@/rooms/waitingRoomState";
 
 interface WaitingRoomPlayersProps {
-  players: (RoomPlayer | null)[];
+  players: WaitingRoomSlot[];
   currentUserId: number | null;
 }
 
@@ -23,7 +23,9 @@ export default function WaitingRoomPlayers({
 }: WaitingRoomPlayersProps) {
   return (
     <div className="grid grid-cols-1 gap-4 mb-8 md:grid-cols-2">
-      {players.map((player, index) => {
+      {players.map((slot, index) => {
+        const bot = slot && "isBotPlaceholder" in slot ? slot : null;
+        const player = slot && !("isBotPlaceholder" in slot) ? slot : null;
         const isCurrentUser = player?.userId === currentUserId;
         return (
           <Card
@@ -46,6 +48,8 @@ export default function WaitingRoomPlayers({
                   >
                     {player ? (
                       initials(player.username)
+                    ) : bot ? (
+                      <Bot className="h-6 w-6" />
                     ) : (
                       <X className="h-6 w-6" />
                     )}
@@ -53,7 +57,7 @@ export default function WaitingRoomPlayers({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="truncate font-semibold text-lg" title={player?.username}>
-                        {player ? player.username : "In attesa..."}
+                        {player ? player.username : bot ? "Bot alla partenza" : "In attesa..."}
                       </p>
                       {isCurrentUser && (
                         <Badge variant="secondary" className="text-xs">
@@ -61,6 +65,13 @@ export default function WaitingRoomPlayers({
                         </Badge>
                       )}
                     </div>
+                    {bot && (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          Posto disponibile per un amico
+                        </p>
+                      </>
+                    )}
                     {player && (
                       <>
                         <div className="flex items-center gap-1.5 mt-1">
@@ -81,12 +92,12 @@ export default function WaitingRoomPlayers({
                             {player.isReady ? "Pronto" : "Non pronto"}
                           </p>
                         </div>
-                        {player.team !== null && (
-                          <Badge variant="outline" className="text-xs mt-1">
-                            Squadra {player.team + 1}
-                          </Badge>
-                        )}
                       </>
+                    )}
+                    {slot?.team != null && (
+                      <Badge variant="outline" className="text-xs mt-1">
+                        Squadra {slot.team + 1}
+                      </Badge>
                     )}
                   </div>
                 </div>
