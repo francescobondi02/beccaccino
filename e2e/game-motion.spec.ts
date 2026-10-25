@@ -80,12 +80,16 @@ test.describe("Responsive table", () => {
         const score = rect(".arcade-score-panel");
         const seats = [...document.querySelectorAll("[data-player-user-id]")].map((seat) => seat.getBoundingClientRect());
         const cards = [...document.querySelectorAll("[data-card-user-id]")].map((card) => card.getBoundingClientRect());
+        const bubbles = [...document.querySelectorAll(".signal-callout")]
+          .filter((bubble) => getComputedStyle(bubble).display !== "none")
+          .map((bubble) => bubble.getBoundingClientRect());
         const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         return [
           ...cards.flatMap((card, index) => [
             seats.some((seat) => overlaps(card, seat)) && `card ${index} / seat`,
             overlaps(card, status) && `card ${index} / status`,
             overlaps(card, notice) && `card ${index} / notice`,
+            bubbles.some((bubble) => overlaps(card, bubble)) && `card ${index} / signal bubble`,
             card.top < arena.top || card.bottom > arena.bottom ? `card ${index} outside table` : false,
             cards.some((other) => other !== card && overlaps(card, other)) && `card ${index} / card`,
           ]),

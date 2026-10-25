@@ -202,6 +202,8 @@ npx playwright show-report  # HTML report with traces after failures
   Primary messages keep their central grid row; supplementary signal/system notices use the
   left rail below the score. The local seat stays below the hand, and short landscape
   layouts retain at least 320px of content height rather than clipping controls.
+  Short live landscape screens use persistent signal badges and notices instead of
+  comic callouts, which would cover the partner's played card.
 - Portrait phones see `RotateDevicePrompt` over the table, with "Continua in verticale" so
   portrait play stays possible. `lib/fullscreen.ts` requests fullscreen plus a landscape
   orientation lock on phones only (Practice "Gioca", the prompt, and the "Schermo intero"
