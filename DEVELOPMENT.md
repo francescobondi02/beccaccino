@@ -7,26 +7,65 @@
 git clone --recursive https://github.com/francescobondi02/beccaccino.git
 cd beccaccino
 
-# 1. Copy env files and fill in values
+# 1. Create local configuration once; set a private JWT_SECRET and BOT_SERVICE_TOKEN
 cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env
 
-# 2. Start backend + database
-docker compose up
-
-# 3. Start frontend (separate terminal)
-cd frontend && npm install && npm run dev
+# 2. Start the complete local app, with hot reload
+make dev
 ```
 
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:8081`
 - Adminer (DB UI): `http://localhost:8080`
+- Bot: `http://localhost:8011/health` (inference requires the shared token)
 
-To run in the background:
+`make dev` uses Docker Compose for PostgreSQL, backend, frontend and the trained
+bot. It explicitly sets development mode, local database URLs and local browser
+URLs. Inherited production database or frontend URLs cannot redirect this stack.
+The bot token comes from the ignored `backend/.env`; Python and Node share it.
+Container dependencies stay in named volumes, separate from host `node_modules`.
+The trained, hash-verified weights are committed in `ai/serving/models/`.
+No local Node/Python installation or separate model download is needed.
+The backend waits for PostgreSQL and the model to become healthy.
+There is no random-model fallback during startup.
+Restricted networks can set a public `PIP_INDEX_URL` mirror in `backend/.env`
+for the bot image build; CPU PyTorch also requires `download.pytorch.org`.
+Do not put credentials in build arguments.
+For corporate npm access, set `NPM_CONFIG_REGISTRY` in that same file to the
+registry already approved and configured on the host. Containers do not inherit
+the host's npm configuration. Do not disable Defender or TLS verification.
+
+Stop without deleting the database:
 
 ```sh
-docker compose up -d
+make stop
 ```
+
+`make dev` stays in the foreground; Ctrl+C stops the app. `make stop` also removes
+its containers, but retains the database and dependency volumes.
+
+## Production commands and environment
+
+Production does **not** use the local Compose file or copy `backend/.env`.
+Render and Vercel supply their own environment variables. There is no command
+that rewrites local secrets into production secrets.
+
+| Component | Production command | Configuration |
+| --- | --- | --- |
+| Backend on Render | Existing `backend/Dockerfile`: build with `npm run build`; start with `npx prisma migrate deploy && node dist/index.js` | `NODE_ENV=production` is set by the image; Render supplies database URLs, JWT secret, frontend origin and bot URL/token |
+| Frontend on Vercel | Existing deploy workflow: `vercel pull --environment=production`, `vercel build --prod`, `vercel deploy --prebuilt --prod` | Vercel Production variables provide `VITE_API_URL` and `VITE_SOCKET_URL`; never frontend secrets |
+| Bot on Render | `ai/Dockerfile`: `uvicorn serving.app:app --host 0.0.0.0 --port "$PORT"` | Private `BOT_SERVICE_TOKEN`, matching the backend; Render supplies `PORT` |
+| Neon | No application process; backend startup runs `prisma migrate deploy` | `DATABASE_URL` is the pooled Neon URL; `DIRECT_URL` is the direct URL for the **same production database** |
+
+The bot image uses the same committed PyTorch artifact locally and in production.
+`forte` selects `ai/serving/models/kaggle_2026_10_25.pt`, with its frozen
+1888-feature observation encoder. ONNX is not required. CI verifies model loading,
+legal actions, and the production container before invoking the Render deploy hook.
+
+The current Vercel workflow already selects Production configuration. The backend
+workflow calls the existing Render hook only after successful CI on a push to main.
+Changing these files does not deploy anything: no cloud upload, migration or
+paid service is started by local development.
 
 ---
 

@@ -11,6 +11,11 @@ services:
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
 
   adminer:
     image: adminer
@@ -22,20 +27,66 @@ services:
 
   backend:
     container_name: becca-backend
-    build: ./backend
-    command: sh -c "npm install && npm run dev"
+    image: node:24-alpine3.21
+    command: sh -c "npm ci && npm run dev"
     working_dir: /app
     volumes:
       - ./backend:/app
+      - backend_node_modules:/app/node_modules
     ports:
       - "8000:8000"
+
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      bot:
+        condition: service_healthy
+
     environment:
+      - NODE_ENV=development
+      - PORT=8000
+      - NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org}
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/becca
       - DIRECT_URL=postgresql://postgres:postgres@db:5432/becca
       - FRONTEND_URL=http://localhost:8081
+      - BOT_SERVICE_URL=http://bot:8011
+      - BOT_SERVICE_TOKEN=${BOT_SERVICE_TOKEN:-}
+
+  bot:
+    build:
+      context: ./ai
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    command: uvicorn serving.app:app --host 0.0.0.0 --port 8011 --reload
+    environment:
+      - BOT_SERVICE_TOKEN=${BOT_SERVICE_TOKEN:-}
+    volumes:
+      - ./ai/becca_env:/app/becca_env:ro
+      - ./ai/serving:/app/serving:ro
+    ports:
+      - "127.0.0.1:8011:8011"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8011/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  frontend:
+    image: node:24-alpine3.21
+    working_dir: /app
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    environment:
+      - NODE_ENV=development
+      - NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org}
+      - VITE_API_URL=http://localhost:8000/api
+      - VITE_SOCKET_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "8081:8081"
 
 volumes:
   db_data:
-
+  backend_node_modules:
+  frontend_node_modules:
