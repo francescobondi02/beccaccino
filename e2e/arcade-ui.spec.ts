@@ -1,6 +1,47 @@
 import { test, expect } from "./helpers/fixtures";
 
 test.describe("Arcade interface", () => {
+  test("uses wide monitors without adding horizontal overflow on mobile", async ({ page }) => {
+    await page.route("**/users/me", (route) => route.fulfill({
+      status: 401, json: { error: "Not authenticated" },
+    }));
+    await page.goto("/");
+    for (const width of [1920, 2560, 3440, 390, 320]) {
+      await page.setViewportSize({ width, height: 1080 });
+      for (const selector of [".arcade-header-inner", ".arcade-live-hero .club-main", ".arcade-lounge", ".arcade-bottom-note", ".arcade-lobby > .club-footer"]) {
+        const bounds = await page.locator(selector).boundingBox();
+        if (!bounds) throw new Error(`Missing home section: ${selector}`);
+        expect(bounds.width, `${selector} is capped at ${width}px`).toBeGreaterThanOrEqual(width * .9);
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    }
+  });
+
+  test("keeps account text white while preserving the hover overlay", async ({ page }) => {
+    await page.route("**/users/me", (route) => route.fulfill({
+      json: { id: 1, username: "Giulia" },
+    }));
+    await page.route("**/rooms/available", (route) => route.fulfill({
+      json: { availableRooms: [], activeGames: [] },
+    }));
+    await page.setViewportSize({ width: 2560, height: 1080 });
+    await page.goto("/");
+    const account = page.getByRole("button", { name: "Menu account" });
+    const username = page.locator(".arcade-header").getByText("Giulia", { exact: true });
+    await expect(username).toBeVisible();
+    const foreground = await page.locator("body").evaluate((element) => getComputedStyle(element).color);
+    const background = await account.evaluate((element) => getComputedStyle(element).backgroundColor);
+    await account.hover();
+    await account.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+    await expect(username).toHaveCSS("color", foreground);
+    await expect(account).not.toHaveCSS("background-color", background);
+    await account.click();
+    await expect(page.getByText("Il mio account", { exact: true })).toBeVisible();
+    await expect(username).toHaveCSS("color", foreground);
+  });
+
   test("previews the dashboard anonymously without loading private statistics", async ({ page }) => {
     await page.route("**/users/me", (route) => route.fulfill({
       status: 401, json: { error: "Not authenticated" },

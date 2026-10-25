@@ -71,7 +71,7 @@ const Header = ({ onAuthenticate }: HeaderProps) => {
               <Button
                 variant="ghost"
                 aria-label="Menu account"
-                className="flex items-center gap-2 hover:bg-secondary"
+                className="flex items-center gap-2 text-foreground hover:bg-secondary hover:text-foreground"
               >
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="bg-gradient-primary text-primary-foreground">
