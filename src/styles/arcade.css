@@ -757,6 +757,7 @@ html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
   html[data-ui="arcade"] .arcade-chat-panel { inset: 8px calc(var(--rail-r) + 16px) 8px auto; width: min(320px, 50vw); height: auto; }
 
   html[data-ui="arcade"] .signal-callout { padding: 6px 10px; border-width: 2px; font-size: 16px; box-shadow: 3px 4px 0 #17121f; }
+  html[data-ui="arcade"] .arcade-game-page .signal-callout { display: none; }
 }
 
 /* Short landscape screens: dialogs must fit without scrolling past their actions,
