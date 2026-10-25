@@ -21,7 +21,7 @@ export default function ArcadeLobby({ children, onPlay }: { children: ReactNode;
             </div>
           </div>
           <section id="entra-al-tavolo" className="arcade-lounge" aria-labelledby="arcade-lounge-title">
-            <span className="club-eyebrow"><Zap size={14} /> Scegli il tuo gioco</span>
+            <span className="club-eyebrow"><Zap size={14} /> FATTI UN BECCA CLAMOROSO</span>
             <h2 id="arcade-lounge-title">TROVA IL TUO <em>SOCIO.</em></h2>
             <p>Crea una stanza, entra con il codice degli amici o allenati contro i bot.</p>
             <div className="arcade-lobby-grid">{children}</div>
@@ -29,7 +29,7 @@ export default function ArcadeLobby({ children, onPlay }: { children: ReactNode;
           <section className="club-bottom-note arcade-bottom-note">
             <span className="club-brand-symbol" aria-hidden="true"><Zap size={38} fill="currentColor" /></span>
             <p>ESCI DALLA CHAT.<br /><em>ENTRA IN PARTITA.</em></p>
-            <button className="club-text-button" onClick={onPlay}>Fammi giocare <ArrowUpRight size={22} /></button>
+            <button className="club-text-button" onClick={onPlay}>FAMMI GIOCARE <ArrowUpRight size={22} /></button>
           </section>
         </main>
         <footer className="club-footer"><span>BECCA <span>©</span> {new Date().getFullYear()}</span><span>IL BECCACCINO, DOVE VUOI TU.</span><Link to="/leaderboard">Classifica <ArrowUpRight size={14} /></Link></footer>
