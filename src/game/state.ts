@@ -10,6 +10,7 @@ import type {
   PlayerCard,
   RevealedHand,
   RoundEndData,
+  RoundDeal,
   Signal,
   TotalPoints,
   TurnTimer,
@@ -19,6 +20,7 @@ export interface GameTableState {
   gameStatus: GameStateResponse["status"] | null;
   pausedAt: string | null;
   currentRound: GameStateResponse["round"] | null;
+  roundDeal: RoundDeal | null;
   callerUserId: number | null;
   myCards: PlayerCard[];
   currentTurnUserId: number | null;
@@ -65,6 +67,7 @@ export const initialGameTableState: GameTableState = {
   gameStatus: null,
   pausedAt: null,
   currentRound: null,
+  roundDeal: null,
   callerUserId: null,
   myCards: [],
   currentTurnUserId: null,
@@ -101,6 +104,13 @@ export function gameTableReducer(
         gameStatus: data.status,
         pausedAt: data.pausedAt,
         currentRound: data.round,
+        roundDeal: data.round.deal && data.round.deal.remainingMs > 0
+          ? {
+              readyAt: now + data.round.deal.remainingMs,
+              animationMs: data.round.deal.animationMs,
+              reviewMs: data.round.deal.reviewMs,
+            }
+          : null,
         callerUserId: data.callerUserId,
         myCards: data.myCards ?? [],
         currentTurnUserId: data.currentTurnUserId ?? null,
@@ -205,6 +215,7 @@ export function gameTableReducer(
     case "new_round_started":
       return {
         ...state,
+        roundDeal: null,
         gameStatus: "choosing_briscola",
         pausedAt: null,
         currentRound: {

@@ -621,3 +621,48 @@ html[data-ui="arcade"] .club-match-preview [data-testid="player-position-top"] {
   .club-match-preview [data-testid="table-card-position-left"] { left: 30px; }
   .club-match-preview [data-testid="table-card-position-right"] { right: 30px; }
 }
+.arcade-card-deal {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.arcade-deal-deck,
+.arcade-dealt-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.75rem;
+  height: 3.75rem;
+  border: 3px solid #eee4c5;
+  border-radius: .3rem;
+  background: repeating-linear-gradient(45deg, #682c38 0 3px, #853b48 3px 6px);
+  box-shadow: 0 3px 8px #0006;
+  transform: translate(-50%, -50%);
+}
+
+.arcade-deal-deck { box-shadow: 3px 3px 0 #eee4c5, 6px 6px 0 #682c38, 0 5px 12px #0006; }
+.arcade-dealt-card { animation: arcade-deal-flight 300ms ease-out both; }
+.arcade-dealt-card[data-position="bottom"] { --deal-x: 0px; --deal-y: clamp(4rem, 12vh, 8rem); }
+.arcade-dealt-card[data-position="top"] { --deal-x: 0px; --deal-y: clamp(-8rem, -12vh, -4rem); }
+.arcade-dealt-card[data-position="left"] { --deal-x: clamp(-18rem, -22vw, -5rem); --deal-y: 0px; }
+.arcade-dealt-card[data-position="right"] { --deal-x: clamp(5rem, 22vw, 18rem); --deal-y: 0px; }
+.arcade-deal-revealed { animation: arcade-deal-reveal 200ms ease-out both; }
+
+@keyframes arcade-deal-flight {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.8); }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--deal-x)), calc(-50% + var(--deal-y))) rotate(12deg); }
+}
+
+@keyframes arcade-deal-reveal {
+  from { opacity: 0; transform: translateY(-.75rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arcade-dealt-card { display: none; animation: none; }
+  .arcade-deal-revealed { animation: none; }
+}

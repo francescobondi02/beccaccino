@@ -2,6 +2,62 @@ import { test, expect } from "./helpers/fixtures";
 import type { GameStateResponse } from "../src/game/model";
 
 test.describe("Arcade interface", () => {
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    test(`deals to four players before trump selection (${reducedMotion})`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion });
+      const cards = ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
+        .map((value, index) => ({ id: 40 + index, suit: "coppe", value, playerId: 10, roundId: 30, inHand: true }));
+      const state: GameStateResponse = {
+        status: "choosing_briscola", pausedAt: null,
+        round: { id: 30, number: 1, briscola: null },
+        callerUserId: 1, currentTurnUserId: 1, currentHandNumber: null,
+        myCards: cards, playedCards: [], lastHandCards: [],
+        totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
+        turnTimer: null, finishedGame: null, isPractice: true, allHands: null,
+      };
+      await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
+      await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
+        id: 20, code: "ROOM", started: true, finished: false, isPractice: true,
+        players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
+          id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
+        })),
+      } }));
+      let readyAt = 0;
+      await page.route("**/games/ROOM/state", (route) => {
+        if (!readyAt) readyAt = Date.now() + 4000;
+        return route.fulfill({ json: {
+          ...state,
+          round: { ...state.round, deal: { remainingMs: Math.max(0, readyAt - Date.now()), animationMs: 2400, reviewMs: 1600 } },
+        } });
+      });
+
+      for (const width of [1440, 390]) {
+        readyAt = 0;
+        await page.setViewportSize({ width, height: 1000 });
+        await page.goto("/game/ROOM");
+        const trump = page.getByRole("dialog", { name: "Scegli la briscola" });
+        await expect(page.getByTestId("card-deal")).toBeAttached();
+        await expect(trump).toBeHidden();
+        await expect(page.getByTestId("choose-trump-button")).toBeDisabled();
+        for (const position of ["bottom", "top", "left", "right"]) {
+          await expect(page.locator(`.arcade-dealt-card[data-position="${position}"]`)).toHaveCount(10);
+        }
+        if (reducedMotion === "reduce") {
+          await expect(page.locator(".arcade-dealt-card").first()).toBeHidden();
+        }
+        await page.getByTestId("pause-practice-button").click({ trial: true });
+        await expect(page.getByText("Guarda le tue carte...", { exact: true })).toBeVisible();
+        await expect(page.getByTestId("player-hand").getByRole("button")).toHaveCount(10);
+        await expect(trump).toBeHidden();
+        await page.reload();
+        await expect(page.getByTestId("card-deal")).toHaveCount(0);
+        await expect(trump).toBeVisible();
+        expect(Date.now()).toBeLessThan(readyAt + 1800);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      }
+    });
+  }
+
   for (const exit of ["Gioca", "brand", "back", "logout"]) {
     test(`leaves a waiting room through ${exit} without leaving on reload`, async ({ page }) => {
       const departures: string[] = [];

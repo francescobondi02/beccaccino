@@ -13,6 +13,7 @@ interface TableCenterProps {
   briscolaChosen: boolean;
   waitingForUsername: string;
   countdown: number | null;
+  statusText?: string;
 }
 
 const ANIMATION_CLASS: Record<PlayerPosition, string> = {
@@ -38,6 +39,7 @@ const TableCenter = ({
   briscolaChosen,
   waitingForUsername,
   countdown,
+  statusText,
 }: TableCenterProps) => (
   <div
     className="circolo-table relative flex h-[25rem] w-[25rem] min-h-64 min-w-64 items-center justify-center rounded-[46%] border border-[hsl(39_55%_62%_/_0.7)] [@media(max-height:800px)]:h-72 [@media(max-height:800px)]:w-72 [@media(max-height:800px)]:translate-y-6"
@@ -62,10 +64,10 @@ const TableCenter = ({
       ))
     ) : (
       <div className="text-center">
-        <p className="max-w-44 text-sm font-medium text-[hsl(43_46%_93%)]">
-          {briscolaChosen
+        <p role="status" className="max-w-44 text-sm font-medium text-[hsl(43_46%_93%)]">
+          {statusText ?? (briscolaChosen
             ? `In attesa di ${waitingForUsername}...`
-            : `${waitingForUsername} sta selezionando la briscola...`}
+            : `${waitingForUsername} sta selezionando la briscola...`)}
         </p>
         {countdown !== null && (
           <div

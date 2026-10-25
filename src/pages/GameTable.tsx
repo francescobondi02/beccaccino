@@ -22,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useGameTable } from "@/hooks/useGameTable";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useTurnCountdown } from "@/hooks/useTurnCountdown";
+import { useRoundDeal } from "@/hooks/useRoundDeal";
 import type { PlayerCard, Signal } from "@/game/model";
 import { positionPlayers } from "@/game/presentation";
 import {
@@ -48,6 +49,7 @@ const GameTable = () => {
 
   const {
     currentRound,
+    roundDeal,
     callerUserId,
     myCards,
     currentTurnUserId,
@@ -70,6 +72,10 @@ const GameTable = () => {
   } = useGameTable(gameRoomCode, userId, username, room?.players ?? []);
   const connectionStatus = useConnectionStatus();
   const countdown = useTurnCountdown(turnTimer);
+  const deal = useRoundDeal(
+    roundDeal,
+    gameStatus === "choosing_briscola" && currentRound?.briscola === null,
+  );
 
   // Dialog state
   const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);
@@ -169,6 +175,8 @@ const GameTable = () => {
   useEffect(() => {
     setTrumpDialogOpen(
       gameStatus !== "paused" &&
+      deal.phase === "ready" &&
+      myCards.length > 0 &&
       currentRound?.briscola === null &&
         callerUserId === userId &&
         !roundEndData &&
@@ -179,6 +187,8 @@ const GameTable = () => {
     callerUserId,
     userId,
     gameStatus,
+    deal.phase,
+    myCards.length,
     roundEndData,
     gameFinishedData,
   ]);
@@ -420,7 +430,7 @@ const GameTable = () => {
         players={playersWithPositions}
         currentTurnUserId={currentTurnUserId}
         currentSignal={currentSignal}
-        countdown={countdown}
+        countdown={deal.phase === "ready" ? countdown : null}
         playedCards={playedCards}
         briscola={currentRound?.briscola}
         callerUserId={callerUserId}
@@ -428,6 +438,7 @@ const GameTable = () => {
         hand={myCards}
         playableCards={playableCards}
         onCardClick={(card) => void handleCardClick(card)}
+        deal={deal}
       />
 
       {/* Game Action Buttons */}
@@ -448,6 +459,7 @@ const GameTable = () => {
             variant="default"
             size="sm"
             onClick={() => setTrumpDialogOpen(true)}
+            disabled={deal.phase !== "ready"}
             data-testid="choose-trump-button"
           >
             Scegli la briscola
@@ -466,7 +478,7 @@ const GameTable = () => {
         onSelect={handleSignalSelect}
       />
       <TrumpSuitDialog
-        open={trumpDialogOpen}
+        open={trumpDialogOpen && deal.phase === "ready"}
         onSelectSuit={handleTrumpSelect}
         myCards={myCards}
         practiceActions={practiceActions}

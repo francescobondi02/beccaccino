@@ -171,6 +171,12 @@ npx playwright show-report  # HTML report with traces after failures
   Keep these illustrations separate from `PlayingCard` and gameplay.
 - Practice games keep "Pausa e torna alla home" and the confirmed, destructive "Abbandona" action in the fixed bottom-right toolbar. Signal selection is non-modal so those controls stay accessible outside the signal choices. Briscola selection retains its own practice controls. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".
 - Live games retain chat and "Ultima presa", which displays only the previous completed trick's four cards. No full practice history or revealed-hand controls, including in development.
+- Round starts enter the table immediately. The server's `round.deal` snapshot
+  reserves 2.4 seconds to distribute cards to all seats and 1.6 seconds to read
+  the hand before briscola selection. Later rounds first retain the completed
+  trick for 3 seconds. Remaining time is anchored to the client clock, so
+  reconnect does not replay the deal. Reduced motion keeps the reading time
+  without flying cards; practice controls remain available throughout.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`
 - Animations: card-from-bottom for chat; directional table-card animations for plays
 - Responsive: mobile-friendly layout, cards resize based on viewport

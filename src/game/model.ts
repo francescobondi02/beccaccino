@@ -10,6 +10,19 @@ export interface PlayerCard {
   inHand: boolean;
 }
 
+export interface RoundDeal {
+  readyAt: number;
+  animationMs: number;
+  reviewMs: number;
+}
+
+export interface RoundDealView {
+  phase: "collecting" | "dealing" | "reviewing" | "ready";
+  dealtCards: number;
+  startedAt: number;
+  animationMs: number;
+}
+
 export interface PlayedCardData {
   playerId: number;
   userId: number;
@@ -66,6 +79,7 @@ export interface GameStateResponse {
     number: number;
     briscola: string | null;
     cricca?: boolean;
+    deal?: { remainingMs: number; animationMs: number; reviewMs: number } | null;
   };
   currentHandNumber: number | null;
   callerUserId: number | null;

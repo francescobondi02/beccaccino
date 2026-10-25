@@ -10,7 +10,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameTable from "@/pages/GameTable";
-import type { PlayedCardData, RoundEndData } from "@/game/model";
+import type { PlayedCardData, RoundEndData, RoundDeal } from "@/game/model";
 import type { GameFinishedPayload } from "@/sockets/events";
 
 const mocks = vi.hoisted(() => ({
@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
       briscola: "spade",
     } as { id: number; number: number; briscola: string | null },
     callerUserId: 1,
+    roundDeal: null as RoundDeal | null,
     myCards: [
       {
         id: 40,
@@ -293,6 +294,7 @@ describe("GameTable page behavior", () => {
       briscola: "spade",
     };
     mocks.gameHook.callerUserId = 1;
+    mocks.gameHook.roundDeal = null;
     mocks.gameHook.currentTurnUserId = 1;
     mocks.gameHook.playedCards = [];
     mocks.gameHook.lastHand = [];

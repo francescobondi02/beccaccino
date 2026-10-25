@@ -367,7 +367,7 @@ describe("GameRoom state synchronization", () => {
   it("preserves an already-started game loaded without a socket start event", async () => {
     mocks.apiGet.mockResolvedValue({ ...room([alice]), started: true });
     const { unmount } = renderGameRoom();
-    await screen.findByText("La partita è iniziata!");
+    await screen.findByText("Tavolo");
 
     window.history.pushState({}, "", "/game/ROOM");
     unmount();

@@ -13,8 +13,6 @@ import { useWaitingRoom } from "@/hooks/useWaitingRoom";
 import { apiPost, ApiError } from "@/lib/api";
 import { waitingRoomSlots } from "@/rooms/waitingRoomState";
 
-const GAME_START_REDIRECT_MS = 5000;
-
 const GameRoom = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
@@ -79,15 +77,11 @@ const GameRoom = () => {
   const playerSlots = waitingRoomSlots(room, userId);
 
   useEffect(() => {
-    if (!gameStarted || !roomCode) return;
+    if ((!gameStarted && !room?.started) || !roomCode) return;
 
     toast.success("La partita sta per iniziare! Ti portiamo al tavolo.");
-    const timeout = setTimeout(() => {
-      navigate(`/game/${roomCode}`);
-    }, GAME_START_REDIRECT_MS);
-
-    return () => clearTimeout(timeout);
-  }, [gameStarted, navigate, roomCode]);
+    navigate(`/game/${roomCode}`);
+  }, [gameStarted, room?.started, navigate, roomCode]);
 
   const handleReady = async () => {
     if (!myPlayer || !userId) return;

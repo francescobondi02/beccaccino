@@ -96,6 +96,21 @@ describe("gameTableReducer", () => {
     expect(state.turnTimer).toBeNull();
   });
 
+  it("anchors remaining deal time to the client clock without restarting on refetch", () => {
+    const data: GameStateResponse = {
+      ...stateResponse,
+      round: { id: 7, number: 2, briscola: null, deal: { remainingMs: 4000, animationMs: 2400, reviewMs: 1600 } },
+    };
+    const state = gameTableReducer(initialGameTableState, { type: "state_fetched", data, now: 1000 });
+    expect(state.roundDeal?.readyAt).toBe(5000);
+    const refetched = gameTableReducer(state, {
+      type: "state_fetched",
+      data: { ...data, round: { ...data.round, deal: { remainingMs: 2000, animationMs: 2400, reviewMs: 1600 } } },
+      now: 3000,
+    });
+    expect(refetched.roundDeal?.readyAt).toBe(5000);
+  });
+
   it("state_fetched restores a finished game without a socket event", () => {
     const finishedGame = {
       winnerTeam: 1,

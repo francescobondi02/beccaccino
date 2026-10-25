@@ -1,3 +1,4 @@
+import { useState } from "react";
 import PlayerSeat from "@/components/PlayerSeat";
 import PlayingCard from "@/components/PlayingCard";
 import TableCenter from "@/components/TableCenter";
@@ -6,6 +7,7 @@ import type {
   PlayedCardData,
   PlayerCard,
   Signal,
+  RoundDealView,
 } from "@/game/model";
 import type { PositionedPlayer } from "@/game/presentation";
 
@@ -21,6 +23,25 @@ interface GameBoardProps {
   hand: PlayerCard[];
   playableCards: PlayerCard[];
   onCardClick: (card: PlayerCard) => void;
+  deal?: RoundDealView;
+}
+
+function CardDeal({ deal }: { deal: RoundDealView }) {
+  const [elapsed] = useState(() => Math.max(0, Date.now() - deal.startedAt));
+  const positions = ["bottom", "left", "top", "right"];
+  return (
+    <div className="arcade-card-deal" aria-hidden="true" data-testid="card-deal">
+      <span className="arcade-deal-deck" />
+      {Array.from({ length: 40 }, (_, index) => (
+        <span
+          key={index}
+          className="arcade-dealt-card"
+          data-position={positions[index % 4]}
+          style={{ animationDelay: `${index * (deal.animationMs - 300) / 40 - elapsed}ms` }}
+        />
+      ))}
+    </div>
+  );
 }
 
 export default function GameBoard({
@@ -35,6 +56,7 @@ export default function GameBoard({
   hand,
   playableCards,
   onCardClick,
+  deal,
 }: GameBoardProps) {
   const playerAt = (position: PositionedPlayer["position"]) =>
     players.find((player) => player.position === position);
@@ -46,6 +68,7 @@ export default function GameBoard({
   const waitingForUsername =
     players.find((player) => player.userId === waitingUserId)?.username ??
     "giocatore";
+  const presentingHand = deal && deal.phase !== "ready";
 
   const signalFor = (userId: number): Signal | null =>
     currentSignal?.userId === userId ? currentSignal.signal : null;
@@ -129,7 +152,17 @@ export default function GameBoard({
             briscolaChosen={Boolean(briscola)}
             waitingForUsername={waitingForUsername}
             countdown={countdown}
+            statusText={deal?.phase === "collecting"
+              ? "Raccolta delle carte..."
+              : deal?.phase === "dealing"
+              ? "Distribuzione delle carte..."
+              : deal?.phase === "reviewing"
+                ? "Guarda le tue carte..."
+                : undefined}
           />
+          {deal?.phase === "dealing" && (
+            <CardDeal key={hand[0]?.roundId} deal={deal} />
+          )}
         </div>
       </div>
 
@@ -146,7 +179,7 @@ export default function GameBoard({
           )}
           {hand
             .filter((card) => card.inHand)
-            .map((card) => {
+            .map((card, index) => {
               const isPlayable = playableCards.some(
                 (playable) =>
                   playable.suit === card.suit &&
@@ -161,7 +194,13 @@ export default function GameBoard({
                   value={card.value}
                   onClick={() => onCardClick(card)}
                   size="lg"
-                  className="xl:w-[5.5rem] xl:h-[7.75rem] xl:hover:scale-105"
+                  className={`xl:w-[5.5rem] xl:h-[7.75rem] xl:hover:scale-105 ${
+                    presentingHand
+                      ? index < deal.dealtCards
+                        ? "arcade-deal-revealed !opacity-100 !grayscale-0"
+                        : "invisible"
+                      : ""
+                  }`}
                   clickable={isCurrentTurn && isPlayable}
                   disabled={!isCurrentTurn || !isPlayable}
                   data-testid={`hand-card-${card.suit}-${card.value}`}
