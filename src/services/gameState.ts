@@ -13,6 +13,7 @@ import {
 } from "../game/snapshots/turnState";
 import { getTurnTimerState } from "../runtime/turnTimer";
 import { withRoomLock } from "../utils/roomLock";
+import { readGameResult } from "./gameResult";
 
 async function readPlayerHands(
   client: Prisma.TransactionClient,
@@ -123,6 +124,7 @@ async function readGameStateSnapshot(
       winnerTeam: { not: null },
     },
     select: {
+      number: true,
       team0Points: true,
       team1Points: true,
       team0Figures: true,
@@ -140,19 +142,23 @@ async function readGameStateSnapshot(
       : null;
   const finishedGame =
     gameRoom.finished && winnerTeam !== null
+      ? await readGameResult(client, gameRoom.id, winnerTeam)
+      : null;
+  const previousRound = completedRounds.find(
+    (round) => round.number === currentRound.number - 1,
+  );
+  const deal = roundDealPresentation(currentRound);
+  const roundSummary =
+    currentRound.briscola === null &&
+    deal.remainingMs > deal.animationMs + deal.reviewMs &&
+    previousRound
       ? {
-          winnerTeam,
-          totalRounds: completedRounds.length,
-          finalScores: {
-            team0: cumulative.team0.points,
-            team1: cumulative.team1.points,
-          },
-          roundsWon: {
-            team0: completedRounds.filter((round) => round.winnerTeam === 0)
-              .length,
-            team1: completedRounds.filter((round) => round.winnerTeam === 1)
-              .length,
-          },
+          roundNumber: previousRound.number,
+          team0Points: previousRound.team0Points,
+          team1Points: previousRound.team1Points,
+          team0Figures: previousRound.team0Figures,
+          team1Figures: previousRound.team1Figures,
+          winnerTeam: previousRound.winnerTeam!,
         }
       : null;
 
@@ -171,6 +177,7 @@ async function readGameStateSnapshot(
     lastHandCards: serializePlayedCards(lastCompletedHand),
     cumulative,
     finishedGame,
+    roundSummary,
     allHands,
   };
 }
@@ -223,6 +230,7 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
     lastHandCards,
     cumulative,
     finishedGame,
+    roundSummary,
     allHands,
   } = snapshot;
 
@@ -245,6 +253,7 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
       cricca: currentRound.cricca,
       deal: currentRound.briscola === null ? roundDealPresentation(currentRound) : null,
     },
+    roundSummary,
     currentHandNumber,
     callerUserId,
     myCards,

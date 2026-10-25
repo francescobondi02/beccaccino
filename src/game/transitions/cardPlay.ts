@@ -14,6 +14,7 @@ import {
   startRuntimeTurn,
 } from "../../runtime/turnRuntime";
 import { GameError } from "../../utils/gameError";
+import { readGameResult } from "../../services/gameResult";
 import { withRoomLock } from "../../utils/roomLock";
 import {
   claimPracticeTransition,
@@ -351,7 +352,7 @@ async function playCardUnlocked({
     callerTeam,
   );
 
-  const nextRound = await prisma.$transaction(async (tx) => {
+  const { nextRound, finishedGame } = await prisma.$transaction(async (tx) => {
     await claimPracticeTransition(tx, room, expectedPauseEpoch);
     await persistPlayedCard(tx, playerCard.id, playedCardData);
     await tx.hand.update({
@@ -373,9 +374,15 @@ async function playCardUnlocked({
         where: { id: room.id },
         data: { finished: true },
       });
-      return null;
+      return {
+        nextRound: null,
+        finishedGame: await readGameResult(tx, room.id, gameWinnerTeam),
+      };
     }
-    return setupRound(room.id, currentRound.number + 1, tx);
+    return {
+      nextRound: await setupRound(room.id, currentRound.number + 1, tx),
+      finishedGame: null,
+    };
   });
 
   if (nextRound) logRoundSetup(nextRound);
@@ -410,24 +417,10 @@ async function playCardUnlocked({
 
   if (gameWinnerTeam !== null) {
     const totalRounds = allCompletedRounds.length;
-    const team0Wins = allCompletedRounds.filter(
-      (round) => round.winnerTeam === 0,
-    ).length;
     events.push({
       target: roomCode,
       event: "game_finished",
-      payload: {
-        winnerTeam: gameWinnerTeam,
-        totalRounds,
-        finalScores: {
-          team0: gameScore.team0.points,
-          team1: gameScore.team1.points,
-        },
-        roundsWon: {
-          team0: team0Wins,
-          team1: totalRounds - team0Wins,
-        },
-      },
+      payload: finishedGame,
     });
     logger.info(
       {

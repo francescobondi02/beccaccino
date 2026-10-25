@@ -112,11 +112,16 @@ The backend assumes one active runtime instance. Distributed timer ownership is
 not implemented.
 
 Round presentation timing lives in `gameConfig.ts`: 2.4 seconds for dealing,
-then 1.6 seconds to read the hand, after the existing 3-second trick collection
-on later rounds. Deadlines derive from persisted `Round.createdAt`, including
+then 1.6 seconds to read the hand, after a 4-second round summary on later
+rounds (ordinary tricks still retain their 3-second collection). Deadlines derive from persisted `Round.createdAt`, including
 runtime recovery. Bots wait until presentation ends before thinking about
 briscola; human callers retain their full choice timeout. Game-state snapshots
 expose remaining presentation time in `round.deal`; reads stay side-effect free.
+`roundSummary` exposes the previous score only during that 4-second window.
+`services/gameResult.ts` derives final scores, round history and player counters
+from persisted rounds/tricks/cards. Both atomic game completion and finished
+snapshots use it, so refresh and Socket.IO results agree. Enemy aces count for
+the trick winner, not their teammate; losing one's ace is not a skill judgment.
 
 ## Backend and AI Boundary
 

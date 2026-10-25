@@ -8,11 +8,11 @@ export function roundDealPresentation(
 ) {
   const animationMs = 2_400;
   const reviewMs = 1_600;
-  const collectionMs = round.number > 1 ? TRICK_DISPLAY_MS : 0;
+  const summaryMs = round.number > 1 ? 4_000 : 0;
   return {
     remainingMs: Math.max(
       0,
-      round.createdAt.getTime() + collectionMs + animationMs + reviewMs - now,
+      round.createdAt.getTime() + summaryMs + animationMs + reviewMs - now,
     ),
     animationMs,
     reviewMs,

@@ -134,7 +134,7 @@ describe("Full Beccaccino game", () => {
       ).toBe(true);
       expect(afterRound.body.status).toBe("finished");
       expect(afterRound.body.currentTurnUserId).toBeNull();
-      expect(afterRound.body.finishedGame).toEqual({
+      expect(afterRound.body.finishedGame).toMatchObject({
         winnerTeam: expect.any(Number),
         totalRounds: expect.any(Number),
         finalScores: {

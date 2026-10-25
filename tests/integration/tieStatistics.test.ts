@@ -43,7 +43,7 @@ async function createCallerTieGame() {
       winnerTeam: 0,
     },
   });
-  await prisma.hand.create({
+  const hand = await prisma.hand.create({
     data: {
       roundId: round.id,
       number: 1,
@@ -52,10 +52,37 @@ async function createCallerTieGame() {
     },
   });
 
-  return { users };
+  return { users, players, round, hand };
 }
 
 describe("Caller-tie statistics", () => {
+  it("derives signals, tricks and enemy aces from persisted cards on refresh", async () => {
+    const { users, players, hand } = await createCallerTieGame();
+    await prisma.playedCard.createMany({
+      data: players.map((player, position) => ({
+        handId: hand.id,
+        playerId: player.id,
+        position,
+        suit: (["denara", "coppe", "spade", "bastoni"] as const)[position],
+        value: "asso",
+        signal: position === 0 ? "busso" : null,
+      })),
+    });
+    const first = await apiAs(users[0].id, users[0].username).get("/api/games/TIE001/state");
+    const refreshed = await apiAs(users[1].id, users[1].username).get("/api/games/TIE001/state");
+    expect(first.statusCode).toBe(200);
+    expect(refreshed.body.finishedGame).toEqual(first.body.finishedGame);
+    expect(first.body.finishedGame.statistics.players).toEqual([
+      { playerId: players[0].id, username: "tieA", team: 0, tricksWon: 1, busso: 1, acesCaptured: 2, acesLost: 0 },
+      { playerId: players[1].id, username: "tieB", team: 1, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 1 },
+      { playerId: players[2].id, username: "tieC", team: 0, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 0 },
+      { playerId: players[3].id, username: "tieD", team: 1, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 1 },
+    ]);
+    expect(first.body.finishedGame.statistics.rounds).toEqual([
+      { number: 1, winnerTeam: 0, team0Points: 5, team1Points: 5, team0Figures: 0, team1Figures: 0 },
+    ]);
+  });
+
   it("restores the final caller's team as winner for every player", async () => {
     const { users } = await createCallerTieGame();
 

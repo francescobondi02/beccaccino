@@ -6,11 +6,11 @@ describe("round dealing presentation", () => {
       .toEqual({ remainingMs: 4000, animationMs: 2400, reviewMs: 1600 });
   });
 
-  it("collects the final trick before dealing the next round", () => {
+  it("shows a four-second summary before dealing the next round", () => {
     expect(roundDealPresentation({ number: 2, createdAt: new Date(1000) }, 1000).remainingMs)
-      .toBe(7000);
-    expect(roundDealPresentation({ number: 2, createdAt: new Date(1000) }, 4500).remainingMs)
-      .toBe(3500);
+      .toBe(8000);
+    expect(roundDealPresentation({ number: 2, createdAt: new Date(1000) }, 5000).remainingMs)
+      .toBe(4000);
   });
 
   it("does not restart the presentation after reconnect or runtime recovery", () => {
