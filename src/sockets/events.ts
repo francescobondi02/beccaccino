@@ -88,6 +88,25 @@ export interface GameFinishedPayload {
   totalRounds: number;
   finalScores: { team0: number; team1: number };
   roundsWon: { team0: number; team1: number };
+  statistics?: {
+    players: {
+      playerId: number;
+      username: string;
+      team: number | null;
+      tricksWon: number;
+      busso: number;
+      acesCaptured: number;
+      acesLost: number;
+    }[];
+    rounds: {
+      number: number;
+      winnerTeam: number | null;
+      team0Points: number;
+      team1Points: number;
+      team0Figures: number;
+      team1Figures: number;
+    }[];
+  };
 }
 export interface NewRoundStartedPayload {
   roundId: number;

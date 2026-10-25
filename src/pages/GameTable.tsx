@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import TrumpSuitDialog from "@/components/TrumpSuitDialog";
 import LastTrickDialog from "@/components/LastTrickDialog";
 import RoundEndDialog from "@/components/RoundEndDialog";
-import GameFinishedDialog from "@/components/GameFinishedDialog";
+import GameResult from "@/components/GameResult";
 import GameChat from "@/components/GameChat";
 import SignalDialog from "@/components/SignalDialog";
 import ConnectionBanner from "@/components/ConnectionBanner";
@@ -67,7 +67,6 @@ const GameTable = () => {
     gameStateStatus,
     refetchGameState,
     setRequestsEnabled,
-    dismissRoundEnd,
     applyLocalBriscola,
   } = useGameTable(gameRoomCode, userId, username, room?.players ?? []);
   const connectionStatus = useConnectionStatus();
@@ -76,12 +75,11 @@ const GameTable = () => {
     roundDeal,
     gameStatus === "choosing_briscola" && currentRound?.briscola === null,
   );
+  const showRoundSummary = Boolean(roundEndData) && deal.phase === "collecting";
 
   // Dialog state
   const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);
   const [lastTrickDialogOpen, setLastTrickDialogOpen] = useState(false);
-  const [roundEndDialogOpen, setRoundEndDialogOpen] = useState(false);
-  const [gameFinishedDialogOpen, setGameFinishedDialogOpen] = useState(false);
   const [isReturningHome, setIsReturningHome] = useState(false);
   const [isPausing, setIsPausing] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
@@ -179,7 +177,7 @@ const GameTable = () => {
       myCards.length > 0 &&
       currentRound?.briscola === null &&
         callerUserId === userId &&
-        !roundEndData &&
+        !showRoundSummary &&
         !gameFinishedData,
     );
   }, [
@@ -189,7 +187,7 @@ const GameTable = () => {
     gameStatus,
     deal.phase,
     myCards.length,
-    roundEndData,
+    showRoundSummary,
     gameFinishedData,
   ]);
 
@@ -202,18 +200,6 @@ const GameTable = () => {
     }
     setConfirmPausedAbandon(false);
   }, [gameStatus]);
-
-  useEffect(() => {
-    setRoundEndDialogOpen(Boolean(roundEndData));
-  }, [roundEndData]);
-
-  useEffect(() => {
-    if (gameFinishedData) {
-      setGameFinishedDialogOpen(true);
-      setRoundEndDialogOpen(false);
-      setTrumpDialogOpen(false);
-    }
-  }, [gameFinishedData]);
 
   const playersWithPositions = positionPlayers(room?.players ?? [], userId);
 
@@ -294,7 +280,7 @@ const GameTable = () => {
     }
   };
 
-  // Shared by the end-of-game dialog and the practice abandon button: both mean
+  // Shared by the results screen and the practice abandon button: both mean
   // "go home, tearing down the practice room first if this is one".
   const handleReturnHome = async () => {
     setIsReturningHome(true);
@@ -404,13 +390,25 @@ const GameTable = () => {
     );
   }
 
+  if (gameFinishedData) {
+    return (
+      <GameResult
+        result={gameFinishedData}
+        players={room.players}
+        myTeam={myPlayer.team}
+        onHome={handleReturnHome}
+        isReturningHome={isReturningHome}
+      />
+    );
+  }
+
   return (
     <div
       className="arcade-game-page circolo-shell relative overflow-hidden"
       data-testid="game-table-page"
       data-current-turn-userid={currentTurnUserId ?? ""}
       data-briscola={currentRound?.briscola ?? ""}
-      data-game-finished={gameFinishedDialogOpen}
+      data-game-finished="false"
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(157_42%_25%_/_0.11),transparent_58%)]" />
 
@@ -502,30 +500,12 @@ const GameTable = () => {
       />
       {roundEndData && (
         <RoundEndDialog
-          open={roundEndDialogOpen}
-          onOpenChange={(open) => {
-            setRoundEndDialogOpen(open);
-            if (!open) {
-              dismissRoundEnd();
-            }
-          }}
-          roundNumber={roundEndData.roundNumber}
-          team0Points={roundEndData.team0Points}
-          team1Points={roundEndData.team1Points}
-          winnerTeam={roundEndData.winnerTeam}
+          open={showRoundSummary}
+          result={roundEndData}
+          totalPoints={totalPoints}
           myTeam={myPlayer?.team ?? null}
-        />
-      )}
-      {gameFinishedData && (
-        <GameFinishedDialog
-          open={gameFinishedDialogOpen}
-          winnerTeam={gameFinishedData.winnerTeam}
-          totalRounds={gameFinishedData.totalRounds}
-          finalScores={gameFinishedData.finalScores}
-          roundsWon={gameFinishedData.roundsWon}
-          myTeam={myPlayer?.team ?? null}
-          onHome={handleReturnHome}
-          isReturningHome={isReturningHome}
+          callerName={room.players.find((player) => player.userId === callerUserId)?.username ?? "Giocatore"}
+          practiceActions={practiceActions}
         />
       )}
     </div>

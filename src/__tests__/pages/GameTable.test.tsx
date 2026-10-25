@@ -82,7 +82,6 @@ const mocks = vi.hoisted(() => ({
     gameStateStatus: "ready" as "loading" | "ready" | "error",
     refetchGameState: vi.fn<() => Promise<void>>(),
     setRequestsEnabled: vi.fn(),
-    dismissRoundEnd: vi.fn(),
     applyLocalBriscola: vi.fn(),
   },
 }));
@@ -187,17 +186,15 @@ vi.mock("@/components/TrumpSuitDialog", () => ({
 vi.mock("@/components/RoundEndDialog", () => ({
   default: () => null,
 }));
-vi.mock("@/components/GameFinishedDialog", () => ({
+vi.mock("@/components/GameResult", () => ({
   default: ({
-    open,
     onHome,
     isReturningHome,
   }: {
-    open: boolean;
     onHome: () => Promise<void>;
     isReturningHome: boolean;
   }) =>
-    open ? (
+    (
       <button
         type="button"
         onClick={() => void onHome()}
@@ -205,7 +202,7 @@ vi.mock("@/components/GameFinishedDialog", () => ({
       >
         Torna alla Home
       </button>
-    ) : null,
+    ),
 }));
 const room = {
   id: 20,

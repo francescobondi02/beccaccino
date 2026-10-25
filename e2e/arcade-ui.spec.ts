@@ -2,6 +2,101 @@ import { test, expect } from "./helpers/fixtures";
 import type { GameStateResponse } from "../src/game/model";
 
 test.describe("Arcade interface", () => {
+  test("shows the round recap before dealing without restarting it on reload", async ({ page }) => {
+    const cards = ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
+      .map((value, index) => ({ id: 40 + index, suit: "coppe", value, playerId: 10, roundId: 31, inHand: true }));
+    await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
+    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
+      id: 20, code: "ROOM", started: true, finished: false, isPractice: true,
+      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
+        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
+      })),
+    } }));
+    let readyAt = 0;
+    await page.route("**/games/ROOM/state", (route) => {
+      if (!readyAt) readyAt = Date.now() + 8000;
+      const remainingMs = Math.max(0, readyAt - Date.now());
+      const state: GameStateResponse = {
+        status: "choosing_briscola", pausedAt: null,
+        round: { id: 31, number: 2, briscola: null, deal: { remainingMs, animationMs: 2400, reviewMs: 1600 } },
+        roundSummary: remainingMs > 4000 ? {
+          roundNumber: 1, team0Points: 6, team1Points: 5, team0Figures: 2, team1Figures: 0, winnerTeam: 0,
+        } : null,
+        callerUserId: 1, currentTurnUserId: 1, currentHandNumber: null,
+        myCards: cards, playedCards: [], lastHandCards: [],
+        totalPoints: { team0Points: 6, team1Points: 5, team0Figures: 2, team1Figures: 0 },
+        turnTimer: null, finishedGame: null, isPractice: true, allHands: null,
+      };
+      return route.fulfill({ json: state });
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/game/ROOM");
+    const recap = page.getByRole("dialog", { name: "Smazzata 1 conclusa" });
+    await expect(recap).toBeVisible();
+    await expect(recap.getByText("Totale: 6 punti · 2 figure")).toBeVisible();
+    await expect(recap.getByText("Prossima briscola: Giulia")).toBeVisible();
+    await expect(recap.getByRole("button", { name: "Chiudi", exact: true })).toBeHidden();
+    await recap.getByTestId("pause-practice-button").click({ trial: true });
+    await expect(page.getByTestId("card-deal")).toHaveCount(0);
+    await page.reload();
+    await expect(recap).toBeVisible();
+    await expect(recap).toBeHidden();
+    expect(Date.now()).toBeGreaterThanOrEqual(readyAt - 4200);
+    await expect(page.getByTestId("card-deal")).toBeAttached();
+    await expect(page.getByRole("dialog", { name: "Scegli la briscola" })).toBeVisible();
+    expect(Date.now()).toBeGreaterThanOrEqual(readyAt - 200);
+    expect(Date.now()).toBeLessThan(readyAt + 1800);
+  });
+
+  test("keeps full-page results after reload with optional tied awards", async ({ page }) => {
+    const state: GameStateResponse = {
+      status: "finished", pausedAt: null,
+      round: { id: 30, number: 1, briscola: "spade" },
+      callerUserId: 1, currentTurnUserId: null, currentHandNumber: null,
+      myCards: [], playedCards: [], lastHandCards: [],
+      totalPoints: { team0Points: 7, team1Points: 4, team0Figures: 1, team1Figures: 1 },
+      turnTimer: null, isPractice: true, allHands: null,
+      finishedGame: {
+        winnerTeam: 0, totalRounds: 1, finalScores: { team0: 7, team1: 4 }, roundsWon: { team0: 1, team1: 0 },
+        statistics: {
+          players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
+            playerId: 10 + seat, username, team: seat % 2, tricksWon: seat < 2 ? 5 : 0,
+            busso: seat < 2 ? 2 : 0, acesCaptured: seat === 2 ? 2 : 0, acesLost: seat === 1 ? 2 : 0,
+          })),
+          rounds: [{ number: 1, winnerTeam: 0, team0Points: 7, team1Points: 4, team0Figures: 1, team1Figures: 1 }],
+        },
+      },
+    };
+    await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
+    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
+      id: 20, code: "ROOM", started: true, finished: true, isPractice: true,
+      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
+        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
+      })),
+    } }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto("/game/ROOM");
+      await expect(page.getByTestId("game-result-page")).toBeVisible();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(page.getByText("Giulia, Luca", { exact: true })).toBeVisible();
+      await page.getByText("Punteggi delle smazzate", { exact: true }).click();
+      await expect(page.getByRole("cell", { name: "7 punti · 1 figure", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Torna alla lobby" }).click({ trial: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.reload();
+      await expect(page.getByTestId("game-result-page")).toBeVisible();
+      state.finishedGame!.statistics!.players.forEach((player) => {
+        player.busso = 0; player.acesCaptured = 0; player.acesLost = 0;
+      });
+      await page.reload();
+      await expect(page.getByRole("heading", { name: "Premi della partita" })).toHaveCount(0);
+      state.finishedGame!.statistics!.players[0].busso = 2;
+      state.finishedGame!.statistics!.players[1].busso = 2;
+    }
+  });
+
   for (const reducedMotion of ["no-preference", "reduce"] as const) {
     test(`deals to four players before trump selection (${reducedMotion})`, async ({ page }) => {
       await page.emulateMedia({ reducedMotion });

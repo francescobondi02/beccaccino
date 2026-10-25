@@ -1,7 +1,6 @@
 import type {
   GameFinishedPayload,
   NewRoundStartedPayload,
-  RoundEndedPayload,
 } from "@/sockets/events";
 import type {
   GameStateResponse,
@@ -49,9 +48,7 @@ export type GameTableAction =
       username: string;
     }
   | { type: "briscola_chosen"; briscola: string }
-  | { type: "round_ended"; data: RoundEndedPayload }
   | { type: "new_round_started"; data: NewRoundStartedPayload }
-  | { type: "round_end_dismissed" }
   | { type: "game_finished"; data: GameFinishedPayload }
   | { type: "turn_timer_started"; timer: TurnTimer }
   | { type: "completed_trick_released" };
@@ -120,6 +117,7 @@ export function gameTableReducer(
         currentHandNumber: data.currentHandNumber ?? null,
         totalPoints: data.totalPoints ?? EMPTY_POINTS,
         gameFinishedData: data.finishedGame ?? null,
+        roundEndData: data.roundSummary ?? null,
         isPractice: data.isPractice ?? false,
         allHands: data.allHands ?? null,
         moveLog: roundChanged ? [] : state.moveLog,
@@ -199,19 +197,6 @@ export function gameTableReducer(
           : state.currentRound,
       };
 
-    case "round_ended": {
-      const { data } = action;
-      return {
-        ...state,
-        roundEndData: {
-          roundNumber: data.roundNumber,
-          team0Points: data.team0.points,
-          team1Points: data.team1.points,
-          winnerTeam: data.winnerTeam,
-        },
-      };
-    }
-
     case "new_round_started":
       return {
         ...state,
@@ -235,9 +220,6 @@ export function gameTableReducer(
         moveLog: [],
         roundEndData: null,
       };
-
-    case "round_end_dismissed":
-      return { ...state, roundEndData: null };
 
     case "game_finished":
       return {

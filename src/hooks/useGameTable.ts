@@ -9,7 +9,6 @@ import {
 import type {
   CardPlayedPayload,
   BriscolaChosenPayload,
-  RoundEndedPayload,
   GameFinishedPayload,
   NewRoundStartedPayload,
   TurnTimerStartedPayload,
@@ -250,11 +249,6 @@ export function useGameTable(
       scheduleRefetch(300);
     };
 
-    const handleRoundEnded = (data: RoundEndedPayload) => {
-      invalidateStateRequests();
-      dispatch({ type: "round_ended", data });
-    };
-
     const handleNewRoundStarted = (data: NewRoundStartedPayload) => {
       invalidateStateRequests();
       playableRequestSequence.current += 1;
@@ -305,7 +299,6 @@ export function useGameTable(
     const unsubscribers = [
       subscribeToRoomEvent("card_played", handleCardPlayed),
       subscribeToRoomEvent("briscola_chosen", handleBriscolaChosen),
-      subscribeToRoomEvent("round_ended", handleRoundEnded),
       subscribeToRoomEvent("new_round_started", handleNewRoundStarted),
       subscribeToRoomEvent("game_finished", handleGameFinished),
       subscribeToRoomEvent("player_disconnected", handlePlayerDisconnected),
@@ -340,11 +333,6 @@ export function useGameTable(
     };
   }, [userId, username, gameRoomCode, refetchGameState, usernameOf, setRequestsEnabled]);
 
-  const dismissRoundEnd = useCallback(
-    () => dispatch({ type: "round_end_dismissed" }),
-    [],
-  );
-
   // Local echo of a briscola choice, so the caller's own UI updates without
   // waiting for the server's briscola_chosen event.
   const applyLocalBriscola = useCallback(
@@ -374,7 +362,6 @@ export function useGameTable(
     gameStateStatus,
     refetchGameState,
     setRequestsEnabled,
-    dismissRoundEnd,
     applyLocalBriscola,
   };
 }

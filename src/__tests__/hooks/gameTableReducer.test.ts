@@ -391,26 +391,17 @@ describe("gameTableReducer", () => {
     expect(state.turnTimer).toBeNull();
   });
 
-  it("round_ended stores the scores; round_end_dismissed clears them", () => {
+  it("restores round-summary points and figures from the authoritative snapshot", () => {
+    const summary = {
+      roundNumber: 2, team0Points: 6, team1Points: 5,
+      team0Figures: 1, team1Figures: 1, winnerTeam: 0,
+    };
     const ended = gameTableReducer(initialGameTableState, {
-      type: "round_ended",
-      data: {
-        roundNumber: 2,
-        team0: { points: 6, figures: 1 },
-        team1: { points: 5, figures: 1 },
-        winnerTeam: 0,
-        cricca: false,
-      },
+      type: "state_fetched",
+      data: { ...stateResponse, roundSummary: summary },
+      now: 1000,
     });
-    expect(ended.roundEndData).toEqual({
-      roundNumber: 2,
-      team0Points: 6,
-      team1Points: 5,
-      winnerTeam: 0,
-    });
-
-    const dismissed = gameTableReducer(ended, { type: "round_end_dismissed" });
-    expect(dismissed.roundEndData).toBeNull();
+    expect(ended.roundEndData).toEqual(summary);
   });
 
   it("new_round_started clears previous-round transient state", () => {

@@ -1,3 +1,5 @@
+import type { GameFinishedPayload } from "@/sockets/events";
+
 export type Signal = "striscio" | "busso" | "volo";
 export type PlayerPosition = "bottom" | "top" | "left" | "right";
 
@@ -53,6 +55,8 @@ export interface RoundEndData {
   roundNumber: number;
   team0Points: number;
   team1Points: number;
+  team0Figures?: number;
+  team1Figures?: number;
   winnerTeam: number;
 }
 
@@ -74,6 +78,7 @@ export interface RevealedHand {
 export interface GameStateResponse {
   status: "choosing_briscola" | "playing" | "paused" | "finished";
   pausedAt: string | null;
+  roundSummary?: RoundEndData | null;
   round: {
     id: number;
     number: number;
@@ -94,12 +99,7 @@ export interface GameStateResponse {
     totalMs: number;
     phase: string;
   } | null;
-  finishedGame: {
-    winnerTeam: number;
-    totalRounds: number;
-    finalScores: { team0: number; team1: number };
-    roundsWon: { team0: number; team1: number };
-  } | null;
+  finishedGame: GameFinishedPayload | null;
   isPractice: boolean;
   allHands: RevealedHand[] | null;
 }

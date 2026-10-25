@@ -32,7 +32,7 @@ src/
     GameChat.tsx        In-game chat panel (Socket.IO)
     LastTrickDialog.tsx View last completed trick
     RoundEndDialog.tsx  Round score summary
-    GameFinishedDialog.tsx  Game over with final scores
+    GameResult.tsx        Full-page final scores, team stats and match awards
     ui/                 shadcn/ui components (don't edit manually — use CLI to add new ones)
   sockets/
     events.ts           Typed client/server event contract
@@ -169,14 +169,22 @@ npx playwright show-report  # HTML report with traces after failures
 - Only the landing hero uses `lobby/LandingCardArtwork.tsx`: five decorative SVG
   illustrations inspired by the existing Italian deck, without poker corner indices.
   Keep these illustrations separate from `PlayingCard` and gameplay.
-- Practice games keep "Pausa e torna alla home" and the confirmed, destructive "Abbandona" action in the fixed bottom-right toolbar. Signal selection is non-modal so those controls stay accessible outside the signal choices. Briscola selection retains its own practice controls. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the results dialog's "Torna alla Home".
+- Practice games keep "Pausa e torna alla home" and the confirmed, destructive "Abbandona" action in the fixed bottom-right toolbar. Signal selection is non-modal so those controls stay accessible outside the signal choices. Briscola selection and round summaries retain their own practice controls. Paused practice games appear under "Allenamenti in pausa" on the home page and must be resumed before opening; direct paused game links show blocking resume/abandon controls. Pausing is explicit only, never triggered by disconnect or unmount. Multiplayer games have no mid-game exit; once finished, both use the full-page result's "Torna alla lobby".
 - Live games retain chat and "Ultima presa", which displays only the previous completed trick's four cards. No full practice history or revealed-hand controls, including in development.
 - Round starts enter the table immediately. The server's `round.deal` snapshot
   reserves 2.4 seconds to distribute cards to all seats and 1.6 seconds to read
   the hand before briscola selection. Later rounds first retain the completed
-  trick for 3 seconds. Remaining time is anchored to the client clock, so
+  score summary for 4 seconds instead of adding another collection pause.
+  `roundSummary` comes from the same snapshot, including after refresh.
+  Remaining time is anchored to the client clock, so
   reconnect does not replay the deal. Reduced motion keeps the reading time
   without flying cards; practice controls remain available throughout.
+- Finished results replace the table without a new route or automatic dismissal.
+  `game_finished` and refreshed snapshots carry the same statistics. Show only
+  positive-count awards (busso, enemy aces captured, own aces lost), including
+  all tied players. Per-round details use native `details`; no new tracking,
+  dependencies or permanent medal system. Missing statistics are supported
+  during rolling deployment; the existing scores remain visible.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`
 - Animations: card-from-bottom for chat; directional table-card animations for plays
 - Responsive: mobile-friendly layout, cards resize based on viewport
