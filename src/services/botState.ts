@@ -39,6 +39,7 @@ type SeatedCardDto = CardDto & { seat: number };
 export interface BotState {
   phase: "choose_briscola" | "play_card";
   briscola: string | null;
+  cricca: boolean;
   round_number: number;
   caller_seat: number;
   trick_starter: number;
@@ -196,6 +197,7 @@ export async function buildBotTurn(
   const state: BotState = {
     phase: round.briscola === null ? "choose_briscola" : "play_card",
     briscola: round.briscola,
+    cricca: round.cricca,
     round_number: round.number,
     caller_seat: callerSeat,
     // Before briscola is chosen nobody has led yet; the Python engine seeds

@@ -27,6 +27,9 @@ import {
   TurnIdentity,
 } from "../turn";
 
+// Match the frontend's completed-trick display before the next bot acts.
+const TRICK_DISPLAY_MS = 3_000;
+
 type PlayedCardInput = {
   handId: number;
   playerId: number;
@@ -263,6 +266,7 @@ async function playCardUnlocked({
           handId: nextHand.id,
           playedCardCount: 0,
         },
+        TRICK_DISPLAY_MS,
       );
     }
     publishEvents([cardEvent]);
@@ -466,6 +470,7 @@ async function playCardUnlocked({
         handId: null,
         playedCardCount: 0,
       },
+      TRICK_DISPLAY_MS,
     );
   }
   publishEvents(events);

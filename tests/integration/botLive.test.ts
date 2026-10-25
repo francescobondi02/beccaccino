@@ -5,6 +5,7 @@ import { getTurnTimerState } from "../../src/runtime/turnTimer";
 import { readPlayableCards } from "../../src/services/playableCards";
 import { ensureBotServiceReady } from "../../src/services/botClient";
 import { isBotTier } from "../../src/services/botUsers";
+import { logger } from "../../src/logger";
 
 /**
  * End-to-end against the REAL Python bot service — the only test that proves the
@@ -34,6 +35,7 @@ describeLive("Live bot service (real model)", () => {
   const POLL_INTERVAL_MS = 50;
 
   let userId: number;
+  let loggedErrors: jest.SpyInstance;
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -52,6 +54,7 @@ describeLive("Live bot service (real model)", () => {
   });
 
   beforeEach(async () => {
+    loggedErrors = jest.spyOn(logger, "error");
     await clearDatabase();
     const res = await api()
       .post("/api/users/register")
@@ -59,12 +62,29 @@ describeLive("Live bot service (real model)", () => {
     userId = res.body.id;
   });
 
+  afterEach(() => {
+    const fallbacks = loggedErrors.mock.calls.filter(
+      ([, message]) => message === "bot_fallback_to_autoplay",
+    );
+    loggedErrors.mockRestore();
+    expect(fallbacks).toHaveLength(0);
+  });
+
   /** Wait for the turn to come back to the human. */
   async function waitForHumanTurn(roomCode: string): Promise<void> {
     const deadline = Date.now() + SETTLE_TIMEOUT_MS;
     while (Date.now() < deadline) {
       const timer = getTurnTimerState(roomCode);
-      if (timer && !timer.isBot && timer.turnUserId === userId) return;
+      if (timer && !timer.isBot && timer.turnUserId === userId) {
+        if (timer.phase !== "choose_briscola") return;
+        const room = await prisma.gameRoom.findUniqueOrThrow({
+          where: { code: roomCode },
+        });
+        const response = await apiAs(userId, "human")
+          .post("/api/games/choose-briscola")
+          .send({ gameRoomId: room.id, suit: "denara" });
+        expect(response.statusCode).toBe(200);
+      }
 
       const room = await prisma.gameRoom.findUnique({ where: { code: roomCode } });
       if (room?.finished) return;
