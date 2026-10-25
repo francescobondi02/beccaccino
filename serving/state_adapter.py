@@ -106,7 +106,7 @@ def state_dict_to_game(state: dict[str, Any]) -> BeccaGame:
     game.round = RoundState(
         number=game.round_number,
         briscola=Suit(briscola) if briscola else None,
-        cricca=False,  # affects scoring only, and scores arrive pre-computed
+        cricca=state.get("cricca", False),
         caller_seat=int(state["caller_seat"]),
         hands_played=completed,
         current_trick=current,
@@ -172,6 +172,7 @@ def game_to_state_dict(game: BeccaGame, seat: int) -> dict[str, Any]:
     return {
         "phase": game.phase.value,
         "briscola": r.briscola.value if r.briscola else None,
+        "cricca": r.cricca,
         "round_number": r.number,
         "caller_seat": r.caller_seat,
         "trick_starter": r.trick_starter,

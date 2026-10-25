@@ -117,6 +117,18 @@ def build_cases() -> list[dict]:
         for seat in range(4)
     ]
 
+    game = BeccaGame(seed=SEED)
+    game.step(Suit.DENARA)
+    game.round.cricca = True
+    cases.append(
+        _case(
+            "cricca",
+            "The public Cricca declaration must reach the trained policy.",
+            game,
+            game.current_seat,
+        )
+    )
+
     return cases
 
 

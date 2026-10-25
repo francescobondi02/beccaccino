@@ -14,6 +14,7 @@ becca_env/
   rules.py         Follow-suit, trick winner, and round scoring
   game.py          Match state machine
   observation.py   Public and centralized observation encoders
+  kaggle_observation.py Frozen 1888-feature Kaggle inference layout
   env.py           Gymnasium environment and rewards
   signals.py       Shared signal convention
 training/
@@ -69,6 +70,11 @@ That full state is train-time only.
 The 462 and 470 prefixes remain loadable for legacy inference. They cannot
 resume current 518-feature training.
 
+The deployed Kaggle policy uses a separate frozen 1888-feature layout, dispatched
+by its artifact's input size. Its training source is preserved on
+`archive/kaggle-local-20261025`; do not resume it with the default 518-feature
+training encoder.
+
 ### Rewards and rollout
 
 - `reward` belongs to the current action.
@@ -110,8 +116,8 @@ resume current 518-feature training.
 
 - `/act` is the only inference contract. It accepts raw state and returns a
   briscola or card move.
-- `serving/models/run_d2_champion.pt` is the verified model-only artifact used
-  by both Run D2 tiers. Regenerate it only from the promoted source checkpoint.
+- `forte` uses `serving/models/kaggle_2026_10_25.pt`; `esperto` retains the
+  verified `serving/models/run_d2_champion.pt` artifact and PIMC.
 - Service startup preloads `forte`; `/health` is public for platform probes,
   while backend readiness uses authenticated `/ready` and moves use `/act`.
 - Render Free is the supported online target. The backend owns cold-start
