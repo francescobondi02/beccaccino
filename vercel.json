@@ -20,11 +20,17 @@
       "destination": "https://beccaccino-server.onrender.com/socket.io/"
     },
     {
-      "source": "/((?!assets/).*)",
+      "source": "/((?!assets/|version\\.json$).*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
+    {
+      "source": "/version.json",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [

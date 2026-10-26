@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
+import { useAppUpdate } from "./hooks/useAppUpdate";
 import LobbyPage from "./pages/LobbyPage";
 import NotFound from "./pages/NotFound";
 import "./styles/arcade.css";
@@ -19,40 +20,44 @@ const PreviewStudio = import.meta.env.DEV
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <ThemeProvider
-      attribute="data-ui"
-      defaultTheme="arcade"
-      forcedTheme="arcade"
-      themes={["arcade"]}
-      storageKey="becca-ui"
-      enableSystem={false}
-      enableColorScheme={false}
-    >
-      <Sonner />
-      <BrowserRouter>
-        <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
-          <Routes>
-            {import.meta.env.DEV && (
-              <Route path="/preview/profile" element={<Profile preview />} />
-            )}
-            {PreviewStudio && (
-              <Route path="/preview/*" element={<PreviewStudio />} />
-            )}
-            <Route path="/" element={<LobbyPage />} />
-            <Route path="/room/:roomCode" element={<GameRoom />} />
-            <Route path="/game/:gameRoomCode" element={<GameTable />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/leaderboard" element={<Leaderboard />} />
-            <Route path="/practice" element={<Practice />} />
-            <Route path="/annotate" element={<Annotation />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    </ThemeProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  useAppUpdate();
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider
+        attribute="data-ui"
+        defaultTheme="arcade"
+        forcedTheme="arcade"
+        themes={["arcade"]}
+        storageKey="becca-ui"
+        enableSystem={false}
+        enableColorScheme={false}
+      >
+        <Sonner />
+        <BrowserRouter>
+          <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
+            <Routes>
+              {import.meta.env.DEV && (
+                <Route path="/preview/profile" element={<Profile preview />} />
+              )}
+              {PreviewStudio && (
+                <Route path="/preview/*" element={<PreviewStudio />} />
+              )}
+              <Route path="/" element={<LobbyPage />} />
+              <Route path="/room/:roomCode" element={<GameRoom />} />
+              <Route path="/game/:gameRoomCode" element={<GameTable />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/leaderboard" element={<Leaderboard />} />
+              <Route path="/practice" element={<Practice />} />
+              <Route path="/annotate" element={<Annotation />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;
