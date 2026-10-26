@@ -48,6 +48,7 @@ test.describe("Responsive table", () => {
     });
     for (const [width, height, mode] of [
       [1280, 900, "multiplayer"], [1280, 720, "multiplayer"], [820, 1180, "multiplayer"],
+      [761, 900, "multiplayer"], [760, 900, "multiplayer"],
       [390, 844, "multiplayer"], [320, 700, "multiplayer"], [320, 700, "afk"], [320, 700, "practice"],
       [844, 390, "multiplayer"], [640, 360, "multiplayer"], [568, 320, "multiplayer"],
       [640, 360, "afk"], [568, 360, "practice"],
@@ -80,11 +81,18 @@ test.describe("Responsive table", () => {
         const score = rect(".arcade-score-panel");
         const seats = [...document.querySelectorAll("[data-player-user-id]")].map((seat) => seat.getBoundingClientRect());
         const cards = [...document.querySelectorAll("[data-card-user-id]")].map((card) => card.getBoundingClientRect());
+        const topCard = rect('[data-testid="table-card-position-top"]');
+        const bottomCard = rect('[data-testid="table-card-position-bottom"]');
+        const sideCards = ["left", "right"].map((position) => rect(`[data-testid="table-card-position-${position}"]`));
+        const desktop = matchMedia("(min-width: 761px) and (min-height: 541px)").matches;
         const bubbles = [...document.querySelectorAll(".signal-callout")]
           .filter((bubble) => getComputedStyle(bubble).display !== "none")
           .map((bubble) => bubble.getBoundingClientRect());
         const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         return [
+          ...sideCards.map((card, index) => desktop
+            ? (card.top < topCard.bottom || card.bottom > bottomCard.top) && `side card ${index} outside middle row`
+            : card.top < status.bottom && `side card ${index} above compact row`),
           ...cards.flatMap((card, index) => [
             seats.some((seat) => overlaps(card, seat)) && `card ${index} / seat`,
             overlaps(card, status) && `card ${index} / status`,
@@ -105,7 +113,7 @@ test.describe("Responsive table", () => {
         ].filter(Boolean);
       });
       expect(collisions, `${mode} ${width}x${height}`).toEqual([]);
-      if (height <= 540) {
+      if (height <= 540 || width >= 760) {
         await page.screenshot({ path: test.info().outputPath(`${mode}-${width}x${height}.png`) });
       }
       await expect(page.locator("[data-card-user-id]")).toHaveCount(0);

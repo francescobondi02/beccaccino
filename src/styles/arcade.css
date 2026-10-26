@@ -684,6 +684,15 @@ html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
 }
 .arcade-table-notice { min-height: 1.25rem; font-size: .75rem; color: hsl(var(--muted-foreground)); }
 
+@media (min-width: 761px) and (min-height: 541px) {
+  html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
+    grid-template-areas: ". top ." "left status right" ". bottom .";
+    grid-template-columns: 5rem minmax(0, 1fr) 5rem;
+    align-items: center;
+    width: min(600px, calc(100% - 360px));
+  }
+}
+
 @keyframes arcade-deal-flight {
   0% { opacity: 0; transform: translate(-50%, -50%) scale(.8); }
   15% { opacity: 1; }
