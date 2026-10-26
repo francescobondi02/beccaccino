@@ -201,6 +201,7 @@ test.describe("Arcade interface", () => {
   }
 
   test("keeps the table and hand space fixed after the last card", async ({ page }) => {
+    await page.routeWebSocket(/\/socket\.io\//, () => {});
     const card = {
       id: 40, suit: "coppe", value: "asso", playerId: 10, roundId: 30, inHand: true,
     };
