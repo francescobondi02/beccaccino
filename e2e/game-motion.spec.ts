@@ -1,8 +1,10 @@
 import { test, expect, type WebSocketRoute } from "@playwright/test";
 import type { GameStateResponse, PlayedCardData } from "../src/game/model";
 
+test.use({ hasTouch: true });
+
 test.describe("Responsive table", () => {
-  test.use({ hasTouch: true, screen: { width: 390, height: 844 } });
+  test.use({ screen: { width: 390, height: 844 } });
   test("keeps central messages, seats, cards and controls separate on every screen size", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     const players = ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
@@ -55,6 +57,9 @@ test.describe("Responsive table", () => {
     ] as const) {
       holdSnapshot = false;
       state.isPractice = mode === "practice";
+      state.round.briscola = height <= 540 ? "bastoni" : "spade";
+      state.totalPoints.team0Points = height <= 540 ? 40 : 0;
+      state.totalPoints.team1Points = height <= 540 ? 38 : 0;
       state.playerControls = players.map(({ userId, botModel }) => ({
         userId, botModel: userId === 1 && mode === "afk" ? "forte" : botModel, abandonedAt: null,
       }));
@@ -66,12 +71,7 @@ test.describe("Responsive table", () => {
       await expect(page.getByTestId("table-status")).toContainText("Marta dichiara busso");
       pendingSnapshots = 0;
       holdSnapshot = true;
-      if (!socket) throw new Error("Test socket is not connected");
-      socket.send(`42${JSON.stringify(["card_played", {
-        playerId: 10, userId: 1, suit: "coppe", value: "asso", position: 3, handNumber: 1,
-      }])}`);
-      await expect(page.locator("[data-card-user-id]")).toHaveCount(4);
-      const collisions = await page.evaluate(() => {
+      const collisions = () => page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
         const arena = rect(".arcade-arena");
         const status = rect('[data-testid="table-status"]');
@@ -82,21 +82,23 @@ test.describe("Responsive table", () => {
         const seats = [...document.querySelectorAll("[data-player-user-id]")].map((seat) => seat.getBoundingClientRect());
         const cards = [...document.querySelectorAll("[data-card-user-id]")].map((card) => card.getBoundingClientRect());
         const topCard = rect('[data-testid="table-card-position-top"]');
-        const bottomCard = rect('[data-testid="table-card-position-bottom"]');
+        const bottomCard = document.querySelector('[data-testid="table-card-position-bottom"]')?.getBoundingClientRect();
         const sideCards = ["left", "right"].map((position) => rect(`[data-testid="table-card-position-${position}"]`));
         const desktop = matchMedia("(min-width: 761px) and (min-height: 541px)").matches;
+        const mobile = matchMedia("(orientation: landscape) and (max-height: 540px) and (pointer: coarse)").matches;
         const bubbles = [...document.querySelectorAll(".signal-callout")]
           .filter((bubble) => getComputedStyle(bubble).display !== "none")
           .map((bubble) => bubble.getBoundingClientRect());
         const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         return [
-          ...sideCards.map((card, index) => desktop
-            ? (card.top < topCard.bottom || card.bottom > bottomCard.top) && `side card ${index} outside middle row`
+          ...sideCards.map((card, index) => desktop || mobile
+            ? (card.top < topCard.bottom || (bottomCard && card.bottom > bottomCard.top)) && `side card ${index} outside middle row`
             : card.top < status.bottom && `side card ${index} above compact row`),
           ...cards.flatMap((card, index) => [
             seats.some((seat) => overlaps(card, seat)) && `card ${index} / seat`,
             overlaps(card, status) && `card ${index} / status`,
             overlaps(card, notice) && `card ${index} / notice`,
+            mobile && overlaps(card, score) && `card ${index} / score`,
             bubbles.some((bubble) => overlaps(card, bubble)) && `card ${index} / signal bubble`,
             card.top < arena.top || card.bottom > arena.bottom ? `card ${index} outside table` : false,
             cards.some((other) => other !== card && overlaps(card, other)) && `card ${index} / card`,
@@ -105,14 +107,24 @@ test.describe("Responsive table", () => {
           seats.some((seat) => overlaps(notice, seat)) && "notice / seat",
           seats.some((seat, index) => seats.some((other, otherIndex) => index !== otherIndex && overlaps(seat, other))) && "seat / seat",
           overlaps(notice, score) && "notice / score",
+          mobile && seats.some((seat) => overlaps(seat, score)) && "seat / score",
           status.top < arena.top || status.bottom > arena.bottom ? "status outside table" : false,
           overlaps(hand, controls) && "hand / controls",
           seats.some((seat) => overlaps(seat, controls)) && "seat / controls",
           innerHeight <= 540 && hand.bottom > innerHeight && "hand outside viewport",
+          mobile && score.height > 40 && "mobile score is not compact",
+          mobile && arena.width < innerWidth - 100 && "mobile score still reserves a side rail",
+          mobile && rect('[data-testid="player-hand"] button').width < 44 && "mobile hand targets narrower than 44px",
           document.documentElement.scrollWidth > innerWidth && "horizontal overflow",
         ].filter(Boolean);
       });
-      expect(collisions, `${mode} ${width}x${height}`).toEqual([]);
+      expect(await collisions(), `During play: ${mode} ${width}x${height}`).toEqual([]);
+      if (!socket) throw new Error("Test socket is not connected");
+      socket.send(`42${JSON.stringify(["card_played", {
+        playerId: 10, userId: 1, suit: "coppe", value: "asso", position: 3, handNumber: 1,
+      }])}`);
+      await expect(page.locator("[data-card-user-id]")).toHaveCount(4);
+      expect(await collisions(), `Completed trick: ${mode} ${width}x${height}`).toEqual([]);
       const occupiedLayout = {
         arena: await page.locator(".arcade-arena").boundingBox(),
         hand: await page.getByTestId("player-hand").boundingBox(),
@@ -126,6 +138,18 @@ test.describe("Responsive table", () => {
         expect(await page.getByTestId("player-hand").boundingBox(), `Hand shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.hand);
       }
       expect(pendingSnapshots).toBeGreaterThan(0);
+      if (height <= 540) {
+        const cards = state.myCards;
+        state.myCards = [];
+        holdSnapshot = false;
+        await page.reload();
+        await expect(page.getByTestId("player-hand").getByRole("button")).toHaveCount(0);
+        expect(await page.locator(".arcade-arena").boundingBox(), `Mobile table shifted with an empty hand at ${width}x${height}`).toEqual(occupiedLayout.arena);
+        const emptyHand = await page.getByTestId("player-hand").boundingBox();
+        expect(emptyHand?.y).toEqual(occupiedLayout.hand?.y);
+        expect(emptyHand?.height).toEqual(occupiedLayout.hand?.height);
+        state.myCards = cards;
+      }
     }
   });
 });
@@ -190,6 +214,7 @@ for (const [view, reducedMotion, width, height] of [
     state.playedCards = [];
     await page.reload();
     await expect(page.getByTestId("game-layout")).toBeVisible();
+    if (view === "portrait") await page.getByRole("button", { name: "Continua in verticale", exact: true }).click();
     await expect.poll(() => Boolean(socket)).toBe(true);
     await expect(page.getByRole("button", { name: "Pausa effetti", exact: true })).toHaveCount(0);
 

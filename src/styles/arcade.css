@@ -770,6 +770,40 @@ html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
   html[data-ui="arcade"] .arcade-game-page .signal-callout { display: none; }
 }
 
+@media (orientation: landscape) and (max-height: 540px) and (pointer: coarse) {
+  html[data-ui="arcade"] .arcade-game-page {
+    --rail-l: 0px;
+    --hand-h: min(26dvh, calc((100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - var(--rail-r) - 60px) / 10 / .63));
+    --table-card-w: clamp(40px, 12dvh, 52px);
+    background: radial-gradient(ellipse at 45% 40%, hsl(260 50% 34%), hsl(260 49% 19%));
+  }
+  html[data-ui="arcade"] .arcade-game-page .arcade-game-layout { padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  html[data-ui="arcade"] .arcade-game-page .arcade-arena { border: 0; border-radius: 0; background: none; box-shadow: none; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-arena [data-testid="player-position-top"] { transform: translateX(40px); }
+  html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-seat { max-width: 84px; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
+    grid-template-areas: ". top ." "left status right" ". bottom .";
+    grid-template-rows: repeat(3, minmax(calc(var(--table-card-w) / .63), auto));
+    grid-template-columns: var(--table-card-w) minmax(0, 1fr) var(--table-card-w);
+    align-items: center;
+    gap: 2px 20px;
+    width: calc(100% - 208px);
+    height: auto;
+  }
+  html[data-ui="arcade"] .arcade-game-page .arcade-table-status { flex-direction: row; gap: 8px; width: 100%; min-height: 48px; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-table-notice { position: static; width: auto; max-height: none; overflow: visible; text-align: center; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-hand-area { padding-right: var(--rail-r); }
+  html[data-ui="arcade"] .arcade-game-page .arcade-score-dock { top: max(8px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: auto; max-width: calc(50vw - env(safe-area-inset-left) - 76px); }
+  html[data-ui="arcade"] .arcade-game-page .arcade-score-panel { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 8px; box-shadow: 2px 2px 0 hsl(260 100% 69%); }
+  html[data-ui="arcade"] .arcade-game-page .arcade-score-panel > .mb-2 { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-score-panel > .flex { flex-direction: row; flex-shrink: 0; gap: 8px; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-score-panel > .flex > .text-center { gap: 6px; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-mobile-trump { min-width: 0; margin: 0; padding: 0; border: 0; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-mobile-trump img { flex-shrink: 0; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-mobile-trump strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-game-tools { top: max(8px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 16px); }
+}
+
 /* Short landscape screens: dialogs must fit without scrolling past their actions,
    and page chrome shrinks so content starts above the fold. */
 @media (orientation: landscape) and (max-height: 540px) {
