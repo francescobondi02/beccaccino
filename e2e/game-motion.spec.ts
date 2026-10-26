@@ -113,10 +113,18 @@ test.describe("Responsive table", () => {
         ].filter(Boolean);
       });
       expect(collisions, `${mode} ${width}x${height}`).toEqual([]);
+      const occupiedLayout = {
+        arena: await page.locator(".arcade-arena").boundingBox(),
+        hand: await page.getByTestId("player-hand").boundingBox(),
+      };
       if (height <= 540 || width >= 760) {
         await page.screenshot({ path: test.info().outputPath(`${mode}-${width}x${height}.png`) });
       }
       await expect(page.locator("[data-card-user-id]")).toHaveCount(0);
+      if (width > 760 && height > 540) {
+        expect(await page.locator(".arcade-arena").boundingBox(), `Table shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.arena);
+        expect(await page.getByTestId("player-hand").boundingBox(), `Hand shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.hand);
+      }
       expect(pendingSnapshots).toBeGreaterThan(0);
     }
   });
