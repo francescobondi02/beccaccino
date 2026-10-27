@@ -1,6 +1,7 @@
 # BECCA — Beccaccino Online
 
-Real-time multiplayer Italian card game (Beccaccino) for 4 players in 2 teams. Playable in browser.
+Real-time multiplayer Italian card game (Beccaccino) for 4 players in 2 teams. Playable in browser
+and as an iOS/Android app built from the same frontend with Capacitor (see `MOBILE.md`).
 
 ## Architecture
 
@@ -57,6 +58,7 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 - Code language: English. UI text: Italian.
 - Prisma enums are lowercase strings: `denara`, `asso`, etc.
 - Auth: JWT in httpOnly cookie `authToken`. Socket.IO extracts it from handshake cookie header.
+  The mobile app sends the same JWT as `Authorization: Bearer` and Socket.IO `auth.token`.
 - Cookie config: `secure` in production, `sameSite: strict` (same-origin) or `none` (cross-origin deploy).
 - Turn timer: 60s for card play, 90s for briscola choice. Auto-play on timeout. Kick after 3 timeouts.
 - Points stored per round as real points + figures remainder in SEPARATE columns
@@ -94,6 +96,7 @@ Target stack: Render (backend Docker) + Neon (PostgreSQL, Frankfurt) + Vercel (f
 All auto-deploy from GitHub on push to main.
 Backend Dockerfile runs `prisma migrate deploy` on startup (idempotent).
 Cross-origin deploy requires cookie `sameSite: 'none'` + `secure: true`.
+Mobile apps ship through the App Store and Google Play, not on push (see `MOBILE.md`).
 
 ## Module Boundaries
 
