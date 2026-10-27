@@ -15,9 +15,80 @@ Quick reference for diagnosing and fixing production issues during beta. When so
 
 1. Open Sentry — is there a fresh error spike? Filter by `environment:production` and the last 30 minutes.
 2. Open Render → backend → Logs — search for `level:error` (or `"err"` in JSON logs).
-3. Open Vercel → frontend → Logs (or check Sentry replay if a session was captured).
+3. Open Sentry's frontend project for browser errors; use Vercel logs for build/deploy failures. Session Replay is disabled.
 4. Check Neon → Monitoring — connection count, slow queries, CPU.
-5. Confirm the backend is alive: `curl https://<backend>/health` should return `{"status":"ok"}`.
+5. Check `/health` for a live process, then `/ready` for DB connectivity and completed game recovery. Expected responses: `{"status":"ok"}` and `{"status":"ready"}`.
+
+## Production database
+
+Keep one production database on Neon. Local development and CI use separate
+databases; never run tests, seeds, `prisma db push`, or `migrate reset` against
+production.
+
+- `backend/prisma/schema.prisma` defines the tables. Keep applied migrations
+  unchanged; add a migration for each schema change.
+- The backend shares one Prisma client (`backend/src/db.ts`). On Render, use
+  the pooled host for `DATABASE_URL` and the direct host for `DIRECT_URL`
+  (migrations). Both must target the same production database and branch.
+- The production Docker command runs `prisma migrate deploy` before starting the
+  server. CI applies migrations to its test database, checks schema alignment,
+  and starts the production image.
+
+### What we keep
+
+| Data | Current policy |
+| ---- | -------------- |
+| Multiplayer games | Keep finished games: profiles and leaderboard use their history. Empty waiting rooms are deleted when the last player leaves. |
+| Practice games | Every 10 minutes, retire finished rooms and rooms inactive for at least 24 hours. Archive games with genuine human actions in `PracticeMatch` before deleting live rows, in one transaction. |
+| Practice archives and expert annotations | Keep for now. No automatic expiry. Review size before adding retention or deleting useful training data. |
+| Accounts | Account deletion marks the account deleted and preserves game history. |
+
+Do not delete tables or game rows just because they look old. Identify their
+owner and dependencies first. No extra databases, archive services, or cleanup
+jobs are needed for the current beta.
+
+### Backups: manual, bounded, free
+
+**Status:** this is the chosen procedure, not a verified Neon configuration.
+The console settings, existing snapshot, storage usage, and restore test still
+need an owner check. No backup schedule or production change was made.
+
+Provider limits checked on 2026-10-25: Neon Free includes 1 GB of database storage
+per project, one manual snapshot, and instant restore up to 6 hours or 1 GB of
+changes, whichever limit is reached first. Native scheduled snapshots require a
+paid plan. Check the console before relying on these limits.
+
+1. In Neon, select the production project and branch. Check Usage and the
+   **Backup & restore** history window.
+2. Keep one manual snapshot. Review its date monthly and before migrations,
+   imports, or deletions. Refresh it when useful data has changed, not on every
+   deploy. Do not automatically delete the only snapshot to free its slot;
+   replacing it needs an explicit decision and an available recovery path.
+3. After creating a snapshot, test **Restore > Multi-step restore** into a
+   separate temporary branch. Leave production connections unchanged. Check the
+   schema, migration history, and expected row counts. Record the snapshot date
+   and successful test date in the team's private operations notes.
+4. Delete only the temporary test branch after verification. Do not accumulate
+   backup branches. A monthly Usage review is enough for this inactive beta.
+
+Before a real recovery, pause writes, inspect the restore point in a separate
+branch, and confirm the expected data. Switching production to older data can
+discard newer changes; it requires explicit approval. Keep the current branch
+until recovery is verified.
+
+No external dumps, GitHub artifacts, paid schedules, or custom backup code for
+now. A snapshot on Neon does not protect against losing the whole Neon account
+or project.
+
+Sources: [Neon plans](https://neon.com/pricing) and
+[backup and restore](https://neon.com/docs/guides/backup-restore).
+
+### Idle compute
+
+The runtime reconciler queries the DB every 30 seconds by default; ops metrics
+query every 60 seconds. These reads prevent Neon's five-minute idle suspension
+while the backend is running, even without players. Storage and compute are
+different quotas. Check both in Usage; no polling settings were changed here.
 
 ## Logs — what to look for
 
@@ -31,24 +102,40 @@ Backend logs are structured JSON (pino). Useful queries inside Render's log sear
 | Card plays (the source of most bugs)  | `"card_played"`                                              |
 | Round/game outcomes                   | `"round_ended"` / `"game_finished"`                          |
 | Periodic ops metrics                  | `"ops_snapshot"` (active games, sockets, memory, every 60 s) |
-| Auto-play firing                      | `"auto_play_failed"` or `"turn_timer_recovered_after_restart"` |
+| Auto-play / runtime recovery           | `"auto_play_failed"`, `"active_runtime_recovery_complete"`, `"active_runtime_reconcile_complete"` |
 | Recent restarts                       | `"server_started"` / `"shutdown_initiated"`                  |
 | Any unhandled error                   | `"uncaught_exception"` / `"unhandled_rejection"`             |
 
 Every HTTP request gets a `req.id` (also returned in the `x-request-id` response header) so you can correlate a frontend network failure with backend logs.
 
-## Sentry — finding what a user saw
+## Sentry — minimal production error capture
 
-1. Sentry → Issues → search by user: `user.id:42` or `user.username:"alice"`.
-2. Click the issue → Replays tab → watch the session leading up to the error.
-3. Cross-reference the timestamp + `req.id` with Render logs.
+**Activation requires configuration and deployment:** set the Node project's
+`SENTRY_DSN` on Render (`NODE_ENV=production`) and the React project's
+`VITE_SENTRY_DSN` in Vercel's Production environment only. The frontend production
+workflow supplies its production marker and release SHA. Local development,
+tests, and ordinary preview builds do not initialize Sentry.
 
-User context is set on:
-- Login / register (`AuthDialog`)
-- `/users/me` checks on every page (Index, GameRoom, GameTable, Profile, Leaderboard)
-- Cleared on logout
+1. Open Issues and filter `environment:production`, time range, and release.
+2. Inspect the exception type, stack location, and `operation` tag. Backend
+   events may also include `roomCode` and `phase`.
+3. Cross-reference the timestamp, room code, and operation with Render logs
+   for the original error message and request ID.
 
-If a Sentry event is missing `user`, the user wasn't logged in or the page hadn't checked auth yet.
+Capture includes handled backend failures logged with `err` (timers, bots,
+recovery, sockets, and unexpected HTTP errors), unhandled browser errors,
+React render failures, and malformed successful API responses. Expected client
+errors and normal network reconnects are not issues.
+
+No user identity, raw exception messages, request payloads, game state, replay,
+tracing, profiling, breadcrumbs, or source-code uploads. Configure email alerts
+for new issues and regressions with a cooldown. After deployment, verify one
+controlled private smoke error and inspect its sanitized event; local tests
+alone do not prove delivery to the production Sentry account.
+
+To disable, unset the relevant DSN and restart the backend or rebuild the
+frontend. Quotas, retention, browser blockers, and offline clients limit capture.
+Logical gameplay bugs without an exception are not automatically detected.
 
 ## Common scenarios
 
@@ -57,11 +144,11 @@ If a Sentry event is missing `user`, the user wasn't logged in or the page hadn'
 1. Get the room code from the user.
 2. Render logs → search `"roomCode":"<CODE>"` for the last hour.
 3. Look for the last `card_played` event and the next expected turn (`turn_timer_started`).
-4. If the timer fired but `auto_play_failed` shows, that's a benign race (player clicked at the same time as the timeout). If neither fires, the server may have restarted — check `server_started` near that timestamp. The next state fetch will lazily restart the timer (`turn_timer_recovered_after_restart`).
+4. If `auto_play_failed` appears, inspect its error: it may be a player/timeout race or a DB failure. If the server restarted, check `active_runtime_recovery_complete` and `/ready`. Recovery runs at startup and retries periodically; it does not require a player refresh.
 
 ### "I can't log in"
 
-1. Sentry → look for `login_failed` or `register_user_failed`.
+1. Sentry → filter `operation:unhandled_error` for unexpected backend failures. Wrong passwords and other expected client errors are not captured.
 2. Render logs → look for that user's `req.id`.
 3. Common causes: wrong cookie domain (cross-origin deploy needs `sameSite:'none'` + `secure:true`), DB unreachable.
 
@@ -93,15 +180,15 @@ with `--apply` writes scenario rows.
 ### Backend down / health check failing
 
 1. Render → backend → Events tab. Was there a deploy? Did the container OOM?
-2. `/health` endpoint probes the DB. If it's 503, the failure is at the Neon side.
-3. Neon → Monitoring → connections. If at the pooler limit, restart Render service or temporarily raise `DATABASE_URL` `connection_limit`.
+2. `/health` only checks that the process is alive. `/ready` returns `503` with `database unreachable` or `runtime recovery incomplete`; check its reason and the recovery logs before blaming Neon.
+3. Neon → Monitoring → connections. If queries time out, check pool usage and errors. Do not increase the connection limit blindly.
 4. The Dockerfile runs `prisma migrate deploy` on startup. A migration failure crashes the container — check the very first log lines after a restart.
 
 ### Database connection exhaustion
 
 Symptoms: requests time out, `prisma client error: too many connections`.
 
-1. Confirm `DATABASE_URL` on Render uses the Neon **pooler** host (contains `-pooler`) and has `?connection_limit=5&pool_timeout=10` appended.
+1. Confirm `DATABASE_URL` on Render uses the Neon **pooler** host (contains `-pooler`). For this beta, start with `connection_limit=5` and `pool_timeout=10`. Add query parameters with `&` if the URL already has `?`; preserve SSL parameters.
 2. `DIRECT_URL` should be the non-pooled host (used by `migrate deploy` only). It
    must be **set** — Prisma fails schema validation on an unset `env()`, so a
    missing `DIRECT_URL` crashes the container at the startup `migrate deploy`
@@ -110,15 +197,14 @@ Symptoms: requests time out, `prisma client error: too many connections`.
 
 ### Sentry stack traces are minified
 
-Source maps are uploaded by:
-- **Frontend (Vercel)**: `vite build` runs `@sentry/vite-plugin` if `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` are set as Vercel env vars. The release tag comes from `VERCEL_GIT_COMMIT_SHA` (also set on `Sentry.init` via `VITE_SENTRY_RELEASE`).
-- **Backend (Render)**: Dockerfile runs `npm run sentry:sourcemaps` after `tsc`. Pass the same three secrets as build args, and `RENDER_GIT_COMMIT` for the release tag. Verify in Sentry → Releases that the SHA appears with attached source maps.
-
-Common gotcha: the release in `Sentry.init` must match the release passed to the upload step. Both default to the git commit, so they should agree as long as both are set.
+Source maps are not uploaded in this minimal setup. Browser stack locations
+refer to deployed JavaScript bundles; backend locations refer to compiled
+JavaScript. Match the release SHA before inspecting the corresponding local
+build. Do not add upload tokens or assume a source-map upload job exists.
 
 ## Known caveats
 
-- **Turn timers are in-memory.** A server restart mid-game wipes them. The first `getGameState` fetch after restart restores the active timer, so auto-play resumes — but the player may need to refresh. Documented at `backend/src/controllers/gameController.ts` (lazy timer recovery block).
+- **Turn timers are in-memory.** Startup recovery restores active games, excluding paused games. The runtime reconciler retries every 30 seconds by default (`RUNTIME_RECONCILE_INTERVAL_MS`). Failed recovery keeps `/ready` unavailable.
 - **Socket.IO sticky sessions.** If you scale Render to >1 instance you must enable a Redis adapter or sticky sessions. Currently single-instance.
 - **Leaderboard cache.** 60 s in-memory TTL. After a game finishes, the leaderboard may not update for up to a minute.
 
@@ -135,7 +221,7 @@ Common gotcha: the release in `Sentry.init` must match the release passed to the
 ## When things are really on fire
 
 - **Roll back**: Render → backend → Manual Deploy → previous successful commit. Vercel → frontend → Deployments → previous → Promote to Production.
-- **Database point-in-time restore**: Neon → Branches → restore to a timestamp before the incident.
+- **Database recovery**: follow the backup procedure above. Preview or restore into a separate branch first; never replace production blindly.
 - **Drop traffic**: Vercel → frontend → set environment to `paused`, or scale Render service to 0 instances.
 
 ## Add to this runbook
