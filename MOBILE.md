@@ -36,15 +36,31 @@ sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 cd frontend/android && ./gradlew assembleDebug   # app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Debug against a local backend
+One-time emulator setup (the `becca` virtual phone used below):
 
 ```bash
-cd frontend
-VITE_API_URL=http://localhost:8000/api VITE_SOCKET_URL=http://localhost:8000 npm run build:native
-cd android && ./gradlew assembleDebug
-adb reverse tcp:8000 tcp:8000          # device localhost:8000 -> this machine
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+sdkmanager "emulator" "system-images;android-36;google_apis;arm64-v8a"
+avdmanager create avd -n becca -k "system-images;android-36;google_apis;arm64-v8a" -d pixel_7
 ```
+
+## Run on Android against a local backend
+
+Start the local backend first (Postgres + `cd backend && npm run dev`, see `CLAUDE.md`), then:
+
+```bash
+cd frontend && npm run android:local
+```
+
+`scripts/android-local.sh` prints each step:
+
+1. Checks the backend answers on `localhost:8000`.
+2. Builds the web app in `native` mode, pointing at the local backend.
+3. Packages it as a debug APK (`./gradlew assembleDebug`).
+4. Starts the `becca` emulator, unless a phone or emulator is already connected.
+5. `adb reverse`: the phone's `localhost:8000` reaches this Mac.
+6. Installs and opens the app.
+
+Run it again after each frontend change.
 
 - Only debug builds allow plain `http` (`android/app/src/debug/AndroidManifest.xml`). Release builds are HTTPS-only.
 - Inspect the app WebView from `chrome://inspect` (Android) or Safari > Develop (iOS).
