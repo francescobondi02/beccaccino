@@ -31,6 +31,11 @@ interface GameBoardProps {
   fastCollection?: boolean;
   notice?: string | null;
   children?: ReactNode;
+  mobile?: boolean;
+  header?: ReactNode;
+  trumpChoice?: ReactNode;
+  selectedCard?: PlayerCard | null;
+  mobileActions?: ReactNode;
 }
 
 function travelOffset(from: DOMRect, to: DOMRect) {
@@ -73,6 +78,11 @@ export default function GameBoard({
   fastCollection = false,
   notice,
   children,
+  mobile = false,
+  header,
+  trumpChoice,
+  selectedCard,
+  mobileActions,
 }: GameBoardProps) {
   const board = useRef<HTMLDivElement>(null);
   const cardOrigin = useRef<{ key: string; rect: DOMRect } | null>(null);
@@ -86,7 +96,7 @@ export default function GameBoard({
       active.forEach((animation) => animation.cancel());
       active.clear();
     };
-  }, [reducedMotion]);
+  }, [reducedMotion, mobile]);
 
   useLayoutEffect(() => {
     if (!animatedCard || lastAnimatedCard.current === animatedCard) return;
@@ -139,7 +149,7 @@ export default function GameBoard({
       animation.cancel();
       active.delete(animation);
     });
-  }, [completedTrick, fastCollection, reducedMotion]);
+  }, [completedTrick, fastCollection, reducedMotion, mobile]);
 
   const playerAt = (position: PositionedPlayer["position"]) =>
     players.find((player) => player.position === position);
@@ -183,6 +193,89 @@ export default function GameBoard({
       />
     ) : null;
   };
+
+  const handCards = hand
+    .filter((card) => card.inHand)
+    .map((card, index) => {
+      const isPlayable = playableCards.some(
+        (playable) => playable.suit === card.suit && playable.value === card.value,
+      );
+      const isCurrentTurn = currentTurnUserId === currentUserId;
+      return (
+        <PlayingCard
+          key={card.id}
+          suit={card.suit}
+          value={card.value}
+          onClick={() => {
+            const element = board.current?.querySelector(`[data-testid="hand-card-${card.suit}-${card.value}"]`);
+            if (element) cardOrigin.current = {
+              key: `${card.suit}-${card.value}`,
+              rect: element.getBoundingClientRect(),
+            };
+            onCardClick(card);
+          }}
+          size="lg"
+          className={`xl:w-[5.5rem] xl:h-[7.75rem] xl:hover:scale-105 ${
+            presentingHand
+              ? index < deal.dealtCards
+                ? "arcade-deal-revealed !opacity-100 !grayscale-0"
+                : "invisible"
+              : ""
+          }`}
+          clickable={isCurrentTurn && isPlayable}
+          disabled={!isCurrentTurn || !isPlayable}
+          aria-pressed={mobile ? selectedCard?.id === card.id : undefined}
+          data-testid={`hand-card-${card.suit}-${card.value}`}
+        />
+      );
+    });
+
+  if (mobile) {
+    const message = [currentSignal && `${usernameOf(currentSignal.userId)} dichiara ${currentSignal.signal}`, notice]
+      .filter(Boolean).join(" · ");
+    return (
+      <div ref={board} className="mobile-lab mobile-lab-live" data-testid="game-layout">
+        {header}
+        <section className="mobile-lab-field" aria-label="Tavolo a quattro giocatori">
+          <div className="mobile-lab-felt" aria-hidden="true" />
+          {players.filter((player) => !player.isLocalPlayer).map((player) => (
+            <div className={`mobile-lab-seat mobile-lab-seat-${player.position}`} key={player.id} data-player-user-id={player.userId}>
+              <PlayerSeat player={player} isTurn={currentTurnUserId === player.userId} showRole signal={signalFor(player.userId)} />
+            </div>
+          ))}
+          <div className="mobile-lab-status" data-testid="table-status">
+            <div role="status" aria-live="polite" aria-atomic="true">
+              <strong>{selectedCard ? `${selectedCard.value} di ${selectedCard.suit === "denara" ? "denari" : selectedCard.suit}` : statusText}</strong>
+              <span className="mobile-lab-notice" title={message}>{selectedCard ? "Vuoi dichiarare un segnale?" : message}</span>
+            </div>
+            {countdown !== null && !completedTrick && !presentingHand && (
+              <span aria-label={`${countdown} secondi rimanenti`} className={`mobile-lab-countdown ${countdown <= 10 ? "text-destructive" : "text-primary"}`}>{countdown}s</span>
+            )}
+          </div>
+          {trumpChoice}
+          {playedCards.length > 0 && (
+            <div className="mobile-lab-trick" aria-label="Presa in corso" data-testid="game-table-center">
+              {players.map((player) => {
+                const card = playedCards.find((item) => item.userId === player.userId);
+                return (
+                  <div className="mobile-lab-slot" key={player.id} data-card-user-id={player.userId} data-winner={completedTrick?.winnerUserId === player.userId}>
+                    {card ? <PlayingCard suit={card.suit} value={card.value} size="lg" /> : <div className="mobile-lab-empty" aria-hidden="true" />}
+                    <span>{player.isLocalPlayer ? "Tu" : player.username}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {deal?.phase === "dealing" && <CardDeal key={hand[0]?.roundId} deal={deal} />}
+        </section>
+        <section className="mobile-lab-hand" aria-label="La tua mano" data-player-user-id={bottomPlayer?.userId}>
+          <div data-testid="player-hand">{handCards}</div>
+        </section>
+        {children}
+        {mobileActions}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -289,43 +382,7 @@ export default function GameBoard({
               className="h-28 w-20 xl:h-[7.75rem] xl:w-[5.5rem]"
             />
           )}
-          {hand
-            .filter((card) => card.inHand)
-            .map((card, index) => {
-              const isPlayable = playableCards.some(
-                (playable) =>
-                  playable.suit === card.suit &&
-                  playable.value === card.value,
-              );
-              const isCurrentTurn = currentTurnUserId === currentUserId;
-
-              return (
-                <PlayingCard
-                  key={card.id}
-                  suit={card.suit}
-                  value={card.value}
-                  onClick={() => {
-                    const element = board.current?.querySelector(`[data-testid="hand-card-${card.suit}-${card.value}"]`);
-                    if (element) cardOrigin.current = {
-                      key: `${card.suit}-${card.value}`,
-                      rect: element.getBoundingClientRect(),
-                    };
-                    onCardClick(card);
-                  }}
-                  size="lg"
-                  className={`xl:w-[5.5rem] xl:h-[7.75rem] xl:hover:scale-105 ${
-                    presentingHand
-                      ? index < deal.dealtCards
-                        ? "arcade-deal-revealed !opacity-100 !grayscale-0"
-                        : "invisible"
-                      : ""
-                  }`}
-                  clickable={isCurrentTurn && isPlayable}
-                  disabled={!isCurrentTurn || !isPlayable}
-                  data-testid={`hand-card-${card.suit}-${card.value}`}
-                />
-              );
-            })}
+          {handCards}
         </div>
 
         {bottomPlayer && (

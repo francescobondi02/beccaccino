@@ -15,7 +15,7 @@ import GameScoreHeader from "@/components/game/GameScoreHeader";
 import PausedPracticeDialog from "@/components/game/PausedPracticeDialog";
 import GameActions from "@/components/game/GameActions";
 import RotateDevicePrompt from "@/components/game/RotateDevicePrompt";
-import { AlertCircle, Crown, History, Loader2, Maximize2, RefreshCw } from "lucide-react";
+import { AlertCircle, Crown, Ellipsis, History, Loader2, Maximize2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
@@ -29,6 +29,8 @@ import { useGameTable } from "@/hooks/useGameTable";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useTurnCountdown } from "@/hooks/useTurnCountdown";
 import { useRoundDeal } from "@/hooks/useRoundDeal";
+import { useMobileTable } from "@/hooks/useMobileTable";
+import "@/styles/mobile-table.css";
 import type { PlayerCard, Signal } from "@/game/model";
 import { positionPlayers } from "@/game/presentation";
 import {
@@ -40,6 +42,7 @@ import {
 const GameTable = () => {
   const { gameRoomCode } = useParams();
   const navigate = useNavigate();
+  const mobile = useMobileTable();
   const {
     user,
     loading: authLoading,
@@ -103,6 +106,7 @@ const GameTable = () => {
   const [signalDialogOpen, setSignalDialogOpen] = useState(false);
 
   const [isPlayingCard, setIsPlayingCard] = useState(false);
+  const [isChoosingTrump, setIsChoosingTrump] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement));
 
   useEffect(() => {
@@ -239,6 +243,17 @@ const GameTable = () => {
     setConfirmPausedAbandon(false);
   }, [gameStatus]);
 
+  useEffect(() => {
+    if (pendingCard && (
+      currentTurnUserId !== userId ||
+      playedCards.length > 0 ||
+      !myCards.some((card) => card.id === pendingCard.id && card.inHand)
+    )) {
+      setPendingCard(null);
+      setSignalDialogOpen(false);
+    }
+  }, [pendingCard, currentTurnUserId, userId, playedCards.length, myCards]);
+
   const playersWithPositions = positionPlayers(
     (room?.players ?? []).map((player) => ({
       ...player,
@@ -287,6 +302,11 @@ const GameTable = () => {
 
     // If trick leader (no cards on table), show signal dialog
     if (playedCards.length === 0) {
+      if (mobile && pendingCard?.id === card.id) {
+        setPendingCard(null);
+        setSignalDialogOpen(false);
+        return;
+      }
       setPendingCard(card);
       setSignalDialogOpen(true);
       return;
@@ -297,6 +317,7 @@ const GameTable = () => {
   };
 
   const handleSignalSelect = async (signal: Signal | null) => {
+    if (isPlayingCard) return;
     setSignalDialogOpen(false);
     if (pendingCard) {
       await sendPlayCard(pendingCard, signal);
@@ -305,7 +326,8 @@ const GameTable = () => {
   };
 
   const handleTrumpSelect = async (suit: string) => {
-    if (!myPlayer || !room) return;
+    if (!myPlayer || !room || isChoosingTrump) return;
+    setIsChoosingTrump(true);
     try {
       await apiPost(`/games/choose-briscola`, {
         gameRoomId: room.id,
@@ -313,7 +335,7 @@ const GameTable = () => {
       });
       applyLocalBriscola(suit);
       setTrumpDialogOpen(false);
-      toast.success(`Briscola scelta: ${suit === "denara" ? "denari" : suit}`);
+      if (!mobile) toast.success(`Briscola scelta: ${suit === "denara" ? "denari" : suit}`);
     } catch (error) {
       if (error instanceof ApiError) {
         toast.error(error.body?.error || "Errore nella scelta della briscola");
@@ -321,6 +343,8 @@ const GameTable = () => {
         console.error("Error choosing briscola:", error);
         toast.error("Errore nella scelta della briscola");
       }
+    } finally {
+      setIsChoosingTrump(false);
     }
   };
 
@@ -458,9 +482,43 @@ const GameTable = () => {
     );
   }
 
+  const scoreHeader = (
+    <GameScoreHeader
+      mobile={mobile}
+      roomCode={gameRoomCode}
+      briscola={currentRound?.briscola}
+      roundNumber={currentRound?.number}
+      handNumber={currentHandNumber}
+      playerTeam={myPlayer.team}
+      totalPoints={totalPoints}
+    />
+  );
+  const signalChoice = (
+    <SignalDialog
+      inline={mobile}
+      disabled={isPlayingCard}
+      open={signalDialogOpen}
+      onOpenChange={(open) => {
+        setSignalDialogOpen(open);
+        if (!open) setPendingCard(null);
+      }}
+      onSelect={handleSignalSelect}
+    />
+  );
+  const trumpChoice = (
+    <TrumpSuitDialog
+      inline={mobile}
+      disabled={isChoosingTrump}
+      open={trumpDialogOpen && deal.phase === "ready"}
+      onSelectSuit={handleTrumpSelect}
+      myCards={myCards}
+      practiceActions={gameActions}
+    />
+  );
+
   return (
     <div
-      className="arcade-game-page circolo-shell relative overflow-hidden"
+      className={`${mobile ? "arcade-mobile-game-page" : "arcade-game-page"} circolo-shell relative overflow-hidden`}
       data-testid="game-table-page"
       data-current-turn-userid={currentTurnUserId ?? ""}
       data-briscola={currentRound?.briscola ?? ""}
@@ -471,16 +529,14 @@ const GameTable = () => {
       {/* Connection Status Banner */}
       <ConnectionBanner status={connectionStatus} />
 
-      <GameScoreHeader
-        roomCode={gameRoomCode}
-        briscola={currentRound?.briscola}
-        roundNumber={currentRound?.number}
-        handNumber={currentHandNumber}
-        playerTeam={myPlayer.team}
-        totalPoints={totalPoints}
-      />
+      {!mobile && scoreHeader}
 
       <GameBoard
+        mobile={mobile}
+        header={mobile ? scoreHeader : undefined}
+        trumpChoice={mobile ? trumpChoice : undefined}
+        selectedCard={mobile ? pendingCard : null}
+        mobileActions={mobile ? signalChoice : undefined}
         players={playersWithPositions}
         currentTurnUserId={currentTurnUserId}
         currentSignal={currentSignal}
@@ -494,11 +550,16 @@ const GameTable = () => {
         callerUserId={callerUserId}
         currentUserId={userId}
         hand={completedTrick && completedTrick.roundId !== currentRound?.id ? [] : myCards}
-        playableCards={myBotControlled ? [] : playableCards}
+        playableCards={myBotControlled || isPlayingCard ? [] : playableCards}
         onCardClick={(card) => void handleCardClick(card)}
         deal={deal}
       >
-        <div className="arcade-game-tools relative flex flex-wrap justify-end gap-2 self-end">
+        <div key="table-tools" className={mobile ? "mobile-game-menu" : "arcade-game-tools relative flex flex-wrap justify-end gap-2 self-end"}>
+          <details className={mobile ? undefined : "contents"} open={mobile ? undefined : true}>
+            <summary className={mobile ? undefined : "hidden"} aria-label="Opzioni della partita"><Ellipsis size={22} /></summary>
+            <div className={mobile ? "mobile-game-menu-panel" : "contents"}>
+          {mobile && <p>Smazzata {currentRound?.number ?? 1} · Presa {currentHandNumber ?? 1}/10</p>}
+          {mobile && notice && <p>{notice}</p>}
           <GameChat
             roomCode={gameRoomCode ?? ""}
             userId={userId}
@@ -523,7 +584,7 @@ const GameTable = () => {
               <span className="arcade-tool-label">Riprendi controllo</span>
             </Button>
           )}
-          {!myBotControlled && currentRound?.briscola === null && callerUserId === userId && (
+          {!mobile && !myBotControlled && currentRound?.briscola === null && callerUserId === userId && (
             <Button
               variant="default"
               size="sm"
@@ -535,27 +596,17 @@ const GameTable = () => {
               <span className="arcade-tool-label">Scegli la briscola</span>
             </Button>
           )}
-          {!trumpDialogOpen && gameActions}
+          {(!trumpDialogOpen || mobile) && gameActions}
+            </div>
+          </details>
         </div>
       </GameBoard>
 
       <RotateDevicePrompt />
 
       {/* Dialogs */}
-      <SignalDialog
-        open={signalDialogOpen}
-        onOpenChange={(open) => {
-          setSignalDialogOpen(open);
-          if (!open) setPendingCard(null);
-        }}
-        onSelect={handleSignalSelect}
-      />
-      <TrumpSuitDialog
-        open={trumpDialogOpen && deal.phase === "ready"}
-        onSelectSuit={handleTrumpSelect}
-        myCards={myCards}
-        practiceActions={gameActions}
-      />
+      {!mobile && signalChoice}
+      {!mobile && trumpChoice}
       <PausedPracticeDialog
         open={gameStatus === "paused"}
         confirmAbandon={confirmPausedAbandon}

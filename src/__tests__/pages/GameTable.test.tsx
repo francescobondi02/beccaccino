@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import type { ReactNode } from "react";
+import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameTable from "@/pages/GameTable";
 import type { CompletedTrick, PlayedCardData, PlayerControl, RoundEndData, RoundDeal } from "@/game/model";
@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  mobile: false,
+  chatMounts: 0,
   playerLeft: null as ((payload: { userId: number }) => void) | null,
   practiceAbandoned: null as
     | ((payload: { roomCode: string }) => void)
@@ -50,6 +52,7 @@ const mocks = vi.hoisted(() => ({
       value: string;
       position: number;
     }>,
+    animatedCard: null as PlayedCardData | null,
     playableCards: [
       {
         id: 40,
@@ -111,6 +114,9 @@ vi.mock("@/hooks/useGameTable", () => ({
 vi.mock("@/hooks/useConnectionStatus", () => ({
   useConnectionStatus: () => "connected",
 }));
+vi.mock("@/hooks/useMobileTable", () => ({
+  useMobileTable: () => mocks.mobile,
+}));
 vi.mock("@/sockets/roomHandlers", () => ({
   subscribeToRoomEvent: (
     event: string,
@@ -149,12 +155,14 @@ vi.mock("@/components/PlayingCard", () => ({
     onClick,
     clickable,
     "data-testid": testId,
+    "aria-pressed": pressed,
   }: {
     onClick: () => void;
     clickable: boolean;
     "data-testid"?: string;
+    "aria-pressed"?: boolean;
   }) => (
-    <button type="button" data-testid={testId} onClick={onClick} disabled={!clickable}>
+    <button type="button" data-testid={testId} aria-pressed={pressed} onClick={onClick} disabled={!clickable}>
       Carta
     </button>
   ),
@@ -171,21 +179,23 @@ vi.mock("@/components/PlayerSeat", () => ({
 vi.mock("@/components/ConnectionBanner", () => ({
   default: () => null,
 }));
-vi.mock("@/components/GameChat", () => ({
-  default: () => null,
-}));
-vi.mock("@/components/TrumpSuitDialog", () => ({
-  default: ({
-    open,
-    practiceActions,
-  }: {
-    open: boolean;
-    practiceActions?: ReactNode;
-  }) =>
-    open ? (
-      <div data-testid="trump-suit-dialog">{practiceActions}</div>
-    ) : null,
-}));
+vi.mock("@/components/GameChat", async () => {
+  const { useState } = await import("react");
+  return {
+    default: function MockGameChat() {
+      const [mount] = useState(() => ++mocks.chatMounts);
+      return <span data-testid="chat-instance">{mount}</span>;
+    },
+  };
+});
+vi.mock("@/components/TrumpSuitDialog", async () => {
+  const actual = await vi.importActual<typeof import("@/components/TrumpSuitDialog")>("@/components/TrumpSuitDialog");
+  return {
+    default: (props: ComponentProps<typeof actual.default>) => props.inline
+      ? <actual.default {...props} />
+      : props.open ? <div data-testid="trump-suit-dialog">{props.practiceActions}</div> : null,
+  };
+});
 vi.mock("@/components/RoundEndDialog", () => ({
   default: () => null,
 }));
@@ -288,6 +298,9 @@ describe("GameTable page behavior", () => {
     mocks.apiPost.mockReset();
     mocks.playerLeft = null;
     mocks.practiceAbandoned = null;
+    mocks.mobile = false;
+    mocks.chatMounts = 0;
+    mocks.gameHook.animatedCard = null;
     mocks.gameHook.currentRound = {
       id: 30,
       number: 1,
@@ -352,6 +365,83 @@ describe("GameTable page behavior", () => {
         signal: null,
       }),
     );
+  });
+
+  it("uses inline mobile selection, cancels without a request, and keeps chat and selection when rotating", async () => {
+    mocks.mobile = true;
+    const view = renderGameTable();
+    const card = await screen.findByTestId("hand-card-coppe-asso");
+    const chat = screen.getByTestId("chat-instance").textContent;
+    fireEvent.click(card);
+    expect(card).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("group", { name: "Segnale da dichiarare" })).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Annulla selezione" }));
+    expect(card).toHaveAttribute("aria-pressed", "false");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    fireEvent.click(card);
+    mocks.mobile = false;
+    view.rerender(gameTableRoute());
+    expect(screen.getByTestId("chat-instance")).toHaveTextContent(chat ?? "");
+    expect(mocks.chatMounts).toBe(1);
+    fireEvent.click(screen.getByTestId("signal-button-busso"));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/games/play-card", {
+      roomCode: "ROOM", suit: "coppe", value: "asso", signal: "busso",
+    }));
+  });
+
+  it("submits mobile trump choices through the real API and retains practice actions in the menu", async () => {
+    mocks.mobile = true;
+    usePracticeRoom();
+    mocks.gameHook.currentRound.briscola = null;
+    renderGameTable();
+    const choice = within(await screen.findByRole("region", { name: "Scegli la briscola." }));
+    expect(screen.queryByTestId("trump-suit-dialog")).not.toBeInTheDocument();
+    fireEvent.click(choice.getByRole("button", { name: "Denari" }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/games/choose-briscola", { gameRoomId: 20, suit: "denara" }));
+    expect(mocks.gameHook.applyLocalBriscola).toHaveBeenCalledWith("denara");
+    fireEvent.click(screen.getByLabelText("Opzioni della partita"));
+    fireEvent.click(screen.getByRole("button", { name: "Pausa e torna alla home" }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/pause", {}));
+  });
+
+  it("discards a pending mobile card when the server advances the turn", async () => {
+    mocks.mobile = true;
+    const view = renderGameTable();
+    fireEvent.click(await screen.findByTestId("hand-card-coppe-asso"));
+    mocks.gameHook.currentTurnUserId = 2;
+    view.rerender(gameTableRoute());
+    expect(screen.queryByRole("group", { name: "Segnale da dichiarare" })).not.toBeInTheDocument();
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("keeps card flight and trick collection animations in the mobile board", async () => {
+    const original = Element.prototype.animate;
+    const cancel = vi.fn();
+    const animate = vi.fn(() => ({ cancel, onfinish: null }));
+    Object.defineProperty(Element.prototype, "animate", { configurable: true, value: animate });
+    try {
+      mocks.mobile = true;
+      const view = renderGameTable();
+      await screen.findByTestId("game-layout");
+      const cards = room.players.map((player, position) => ({
+        playerId: player.id, userId: player.userId, suit: "spade",
+        value: ["tre", "due", "asso", "quattro"][position], position,
+      }));
+      mocks.gameHook.playedCards = [cards[0]];
+      mocks.gameHook.animatedCard = cards[0];
+      view.rerender(gameTableRoute());
+      expect(animate).toHaveBeenCalledTimes(1);
+      mocks.gameHook.playedCards = cards;
+      mocks.gameHook.completedTrick = { cards, winnerUserId: 1, roundId: 30 };
+      view.rerender(gameTableRoute());
+      expect(animate).toHaveBeenCalledTimes(5);
+      view.unmount();
+      expect(cancel).toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(Element.prototype, "animate", { configurable: true, value: original });
+      else Reflect.deleteProperty(Element.prototype, "animate");
+    }
   });
 
   it("shows only the previous trick's four cards instead of full practice history", async () => {

@@ -9,6 +9,7 @@ interface GameScoreHeaderProps {
   handNumber: number | null;
   playerTeam: number | null;
   totalPoints: TotalPoints;
+  mobile?: boolean;
 }
 
 export default function GameScoreHeader({
@@ -18,9 +19,29 @@ export default function GameScoreHeader({
   handNumber,
   playerTeam,
   totalPoints,
+  mobile = false,
 }: GameScoreHeaderProps) {
   const points = pointsForPlayerTeam(totalPoints, playerTeam);
   const briscolaLabel = briscola === "denara" ? "denari" : briscola;
+
+  if (mobile) {
+    return (
+      <header className="mobile-lab-header">
+        <div className="mobile-lab-brand"><strong>BECCA<span>.</span></strong><span>TAVOLO {roomCode}</span></div>
+        <div className="mobile-lab-score" aria-label={`Noi ${points.own}, loro ${points.opponents}. Smazzata ${roundNumber ?? 1}, presa ${handNumber ?? 1}`}>
+          <span>NOI <strong data-testid="my-team-points">{points.own}</strong></span>
+          <i aria-hidden="true">:</i>
+          <span><strong data-testid="opponent-team-points">{points.opponents}</strong> LORO</span>
+        </div>
+        <div className="mobile-lab-header-end">
+          <span className="mobile-lab-trump" aria-label={`Briscola: ${briscolaLabel ?? "da scegliere"}`}>
+            {briscola && <img src={`/images/semi/${briscola}_seme.png`} alt="" />}
+            <span className="capitalize">{briscolaLabel ?? "Briscola?"}</span>
+          </span>
+        </div>
+      </header>
+    );
+  }
 
   return (
     <>

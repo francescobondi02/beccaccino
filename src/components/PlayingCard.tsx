@@ -10,6 +10,7 @@ type PlayingCardProps = {
   disabled?: boolean;
   className?: string;
   "data-testid"?: string;
+  "aria-pressed"?: boolean;
 };
 
 // Mappa suit DB (denara) -> nome file immagine (denari)
@@ -45,6 +46,7 @@ const PlayingCard = ({
   disabled = false,
   className,
   "data-testid": dataTestId,
+  "aria-pressed": ariaPressed,
 }: PlayingCardProps) => {
   const [imgError, setImgError] = useState(false);
 
@@ -68,6 +70,7 @@ const PlayingCard = ({
       type={onClick ? "button" : undefined}
       disabled={onClick ? disabled || !clickable : undefined}
       aria-label={onClick ? `Gioca ${value} di ${suitFile}` : undefined}
+      aria-pressed={onClick ? ariaPressed : undefined}
       className={cn(
         "circolo-card relative overflow-hidden rounded-md border border-[hsl(39_45%_50%_/_0.52)] bg-card transition-[transform,box-shadow,border-color,opacity] duration-200",
         sizeClasses[size],
