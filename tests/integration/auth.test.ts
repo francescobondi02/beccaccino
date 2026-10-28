@@ -140,6 +140,78 @@ describe("Auth Lifecycle", () => {
       expect(res.statusCode).toBe(401);
     });
 
+    describe("Native login", () => {
+      beforeEach(async () => {
+        await request(getServer()).post("/api/users/register").send(credentials);
+      });
+
+      it("returns a bearer session without changing the browser cookie contract", async () => {
+        const login = await request(getServer())
+          .post("/api/users/native/login")
+          .send(credentials);
+
+        expect(login.statusCode).toBe(200);
+        expect(login.headers["set-cookie"]).toBeUndefined();
+        expect(login.headers["cache-control"]).toBe("no-store");
+        expect(login.body.user.username).toBe(credentials.username);
+        expect(login.body.user.password).toBeUndefined();
+        expect(typeof login.body.token).toBe("string");
+
+        const me = await request(getServer())
+          .get("/api/users/me")
+          .set("Authorization", `Bearer ${login.body.token}`);
+        expect(me.statusCode).toBe(200);
+        expect(me.body.id).toBe(login.body.user.id);
+
+        const browser = await request(getServer())
+          .post("/api/users/login")
+          .send(credentials);
+        expect(browser.statusCode).toBe(200);
+        expect(browser.body.token).toBeUndefined();
+        const cookie = browser.headers["set-cookie"][0].split(";")[0];
+        const browserMe = await request(getServer())
+          .get("/api/users/me")
+          .set("Cookie", cookie);
+        expect(browserMe.statusCode).toBe(200);
+        expect(browserMe.body.id).toBe(login.body.user.id);
+      });
+
+      it("rejects incorrect native credentials without issuing a token or cookie", async () => {
+        const response = await request(getServer())
+          .post("/api/users/native/login")
+          .send({ ...credentials, password: "wrongpass" });
+        expect(response.statusCode).toBe(401);
+        expect(response.body.token).toBeUndefined();
+        expect(response.headers["set-cookie"]).toBeUndefined();
+      });
+
+      it.each(["Basic invalid", "Bearer", "Bearer invalid.token.value"])(
+        "does not let invalid explicit authorization fall through to a cookie or test identity: %s",
+        async (authorization) => {
+          const browser = await request(getServer()).post("/api/users/login").send(credentials);
+          const response = await request(getServer())
+            .get("/api/users/me")
+            .set("Cookie", browser.headers["set-cookie"][0].split(";")[0])
+            .set("Authorization", authorization)
+            .set("x-test-user-id", String(browser.body.id));
+          expect(response.statusCode).toBe(401);
+        },
+      );
+
+      it("rejects a native token after the account is deleted", async () => {
+        const login = await request(getServer()).post("/api/users/native/login").send(credentials);
+        expect(login.statusCode).toBe(200);
+        await prisma.user.update({
+          where: { id: login.body.user.id },
+          data: { deletedAt: new Date(), password: null },
+        });
+        const response = await request(getServer())
+          .get("/api/users/me")
+          .set("Authorization", `Bearer ${login.body.token}`);
+        expect(response.statusCode).toBe(401);
+      });
+    });
+
     it("rejects a valid cookie after its user is deleted", async () => {
       const registerRes = await request(getServer())
         .post("/api/users/register")

@@ -100,6 +100,22 @@ backend/
   failures are logged and reported to Sentry but do not turn a committed
   request into an HTTP failure.
 
+## Native app authentication
+
+`POST /api/users/native/login` accepts the same username/password input as
+browser login and returns `{ user, token }` with `Cache-Control: no-store`, without
+setting a browser cookie. REST endpoints accept `Authorization: Bearer <token>`
+through the same active-account verifier used by cookies. Explicit malformed or
+expired Authorization never falls back to cookies or the test bypass.
+Browser login/registration response bodies and cookies are unchanged.
+
+The mobile app stores the token in platform-secure storage, scoped to the backend
+origin, and verifies `/api/users/me` when restoring the session. Native logout
+removes the device credential; JWT lifetime remains seven days, with no new
+server-side revocation or refresh scheme. Socket.IO transport remains cookie-only
+until native live-play integration. Use local/staging test accounts before
+deploying this additive API change; no migration is required.
+
 ## Database Management (Prisma)
 
 ```sh
