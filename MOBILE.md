@@ -43,22 +43,23 @@ sdkmanager "emulator" "system-images;android-36;google_apis;arm64-v8a"
 avdmanager create avd -n becca -k "system-images;android-36;google_apis;arm64-v8a" -d pixel_7
 ```
 
-## Run on Android against a local backend
+## Run on a phone simulator against a local backend
 
 Start the local backend first (Postgres + `cd backend && npm run dev`, see `CLAUDE.md`), then:
 
 ```bash
-cd frontend && npm run android:local
+cd frontend
+npm run android:local   # Android emulator `becca` (or a USB phone)
+npm run ios:local       # iOS simulator; pick one with IOS_SIMULATOR="<name>"
 ```
 
-`scripts/android-local.sh` prints each step:
+`scripts/mobile-local.sh` prints each step:
 
 1. Checks the backend answers on `localhost:8000`.
 2. Builds the web app in `native` mode, pointing at the local backend.
-3. Packages it as a debug APK (`./gradlew assembleDebug`).
-4. Starts the `becca` emulator, unless a phone or emulator is already connected.
-5. `adb reverse`: the phone's `localhost:8000` reaches this Mac.
-6. Installs and opens the app.
+3. Builds the native app (Android debug APK, or Xcode simulator build).
+4. Starts the emulator/simulator. Android also runs `adb reverse` so the phone's `localhost:8000` reaches this Mac; the iOS simulator shares the Mac's network.
+5. Installs and opens the app.
 
 Run it again after each frontend change.
 
@@ -71,10 +72,11 @@ Run it again after each frontend change.
 | Item | State |
 | ---- | ----- |
 | Token auth, CORS, native build mode | Done |
-| Landscape table, notch-safe layout | Done |
+| Landscape table, notch-safe layout (header clears the iOS status bar) | Done |
 | Android debug build, tested on emulator (login, room, game start) | Done |
 | Backend deployed with token auth | To do (the app cannot reach production until then) |
-| iOS build | To do (needs full Xcode) |
+| iOS simulator build and launch | Done (login and game not yet verified on iOS) |
+| iOS simulator for a standard iPhone (e.g. iPhone 17) | To do (installed iOS 27.1 runtime only supports iPhone Duo) |
 | Hide Android status/navigation bars on the table | To do |
 | App icons and splash screen | To do |
 | Push notifications ("your turn") | To do |
