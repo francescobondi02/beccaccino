@@ -30,11 +30,12 @@ async function startServer(maxSocketsPerIp = 1): Promise<string> {
   return `http://127.0.0.1:${address.port}`;
 }
 
-function clientFor(url: string, token?: string): ClientSocket {
+function clientFor(url: string, token?: string, nativeAuth?: Record<string, unknown>): ClientSocket {
   const client = createClient(url, {
     transports: ["websocket"],
     forceNew: true,
     reconnection: false,
+    auth: nativeAuth,
     extraHeaders: token
       ? { Cookie: `authToken=${token}` }
       : undefined,
@@ -68,6 +69,23 @@ function waitForConnectError(client: ClientSocket): Promise<Error> {
 }
 
 describe("Production server factory", () => {
+  it("accepts native tokens without cookies through the same active-account verifier", async () => {
+    const url = await startServer(2);
+    const { user, token } = await createSocketUser();
+    await expect(waitForConnect(clientFor(url, undefined, { token }))).resolves.toBeUndefined();
+    await prisma.user.update({ where: { id: user.id }, data: { deletedAt: new Date() } });
+    await expect(waitForConnectError(clientFor(url, undefined, { token }))).resolves.toMatchObject({
+      message: "Invalid or expired token",
+    });
+  });
+
+  it.each(["invalid.token", "", null, 7])("never falls back to a valid cookie for invalid native token %p", async (nativeToken) => {
+    const url = await startServer();
+    const { token } = await createSocketUser();
+    const error = await waitForConnectError(clientFor(url, token, { token: nativeToken }));
+    expect(["Authentication required", "Invalid or expired token"]).toContain(error.message);
+  });
+
   it("does not consume an IP slot when authentication is rejected", async () => {
     const url = await startServer();
     const rejected = clientFor(url);

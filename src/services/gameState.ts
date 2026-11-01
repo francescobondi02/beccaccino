@@ -99,8 +99,8 @@ async function readGameStateSnapshot(
     },
   });
   const lastCompletedHand = await client.hand.findFirst({
-    where: { roundId: currentRound.id, winnerId: { not: null } },
-    orderBy: { number: "desc" },
+    where: { round: { gameRoomId: gameRoom.id }, winnerId: { not: null } },
+    orderBy: [{ roundId: "desc" }, { number: "desc" }],
     include: {
       cards: {
         orderBy: { position: "asc" },
@@ -175,7 +175,15 @@ async function readGameStateSnapshot(
     myCards,
     currentTurnUserId,
     playedCards: serializePlayedCards(currentHand),
-    lastHandCards: serializePlayedCards(lastCompletedHand),
+    lastHandCards: lastCompletedHand?.roundId === currentRound.id
+      ? serializePlayedCards(lastCompletedHand)
+      : [],
+    lastCompletedTrick: lastCompletedHand ? {
+      roundId: lastCompletedHand.roundId,
+      handNumber: lastCompletedHand.number,
+      winnerUserId: gameRoom.players.find((player) => player.id === lastCompletedHand.winnerId)!.userId,
+      cards: serializePlayedCards(lastCompletedHand),
+    } : null,
     cumulative,
     finishedGame,
     roundSummary,
@@ -229,6 +237,7 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
     currentTurnUserId,
     playedCards,
     lastHandCards,
+    lastCompletedTrick,
     cumulative,
     finishedGame,
     roundSummary,
@@ -261,6 +270,7 @@ async function loadGameStateUnlocked(roomCode: string, userId: number) {
     currentTurnUserId: gameRoom.finished ? null : currentTurnUserId,
     playedCards,
     lastHandCards,
+    lastCompletedTrick,
     totalPoints: {
       team0Points: cumulative.team0.points,
       team1Points: cumulative.team1.points,

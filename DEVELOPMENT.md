@@ -112,9 +112,15 @@ Browser login/registration response bodies and cookies are unchanged.
 The mobile app stores the token in platform-secure storage, scoped to the backend
 origin, and verifies `/api/users/me` when restoring the session. Native logout
 removes the device credential; JWT lifetime remains seven days, with no new
-server-side revocation or refresh scheme. Socket.IO transport remains cookie-only
-until native live-play integration. Use local/staging test accounts before
+server-side revocation or refresh scheme. Socket.IO also accepts `auth.token`
+from native clients through the same active-account verifier; explicit invalid
+native tokens never fall back to cookies. Use local/staging test accounts before
 deploying this additive API change; no migration is required.
+
+Game snapshots also expose `lastCompletedTrick` (round ID, hand number, winner
+user ID and four played cards), including the previous round's last trick while
+the next round is dealing. Existing `lastHandCards` remains current-round only.
+Native card collection uses this persisted winner rather than recalculating rules.
 
 ## Database Management (Prisma)
 

@@ -35,6 +35,14 @@ describe("Game flow", () => {
     expect(state.body.finishedGame.statistics.players.reduce(
       (total: number, player: { tricksWon: number }) => total + player.tricksWon, 0,
     )).toBe(10);
+    const lastHand = await prisma.hand.findFirstOrThrow({
+      where: { roundId: round.id }, orderBy: { number: "desc" },
+    });
+    const winner = await prisma.player.findUniqueOrThrow({ where: { id: lastHand.winnerId! } });
+    expect(state.body.lastCompletedTrick).toMatchObject({
+      roundId: round.id, handNumber: 10, winnerUserId: winner.userId,
+    });
+    expect(state.body.lastCompletedTrick.cards).toHaveLength(4);
   });
 
   it("recovers the round summary only during the four-second presentation window", async () => {
@@ -52,6 +60,9 @@ describe("Game flow", () => {
     expect(summary.body.roundSummary).toMatchObject({ roundNumber: 1, winnerTeam: expect.any(Number) });
     expect(summary.body.round.deal.remainingMs).toBeGreaterThan(4000);
     expect(summary.body.round.deal.remainingMs).toBeLessThanOrEqual(8000);
+    expect(summary.body.lastHandCards).toEqual([]);
+    expect(summary.body.lastCompletedTrick).toMatchObject({ roundId: round.id, handNumber: 10 });
+    expect(summary.body.lastCompletedTrick.cards).toHaveLength(4);
     const nextRound = await prisma.round.findFirstOrThrow({
       where: { gameRoomId: round.gameRoomId, number: 2 },
     });
