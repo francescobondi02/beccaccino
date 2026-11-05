@@ -23,7 +23,7 @@ const router = Router();
 router.post("/register", authRateLimiter, register);
 router.post("/login", authRateLimiter, login);
 router.post("/native/login", authRateLimiter, nativeLogin);
-router.post("/logout", authenticateToken, logout);
+router.post("/logout", logout); // Always clears the cookie, even for a dead session
 router.get("/me", authenticateToken, getCurrentUser);
 router.get("/me/stats", authenticateToken, getUserStats);
 router.patch("/me", authenticateToken, updateCurrentUser);

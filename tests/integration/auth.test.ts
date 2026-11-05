@@ -268,14 +268,14 @@ describe("Auth Lifecycle", () => {
   });
 
   describe("POST /api/users/logout", () => {
-    it("clears the auth cookie", async () => {
-      await request(getServer()).post("/api/users/register").send(credentials);
+    it("clears the auth cookie even when the session is no longer valid", async () => {
+      const res = await request(getServer())
+        .post("/api/users/logout")
+        .set("Cookie", "authToken=expired.or.deleted");
 
-      const res = await request(getServer()).post("/api/users/logout");
-
-      // In test mode, auth is bypassed so logout endpoint is accessible
       expect(res.statusCode).toBe(200);
       expect(res.body.message).toMatch(/logged out/i);
+      expect(res.headers["set-cookie"][0]).toMatch(/^authToken=;.*Expires=Thu, 01 Jan 1970/);
     });
   });
 });
