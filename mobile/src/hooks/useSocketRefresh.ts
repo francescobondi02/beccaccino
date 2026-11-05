@@ -8,13 +8,13 @@ import { authFailures, openSocket } from '@/lib/socket';
 export default function useSocketRefresh(join: (socket: Socket) => void, events: readonly string[],
   refresh: () => void, onEvent?: (event: string) => void) {
   const [online, setOnline] = useState(false);
-  const [expired, setExpired] = useState(false);
   const latest = useRef({ join, events, refresh, onEvent });
   useEffect(() => { latest.current = { join, events, refresh, onEvent }; });
   useEffect(() => {
     let socket: Socket | null = null;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
     const reload = () => { clearTimeout(timer); timer = setTimeout(() => latest.current.refresh(), 150); };
     void openSocket().then((created) => {
       if (!active) return;
@@ -23,7 +23,9 @@ export default function useSocketRefresh(join: (socket: Socket) => void, events:
       socket.on('disconnect', () => setOnline(false));
       socket.on('connect_error', (cause: Error) => {
         setOnline(false);
-        if (authFailures.includes(cause.message)) { setExpired(true); created.disconnect(); }
+        if (authFailures.includes(cause.message)) created.disconnect();
+        // Middleware rejections stop Socket.IO's own reconnection; try again later.
+        else if (!created.active) { clearTimeout(retry); retry = setTimeout(() => created.connect(), 5000); }
       });
       socket.onAny((event: string) => {
         if (!latest.current.events.includes(event)) return;
@@ -31,18 +33,20 @@ export default function useSocketRefresh(join: (socket: Socket) => void, events:
         reload();
       });
       if (AppState.currentState === 'active') socket.connect();
-    }).catch(() => { if (active) setExpired(true); });
+    }).catch(() => {});
     const subscription = AppState.addEventListener('change', (state) => {
+      clearTimeout(retry);
       if (state === 'active') socket?.connect();
       else socket?.disconnect();
     });
     return () => {
       active = false;
       clearTimeout(timer);
+      clearTimeout(retry);
       subscription.remove();
       socket?.removeAllListeners();
       socket?.disconnect();
     };
   }, []);
-  return { online, expired };
+  return { online };
 }

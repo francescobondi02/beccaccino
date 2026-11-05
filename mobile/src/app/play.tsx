@@ -13,7 +13,7 @@ import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
 import { readLobby, readRoomCode, readWaitingRoom, type Lobby, type WaitingRoom } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
-import { sessionRequest } from '@/lib/session';
+import { sessionRequest, type SessionUser } from '@/lib/session';
 
 const lobbyEvents = ['room_created', 'room_updated', 'room_full', 'room_deleted'] as const;
 const roomColors = [colors.primary, colors.pink, colors.purple];
@@ -52,15 +52,13 @@ function RoomCard({ room, index, label, me, disabled, onPress }: {
   );
 }
 
-export default function PlayScreen() {
+function Lobby({ user }: { user: SessionUser }) {
   const router = useRouter();
-  const { state: session } = useSession();
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const request = useRef<AbortController | null>(null);
-  const signedIn = session.status === 'signedIn';
 
   const load = useCallback(async () => {
     const signal = request.current?.signal;
@@ -73,13 +71,12 @@ export default function PlayScreen() {
     }
   }, []);
   useFocusEffect(useCallback(() => {
-    if (!signedIn) return;
     const controller = new AbortController();
     request.current = controller;
     setPending(null);
     void load();
     return () => { controller.abort(); request.current = null; };
-  }, [load, signedIn]));
+  }, [load]));
   const { online } = useSocketRefresh((socket) => socket.emit('join_lobby'), lobbyEvents, () => void load());
 
   // Every action that creates or joins a room goes through here: one at a time, errors shown inline.
@@ -107,77 +104,78 @@ export default function PlayScreen() {
     `/room/${readWaitingRoom(await sessionRequest('/api/rooms/join', signal, { roomCode })).code}`);
   const validCode = /^[A-Z0-9]{6}$/.test(code);
 
-  if (!signedIn) return (
-    <SafeAreaView style={styles.screen}>
-      <ScreenHeader title="Gioca" />
-      <FitScreen>
-        <Panel style={styles.signedOut}>
-          <Text style={styles.eyebrow}>✳︎  SERVE UN ACCOUNT</Text>
-          <Text accessibilityRole="header" style={styles.title}>Siediti al tavolo.</Text>
-          <Text style={styles.body}>Accedi con il tuo account BECCA per allenarti con i bot o giocare con gli amici.</Text>
-          <ActionButton bolt label="Accedi per giocare" onPress={() => router.navigate('/account')} />
+  return (
+    <View style={styles.layout}>
+      <View style={styles.side}>
+        <Panel>
+          <Text style={styles.eyebrow}>✳︎  ALLENAMENTO</Text>
+          <Text style={styles.cardTitle}>Tu, il socio e due rivali: tutti bot allenati.</Text>
+          {lobby?.practice
+            ? <ActionButton bolt label="Riprendi" disabled={pending !== null}
+              onPress={() => router.push(`/game/${lobby.practice!.code}`)} />
+            : <ActionButton bolt label={pending === 'practice' ? 'Preparo il tavolo…' : 'Gioca contro i bot'}
+              disabled={!lobby || pending !== null} onPress={() => void startPractice()} />}
+          {pending === 'practice' && <Text style={styles.note}>Il primo avvio dei bot può richiedere fino a un minuto e mezzo.</Text>}
         </Panel>
-      </FitScreen>
-    </SafeAreaView>
+        <View style={styles.friends}>
+          <Text style={styles.eyebrow}>✳︎  CON GLI AMICI</Text>
+          <ActionButton secondary label={pending === 'create' ? 'Creo la stanza…' : 'Crea una stanza'}
+            disabled={!lobby || pending !== null} onPress={() => void create()} />
+          <View style={styles.codeRow}>
+            <TextInput accessibilityLabel="Codice stanza" placeholder="CODICE" placeholderTextColor="#6f6a7d"
+              value={code} onChangeText={(value) => setCode(value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+              autoCapitalize="characters" autoCorrect={false} maxLength={6} returnKeyType="go"
+              onSubmitEditing={() => { if (validCode) void join(code); }}
+              selectionColor={colors.primary} style={styles.codeInput} />
+            <ActionButton compact label="Entra" disabled={!validCode || pending !== null} onPress={() => void join(code)} />
+          </View>
+        </View>
+      </View>
+      <View style={styles.main}>
+        <View style={styles.listHeader}>
+          <Text accessibilityRole="header" style={styles.listTitle}>{lobby?.games.length ? 'LE TUE PARTITE' : 'STANZE APERTE'}</Text>
+          <View accessible accessibilityLabel={online ? 'Aggiornamento dal vivo attivo' : 'Aggiornamento dal vivo non disponibile'}
+            style={styles.live}>
+            <View style={[styles.liveDot, online && styles.liveDotOn]} />
+            <Text style={styles.liveText}>{online ? 'DAL VIVO' : 'OFFLINE'}</Text>
+          </View>
+        </View>
+        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+        {!lobby && !error && <ActivityIndicator accessibilityLabel="Carico le stanze" color={colors.primary} />}
+        {lobby?.games.slice(0, 2).map((room, index) => <RoomCard key={room.code} room={room} index={index} label="Rientra"
+          me={user.id} disabled={pending !== null} onPress={() => router.push(`/game/${room.code}`)} />)}
+        {!!lobby?.games.length && <Text accessibilityRole="header" style={[styles.listTitle, styles.subTitle]}>STANZE APERTE</Text>}
+        {lobby && lobby.open.length === 0 && (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Nessuna stanza aperta.</Text>
+            <Text style={styles.body}>Creane una e condividi il codice: i posti vuoti li possono coprire i bot.</Text>
+          </View>
+        )}
+        {lobby?.open.slice(0, visibleRooms - Math.min(2, lobby.games.length)).map((room, index) =>
+          <RoomCard key={room.code} room={room} index={index + 1} label="Entra" me={user.id}
+            disabled={pending !== null} onPress={() => void join(room.code)} />)}
+        {lobby && lobby.open.length > visibleRooms - Math.min(2, lobby.games.length) &&
+          <Text style={styles.note}>Altre stanze disponibili: entra con il codice.</Text>}
+      </View>
+    </View>
   );
+}
 
+export default function PlayScreen() {
+  const router = useRouter();
+  const { state: session } = useSession();
   return (
     <SafeAreaView style={styles.screen}>
       <ScreenHeader title="Gioca" />
       <FitScreen>
-        <View style={styles.layout}>
-          <View style={styles.side}>
-            <Panel>
-              <Text style={styles.eyebrow}>✳︎  ALLENAMENTO</Text>
-              <Text style={styles.cardTitle}>Tu, il socio e due rivali: tutti bot allenati.</Text>
-              {lobby?.practice
-                ? <ActionButton bolt label="Riprendi" disabled={pending !== null}
-                  onPress={() => router.push(`/game/${lobby.practice!.code}`)} />
-                : <ActionButton bolt label={pending === 'practice' ? 'Preparo il tavolo…' : 'Gioca contro i bot'}
-                  disabled={!lobby || pending !== null} onPress={() => void startPractice()} />}
-              {pending === 'practice' && <Text style={styles.note}>Il primo avvio dei bot può richiedere fino a un minuto e mezzo.</Text>}
-            </Panel>
-            <View style={styles.friends}>
-              <Text style={styles.eyebrow}>✳︎  CON GLI AMICI</Text>
-              <ActionButton secondary label={pending === 'create' ? 'Creo la stanza…' : 'Crea una stanza'}
-                disabled={!lobby || pending !== null} onPress={() => void create()} />
-              <View style={styles.codeRow}>
-                <TextInput accessibilityLabel="Codice stanza" placeholder="CODICE" placeholderTextColor="#6f6a7d"
-                  value={code} onChangeText={(value) => setCode(value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
-                  autoCapitalize="characters" autoCorrect={false} maxLength={6} returnKeyType="go"
-                  onSubmitEditing={() => { if (validCode) void join(code); }}
-                  selectionColor={colors.primary} style={styles.codeInput} />
-                <ActionButton compact label="Entra" disabled={!validCode || pending !== null} onPress={() => void join(code)} />
-              </View>
-            </View>
-          </View>
-          <View style={styles.main}>
-            <View style={styles.listHeader}>
-              <Text accessibilityRole="header" style={styles.listTitle}>{lobby?.games.length ? 'LE TUE PARTITE' : 'STANZE APERTE'}</Text>
-              <View accessible accessibilityLabel={online ? 'Aggiornamento dal vivo attivo' : 'Aggiornamento dal vivo non disponibile'}
-                style={styles.live}>
-                <View style={[styles.liveDot, online && styles.liveDotOn]} />
-                <Text style={styles.liveText}>{online ? 'DAL VIVO' : 'OFFLINE'}</Text>
-              </View>
-            </View>
-            {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-            {!lobby && !error && <ActivityIndicator accessibilityLabel="Carico le stanze" color={colors.primary} />}
-            {lobby?.games.slice(0, 2).map((room, index) => <RoomCard key={room.code} room={room} index={index} label="Rientra"
-              me={session.user.id} disabled={pending !== null} onPress={() => router.push(`/game/${room.code}`)} />)}
-            {!!lobby?.games.length && <Text accessibilityRole="header" style={[styles.listTitle, styles.subTitle]}>STANZE APERTE</Text>}
-            {lobby && lobby.open.length === 0 && (
-              <View style={styles.empty}>
-                <Text style={styles.emptyTitle}>Nessuna stanza aperta.</Text>
-                <Text style={styles.body}>Creane una e condividi il codice: i posti vuoti li possono coprire i bot.</Text>
-              </View>
-            )}
-            {lobby?.open.slice(0, visibleRooms - Math.min(2, lobby.games.length)).map((room, index) =>
-              <RoomCard key={room.code} room={room} index={index + 1} label="Entra" me={session.user.id}
-                disabled={pending !== null} onPress={() => void join(room.code)} />)}
-            {lobby && lobby.open.length > visibleRooms - Math.min(2, lobby.games.length) &&
-              <Text style={styles.note}>Altre stanze disponibili: entra con il codice.</Text>}
-          </View>
-        </View>
+        {session.status === 'signedIn' ? <Lobby key={session.user.id} user={session.user} /> : (
+          <Panel style={styles.signedOut}>
+            <Text style={styles.eyebrow}>✳︎  SERVE UN ACCOUNT</Text>
+            <Text accessibilityRole="header" style={styles.title}>Siediti al tavolo.</Text>
+            <Text style={styles.body}>Accedi con il tuo account BECCA per allenarti con i bot o giocare con gli amici.</Text>
+            <ActionButton bolt label="Accedi per giocare" onPress={() => router.navigate('/account')} />
+          </Panel>
+        )}
       </FitScreen>
     </SafeAreaView>
   );

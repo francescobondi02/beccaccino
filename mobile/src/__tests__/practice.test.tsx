@@ -19,7 +19,9 @@ jest.mock('expo-router', () => ({
     useEffect(callback, [callback]);
   },
 }));
-jest.mock('@/context/SessionContext', () => ({ useSession: () => ({ state: { status: 'signedIn', user: { id: 7, username: 'Socio' } }, retry: jest.fn() }) }));
+const signedIn = { status: 'signedIn', user: { id: 7, username: 'Socio' } };
+let mockSession: { status: string; user?: { id: number; username: string } };
+jest.mock('@/context/SessionContext', () => ({ useSession: () => ({ state: mockSession, retry: jest.fn() }) }));
 jest.mock('expo-secure-store', () => ({ getItemAsync: jest.fn() }));
 jest.mock('socket.io-client', () => ({ io: jest.fn() }));
 jest.mock('@/lib/haptics', () => ({ touchFeedback: jest.fn() }));
@@ -57,6 +59,7 @@ const renderGame = () => render(<SafeAreaProvider initialMetrics={{ frame: { x: 
 beforeEach(() => {
   jest.clearAllMocks();
   room.players = seated([7, 8, 9, 10]);
+  mockSession = signedIn;
   waitingMode = false;
   game = initialGame();
   waiting = { id: 3, code: 'ABC123', started: false, botTier: null, players: [{ userId: 7, team: null, isReady: false, user: { username: 'Socio' } }] };
@@ -252,6 +255,31 @@ it('lists open rooms live and joins one, by tap or by code', async () => {
   expect(screen.getByLabelText('Codice stanza')).toHaveDisplayValue('XYZ789');
   await fireEvent.press(screen.getByRole('button', { name: 'Entra' }));
   await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(2));
+});
+
+it('opens the lobby socket only once signed in', async () => {
+  mockSession = { status: 'signedOut' };
+  const view = await renderScreen(<PlayScreen />);
+  expect(screen.getByRole('button', { name: 'Accedi per giocare' })).toBeOnTheScreen();
+  expect(io).not.toHaveBeenCalled();
+  mockSession = signedIn;
+  await view.rerender(<SafeAreaProvider><PlayScreen /></SafeAreaProvider>);
+  await screen.findByRole('button', { name: 'Entra XYZ789, 1 su 4: Gianni' });
+  expect(socket.emit).toHaveBeenCalledWith('join_lobby');
+});
+
+it('retries the lobby socket after a non-authentication middleware rejection', async () => {
+  await renderScreen(<PlayScreen />);
+  await screen.findByRole('button', { name: 'Entra XYZ789, 1 su 4: Gianni' });
+  jest.useFakeTimers();
+  try {
+    socket.connect.mockClear();
+    socket.active = false;
+    await act(() => (handlers.connect_error as (cause: Error) => void)(new Error('Authentication unavailable')));
+    expect(socket.connect).not.toHaveBeenCalled();
+    await act(() => jest.advanceTimersByTime(5000));
+    expect(socket.connect).toHaveBeenCalledTimes(1);
+  } finally { jest.useRealTimers(); }
 });
 
 it('seats the player, marks ready and opens the table when the game starts', async () => {
