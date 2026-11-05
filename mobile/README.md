@@ -20,7 +20,6 @@ this app does not wrap it in a WebView. Both clients will use the existing backe
 cd mobile
 nvm use
 npm ci
-cp .env.example .env.local
 npx expo login         # sign in yourself; never share account credentials
 npm start
 ```
@@ -32,16 +31,15 @@ No USB cable, CocoaPods or custom native build is needed for this preview.
 
 The app currently provides a landscape home, a native rules guide, an offline
 guided trick, real username/password login, secure session restoration/logout,
-and a read-only backend readiness check. Rooms and full matches are not wired yet.
-Missing configuration is shown as
-a setup state, separately from network failures. Native stack navigation handles
+a server-backed **Gioca** hub (practice, live room list, create/join by code), a
+native waiting room and the shared live table for practice and multiplayer. Native stack navigation handles
 back gestures and platform transitions; touch controls have at least 48-point
 targets, and large text switches the home to a scrollable single-column layout.
 Home and tutorial use unmodified copies of the five real deck images from
 `frontend/public/images/cards/`, not the stylized SVG illustrations. These
 sources are only 63×100 pixels; enlarging them does not add detail, and
 Retina-quality rendering will require higher-resolution originals. Only the
-five cards currently used are bundled. No browser or WebView renders app screens.
+forty original cards are bundled. No browser or WebView renders app screens.
 
 The home fan consists of five native images with individual rotations, shadows,
 perspective and gentle floating motion. Pressing the artwork tilts the fan,
@@ -93,6 +91,66 @@ animation completion/cancellation and navigation. They do not prove native
 pixel geometry, VoiceOver/TalkBack behavior or device ergonomics. Validate those
 on real phones.
 
+## Interaction model
+
+Landscape, game-style and never scrolling. The home has one large **Gioca**
+button bottom-right (thumb zone), two tiles (Regole, Prova) and profile/sound
+controls on top. Rules and account open as sheets over the current screen
+(X or tap outside to close). Hand cards can be tapped (select, tap again to
+play), dragged onto the table, or long-pressed to preview; only server-legal
+cards are sent. Short original sound effects (`assets/sounds`, synthesized)
+use `expo-audio`, follow the iPhone silent switch and can be muted from the
+home or the in-game menu; the choice is stored on the device.
+
+## Playing
+
+**Fammi giocare** opens `/play`. It loads `GET /api/rooms/available`, joins the
+Socket.IO `lobby` and reloads on `room_*` events. Your started games appear
+under **Le tue partite** (Rientra); open rooms can be joined by tap or by the
+six-character code. **Crea una stanza** calls `POST /api/rooms`.
+
+The waiting room (`/room/[code]`) joins the room socket and reloads on
+player/team/ready/settings events. Tap a free seat to choose a team, choose a
+bot tier for empty seats, then **Sono pronto**; `game_started` opens the table.
+**Invita amici** uses the native share sheet. Multiplayer tables cannot pause:
+**Esci e torna dopo** keeps your seat, **Abbandona partita** hands it to a bot.
+
+### Practice against bots
+
+From **Gioca**, choose **Gioca contro i bot**. The hub discovers an
+existing active practice game before allowing creation, so reopening the app
+does not replace a saved game. Creation uses the existing `forte` policy and
+allows 90 seconds for the backend's 75-second bot readiness check. A failed
+creation is reconciled before a retry; mutations are never automatically resent.
+
+The native table uses the same REST mutations and Socket.IO room events as the
+website. The native socket sends its origin-bound token through `auth.token`;
+the server validates it using the existing active-account verifier. Reconnect
+rejoins the room with acknowledgement and fetches an authoritative snapshot
+and legal cards. Stale requests cannot overwrite newer socket notifications.
+The server supplies `lastCompletedTrick`, including its winner and round,
+so collection and history work across rounds without a second rules engine.
+
+Select a legal card, optionally choose a leader signal, then confirm with
+**Gioca**. All forty cards are available; a horizontal hand scroll keeps touch
+targets usable on small screens. Briscola choice, round scores, figures,
+timeouts, bot-control recovery, last-trick history and final scores come from
+the backend. The approved felt and card-flight components are shared with the
+offline exercise. Native-driver entry/lift/collection, system haptics and
+Android ripple provide touch feedback; reduced motion remains supported.
+
+**Pausa / menu** requests a real server pause. Returning to the practice screen
+is enabled only after the server confirms it. Backgrounding disconnects the
+socket and attempts a pause, but mobile suspension or missing connectivity can
+prevent that request: use explicit pause before leaving when it must be guaranteed.
+An interrupted app restores from the server rather than assuming it was paused.
+Abandoning requires confirmation and uses the existing archive-and-retire path.
+
+The backend must include native socket authentication and `lastCompletedTrick`;
+older deployments fail explicitly rather than simulating state. Local play
+requires the existing Python service and its approved trained model, with the
+same private `BOT_SERVICE_TOKEN` in the backend and bot processes.
+
 ## Native development builds
 
 Use a development build when adding native modules unavailable in Expo Go, and
@@ -110,13 +168,12 @@ Do not install native build tools or submit cloud builds merely to use Expo Go.
 
 ## Backend configuration
 
-Set `EXPO_PUBLIC_BACKEND_URL` in `.env.local` to the backend **origin**, without
-`/api`, and restart Metro. The check calls the existing `GET /ready` endpoint.
-It does not create accounts, rooms or database records.
-
-No backend is selected by default. Choose local or staging deliberately; do not
-silently point development builds at production. Existing accounts are available
-only when both clients use the same backend/database environment.
+The app uses production (`https://beccaccino-server.onrender.com`) by default,
+so it shares accounts and data with the website. Native login and live games
+require the native backend support (login, socket token, last trick) to be
+deployed there. To use a local backend instead, copy `.env.example` to
+`.env.local`, set `EXPO_PUBLIC_BACKEND_URL` to its **origin** (without `/api`)
+and restart Metro. Delete `.env.local` to return to production.
 
 On a physical phone, `localhost` means the phone. For Android Emulator, the
 host machine is normally `10.0.2.2`; iOS Simulator can reach the Mac's localhost.
@@ -146,17 +203,16 @@ cancelled on provider unmount; network calls time out after eight seconds.
 
 Logout deletes the device credential. It does not introduce server-side token
 revocation or refresh tokens; issued JWTs retain the existing seven-day policy.
-Socket.IO still authenticates through cookies and is not connected by the native
-client yet. Registration, profile editing and account deletion are also outside
+Socket.IO accepts native `auth.token` as well as existing browser cookies.
+Explicit invalid native tokens never fall back to cookies. Registration, profile editing and account deletion are outside
 this first integration slice. Expo authentication is not game authentication.
 
 For the approved local phone preview, the real backend runs separately on port
 8001 against `becca_mobile_dev`, not the website's local DB or public service.
 Only integration tests may reset the guarded `localhost/becca_test` database.
 Use test credentials on local HTTP. The preview signing key is ephemeral, so a
-backend restart invalidates saved preview sessions. Configure an explicit HTTPS
-staging origin before distribution; exporting JavaScript with `.env.local` is
-not a validated release configuration. Never disable native transport security.
+backend restart invalidates saved preview sessions. Remove `.env.local` before
+exporting a release so it targets the HTTPS production origin. Never disable native transport security.
 
 ## Architecture and platform rules
 
@@ -185,18 +241,18 @@ npm run doctor         # Expo project and native dependency diagnostics
 npm run export         # production JavaScript/assets for iOS and Android
 ```
 
-As of October 28, 2026, the live SDK version service recommends patch versions
-that are unavailable in the configured npm registry, including `expo ~58.0.20`
-versus the available `58.0.16`. The installed SDK's bundled version map agrees
-with the installed dependencies, but this does not replace online validation.
-`check:sdk` and the corresponding Doctor check remain failing; CI deliberately
-keeps this gate blocking. Do not force unavailable versions or suppress the check.
-Resolve this registry/version-service mismatch before declaring the setup fully
-validated or distributing builds.
+On October 31, 2026, the user approved temporarily restoring the locally
+installable Expo 58.0.16 / React Native 0.88.0 baseline. GitHub had successfully
+validated newer patches in commit `7ea2969`, but the corporate registry still
+returns 404 for React Native 0.88.1. The old lockfile is restored deliberately;
+the one-time auto-update workflow is removed to avoid undoing that decision.
+`npm ci` installs this development baseline. `check:sdk` remains required in CI
+and may fail against newer recommended patches: do not suppress that release
+gate. Retry alignment once the approved registry provides those versions.
 
 Doctor also reports missing CocoaPods on this Mac after generating the iOS
 project. CocoaPods is required for local native builds, not Expo Go previews.
-The October 28 dependency audit reports 23 findings, including 5 high-severity
+The October 31 dependency install reports 50 findings, including 4 high-severity
 findings in the Expo toolchain dependency tree. No forced SDK downgrades or
 dependency overrides have been applied. Review and resolve these findings before
 distribution; a successful JavaScript export is not a security clearance.

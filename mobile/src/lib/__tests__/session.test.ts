@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-import { clearSession, restoreSession, signIn } from '../session';
+import { clearSession, restoreSession, sessionRequest, signIn } from '../session';
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(), setItemAsync: jest.fn(), deleteItemAsync: jest.fn(),
@@ -116,5 +116,18 @@ it('aborts a stalled network request after eight seconds', async () => {
     expect(SecureStore.setItemAsync).not.toHaveBeenCalled();
   } finally {
     jest.useRealTimers();
+  }
+});
+
+it('does not send native credentials to a different request origin', async () => {
+  const previous = process.env.EXPO_PUBLIC_BACKEND_URL;
+  process.env.EXPO_PUBLIC_BACKEND_URL = origin;
+  jest.mocked(SecureStore.getItemAsync).mockResolvedValue(saved);
+  try {
+    await expect(sessionRequest('https://another.example/api', controller.signal)).rejects.toThrow('backend della sessione');
+    expect(fetchMock).not.toHaveBeenCalled();
+  } finally {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_BACKEND_URL;
+    else process.env.EXPO_PUBLIC_BACKEND_URL = previous;
   }
 });

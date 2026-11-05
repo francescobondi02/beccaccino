@@ -1,11 +1,10 @@
-export function backendOrigin(backendUrl: string | undefined): URL {
-  if (!backendUrl?.trim()) {
-    throw new Error('Configura EXPO_PUBLIC_BACKEND_URL e riavvia Metro.');
-  }
+export const productionBackend = 'https://beccaccino-server.onrender.com';
 
+// The app talks to production unless EXPO_PUBLIC_BACKEND_URL points elsewhere (e.g. .env.local in development).
+export function backendOrigin(backendUrl: string | undefined): URL {
   let url: URL;
   try {
-    url = new URL(backendUrl);
+    url = new URL(backendUrl?.trim() || productionBackend);
   } catch {
     throw new Error('EXPO_PUBLIC_BACKEND_URL deve essere un indirizzo valido.');
   }
@@ -20,19 +19,4 @@ export function backendOrigin(backendUrl: string | undefined): URL {
     throw new Error('Le build di distribuzione richiedono un backend HTTPS.');
   }
   return url;
-}
-
-export async function checkBackendReadiness(
-  backendUrl: string | undefined,
-  signal: AbortSignal,
-): Promise<void> {
-  const url = backendOrigin(backendUrl);
-  const response = await fetch(new URL('/ready', url).toString(), { signal });
-  if (!response.ok) {
-    throw new Error(`Il server non è pronto (HTTP ${response.status}).`);
-  }
-  const body: unknown = await response.json();
-  if (typeof body !== 'object' || body === null || !('status' in body) || body.status !== 'ready') {
-    throw new Error('Il server ha restituito una risposta non riconosciuta.');
-  }
 }

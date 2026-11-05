@@ -1,9 +1,10 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useState } from 'react';
+import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
 
 import ActionButton from '@/components/ActionButton';
-import { colors } from '@/constants/theme';
+import Sheet from '@/components/Sheet';
+import { colors, fonts } from '@/constants/theme';
 
 const rules = [
   {
@@ -30,52 +31,56 @@ const rules = [
 
 export default function RulesScreen() {
   const router = useRouter();
+  const [page, setPage] = useState(0);
+  const rule = rules[page];
+  const [slide] = useState(() => new Animated.Value(0));
+  const go = (next: number) => {
+    if (next < 0 || next >= rules.length) return;
+    slide.setValue(next > page ? 40 : -40);
+    setPage(next);
+  };
+  useEffect(() => {
+    const animation = Animated.spring(slide, { toValue: 0, damping: 16, stiffness: 200, useNativeDriver: true });
+    animation.start();
+    return () => animation.stop();
+  }, [page, slide]);
+  // Horizontal swipe flips rules like cards; the arrow buttons remain for accessibility.
+  const swipe = PanResponder.create({
+    onMoveShouldSetPanResponder: (_, { dx, dy }) => Math.abs(dx) > 15 && Math.abs(dx) > Math.abs(dy),
+    onPanResponderRelease: (_, { dx }) => { if (Math.abs(dx) > 40) go(dx < 0 ? page + 1 : page - 1); },
+  });
 
+  const close = () => router.canGoBack() ? router.back() : router.replace('/');
   return (
-    <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.intro}>
-          <Text style={styles.eyebrow}>QUATTRO AMICI. DUE SQUADRE.</Text>
-          <Text accessibilityRole="header" style={styles.title}>Le basi. Poi ci metti del tuo.</Text>
-          <Text style={styles.subtitle}>Non devi sapere tutto subito. Parti dal tuo socio.</Text>
+    <Sheet title="Come si gioca" onClose={close} width={640}>
+      <Animated.View {...swipe.panHandlers} style={[styles.copyCard, { transform: [{ translateX: slide }],
+        opacity: slide.interpolate({ inputRange: [-40, 0, 40], outputRange: [0, 1, 0] }) }]}>
+        <Text accessible={false} importantForAccessibility="no" style={styles.number}>{String(page + 1).padStart(2, '0')}</Text>
+        <Text accessibilityRole="header" style={styles.heading}>{rule.title}</Text>
+        <Text accessibilityLiveRegion="polite" style={styles.description}>{rule.body}</Text>
+      </Animated.View>
+      <View style={styles.pager}>
+        <ActionButton compact secondary label="Regola precedente" glyph="‹" disabled={page === 0} onPress={() => go(page - 1)} />
+        <View accessible accessibilityLabel={`Regola ${page + 1} di ${rules.length}`} style={styles.dots}>
+          {rules.map((item, index) => <View key={item.title} style={[styles.dot, index === page && styles.dotActive]} />)}
         </View>
-        {rules.map((rule, index) => (
-          <View key={rule.title} style={styles.rule}>
-            <Text accessible={false} importantForAccessibility="no" style={styles.number}>{String(index + 1).padStart(2, '0')}</Text>
-            <View style={styles.copy}>
-              <Text accessibilityRole="header" style={styles.heading}>{rule.title}</Text>
-              <Text style={styles.description}>{rule.body}</Text>
-            </View>
-          </View>
-        ))}
-        <View style={styles.action}>
-          <ActionButton
-            label="Prova una presa"
+        {page === rules.length - 1
+          ? <ActionButton compact bolt label="Prova una presa"
             accessibilityHint="Metti in pratica le regole in una breve prova guidata offline"
-            onPress={() => router.navigate('/tutorial')}
-          />
-          <ActionButton
-            secondary label="Tutto chiaro"
-            accessibilityHint="Torna alla home"
-            onPress={() => router.canGoBack() ? router.back() : router.replace('/')}
-          />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+            onPress={() => router.replace('/tutorial')} />
+          : <ActionButton compact secondary label="Regola successiva" glyph="›" onPress={() => go(page + 1)} />}
+      </View>
+    </Sheet>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  content: { flexGrow: 1, padding: 24, gap: 24, maxWidth: 880, width: '100%', alignSelf: 'center' },
-  intro: { gap: 10, paddingBottom: 8 },
-  eyebrow: { color: colors.primary, fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
-  title: { color: colors.text, fontSize: 32, fontWeight: '900', letterSpacing: -0.5 },
-  subtitle: { color: colors.muted, fontSize: 17, lineHeight: 26 },
-  rule: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
-  number: { color: colors.primary, fontSize: 18, fontWeight: '900', paddingTop: 3 },
-  copy: { flex: 1, gap: 8 },
-  heading: { color: colors.text, fontSize: 20, fontWeight: '800' },
-  description: { color: colors.muted, fontSize: 17, lineHeight: 27 },
-  action: { maxWidth: 340, width: '100%', paddingTop: 8, gap: 12 },
+  number: { color: colors.pink, fontSize: 28, fontWeight: '900', fontStyle: 'italic' },
+  heading: { color: colors.text, fontSize: 20, fontWeight: '900' },
+  description: { ...fonts.body, color: colors.muted, fontSize: 16, lineHeight: 24, minHeight: 100 },
+  copyCard: { gap: 8 },
+  pager: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dots: { flexDirection: 'row', gap: 6 },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.line },
+  dotActive: { width: 22, backgroundColor: colors.primary },
 });

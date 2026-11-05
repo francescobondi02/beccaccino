@@ -4,12 +4,15 @@ import { AccessibilityInfo, Animated, AppState, Dimensions, StyleSheet } from 'r
 
 import RootLayout from '@/app/_layout';
 import AccountScreen from '@/app/account';
-import ConnectionScreen from '@/app/connection';
 import HomeScreen from '@/app/index';
 import RulesScreen from '@/app/rules';
 import TutorialScreen from '@/app/tutorial';
+import PlayScreen from '@/app/play';
+import RoomScreen from '@/app/room/[code]';
+import GameScreen from '@/app/game/[code]';
 
-const routes = { _layout: RootLayout, index: HomeScreen, rules: RulesScreen, tutorial: TutorialScreen, connection: ConnectionScreen, account: AccountScreen };
+const routes = { _layout: RootLayout, index: HomeScreen, rules: RulesScreen, tutorial: TutorialScreen, account: AccountScreen,
+  play: PlayScreen, 'room/[code]': RoomScreen, 'game/[code]': GameScreen };
 const originalWindow = Dimensions.get('window');
 const originalScreen = Dimensions.get('screen');
 const originalBackendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -38,9 +41,9 @@ it.each([
   Dimensions.set({ window: { ...size, scale: 3 }, screen: { ...size, scale: 3 } });
   const app = await renderRouter(routes);
   expect(screen.getByTestId('home-card-artwork', { includeHiddenElements: true })).toHaveStyle({
-    width: '100%', height: Math.min(240, size.height * 0.45),
+    width: '100%', height: Math.min(220, size.height * 0.52),
   });
-  const artworkHeight = Math.min(240, size.height * 0.45);
+  const artworkHeight = Math.min(220, size.height * 0.52);
   const artworkWidth = size.width < size.height || size.fontScale >= 1.4 ? 300 : 180;
   await fireEvent(screen.getByTestId('home-card-artwork', { includeHiddenElements: true }), 'layout', {
     nativeEvent: { layout: { x: 0, y: 0, width: artworkWidth, height: artworkHeight } },
@@ -58,7 +61,7 @@ it.each([
     expect(top + height / 2 + halfHeight).toBeLessThanOrEqual(artworkHeight);
   }
 
-  await fireEvent.press(screen.getByRole('button', { name: 'Prova una presa' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Prova' }));
   expect(app.getPathname()).toBe('/tutorial');
   await fireEvent.press(screen.getByRole('button', { name: 'Re di coppe' }));
   await fireEvent.press(screen.getByRole('button', { name: 'Gioca' }));
@@ -66,29 +69,36 @@ it.each([
   await fireEvent.press(screen.getByRole('button', { name: 'Esci dalla prova' }));
   expect(app.getPathname()).toBe('/');
 
-  await fireEvent.press(screen.getByRole('button', { name: 'Come si gioca' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Regole' }));
   expect(app.getPathname()).toBe('/rules');
   expect(screen.getByText('Il socio è di fronte a te.')).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Regola precedente' })).toBeDisabled();
+  await fireEvent.press(screen.getByRole('button', { name: 'Regola successiva' }));
+  expect(screen.getByText('Una briscola cambia tutto.')).toBeOnTheScreen();
+  expect(screen.queryByText('Il socio è di fronte a te.')).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'Chiudi' }));
+  expect(app.getPathname()).toBe('/');
+
+  await fireEvent.press(screen.getByRole('button', { name: 'Regole' }));
+  for (let page = 1; page < 5; page++) await fireEvent.press(screen.getByRole('button', { name: 'Regola successiva' }));
   await fireEvent.press(screen.getByRole('button', { name: 'Prova una presa' }));
   expect(app.getPathname()).toBe('/tutorial');
   await fireEvent.press(screen.getByRole('button', { name: 'Esci' }));
-  expect(app.getPathname()).toBe('/rules');
-
-  await fireEvent.press(screen.getByRole('button', { name: 'Tutto chiaro' }));
   expect(app.getPathname()).toBe('/');
 
-  await fireEvent.press(screen.getByRole('button', { name: 'Connessione' }));
-  expect(app.getPathname()).toBe('/connection');
-  expect(screen.getByText('Il server non è ancora configurato per questa versione dell’app.')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Accedi' }));
+  expect(app.getPathname()).toBe('/account');
+  await fireEvent.press(screen.getByRole('button', { name: 'Chiudi' }));
+  expect(app.getPathname()).toBe('/');
 });
 
 it('returns home when the rules were opened directly without navigation history', async () => {
   const app = await renderRouter(routes, { initialUrl: '/rules' });
 
-  await fireEvent.press(screen.getByRole('button', { name: 'Tutto chiaro' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Chiudi' }));
 
   expect(app.getPathname()).toBe('/');
-  expect(screen.getByRole('button', { name: 'Come si gioca' })).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Regole' })).toBeOnTheScreen();
 });
 
 it('returns home when the tutorial was opened directly without navigation history', async () => {
@@ -97,7 +107,7 @@ it('returns home when the tutorial was opened directly without navigation histor
   await fireEvent.press(screen.getByRole('button', { name: 'Esci' }));
 
   expect(app.getPathname()).toBe('/');
-  expect(screen.getByRole('button', { name: 'Prova una presa' })).toBeOnTheScreen();
+  expect(screen.getByRole('button', { name: 'Prova' })).toBeOnTheScreen();
 });
 
 it('pauses home motion in the background and on navigation, and restores it on return', async () => {
@@ -129,9 +139,9 @@ it('pauses home motion in the background and on navigation, and restores it on r
   expect(loop.stop).toHaveBeenCalledTimes(1);
   await act(() => changeState('active'));
   expect(loop.start).toHaveBeenCalledTimes(2);
-  await fireEvent.press(screen.getByRole('button', { name: 'Come si gioca' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Regole' }));
   expect(loop.stop).toHaveBeenCalledTimes(2);
-  await fireEvent.press(screen.getByRole('button', { name: 'Tutto chiaro' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Chiudi' }));
   expect(loop.start).toHaveBeenCalledTimes(3);
 });
 

@@ -57,9 +57,6 @@ export default function HomeCardFan({ height }: { height: number }) {
       <Pressable testID="home-card-touch" accessible={false} focusable={false}
         onPressIn={() => tilt(1)} onPressOut={() => tilt(0)} style={StyleSheet.absoluteFill}>
         {width > 0 && <>
-          <View pointerEvents="none" style={[styles.shadow, {
-            left: width * 0.2, top: height * 0.89, width: width * 0.6,
-          }]} />
           <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, {
             transform: [
               { perspective: 700 },
@@ -90,11 +87,10 @@ export default function HomeCardFan({ height }: { height: number }) {
 
 const styles = StyleSheet.create({
   scene: { width: '100%', maxWidth: 360 },
-  shadow: { position: 'absolute', height: 12, borderRadius: 100, backgroundColor: '#000000', opacity: 0.3 },
   card: {
-    position: 'absolute', borderRadius: 5, backgroundColor: '#e5d7b8',
-    shadowColor: '#000000', shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.45, shadowRadius: 8,
+    position: 'absolute', borderRadius: 8, borderWidth: 2, borderColor: '#fff', backgroundColor: '#fff',
+    shadowColor: '#1d123a', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.45, shadowRadius: 0,
     elevation: 8,
   },
-  face: { width: '100%', height: '100%', borderRadius: 5 },
+  face: { width: '100%', height: '100%', borderRadius: 6 },
 });

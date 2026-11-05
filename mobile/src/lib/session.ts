@@ -9,6 +9,9 @@ export class SessionHttpError extends Error {
   constructor(readonly status: number) {
     super(status === 401 ? 'Accesso non valido.'
       : status === 429 ? 'Troppi tentativi. Attendi prima di riprovare.'
+        : status === 403 ? 'Non hai accesso a questa operazione.'
+          : status === 404 ? 'Questo account o tavolo non è più disponibile.'
+            : status === 409 ? 'Il tavolo è cambiato oppure hai già una partita attiva. Aggiorna e riprova.'
         : status >= 500 ? 'Il server non è disponibile. Riprova tra poco.'
           : `Richiesta non riuscita (HTTP ${status}).`);
   }
@@ -26,14 +29,16 @@ function readUser(value: unknown): SessionUser {
   return { id: value.id, username: value.username };
 }
 
-async function request(origin: string, path: string, signal: AbortSignal, options: RequestInit): Promise<unknown> {
+async function request(origin: string, path: string, signal: AbortSignal, options: RequestInit, timeoutMs = 8_000): Promise<unknown> {
+  const url = new URL(path, origin);
+  if (url.origin !== origin) throw new Error('La richiesta deve usare il backend della sessione.');
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal.addEventListener('abort', cancel);
   if (signal.aborted) cancel();
-  const timeout = setTimeout(cancel, 8_000);
+  const timeout = setTimeout(cancel, timeoutMs);
   try {
-    const response = await fetch(new URL(path, origin).toString(), {
+    const response = await fetch(url.toString(), {
       ...options, credentials: 'omit', cache: 'no-store', signal: controller.signal,
     });
     if (!response.ok) throw new SessionHttpError(response.status);
@@ -43,7 +48,8 @@ async function request(origin: string, path: string, signal: AbortSignal, option
       throw new Error('Il server ha restituito una risposta non leggibile.', { cause });
     }
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('Il server non ha risposto entro 8 secondi.');
+    if (signal.aborted) throw new Error('Richiesta interrotta.');
+    if (controller.signal.aborted) throw new Error(`Il server non ha risposto entro ${timeoutMs / 1000} secondi.`);
     if (error instanceof TypeError) throw new Error('Non riesco a raggiungere il server. Controlla la connessione e riprova.');
     throw error;
   } finally {
@@ -89,7 +95,7 @@ export async function signIn(
   return user;
 }
 
-export async function restoreSession(backendUrl: string | undefined, signal: AbortSignal): Promise<SessionUser | null> {
+export async function readSessionCredentials(backendUrl: string | undefined): Promise<{ origin: string; token: string } | null> {
   const origin = backendOrigin(backendUrl).origin;
   let value: string | null;
   try {
@@ -108,6 +114,26 @@ export async function restoreSession(backendUrl: string | undefined, signal: Abo
     throw new Error('La sessione salvata non è valida. Rimuovila e accedi di nuovo.');
   }
   if (saved.origin !== origin) return null;
+  return { origin, token: saved.token };
+}
+
+export async function sessionRequest(
+  path: string, signal: AbortSignal, body?: unknown, timeoutMs?: number,
+): Promise<unknown> {
+  const credentials = await readSessionCredentials(process.env.EXPO_PUBLIC_BACKEND_URL);
+  if (!credentials) throw new SessionHttpError(401);
+  if (signal.aborted) throw new Error('Richiesta interrotta.');
+  return request(credentials.origin, path, signal, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { Authorization: `Bearer ${credentials.token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }, timeoutMs);
+}
+
+export async function restoreSession(backendUrl: string | undefined, signal: AbortSignal): Promise<SessionUser | null> {
+  const saved = await readSessionCredentials(backendUrl);
+  if (!saved) return null;
+  const origin = saved.origin;
   try {
     return readUser(await request(origin, '/api/users/me', signal, {
       headers: { Authorization: `Bearer ${saved.token}`, Accept: 'application/json' },

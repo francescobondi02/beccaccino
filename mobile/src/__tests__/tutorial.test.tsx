@@ -176,3 +176,11 @@ it('waits for the motion preference before revealing cards instead of skipping t
   expect(screen.getByLabelText('1. Avversario: Asso di denara')).toHaveStyle({ opacity: 1 });
   expect(Animated.timing).not.toHaveBeenCalled();
 });
+
+it('plays the selected card when it is tapped again', async () => {
+  await renderTable();
+  await fireEvent.press(screen.getByRole('button', { name: 'Cavallo di bastoni' }));
+  expect(screen.queryByText('Presa agli avversari.')).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'Cavallo di bastoni' }));
+  expect(screen.getByText('Presa agli avversari.')).toBeOnTheScreen();
+});

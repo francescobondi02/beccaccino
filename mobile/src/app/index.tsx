@@ -1,110 +1,112 @@
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionButton from '@/components/ActionButton';
+import FitScreen from '@/components/FitScreen';
 import HomeCardFan from '@/components/HomeCardFan';
-import { colors } from '@/constants/theme';
+import Logo from '@/components/Logo';
+import Offset from '@/components/Offset';
+import SoundToggle from '@/components/SoundToggle';
+import { colors, fonts } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
+import { touchFeedback } from '@/lib/haptics';
+import { playSound } from '@/lib/sound';
 
+function Tile({ label, hint, icon, onPress }: { label: string; hint: string; icon: React.ReactNode; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} style={styles.tileSlot}
+      onPress={() => { touchFeedback(); playSound('tap'); onPress(); }}>
+      {({ pressed }) => (
+        <Offset color={colors.purpleDeep} depth={4} radius={12}>
+          <View style={[styles.tile, pressed && styles.tilePressed]}>
+            <View style={styles.tileIcon}>{icon}</View>
+            <Text style={styles.tileLabel}>{label.toUpperCase()}</Text>
+          </View>
+        </Offset>
+      )}
+    </Pressable>
+  );
+}
+
+// Game-style home: brand and profile on top, artwork on the left, one big thumb-reachable GIOCA bottom right.
 export default function HomeScreen() {
   const router = useRouter();
   const { state: session } = useSession();
-  const { width, height, fontScale } = useWindowDimensions();
-  const stacked = width < height || width < 560 || fontScale >= 1.4;
-  const compact = height < 400 && !stacked;
+  const { height } = useWindowDimensions();
+  const signedIn = session.status === 'signedIn';
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View pointerEvents="none" style={styles.orbit} />
-      <ScrollView contentContainerStyle={[styles.content, compact && styles.compactContent]}>
-        <View style={styles.header}>
-          <Text accessibilityRole="header" style={styles.brand}>BECCA<Text style={styles.brandDot}>.</Text></Text>
-          <View style={styles.headerActions}>
-            <ActionButton secondary label={session.status === 'signedIn' ? 'Account' : 'Accedi'}
-              disabled={session.status === 'loading'} onPress={() => router.navigate('/account')} />
-            <ActionButton
-              secondary label="Connessione"
-              accessibilityHint="Controlla il collegamento al server, senza accedere al tuo account"
-              onPress={() => router.navigate('/connection')}
-            />
-          </View>
-        </View>
-        <View style={[styles.body, stacked && styles.stacked]}>
-          <View style={[styles.hero, stacked && styles.stackedPanel]}>
-            {!compact && <Text style={styles.eyebrow}>IL BELLO È GIOCARSELA INSIEME.</Text>}
-            <Text accessibilityRole="header" style={[styles.title, compact && styles.compactTitle]}>
-              LA PRESA{'\n'}<Text style={styles.accent}>È TUA.</Text>
-            </Text>
-            <Text style={styles.subtitle}>Il tuo socio ti aspetta.</Text>
-            <View style={styles.actions}>
-              <ActionButton
-                label="Prova una presa"
-                accessibilityHint="Allenati con le carte in una breve prova guidata offline"
-                onPress={() => router.navigate('/tutorial')}
-              />
-              <ActionButton
-                secondary label="Come si gioca"
-                accessibilityHint="Scopri squadre, briscola e regole del Beccaccino"
-                onPress={() => router.navigate('/rules')}
-              />
+      <FitScreen>
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Logo />
+            <View style={styles.headerActions}>
+              <SoundToggle />
+              <Pressable accessibilityRole="button" disabled={session.status === 'loading'}
+                accessibilityLabel={signedIn ? `Account di ${session.user.username}` : 'Accedi'}
+                onPress={() => { touchFeedback(); playSound('tap'); router.navigate('/account'); }}
+                style={({ pressed }) => [styles.profile, pressed && styles.tilePressed]}>
+                <View style={[styles.avatar, !signedIn && styles.avatarGuest]}>
+                  <Text style={styles.avatarText}>{signedIn ? session.user.username.slice(0, 1).toUpperCase() : '?'}</Text>
+                </View>
+                <Text numberOfLines={1} style={styles.profileName}>{signedIn ? session.user.username : 'Accedi'}</Text>
+              </Pressable>
             </View>
-            <Text style={styles.availability}>{session.status === 'signedIn'
-              ? `Accesso effettuato come ${session.user.username}. Partite online non ancora collegate.`
-              : 'Accedi al tuo account. Partite online non ancora collegate.'}</Text>
           </View>
-          <View style={[styles.art, stacked && styles.stackedPanel]}>
-            <HomeCardFan height={Math.min(240, height * 0.45)} />
-            <View style={styles.facts}>
-              <View accessible style={styles.fact}>
-                <Text style={styles.factNumber}>4</Text>
-                <Text style={styles.factLabel}>giocatori</Text>
+          <View style={styles.body}>
+            <Offset color="#272032" depth={8} radius={18} style={styles.artWrap}>
+              <View style={styles.art}>
+                <HomeCardFan height={Math.min(220, height * 0.52)} />
+                <View style={styles.sticker}><Text style={styles.stickerText}>LA PRESA{'\n'}È TUA.</Text></View>
               </View>
-              <View style={styles.divider} />
-              <View accessible style={styles.fact}>
-                <Text style={styles.factNumber}>2</Text>
-                <Text style={styles.factLabel}>squadre</Text>
-              </View>
-              <View style={styles.divider} />
-              <View accessible style={styles.fact}>
-                <Text style={styles.factNumber}>40</Text>
-                <Text style={styles.factLabel}>carte</Text>
+            </Offset>
+            <View style={styles.side}>
+              <Text accessibilityRole="header" style={styles.title}>NON È SOLO{'\n'}<Text style={styles.accent}>FORTUNA.</Text></Text>
+              <ActionButton bolt label="Gioca" hero="BOT O AMICI" onPress={() => router.navigate('/play')} />
+              <View style={styles.tiles}>
+                <Tile label="Regole" hint="Squadre, briscola e segni in cinque schede" onPress={() => router.navigate('/rules')}
+                  icon={<Text style={styles.tileGlyph}>?</Text>} />
+                <Tile label="Prova" hint="Una presa guidata per imparare i comandi" onPress={() => router.navigate('/tutorial')}
+                  icon={<Image source={require('../../assets/cards/asso_coppe.png')} style={styles.tileCard} />} />
               </View>
             </View>
           </View>
         </View>
-      </ScrollView>
+      </FitScreen>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  orbit: {
-    position: 'absolute', width: 520, height: 520, right: -120, top: -80,
-    borderRadius: 260, borderWidth: 64, borderColor: colors.surface, opacity: 0.6,
-  },
-  content: { flexGrow: 1, padding: 24, gap: 16 },
-  compactContent: { paddingVertical: 12, gap: 10 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  brand: { color: colors.text, fontSize: 28, fontWeight: '900', fontStyle: 'italic', letterSpacing: -1 },
-  brandDot: { color: colors.primary },
-  body: { flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: 24 },
-  stacked: { flexDirection: 'column', alignItems: 'stretch', gap: 24 },
-  hero: { flex: 1, justifyContent: 'center', gap: 10 },
-  stackedPanel: { flex: 0, width: '100%' },
-  eyebrow: { color: colors.muted, fontSize: 11, fontWeight: '700', letterSpacing: 1.5 },
-  title: { color: colors.text, fontSize: 56, fontWeight: '900', fontStyle: 'italic', lineHeight: 58, letterSpacing: -2 },
-  compactTitle: { fontSize: 42, lineHeight: 44 },
+  content: { paddingHorizontal: 24, paddingVertical: 10, gap: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  profile: { flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 190, paddingLeft: 4, paddingRight: 14, height: 44,
+    borderRadius: 22, borderWidth: 2, borderColor: colors.purple, backgroundColor: colors.surface },
+  avatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
+  avatarGuest: { backgroundColor: colors.pink },
+  avatarText: { color: colors.ink, fontSize: 16, fontWeight: '900', fontStyle: 'italic' },
+  profileName: { flexShrink: 1, color: colors.text, fontSize: 14, fontWeight: '800' },
+  body: { flexDirection: 'row', alignItems: 'stretch', gap: 28 },
+  artWrap: { flex: 1.15 },
+  art: { flex: 1, minHeight: 250, alignItems: 'center', justifyContent: 'center', borderRadius: 18, borderWidth: 1,
+    borderColor: '#9b6bff70', backgroundColor: '#7a3fe3' },
+  sticker: { position: 'absolute', left: -14, bottom: 22, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
+    borderWidth: 3, borderColor: colors.ink, backgroundColor: colors.pink, transform: [{ rotate: '-12deg' }] },
+  stickerText: { color: colors.ink, fontSize: 16, lineHeight: 16, fontWeight: '900', fontStyle: 'italic', letterSpacing: -1 },
+  side: { flex: 1, justifyContent: 'flex-end', gap: 14 },
+  title: { ...fonts.display, color: colors.text, fontSize: 34, lineHeight: 38, letterSpacing: -1.5 },
   accent: { color: colors.primary },
-  subtitle: { color: colors.text, fontSize: 17, lineHeight: 24 },
-  actions: { maxWidth: 340, width: '100%', gap: 10 },
-  availability: { color: colors.muted, fontSize: 12, lineHeight: 18 },
-  art: { flex: 1, alignItems: 'center' },
-  facts: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 14 },
-  fact: { alignItems: 'center' },
-  factNumber: { color: colors.text, fontSize: 22, fontWeight: '800' },
-  factLabel: { color: colors.muted, fontSize: 12 },
-  divider: { width: 1, height: 24, backgroundColor: colors.border },
+  tiles: { flexDirection: 'row', gap: 12 },
+  tileSlot: { flex: 1 },
+  tile: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 56, paddingHorizontal: 12, borderRadius: 12,
+    borderWidth: 2, borderColor: colors.purple, backgroundColor: colors.surface },
+  tilePressed: { transform: [{ translateX: 3 }, { translateY: 3 }] },
+  tileIcon: { width: 32, height: 40, alignItems: 'center', justifyContent: 'center' },
+  tileGlyph: { color: colors.primary, fontSize: 28, fontWeight: '900', fontStyle: 'italic' },
+  tileCard: { width: 26, height: 40, borderRadius: 3, borderWidth: 1.5, borderColor: '#fff', transform: [{ rotate: '-8deg' }] },
+  tileLabel: { color: colors.text, fontSize: 14, fontWeight: '900', fontStyle: 'italic' },
 });
