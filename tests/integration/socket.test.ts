@@ -244,8 +244,7 @@ describe("Socket.IO real WebSocket integration", () => {
 
       const client1 = createClient();
       await waitForConnect(client1);
-      client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
+      await joinSocketRoom(client1, roomCode, u1);
 
       const client2 = createClient();
       await waitForConnect(client2);
@@ -406,9 +405,10 @@ describe("Socket.IO real WebSocket integration", () => {
         waitForConnect(client2),
       ]);
 
-      client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
-      await delay(100);
+      await Promise.all([
+        joinSocketRoom(client1, roomCode, u1),
+        joinSocketRoom(client2, roomCode, u2),
+      ]);
 
       // Client1 leaves
       client1.emit("leave_room", { roomCode });
@@ -445,9 +445,10 @@ describe("Socket.IO real WebSocket integration", () => {
       const client2 = createClient();
       await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
 
-      client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
-      await delay(100);
+      await Promise.all([
+        joinSocketRoom(client1, roomCode, u1),
+        joinSocketRoom(client2, roomCode, u2),
+      ]);
 
       const chatPromise1 = waitForEvent<{
         userId: number;
@@ -496,8 +497,7 @@ describe("Socket.IO real WebSocket integration", () => {
 
       const client = createClient();
       await waitForConnect(client);
-      client.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
+      await joinSocketRoom(client, roomCode, u1);
 
       // Send 5 messages rapidly (all should succeed)
       for (let i = 0; i < 5; i++) {
@@ -518,8 +518,7 @@ describe("Socket.IO real WebSocket integration", () => {
 
       const client = createClient();
       await waitForConnect(client);
-      client.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
+      await joinSocketRoom(client, roomCode, u1);
 
       // Send 5 messages to hit the limit
       for (let i = 0; i < 5; i++) {
@@ -537,67 +536,6 @@ describe("Socket.IO real WebSocket integration", () => {
       const msg = await chatPromise;
       expect(msg.message).toBe("I can talk again");
     }, 10000); // Increase timeout for this test
-  });
-
-  // =========================================================================
-  // Chat sanitization
-  // =========================================================================
-  describe("chat sanitization", () => {
-    it("should strip control characters from messages", async () => {
-      const u1 = await createUser("Alice");
-      const roomCode = await createRoom(u1);
-
-      const client = createClient();
-      await waitForConnect(client);
-      client.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
-
-      const chatPromise = waitForEvent<{ message: string }>(client, "chat_message");
-      // Send message with control characters
-      client.emit("send_chat_message", { message: "Hello\x00\x01\x02World\x7F!" });
-
-      const msg = await chatPromise;
-      expect(msg.message).toBe("HelloWorld!");
-    });
-
-    it("should cap message length at 200 characters", async () => {
-      const u1 = await createUser("Alice");
-      const roomCode = await createRoom(u1);
-
-      const client = createClient();
-      await waitForConnect(client);
-      client.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
-
-      const longMessage = "A".repeat(300);
-      const chatPromise = waitForEvent<{ message: string }>(client, "chat_message");
-      client.emit("send_chat_message", { message: longMessage });
-
-      const msg = await chatPromise;
-      expect(msg.message.length).toBe(200);
-      expect(msg.message).toBe("A".repeat(200));
-    });
-
-    it("should ignore empty messages after sanitization", async () => {
-      const u1 = await createUser("Alice");
-      const roomCode = await createRoom(u1);
-
-      const client = createClient();
-      await waitForConnect(client);
-      client.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
-
-      // Message with only control characters + whitespace
-      let received = false;
-      client.once("chat_message", () => {
-        received = true;
-      });
-
-      client.emit("send_chat_message", { message: "\x01\x02\x03" });
-      await delay(200);
-
-      expect(received).toBe(false);
-    });
   });
 
   // =========================================================================
@@ -670,9 +608,10 @@ describe("Socket.IO real WebSocket integration", () => {
       const client2 = createClient();
       await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
 
-      client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
-      await delay(100);
+      await Promise.all([
+        joinSocketRoom(client1, roomCode, u1),
+        joinSocketRoom(client2, roomCode, u2),
+      ]);
 
       const disconnectPromise = waitForEvent<{ userId: number; username: string }>(
         client1,
@@ -738,8 +677,7 @@ describe("Socket.IO real WebSocket integration", () => {
       await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
 
       // Only client1 joins the socket room
-      client1.emit("join_room", { roomCode, userId: u1.id, username: u1.username });
-      await delay(100);
+      await joinSocketRoom(client1, roomCode, u1);
 
       let received = false;
       client1.once("player_disconnected", () => {

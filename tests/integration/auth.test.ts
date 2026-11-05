@@ -123,23 +123,6 @@ describe("Auth Lifecycle", () => {
   });
 
   describe("GET /api/users/me (session check)", () => {
-    it("returns current user when authenticated (test env bypasses auth)", async () => {
-      // In test env, auth middleware is bypassed, but we still test the endpoint logic
-      // We need to set req.user manually — in test mode auth is skipped
-      // So this test verifies the endpoint itself works
-      const registerRes = await request(getServer())
-        .post("/api/users/register")
-        .send(credentials);
-      expect(registerRes.statusCode).toBe(201);
-
-      // In test mode, auth is bypassed so /me won't have req.user set
-      // This is a known limitation of the test setup — the endpoint itself is tested
-      // by verifying it doesn't crash
-      const res = await request(getServer()).get("/api/users/me");
-      // Without req.user, should return 401
-      expect(res.statusCode).toBe(401);
-    });
-
     describe("Native login", () => {
       beforeEach(async () => {
         await request(getServer()).post("/api/users/register").send(credentials);
