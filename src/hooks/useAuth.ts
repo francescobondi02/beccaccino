@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
+import { disconnectSocket } from "@/sockets/socketClient";
 
 export interface AuthUser {
   id: number;
@@ -15,6 +16,8 @@ interface UseAuthOptions {
 
 export const AUTH_QUERY_KEY = ["auth", "current-user"] as const;
 const AUTH_STALE_TIME_MS = 5 * 60 * 1000;
+// The singleton socket keeps the handshake identity it connected with.
+let socketUserId: number | null | undefined;
 
 async function fetchCurrentUser(): Promise<AuthUser | null> {
   try {
@@ -40,6 +43,15 @@ export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
     retry: false,
     staleTime: AUTH_STALE_TIME_MS,
   });
+
+  const currentUserId = query.isSuccess ? query.data?.id ?? null : undefined;
+  useEffect(() => {
+    if (currentUserId === undefined) return;
+    if (socketUserId !== undefined && socketUserId !== currentUserId) {
+      disconnectSocket();
+    }
+    socketUserId = currentUserId;
+  }, [currentUserId]);
 
   useEffect(() => {
     if (!query.isSuccess || query.data) return;
