@@ -236,6 +236,37 @@ describe("Auth Lifecycle", () => {
     });
   });
 
+  describe("Cross-site cookie requests", () => {
+    const frontendUrl = process.env.FRONTEND_URL;
+    beforeAll(() => {
+      process.env.FRONTEND_URL = "https://becca.example";
+    });
+    afterAll(() => {
+      process.env.FRONTEND_URL = frontendUrl;
+    });
+
+    const leave = (headers: Record<string, string>) =>
+      request(getServer()).post("/api/rooms/NOROOM/leave").set(headers);
+
+    it("rejects cookie mutations from a foreign origin but not same-origin, allowed or bearer ones", async () => {
+      const browser = await request(getServer()).post("/api/users/register").send(credentials);
+      const Cookie = browser.headers["set-cookie"][0].split(";")[0];
+      const native = await request(getServer()).post("/api/users/native/login").send(credentials);
+      const evil = "https://evil.example";
+
+      expect((await leave({ Cookie, Origin: evil })).statusCode).toBe(403);
+      expect((await leave({ Cookie, Origin: "https://becca.example" })).statusCode).toBe(404);
+      expect((await leave({ Cookie })).statusCode).toBe(404);
+      expect(
+        (await leave({ Cookie, Origin: "https://preview.example", "Sec-Fetch-Site": "same-origin" }))
+          .statusCode,
+      ).toBe(404);
+      expect(
+        (await leave({ Origin: evil, Authorization: `Bearer ${native.body.token}` })).statusCode,
+      ).toBe(404);
+    });
+  });
+
   describe("POST /api/users/logout", () => {
     it("clears the auth cookie", async () => {
       await request(getServer()).post("/api/users/register").send(credentials);
