@@ -176,10 +176,7 @@ export async function buildBotTurn(
       ? {
           starterSeat: requireSeat(openTrick.starterId),
           playedCardCount: openTrick.cards.length,
-          winnerSeat:
-            openTrick.winnerId === null
-              ? null
-              : requireSeat(openTrick.winnerId),
+          winnerSeat: null,
         }
       : null,
   });
