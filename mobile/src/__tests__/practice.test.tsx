@@ -339,6 +339,16 @@ it('leaves only a waiting room, and opens the table if the game already started'
   expect(mockReplace).not.toHaveBeenCalledWith('/play');
 });
 
+it('keeps a failed waiting-room action visible after reloading the room', async () => {
+  waitingMode = true;
+  const implementation = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, options: RequestInit) => url.endsWith('/bots')
+    ? Promise.resolve({ ok: false, status: 403 }) : implementation(url, options));
+  await renderScreen(<RoomScreen />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'medio' }));
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Non hai accesso a questa operazione.'));
+});
+
 it('sets the bot tier for empty seats', async () => {
   waitingMode = true;
   await renderScreen(<RoomScreen />);
@@ -359,6 +369,16 @@ it('reopens my rooms where they are: waiting room before the start, table after'
   expect(mockPush).toHaveBeenLastCalledWith('/room/WAIT01');
   await fireEvent.press(screen.getByRole('button', { name: /^Rientra LIVE01/ }));
   expect(mockPush).toHaveBeenLastCalledWith('/game/LIVE01');
+});
+
+it('shows why joining a room failed', async () => {
+  const implementation = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, options: RequestInit) => url.endsWith('/api/rooms/join')
+    ? Promise.resolve({ ok: false, status: 409 }) : implementation(url, options));
+  await renderScreen(<PlayScreen />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Entra XYZ789, 1 su 4: Gianni' }));
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/hai già una partita attiva/));
+  expect(mockPush).not.toHaveBeenCalled();
 });
 
 it('waits for bots to fill the table instead of timing out the ready request', async () => {

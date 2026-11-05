@@ -93,8 +93,8 @@ function Lobby({ user }: { user: SessionUser }) {
       if (!signal.aborted) router.push(path as never);
     } catch (cause) {
       if (signal.aborted) return;
-      setError(cause instanceof Error ? cause.message : 'Operazione non riuscita.');
       await load();
+      if (!signal.aborted) setError(cause instanceof Error ? cause.message : 'Operazione non riuscita.');
     } finally {
       if (!signal.aborted) setPending(null);
     }

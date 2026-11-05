@@ -87,8 +87,9 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
       await load();
       return true;
     } catch (cause) {
-      if (!lifetime.current.signal.aborted) setError(cause instanceof Error ? cause.message : 'Operazione non riuscita.');
+      // Reload first: a successful reload clears errors, and this one must stay visible.
       await load();
+      if (!lifetime.current.signal.aborted) setError(cause instanceof Error ? cause.message : 'Operazione non riuscita.');
       return cause;
     } finally {
       if (!lifetime.current.signal.aborted) setBusy(false);
