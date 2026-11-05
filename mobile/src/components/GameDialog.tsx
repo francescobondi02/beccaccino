@@ -7,9 +7,9 @@ import useReducedMotion from '@/hooks/useReducedMotion';
 export default function GameDialog({ title, visible, onClose, dismissable = true, children }: PropsWithChildren<{
   title: string; visible: boolean; onClose: () => void; dismissable?: boolean;
 }>) {
-  const reducedMotion = useReducedMotion();
+  const reduced = useReducedMotion() !== false;
   return (
-    <Modal visible={visible} transparent animationType={reducedMotion !== false ? 'none' : 'fade'}
+    <Modal visible={visible} transparent animationType={reduced ? 'none' : 'fade'}
       supportedOrientations={['portrait', 'landscape']} onRequestClose={onClose}>
       <Sheet title={title} onClose={dismissable ? onClose : undefined}>{children}</Sheet>
     </Modal>

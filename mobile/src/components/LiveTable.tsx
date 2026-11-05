@@ -71,7 +71,8 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
   const insets = useSafeAreaInsets();
   const [size, setSize] = useState({ width: width - insets.left - insets.right - 16, height: height - insets.top - insets.bottom - 16 });
   const layout = tableLayout(size.width, size.height, fontScale >= 1.4);
-  const reduced = useReducedMotion();
+  const motionPreference = useReducedMotion();
+  const reduced = motionPreference !== false;
   const [dragging, setDragging] = useState(false);
   const [zoom, setZoom] = useState<Card | null>(null);
   // A held card can leave the hand (e.g. auto-played) without a press-out: drop its preview.
@@ -92,9 +93,9 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
     AccessibilityInfo.announceForAccessibility(`Presa a ${winner?.username ?? 'un giocatore'}`);
     playSound('trick');
     const animation = Animated.sequence([
-      Animated.delay(reduced !== false ? 350 : 600),
-      Animated.timing(motion.glow, { toValue: 1, duration: reduced !== false ? 0 : 220, useNativeDriver: true }),
-      Animated.timing(motion.collect, { toValue: 1, duration: reduced !== false ? 0 : 450,
+      Animated.delay(reduced ? 350 : 600),
+      Animated.timing(motion.glow, { toValue: 1, duration: reduced ? 0 : 220, useNativeDriver: true }),
+      Animated.timing(motion.collect, { toValue: 1, duration: reduced ? 0 : 450,
         easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
     ]);
     let active = true;
@@ -127,7 +128,7 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
             style={[styles.seat, { left: layout.seats[index].x, top: layout.seats[index].y, width: layout.seatWidth }]}>
             <PlayerBadge name={player.username} partner={index === 1} active={active} highlighted={winner?.userId === player.userId}
               signal={signal} bot={game.playerControls.some((c) => c.userId === player.userId && c.botModel !== null)}
-              reduced={reduced !== false} />
+              reduced={reduced} />
           </View>
         );
       })}
@@ -136,7 +137,7 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
         const seat = layout.seats[index];
         return <TableCard key={`${completedTrick?.roundId ?? game.round.id}:${completedTrick?.handNumber ?? game.currentHandNumber}:${cardKey(card)}`}
           image={cardImage(card)} label={`${room.players.find((p) => p.userId === card.userId)?.username}: ${cardLabel(card)}${card.signal ? `, ${card.signal}` : ''}`}
-          index={index} layout={layout} origin={{ x: seat.x + layout.seatWidth / 2, y: seat.y + 20 }} reduceMotion={reduced}
+          index={index} layout={layout} origin={{ x: seat.x + layout.seatWidth / 2, y: seat.y + 20 }} reduceMotion={motionPreference}
           destination={{ x: winnerSeat.x + layout.seatWidth / 2, y: winnerSeat.y + 20 }}
           collect={motion.collect} glow={motion.glow} winner={card.userId === winner?.userId} />;
       })}
@@ -150,11 +151,11 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
           card={card} index={index} count={count} width={layout.handWidth} step={step}
           selected={selected !== null && cardKey(selected) === cardKey(card)}
           legal={playable.some((legal) => cardKey(legal) === cardKey(card))} disabled={disabled}
-          reduced={reduced !== false} onSelect={() => onSelect(card)} onPlay={() => onPlay(card)}
+          reduced={reduced} onSelect={() => onSelect(card)} onPlay={() => onPlay(card)}
           onDrag={setDragging} onZoom={setZoom} />)}
       </View>
       <View style={styles.controls}>{controls}</View>
-      <CardZoom card={zoom} reduced={reduced !== false}
+      <CardZoom card={zoom} reduced={reduced}
         note={zoom && !disabled ? playable.some((c) => cardKey(c) === cardKey(zoom)) ? 'GIOCABILE' : 'NON GIOCABILE ORA' : undefined} />
     </View>
   );

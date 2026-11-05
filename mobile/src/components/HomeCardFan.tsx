@@ -16,12 +16,12 @@ export default function HomeCardFan({ height }: { height: number }) {
   const [width, setWidth] = useState(0);
   const [float] = useState(() => new Animated.Value(0));
   const [touch] = useState(() => new Animated.Value(0));
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = useReducedMotion() !== false;
   const cardHeight = Math.min(height * 0.72, width * 0.43);
   const cardWidth = cardHeight * 0.63;
 
   useFocusEffect(useCallback(() => {
-    if (reduceMotion !== false) return;
+    if (reduceMotion) return;
     let animation: Animated.CompositeAnimation | undefined;
     const stop = () => {
       animation?.stop();
@@ -47,7 +47,7 @@ export default function HomeCardFan({ height }: { height: number }) {
   }, [float, reduceMotion, touch]));
 
   const tilt = (toValue: number) => {
-    if (reduceMotion !== false) return;
+    if (reduceMotion) return;
     Animated.spring(touch, { toValue, stiffness: 110, damping: 18, mass: 1, useNativeDriver: true, isInteraction: false }).start();
   };
 

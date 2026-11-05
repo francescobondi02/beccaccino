@@ -25,7 +25,7 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
   const [signalChoice, setSignalChoice] = useState<{ key: string; signal: Signal } | null>(null);
   const [dialog, setDialog] = useState<'menu' | 'trump' | 'history' | 'abandon' | null>(null);
   const [now, setNow] = useState(Date.now);
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotion() !== false;
   const { announcement, done } = useGameAnnouncements(snapshot, completedTrick, user.id);
   const won = !!snapshot && snapshot.game.finishedGame?.winnerTeam === teamOf(snapshot.room, user.id);
   useEffect(() => { if (won) { touchFeedback('success'); playSound('win'); } }, [won]);
@@ -110,7 +110,7 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
     <LiveTable room={room} game={game} userId={user.id} playable={playable} selected={selected?.card ?? null}
       disabled={!canPlay} onSelect={(card) => setSelection({ key: turnKey, card })} onPlay={play}
       onMenu={() => void pause()} onHistory={() => setDialog('history')} controls={controls} prompt={signalPicker || null} completedTrick={completedTrick} onCollected={finishCollection} hidden={overlay} />
-    <CenterToast message={announcement} onDone={done} reduced={reduced !== false}
+    <CenterToast message={announcement} onDone={done} reduced={reduced}
       sticky={connection !== 'ready' ? 'RICONNESSIONE…' : null} />
     <GameDialog title="Scegli la briscola" visible={dialog === 'trump' && !paused && !finished} onClose={closeDialog}>
       <Text style={styles.body}>Guarda la tua mano, poi scegli il seme.</Text>

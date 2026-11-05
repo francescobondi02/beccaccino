@@ -12,7 +12,6 @@ export const colors = {
   pink: '#ff73bf',
   ink: '#141416',
   line: '#34323e',
-  border: '#766780',
   danger: '#ffb4b4',
 } as const;
 

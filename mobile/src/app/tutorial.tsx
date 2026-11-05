@@ -89,7 +89,8 @@ export default function TutorialScreen() {
   const [selected, setSelected] = useState<HandCardData | null>(null);
   const [phase, setPhase] = useState<Phase>('ready');
   const [replay, setReplay] = useState(0);
-  const reduceMotion = useReducedMotion();
+  const motionPreference = useReducedMotion();
+  const reduceMotion = motionPreference !== false;
   const [motion] = useState(() => ({
     play: new Animated.Value(0), collect: new Animated.Value(0), glow: new Animated.Value(0),
   }));
@@ -101,10 +102,10 @@ export default function TutorialScreen() {
   useEffect(() => {
     if (phase !== 'playing' || !selected) return;
     const animation = Animated.sequence([
-      Animated.timing(motion.play, { toValue: 1, duration: reduceMotion !== false ? 0 : 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-      Animated.timing(motion.glow, { toValue: 1, duration: reduceMotion !== false ? 0 : 240, useNativeDriver: true }),
-      Animated.delay(reduceMotion !== false ? 0 : 650),
-      Animated.timing(motion.collect, { toValue: 1, duration: reduceMotion !== false ? 0 : 450, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(motion.play, { toValue: 1, duration: reduceMotion ? 0 : 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(motion.glow, { toValue: 1, duration: reduceMotion ? 0 : 240, useNativeDriver: true }),
+      Animated.delay(reduceMotion ? 0 : 650),
+      Animated.timing(motion.collect, { toValue: 1, duration: reduceMotion ? 0 : 450, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
     ]);
     let active = true;
     animation.start(({ finished }) => {
@@ -132,7 +133,7 @@ export default function TutorialScreen() {
     if (!card || phase !== 'ready') return false;
     setSelected(card);
     playSound('card');
-    if (reduceMotion !== false) {
+    if (reduceMotion) {
       motion.play.setValue(1);
       motion.collect.setValue(1);
       setPhase('result');
@@ -173,12 +174,12 @@ export default function TutorialScreen() {
       {playedCards.map((card, index) => (
         <TableCard key={`${replay}-${index}`} image={card.image}
           label={`${card.seat}: ${card.label}${result && winnerIndex === index ? ', vince la presa' : ''}`}
-          index={index} layout={layout} reduceMotion={reduceMotion}
+          index={index} layout={layout} reduceMotion={motionPreference}
           origin={{ x: layout.seats[index].x + layout.seatWidth / 2, y: layout.seats[index].y + 16 }}
           destination={destination} collect={motion.collect} glow={motion.glow} winner={!!result && winnerIndex === index} />
       ))}
       {result && <TableCard image={result.image} label={`4. Tu: ${result.label}${result.wins ? ', vince la presa' : ''}`}
-        index={3} layout={layout} reduceMotion={reduceMotion}
+        index={3} layout={layout} reduceMotion={motionPreference}
         origin={{
           x: layout.handX[hand.indexOf(result)] + layout.handWidth / 2,
           y: layout.handY + layout.handHeight / 2,
@@ -186,7 +187,7 @@ export default function TutorialScreen() {
         destination={destination} collect={motion.collect} glow={motion.glow} winner={result.wins} progress={motion.play} />}
       {hand.map((card, index) => card !== result && (
         <HandCard key={card.id} card={card} index={index} layout={layout} selected={selected === card}
-          disabled={phase !== 'ready'} reduceMotion={reduceMotion !== false}
+          disabled={phase !== 'ready'} reduceMotion={reduceMotion}
           onPress={() => selected === card ? void play() : setSelected(card)} onDrop={() => play(card)} />
       ))}
       <Text style={styles.you}>TU</Text>
@@ -200,7 +201,7 @@ export default function TutorialScreen() {
         importantForAccessibility={phase === 'result' ? 'no-hide-descendants' : 'auto'}>
         {stage}
       </View>
-      <Modal testID="trick-result" visible={phase === 'result'} transparent animationType={reduceMotion !== false ? 'none' : 'fade'}
+      <Modal testID="trick-result" visible={phase === 'result'} transparent animationType={reduceMotion ? 'none' : 'fade'}
         supportedOrientations={['landscape', 'portrait']} onRequestClose={() => setPhase('complete')}>
         <SafeAreaView style={styles.backdrop}>
           <FitScreen>

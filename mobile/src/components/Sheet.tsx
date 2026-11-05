@@ -11,7 +11,7 @@ import { playSound } from '@/lib/sound';
 type Props = PropsWithChildren<{ title: string; onClose?: () => void; width?: number }>;
 
 // Pops in with a spring; the corner X closes it.
-export function SheetPanel({ title, onClose, width = 560, children }: Props) {
+function SheetPanel({ title, onClose, width = 560, children }: Props) {
   const reduced = useReducedMotion() !== false;
   const [pop] = useState(() => new Animated.Value(0.85));
   useEffect(() => {

@@ -30,6 +30,7 @@ const tones = {
 export default function ActionButton({
   label, onPress, secondary = false, disabled = false, compact = false, glyph, bolt = false, selected, hero, accessibilityHint,
 }: Props) {
+  const square = glyph !== undefined && glyph.length <= 2;
   const tone = tones[disabled ? 'disabled' : selected ? 'selected' : secondary ? 'secondary' : 'primary'];
   const [press] = useState(() => new Animated.Value(0));
   const spring = (toValue: number) => Animated.spring(press, {
@@ -47,10 +48,10 @@ export default function ActionButton({
       onPress={() => { touchFeedback(); playSound('tap'); onPress(); }}
     >
       <Offset color={tone.shadow} depth={compact ? 3 : hero !== undefined ? 6 : 4} radius={7} press={press}>
-        <Animated.View style={[styles.face, compact && styles.compact, hero !== undefined && styles.hero, glyph && glyph.length <= 2 && styles.square,
+        <Animated.View style={[styles.face, compact && styles.compact, hero !== undefined && styles.hero, square && styles.square,
           { backgroundColor: tone.face, borderColor: tone.edge }]}>
           <View style={styles.copy}>
-            <Text style={[styles.label, compact && styles.compactLabel, glyph && glyph.length <= 2 && styles.glyph,
+            <Text style={[styles.label, compact && styles.compactLabel, square && styles.glyph,
               hero !== undefined && styles.heroLabel, { color: tone.text }]}>{glyph ?? label.toUpperCase()}</Text>
             {hero && <Text style={[styles.heroSub, { color: tone.text }]}>{hero}</Text>}
           </View>

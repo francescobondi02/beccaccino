@@ -4,11 +4,9 @@ import Offset from './Offset';
 import { colors } from '@/constants/theme';
 
 // The website's `.club-dialog` surface: dark card, purple edge, flat acid shadow. `style` sizes the whole panel.
-export default function Panel({ children, style, shadow = colors.primary }: PropsWithChildren<{
-  style?: StyleProp<ViewStyle>; shadow?: string;
-}>) {
+export default function Panel({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
   return (
-    <Offset color={shadow} depth={6} radius={15} style={style}>
+    <Offset color={colors.primary} depth={6} radius={15} style={style}>
       <View style={styles.panel}>{children}</View>
     </Offset>
   );
