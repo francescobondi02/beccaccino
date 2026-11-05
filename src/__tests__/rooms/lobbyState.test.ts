@@ -77,6 +77,27 @@ describe("lobbyRoomsReducer", () => {
     expect(state.availableRooms).toBe(loadedState.availableRooms);
   });
 
+  it("applies live room creation, occupancy and removal", () => {
+    const created = lobbyRoomsReducer(loadedState, {
+      type: "available_room_created",
+      room: { id: 3, code: "NEW001", currentPlayers: 1, maxPlayers: 4 },
+    });
+    const updated = lobbyRoomsReducer(created, {
+      type: "available_room_updated",
+      roomCode: "NEW001",
+      currentPlayers: 3,
+    });
+    const removed = lobbyRoomsReducer(updated, {
+      type: "available_room_removed",
+      roomCode: "OPEN01",
+    });
+
+    expect(removed.availableRooms).toEqual([
+      { id: 3, code: "NEW001", currentPlayers: 3, maxPlayers: 4 },
+    ]);
+    expect(removed.activeGames).toBe(loadedState.activeGames);
+  });
+
   it("removes abandoned practice games without changing available rooms", () => {
     const state = lobbyRoomsReducer(loadedState, {
       type: "practice_abandoned",

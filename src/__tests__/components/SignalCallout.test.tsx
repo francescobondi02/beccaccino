@@ -43,10 +43,13 @@ describe("SignalCallout", () => {
     })), 1);
     const lead = { playerId: 1, userId: 1, suit: "denara", value: "asso", position: 0, signal: "busso" as const };
     let state = gameTableReducer(initialGameTableState, {
-      type: "card_played", data: lead, myUserId: 1, username: "Alex",
-    });
+      type: "card_played", data: lead, myUserId: 1 });
+    const leadSignal = ({ playedCards }: GameTableState) => {
+      const card = playedCards.find((played) => played.position === 0);
+      return card?.signal ? { userId: card.userId, signal: card.signal, cardKey: `${card.suit}-${card.value}` } : null;
+    };
     const board = (current: GameTableState) => (
-      <GameBoard players={players} currentTurnUserId={null} currentSignal={current.currentSignal}
+      <GameBoard players={players} currentTurnUserId={null} currentSignal={leadSignal(current)}
         countdown={null} playedCards={current.playedCards} briscola="denara"
         callerUserId={1} currentUserId={1} hand={[]} playableCards={[]} onCardClick={vi.fn()} />
     );
@@ -54,13 +57,12 @@ describe("SignalCallout", () => {
     act(() => vi.advanceTimersByTime(2800));
     state = gameTableReducer(state, {
       type: "card_played", data: { ...lead, userId: 2, playerId: 2, position: 1, signal: null },
-      myUserId: 1, username: "Luca",
+      myUserId: 1,
     });
     rerender(board(state));
     expect(screen.queryByText("busso!")).not.toBeInTheDocument();
     state = gameTableReducer(state, {
-      type: "card_played", data: { ...lead, value: "tre", handNumber: 2 }, myUserId: 1, username: "Alex",
-    });
+      type: "card_played", data: { ...lead, value: "tre", handNumber: 2 }, myUserId: 1 });
     rerender(board(state));
     expect(screen.getByText("busso!")).toBeInTheDocument();
   });

@@ -72,24 +72,9 @@ export interface RoundEndData {
   winnerTeam: number;
 }
 
-export interface MoveLogEntry {
-  handNumber: number | null;
-  username: string;
-  suit: string;
-  value: string;
-  signal?: Signal | null;
-}
-
-export interface RevealedHand {
-  userId: number;
-  botModel: string | null;
-  cards: { suit: string; value: string }[];
-}
-
 // Response from GET /games/:code/state.
 export interface GameStateResponse {
   status: "choosing_briscola" | "playing" | "paused" | "finished";
-  pausedAt: string | null;
   roundSummary?: RoundEndData | null;
   round: {
     id: number;
@@ -114,5 +99,4 @@ export interface GameStateResponse {
   finishedGame: GameFinishedPayload | null;
   isPractice: boolean;
   playerControls?: PlayerControl[];
-  allHands: RevealedHand[] | null;
 }

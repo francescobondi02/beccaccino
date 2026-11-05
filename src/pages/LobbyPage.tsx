@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import AuthDialog from "@/components/AuthDialog";
@@ -26,8 +26,13 @@ const LobbyPage = () => {
   const userId = user?.id ?? null;
   const isAuthenticated = user !== null;
   const [showAuthDialog, setShowAuthDialog] = useState(false);
-  const [roomCode, setRoomCode] = useState("");
+  const [searchParams] = useSearchParams();
+  const [roomCode, setRoomCode] = useState(
+    () => searchParams.get("join")?.toUpperCase() ?? "",
+  );
   const [resumingRoomCode, setResumingRoomCode] = useState<string | null>(null);
+  const [isEnteringRoom, setIsEnteringRoom] = useState(false);
+  const roomRequestPending = useRef(false);
   const isConnected = useConnectionStatus() === "connected";
   const {
     availableRooms,
@@ -61,49 +66,44 @@ const LobbyPage = () => {
     }
   };
 
-  const handleCreateRoom = async () => {
-    if (!requireAuthentication()) return;
-    if (!userId) {
-      toast.error("Errore: userId non disponibile");
-      return;
-    }
-
+  const enterRoom = async (
+    request: () => Promise<string>,
+    success: string,
+    failure: string,
+  ) => {
+    if (!requireAuthentication() || roomRequestPending.current) return;
+    roomRequestPending.current = true;
+    setIsEnteringRoom(true);
     try {
-      const room = await apiPost<{ code: string }>("/rooms", {});
-      toast.success("Stanza creata!");
-      navigate(`/room/${room.code}`);
-    } catch (error) {
-      if (handleActiveRoomConflict(error, navigate)) return;
-      console.error("Error creating room:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Impossibile creare la stanza",
-      );
-    }
-  };
-
-  const joinRoom = async (code: string) => {
-    if (!requireAuthentication()) return;
-    if (!userId) {
-      toast.error("Errore: userId non disponibile");
-      return;
-    }
-
-    try {
-      await apiPost("/rooms/join", { roomCode: code });
-      toast.success(`Accesso alla stanza ${code}`);
+      const code = await request();
+      toast.success(success);
       navigate(`/room/${code}`);
     } catch (error) {
       if (handleActiveRoomConflict(error, navigate)) return;
-      console.error("Error joining room:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Impossibile entrare nella stanza",
-      );
+      console.error("Error entering room:", error);
+      toast.error(error instanceof Error ? error.message : failure);
+    } finally {
+      roomRequestPending.current = false;
+      setIsEnteringRoom(false);
     }
   };
+
+  const handleCreateRoom = () =>
+    enterRoom(
+      async () => (await apiPost<{ code: string }>("/rooms", {})).code,
+      "Stanza creata!",
+      "Impossibile creare la stanza",
+    );
+
+  const joinRoom = (code: string) =>
+    enterRoom(
+      async () => {
+        await apiPost("/rooms/join", { roomCode: code });
+        return code;
+      },
+      `Accesso alla stanza ${code}`,
+      "Impossibile entrare nella stanza",
+    );
 
   const handleJoinByCode = () => {
     if (!requireAuthentication()) return;
@@ -140,6 +140,7 @@ const LobbyPage = () => {
         onCreateRoom={() => void handleCreateRoom()}
         onPractice={handlePractice}
         onJoinByCode={handleJoinByCode}
+        disabled={isEnteringRoom}
       />
       {isAuthenticated ? (
         <LobbyRoomLists
@@ -150,7 +151,9 @@ const LobbyPage = () => {
           isLoading={isLoading}
           resumingRoomCode={resumingRoomCode}
           onJoin={(code) => void joinRoom(code)}
-          onOpenGame={(code) => navigate(`/game/${code}`)}
+          onOpenGame={({ code, started }) =>
+            navigate(`/${started === false ? "room" : "game"}/${code}`)
+          }
           onResumePractice={(code) => void handleResumePractice(code)}
         />
       ) : (

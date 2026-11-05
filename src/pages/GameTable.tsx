@@ -93,19 +93,16 @@ const GameTable = () => {
   const myControl = playerControls.find((player) => player.userId === userId);
   const myBotControlled = Boolean(myControl?.botModel);
 
-  // Dialog state
-  const [trumpDialogOpen, setTrumpDialogOpen] = useState(false);
   const [lastTrickDialogOpen, setLastTrickDialogOpen] = useState(false);
   const [isReturningHome, setIsReturningHome] = useState(false);
   const [isPausing, setIsPausing] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
   const [confirmPausedAbandon, setConfirmPausedAbandon] = useState(false);
 
-  // Signal dialog state (pending card waiting for signal choice)
+  // Leader card waiting for a signal choice
   const [pendingCard, setPendingCard] = useState<PlayerCard | null>(null);
-  const [signalDialogOpen, setSignalDialogOpen] = useState(false);
-
   const [isPlayingCard, setIsPlayingCard] = useState(false);
+  const signalDialogOpen = pendingCard !== null && !isPlayingCard;
   const [isChoosingTrump, setIsChoosingTrump] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(() => Boolean(document.fullscreenElement));
 
@@ -134,10 +131,7 @@ const GameTable = () => {
       setRequestsEnabled(false);
       navigate("/");
     }
-    if (myBotControlled) {
-      setSignalDialogOpen(false);
-      setPendingCard(null);
-    }
+    if (myBotControlled) setPendingCard(null);
   }, [myControl?.abandonedAt, myBotControlled, gameFinishedData, navigate, setRequestsEnabled]);
 
   // Carica i dati della stanza
@@ -205,42 +199,21 @@ const GameTable = () => {
     );
   }, [gameRoomCode, navigate]);
 
-  // Il caller vede il dialog briscola finché non sceglie (il dialog non è
-  // chiudibile in altro modo, quindi ri-aprirlo a ogni cambio di stato è
-  // equivalente al vecchio open-on-fetch).
-  useEffect(() => {
-    setTrumpDialogOpen(
-      gameStatus !== "paused" &&
-      !myBotControlled &&
-      !completedTrick &&
-      deal.phase === "ready" &&
-      myCards.length > 0 &&
-      currentRound?.briscola === null &&
-        callerUserId === userId &&
-        !showRoundSummary &&
-        !gameFinishedData,
-    );
-  }, [
-    currentRound?.briscola,
-    callerUserId,
-    userId,
-    gameStatus,
-    myBotControlled,
-    deal.phase,
-    myCards.length,
-    showRoundSummary,
-    gameFinishedData,
-    completedTrick,
-  ]);
+  // Il caller vede il dialog briscola (non chiudibile) finché non sceglie.
+  const trumpDialogOpen =
+    gameStatus !== "paused" &&
+    !myBotControlled &&
+    !completedTrick &&
+    deal.phase === "ready" &&
+    myCards.length > 0 &&
+    currentRound?.briscola === null &&
+    callerUserId === userId &&
+    !showRoundSummary &&
+    !gameFinishedData;
 
   useEffect(() => {
-    if (gameStatus === "paused") {
-      setTrumpDialogOpen(false);
-      setSignalDialogOpen(false);
-      setPendingCard(null);
-      return;
-    }
-    setConfirmPausedAbandon(false);
+    if (gameStatus === "paused") setPendingCard(null);
+    else setConfirmPausedAbandon(false);
   }, [gameStatus]);
 
   useEffect(() => {
@@ -250,7 +223,6 @@ const GameTable = () => {
       !myCards.some((card) => card.id === pendingCard.id && card.inHand)
     )) {
       setPendingCard(null);
-      setSignalDialogOpen(false);
     }
   }, [pendingCard, currentTurnUserId, userId, playedCards.length, myCards]);
 
@@ -280,35 +252,18 @@ const GameTable = () => {
       toast.error(message || "Errore nel giocare la carta");
       await refetchGameState();
     } finally {
+      setPendingCard(null);
       setIsPlayingCard(false);
     }
   };
 
+  // GameBoard only enables my playable cards on my turn.
   const handleCardClick = async (card: PlayerCard) => {
-    if (!gameRoomCode || currentTurnUserId !== userId) {
-      toast.error("Non è il tuo turno!");
-      return;
-    }
-
     if (isPlayingCard) return;
-
-    const isPlayable = playableCards.some(
-      (c) => c.suit === card.suit && c.value === card.value,
-    );
-    if (!isPlayable) {
-      toast.error("Non puoi giocare questa carta!");
-      return;
-    }
 
     // If trick leader (no cards on table), show signal dialog
     if (playedCards.length === 0) {
-      if (mobile && pendingCard?.id === card.id) {
-        setPendingCard(null);
-        setSignalDialogOpen(false);
-        return;
-      }
-      setPendingCard(card);
-      setSignalDialogOpen(true);
+      setPendingCard(mobile && pendingCard?.id === card.id ? null : card);
       return;
     }
 
@@ -317,12 +272,7 @@ const GameTable = () => {
   };
 
   const handleSignalSelect = async (signal: Signal | null) => {
-    if (isPlayingCard) return;
-    setSignalDialogOpen(false);
-    if (pendingCard) {
-      await sendPlayCard(pendingCard, signal);
-      setPendingCard(null);
-    }
+    if (!isPlayingCard && pendingCard) await sendPlayCard(pendingCard, signal);
   };
 
   const handleTrumpSelect = async (suit: string) => {
@@ -334,7 +284,6 @@ const GameTable = () => {
         suit,
       });
       applyLocalBriscola(suit);
-      setTrumpDialogOpen(false);
       if (!mobile) toast.success(`Briscola scelta: ${suit === "denara" ? "denari" : suit}`);
     } catch (error) {
       if (error instanceof ApiError) {
@@ -362,54 +311,29 @@ const GameTable = () => {
     }
   };
 
-  const handlePause = async () => {
-    if (!gameRoomCode) return;
-
-    setIsPausing(true);
+  const roomAction = async (
+    action: "pause" | "resume" | "resume-control",
+    setBusy: (busy: boolean) => void,
+    failure: string,
+    onSuccess: () => unknown,
+  ) => {
+    setBusy(true);
     try {
-      await apiPost<{ success: boolean; paused: boolean }>(
-        `/rooms/${gameRoomCode}/pause`,
-        {},
-      );
-      navigate("/");
+      await apiPost(`/rooms/${gameRoomCode}/${action}`, {});
+      await onSuccess();
     } catch (error) {
-      console.error("Error pausing practice room:", error);
-      toast.error("Impossibile mettere in pausa l'allenamento. Riprova.");
-      setIsPausing(false);
+      console.error(`Error on ${action}:`, error);
+      toast.error(failure);
     }
+    setBusy(false);
   };
 
-  const handleResume = async () => {
-    if (!gameRoomCode) return;
-
-    setIsResuming(true);
-    try {
-      await apiPost<{ success: boolean; paused: boolean }>(
-        `/rooms/${gameRoomCode}/resume`,
-        {},
-      );
-      await refetchGameState();
-    } catch (error) {
-      console.error("Error resuming practice room:", error);
-      toast.error("Impossibile riprendere l'allenamento. Riprova.");
-    } finally {
-      setIsResuming(false);
-    }
-  };
-
-  const handleResumeControl = async () => {
-    if (!gameRoomCode) return;
-    setIsResuming(true);
-    try {
-      await apiPost(`/rooms/${gameRoomCode}/resume-control`, {});
-      await refetchGameState();
-    } catch (error) {
-      console.error("Error resuming player control:", error);
-      toast.error("Impossibile riprendere il controllo. Riprova.");
-    } finally {
-      setIsResuming(false);
-    }
-  };
+  const handlePause = () =>
+    roomAction("pause", setIsPausing, "Impossibile mettere in pausa l'allenamento. Riprova.", () => navigate("/"));
+  const handleResume = () =>
+    roomAction("resume", setIsResuming, "Impossibile riprendere l'allenamento. Riprova.", refetchGameState);
+  const handleResumeControl = () =>
+    roomAction("resume-control", setIsResuming, "Impossibile riprendere il controllo. Riprova.", refetchGameState);
 
   const gameActions =
     !gameFinishedData && gameStatus !== "paused" ? (
@@ -499,7 +423,6 @@ const GameTable = () => {
       disabled={isPlayingCard}
       open={signalDialogOpen}
       onOpenChange={(open) => {
-        setSignalDialogOpen(open);
         if (!open) setPendingCard(null);
       }}
       onSelect={handleSignalSelect}
@@ -509,7 +432,7 @@ const GameTable = () => {
     <TrumpSuitDialog
       inline={mobile}
       disabled={isChoosingTrump}
-      open={trumpDialogOpen && deal.phase === "ready"}
+      open={trumpDialogOpen}
       onSelectSuit={handleTrumpSelect}
       myCards={myCards}
       practiceActions={gameActions}
@@ -522,7 +445,6 @@ const GameTable = () => {
       data-testid="game-table-page"
       data-current-turn-userid={currentTurnUserId ?? ""}
       data-briscola={currentRound?.briscola ?? ""}
-      data-game-finished="false"
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(157_42%_25%_/_0.11),transparent_58%)]" />
 
@@ -588,8 +510,8 @@ const GameTable = () => {
             <Button
               variant="default"
               size="sm"
-              onClick={() => setTrumpDialogOpen(true)}
-              disabled={deal.phase !== "ready"}
+              disabled
+              title="La scelta si apre appena le carte sono pronte"
               data-testid="choose-trump-button"
             >
               <Crown className="h-4 w-4" aria-hidden="true" />

@@ -112,10 +112,6 @@ export function getSocket(): AppSocket {
   return socket;
 }
 
-export function isSocketConnected(): boolean {
-  return socket ? socket.connected : false;
-}
-
 export function getConnectionStatus(): ConnectionStatus {
   // If socket exists and is connected but status is stale, correct it
   if (socket?.connected && connectionStatus !== "connected") {

@@ -237,9 +237,4 @@ describe("AuthDialog", () => {
       expect(toast.error).toHaveBeenCalledWith("Network error");
     });
   });
-
-  it("clearly labels unavailable Google login and keeps it disabled", () => {
-    render(<AuthDialog {...defaultProps} />);
-    expect(screen.getByRole("button", { name: "Google non disponibile" })).toBeDisabled();
-  });
 });

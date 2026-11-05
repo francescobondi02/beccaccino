@@ -81,9 +81,9 @@ vi.mock("sonner", () => ({
   toast: mocks.toast,
 }));
 
-function renderLobby() {
+function renderLobby(path = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <LobbyPage />
     </MemoryRouter>,
   );
@@ -129,6 +129,45 @@ describe("LobbyPage room commands", () => {
       expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");
     },
   );
+
+  it("keeps an invitation code from a signed-out room link", () => {
+    mocks.auth.user = null;
+    renderLobby("/?join=abc123");
+
+    expect(screen.getByRole("textbox", { name: "Codice stanza" })).toHaveValue("ABC123");
+  });
+
+  it("opens sign-in instead of sending room commands while signed out", () => {
+    mocks.auth.user = null;
+    renderLobby();
+
+    fireEvent.click(screen.getByTestId("create-room-button"));
+    expect(screen.getByTestId("auth-dialog")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("room-code-input"), { target: { value: "ABC123" } });
+    fireEvent.click(screen.getByTestId("join-by-code-button"));
+    fireEvent.click(screen.getByTestId("practice-button"));
+
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(mocks.apiGet).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("sends one room command at a time", async () => {
+    const created = deferred<{ code: string }>();
+    mocks.apiPost.mockReturnValue(created.promise);
+    renderLobby();
+
+    fireEvent.click(screen.getByTestId("create-room-button"));
+    fireEvent.click(screen.getByTestId("hero-primary-action"));
+    fireEvent.change(screen.getByTestId("room-code-input"), { target: { value: "ABC123" } });
+    fireEvent.click(screen.getByTestId("join-by-code-button"));
+
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("create-room-button")).toBeDisabled();
+    expect(screen.getByTestId("join-by-code-button")).toBeDisabled();
+    await act(async () => created.resolve({ code: "NEW123" }));
+    expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");
+  });
 
   it("submits invitation codes through the native form", async () => {
     mocks.apiPost.mockResolvedValue({});
@@ -212,6 +251,24 @@ describe("LobbyPage room commands", () => {
       "Inserisci un codice stanza",
     );
     expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("reopens unstarted rooms in the waiting room and started ones at the table", async () => {
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        { id: 20, code: "WAIT01", players: [], isPractice: false, pausedAt: null, started: false },
+        { id: 21, code: "LIVE01", players: [], isPractice: false, pausedAt: null, started: true },
+      ],
+    });
+    renderLobby();
+
+    const [waiting, live] = await screen.findAllByRole("button", { name: "Rientra" });
+    fireEvent.click(waiting);
+    fireEvent.click(live);
+
+    expect(mocks.navigate).toHaveBeenNthCalledWith(1, "/room/WAIT01");
+    expect(mocks.navigate).toHaveBeenNthCalledWith(2, "/game/LIVE01");
   });
 
   it("separates paused practice games and resumes before navigating", async () => {

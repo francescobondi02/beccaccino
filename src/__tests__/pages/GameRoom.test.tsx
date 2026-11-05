@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => {
     statusListeners: new Set<(status: ConnectionStatus) => void>(),
     leaveRoom: vi.fn(),
     unregisterRoom: vi.fn(),
+    authOptions: undefined as unknown,
   };
 });
 
@@ -42,7 +43,7 @@ vi.mock("@/lib/api", async () => {
   };
 });
 vi.mock("@/hooks/useAuth", () => ({
-  useAuth: () => ({
+  useAuth: (options: unknown) => (mocks.authOptions = options, {
     user: { id: 1, username: "alice" },
     loading: false,
     error: null,
@@ -236,6 +237,20 @@ describe("GameRoom state synchronization", () => {
     expect(screen.getByTestId("ready-button")).toHaveTextContent("Non pronto");
   });
 
+  it("chooses a team and enables readiness", async () => {
+    mocks.apiGet.mockResolvedValue(room([{ ...alice, team: null }, bob]));
+    renderGameRoom();
+
+    fireEvent.click(await screen.findByTestId("team-1-button"));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
+      "/rooms/ROOM/choose-team", { team: 1 },
+    ));
+    await waitFor(() => expect(screen.getByTestId("ready-button")).toBeEnabled());
+    expect(screen.queryByTestId("team-1-button")).not.toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalledWith("Sei nella squadra 2!");
+  });
+
   it("configures virtual bots and lets an arriving friend take a placeholder", async () => {
     mocks.apiGet.mockResolvedValue(room([{ ...alice, isReady: true }]));
     mocks.apiPost.mockResolvedValue({ ...room([alice]), botTier: "forte" });
@@ -309,13 +324,12 @@ describe("GameRoom state synchronization", () => {
 
   it("hydrates authoritative room state only after the server confirms rejoining", async () => {
     mocks.apiGet.mockImplementation((path) => {
-      if (path === "/rooms/ROOM?userId=1") {
-        return Promise.resolve(room([alice]));
+      if (path !== "/rooms/ROOM") {
+        return Promise.reject(new Error(`Unexpected request: ${path}`));
       }
-      if (path === "/rooms/ROOM") {
-        return Promise.resolve(room([alice, bob]));
-      }
-      return Promise.reject(new Error(`Unexpected request: ${path}`));
+      return Promise.resolve(
+        mocks.apiGet.mock.calls.length === 1 ? room([alice]) : room([alice, bob]),
+      );
     });
 
     renderGameRoom();
@@ -369,7 +383,7 @@ describe("GameRoom state synchronization", () => {
     expect(await screen.findByText("Lobby")).toBeInTheDocument();
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
       "/rooms/ROOM/leave",
-      {},
+      { onlyIfWaiting: true },
     ));
     expect(mocks.apiPost).toHaveBeenCalledOnce();
   });
@@ -382,7 +396,7 @@ describe("GameRoom state synchronization", () => {
     fireEvent.click(screen.getByTestId("leave-room-button"));
 
     expect(await screen.findByText("Lobby")).toBeInTheDocument();
-    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {});
+    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", { onlyIfWaiting: true });
     expect(mocks.apiPost).toHaveBeenCalledOnce();
   });
 
@@ -413,8 +427,36 @@ describe("GameRoom state synchronization", () => {
     expect(mocks.apiPost).toHaveBeenCalledOnce();
   });
 
-  it("does not try to leave a room that failed to load", async () => {
+  it("joins through an invite link before subscribing to the room", async () => {
+    let finishJoin!: (value: unknown) => void;
+    mocks.apiGet
+      .mockRejectedValueOnce(new ApiError(403, "Not a player"))
+      .mockResolvedValue(room([alice, bob]));
+    mocks.apiPost.mockReturnValueOnce(new Promise((resolve) => { finishJoin = resolve; }));
+    renderGameRoom();
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/join", { roomCode: "ROOM" }));
+    expect(mocks.callbacks.joined).toBeNull();
+    await act(async () => finishJoin({ success: true }));
+
+    expect(await screen.findByText("Giocatori: 2 / 4")).toBeInTheDocument();
+    expect(mocks.callbacks.joined).toEqual(expect.any(Function));
+    expect(mocks.authOptions).toEqual({ redirectOnFail: "/?join=ROOM" });
+  });
+
+  it("sends an invited player already seated elsewhere to that game", async () => {
     mocks.apiGet.mockRejectedValue(new ApiError(403, "Not a player"));
+    mocks.apiPost.mockRejectedValue(
+      new ApiError(409, "Already in a room", { activeRoomCode: "LIVE01" }),
+    );
+    renderGameRoom();
+
+    expect(await screen.findByText("Tavolo")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("Sei già in una partita attiva");
+  });
+
+  it("does not try to leave a room that failed to load", async () => {
+    mocks.apiGet.mockRejectedValue(new ApiError(404, "Room not found"));
     renderGameRoom();
 
     expect(await screen.findByText("Lobby")).toBeInTheDocument();

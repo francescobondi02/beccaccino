@@ -5,14 +5,11 @@ import type {
 import type {
   CompletedTrick,
   GameStateResponse,
-  MoveLogEntry,
   PlayedCardData,
   PlayerCard,
   PlayerControl,
-  RevealedHand,
   RoundEndData,
   RoundDeal,
-  Signal,
   TotalPoints,
   TurnTimer,
 } from "@/game/model";
@@ -20,7 +17,6 @@ import { trickWinner } from "@/game/presentation";
 
 export interface GameTableState {
   gameStatus: GameStateResponse["status"] | null;
-  pausedAt: string | null;
   currentRound: GameStateResponse["round"] | null;
   roundDeal: RoundDeal | null;
   callerUserId: number | null;
@@ -34,11 +30,8 @@ export interface GameTableState {
   currentHandNumber: number | null;
   totalPoints: TotalPoints;
   turnTimer: TurnTimer | null;
-  currentSignal: { userId: number; signal: Signal; cardKey?: string } | null;
   isPractice: boolean;
   playerControls: PlayerControl[];
-  allHands: RevealedHand[] | null;
-  moveLog: MoveLogEntry[];
   roundEndData: RoundEndData | null;
   gameFinishedData: GameFinishedPayload | null;
 }
@@ -46,12 +39,7 @@ export interface GameTableState {
 export type GameTableAction =
   | { type: "state_fetched"; data: GameStateResponse; now: number }
   | { type: "playable_cards_fetched"; cards: PlayerCard[] }
-  | {
-      type: "card_played";
-      data: PlayedCardData;
-      myUserId: number | null;
-      username: string;
-    }
+  | { type: "card_played"; data: PlayedCardData; myUserId: number | null }
   | { type: "briscola_chosen"; briscola: string }
   | { type: "new_round_started"; data: NewRoundStartedPayload }
   | { type: "game_finished"; data: GameFinishedPayload }
@@ -68,7 +56,6 @@ const EMPTY_POINTS: TotalPoints = {
 
 export const initialGameTableState: GameTableState = {
   gameStatus: null,
-  pausedAt: null,
   currentRound: null,
   roundDeal: null,
   callerUserId: null,
@@ -82,11 +69,8 @@ export const initialGameTableState: GameTableState = {
   currentHandNumber: null,
   totalPoints: EMPTY_POINTS,
   turnTimer: null,
-  currentSignal: null,
   isPractice: false,
   playerControls: [],
-  allHands: null,
-  moveLog: [],
   roundEndData: null,
   gameFinishedData: null,
 };
@@ -107,16 +91,9 @@ export function gameTableReducer(
       };
     case "state_fetched": {
       const { data, now } = action;
-      const leadCard = data.playedCards?.find(
-        (card) => card.position === 0,
-      );
-      const roundChanged =
-        state.currentRound !== null &&
-        state.currentRound.id !== data.round.id;
       return {
         ...state,
         gameStatus: data.status,
-        pausedAt: data.pausedAt,
         currentRound: data.round,
         roundDeal: data.round.deal && data.round.deal.remainingMs > 0
           ? {
@@ -137,8 +114,6 @@ export function gameTableReducer(
         roundEndData: data.roundSummary ?? null,
         isPractice: data.isPractice ?? false,
         playerControls: data.playerControls ?? [],
-        allHands: data.allHands ?? null,
-        moveLog: roundChanged ? [] : state.moveLog,
         turnTimer: data.turnTimer
           ? {
               turnUserId: data.turnTimer.turnUserId,
@@ -151,10 +126,6 @@ export function gameTableReducer(
               phase: data.turnTimer.phase,
             }
           : null,
-        currentSignal:
-          leadCard?.signal
-            ? { userId: leadCard.userId, signal: leadCard.signal, cardKey: `${leadCard.suit}-${leadCard.value}` }
-            : null,
       };
     }
 
@@ -163,7 +134,7 @@ export function gameTableReducer(
       return { ...state, playableCards: action.cards };
 
     case "card_played": {
-      const { data, myUserId, username } = action;
+      const { data, myUserId } = action;
       const currentTrick = data.position === 0 ? [] : state.playedCards;
       const playedCards = [...currentTrick, data];
       return {
@@ -172,22 +143,6 @@ export function gameTableReducer(
         currentTurnUserId: null,
         playableCards: [],
         turnTimer: null,
-        moveLog: [
-          ...state.moveLog,
-          {
-            handNumber: data.handNumber ?? null,
-            username,
-            suit: data.suit,
-            value: data.value,
-            signal: data.signal ?? null,
-          },
-        ],
-        // Signals only occur on a trick's first card.
-        currentSignal: data.signal
-          ? { userId: data.userId, signal: data.signal, cardKey: `${data.suit}-${data.value}` }
-          : data.position === 0
-            ? null
-            : state.currentSignal,
         myCards:
           data.userId === myUserId
             ? state.myCards.filter(
@@ -215,7 +170,6 @@ export function gameTableReducer(
       return {
         ...state,
         gameStatus: "playing",
-        pausedAt: null,
         turnTimer: null,
         currentRound: state.currentRound
           ? { ...state.currentRound, briscola: action.briscola }
@@ -227,7 +181,6 @@ export function gameTableReducer(
         ...state,
         roundDeal: null,
         gameStatus: "choosing_briscola",
-        pausedAt: null,
         currentRound: {
           id: action.data.roundId,
           number: action.data.roundNumber,
@@ -242,8 +195,6 @@ export function gameTableReducer(
         playableCards: [],
         currentHandNumber: null,
         turnTimer: null,
-        currentSignal: null,
-        moveLog: [],
         roundEndData: null,
       };
 
@@ -251,7 +202,6 @@ export function gameTableReducer(
       return {
         ...state,
         gameStatus: "finished",
-        pausedAt: null,
         gameFinishedData: action.data,
         roundEndData: null,
       };

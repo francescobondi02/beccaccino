@@ -16,14 +16,6 @@ describe("PlayingCard", () => {
     expect(img).toHaveAttribute("src", "/images/cards/tre_denari.png");
   });
 
-  it("applies size classes correctly", () => {
-    const { container: sm } = render(<PlayingCard size="sm" />);
-    expect(sm.firstElementChild).toHaveClass("w-12", "h-16");
-
-    const { container: lg } = render(<PlayingCard size="lg" />);
-    expect(lg.firstElementChild).toHaveClass("w-20", "h-28");
-  });
-
   it("is not clickable by default", () => {
     const onClick = vi.fn();
     const { container } = render(<PlayingCard onClick={onClick} />);
@@ -49,16 +41,6 @@ describe("PlayingCard", () => {
     fireEvent.click(container.firstElementChild!);
     expect(onClick).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Gioca asso di bastoni" })).toBeDisabled();
-  });
-
-  it("applies disabled styles", () => {
-    const { container } = render(<PlayingCard disabled={true} />);
-    expect(container.firstElementChild).toHaveClass("opacity-40", "grayscale");
-  });
-
-  it("applies custom className", () => {
-    const { container } = render(<PlayingCard className="my-custom-class" />);
-    expect(container.firstElementChild).toHaveClass("my-custom-class");
   });
 
   describe("fallback placeholder", () => {

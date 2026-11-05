@@ -103,6 +103,9 @@ public/
 - Cookie set by backend, sent automatically via `credentials: 'include'` on fetch and Socket.IO
 - `GET /api/users/me` to check auth state on page load
 - Redirect to home if not authenticated on protected pages
+- Invite links (`/room/:code`) join non-members via `POST /rooms/join`; signed-out
+  visitors land on `/?join=CODE` with the code prefilled
+- The singleton socket is dropped whenever the signed-in user changes
 
 ### Expert Annotation Flow
 - `/annotate` is lazy-loaded and uses the normal BECCA registration/login flow

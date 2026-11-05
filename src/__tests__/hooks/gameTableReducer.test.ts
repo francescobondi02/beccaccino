@@ -12,13 +12,12 @@ import type {
 /**
  * The reducer is the game table's single source of client-side truth: these
  * tests pin the update rules that used to live scattered across ~15 useState
- * setters — especially the signal set/clear rules and the reconnect timer
+ * setters — especially trick holding and the reconnect timer
  * reconstruction, which are easy to break silently.
  */
 describe("gameTableReducer", () => {
   const stateResponse: GameStateResponse = {
     status: "playing",
-    pausedAt: null,
     round: { id: 7, number: 2, briscola: "coppe" },
     currentHandNumber: 3,
     callerUserId: 11,
@@ -34,7 +33,6 @@ describe("gameTableReducer", () => {
     turnTimer: null,
     finishedGame: null,
     isPractice: true,
-    allHands: [],
   };
 
   const cardPlayed = (overrides: Partial<PlayedCardData> = {}): PlayedCardData => ({
@@ -57,7 +55,6 @@ describe("gameTableReducer", () => {
       type: "card_played",
       data,
       myUserId,
-      username: "anna",
     });
 
   it("state_fetched applies the full server response", () => {
@@ -75,7 +72,6 @@ describe("gameTableReducer", () => {
     expect(state.totalPoints.team0Points).toBe(4);
     expect(state.isPractice).toBe(true);
     expect(state.gameStatus).toBe("playing");
-    expect(state.pausedAt).toBeNull();
     expect(state.turnTimer).toBeNull();
   });
 
@@ -85,14 +81,12 @@ describe("gameTableReducer", () => {
       data: {
         ...stateResponse,
         status: "paused",
-        pausedAt: "2026-08-27T18:00:00.000Z",
         turnTimer: null,
       },
       now: 1000,
     });
 
     expect(state.gameStatus).toBe("paused");
-    expect(state.pausedAt).toBe("2026-08-27T18:00:00.000Z");
     expect(state.turnTimer).toBeNull();
   });
 
@@ -133,40 +127,6 @@ describe("gameTableReducer", () => {
     expect(state.gameFinishedData).toEqual(finishedGame);
   });
 
-  it("state_fetched preserves history within a deck and clears it for a new deck", () => {
-    const moveLog = [
-      {
-        handNumber: 2,
-        username: "anna",
-        suit: "coppe",
-        value: "tre",
-        signal: null,
-      },
-    ];
-    const inRound: GameTableState = {
-      ...initialGameTableState,
-      currentRound: stateResponse.round,
-      moveLog,
-    };
-
-    const refreshed = gameTableReducer(inRound, {
-      type: "state_fetched",
-      data: stateResponse,
-      now: 1000,
-    });
-    expect(refreshed.moveLog).toEqual(moveLog);
-
-    const nextRound = gameTableReducer(refreshed, {
-      type: "state_fetched",
-      data: {
-        ...stateResponse,
-        round: { ...stateResponse.round, id: 8, number: 3 },
-      },
-      now: 1000,
-    });
-    expect(nextRound.moveLog).toEqual([]);
-  });
-
   it("state_fetched rebuilds the timer start from the server's remaining time", () => {
     const state = gameTableReducer(initialGameTableState, {
       type: "state_fetched",
@@ -190,38 +150,6 @@ describe("gameTableReducer", () => {
       startedAt: 80_000,
       phase: "play_card",
     });
-  });
-
-  it("state_fetched restores the lead signal and clears it for an empty trick", () => {
-    const signalled = gameTableReducer(initialGameTableState, {
-      type: "state_fetched",
-      data: {
-        ...stateResponse,
-        playedCards: [
-          {
-            playerId: 5,
-            userId: 11,
-            suit: "spade",
-            value: "re",
-            position: 0,
-            signal: "busso",
-          },
-        ],
-      },
-      now: 1000,
-    });
-    expect(signalled.currentSignal).toEqual({
-      userId: 11,
-      signal: "busso",
-      cardKey: "spade-re",
-    });
-
-    const emptyTrick = gameTableReducer(signalled, {
-      type: "state_fetched",
-      data: { ...stateResponse, playedCards: [] },
-      now: 1000,
-    });
-    expect(emptyTrick.currentSignal).toBeNull();
   });
 
   it("card_played by me removes the card from my hand and adds it to the table", () => {
@@ -253,22 +181,7 @@ describe("gameTableReducer", () => {
     expect(state.playedCards).toHaveLength(1);
   });
 
-  it("a signal on the trick's first card is shown; a signal-less lead clears the previous one", () => {
-    const led = playCard(
-      initialGameTableState,
-      cardPlayed({ position: 0, signal: "busso" }),
-    );
-    expect(led.currentSignal).toEqual({ userId: 11, signal: "busso", cardKey: "denara-asso" });
-
-    // Followers (position > 0) never carry a signal and must not clear it.
-    const followed = playCard(led, cardPlayed({ position: 1 }));
-    expect(followed.currentSignal).toEqual({ userId: 11, signal: "busso", cardKey: "denara-asso" });
-
-    const newTrick = playCard(followed, cardPlayed({ position: 0 }));
-    expect(newTrick.currentSignal).toBeNull();
-  });
-
-  it("card_played invalidates the previous turn and appends to the move log", () => {
+  it("card_played invalidates the previous turn", () => {
     const withTimer: GameTableState = {
       ...initialGameTableState,
       currentTurnUserId: 11,
@@ -281,15 +194,6 @@ describe("gameTableReducer", () => {
     expect(state.currentTurnUserId).toBeNull();
     expect(state.playableCards).toEqual([]);
     expect(state.turnTimer).toBeNull();
-    expect(state.moveLog).toEqual([
-      {
-        handNumber: 3,
-        username: "anna",
-        suit: "denara",
-        value: "asso",
-        signal: null,
-      },
-    ]);
   });
 
   it("holds a completed trick across authoritative updates until released", () => {
@@ -459,16 +363,6 @@ describe("gameTableReducer", () => {
         playedCards: stateResponse.playedCards,
         playableCards: stateResponse.myCards,
         currentHandNumber: 10,
-        currentSignal: { userId: 11, signal: "busso" },
-        moveLog: [
-          {
-            handNumber: 10,
-            username: "anna",
-            suit: "spade",
-            value: "re",
-            signal: "busso",
-          },
-        ],
         roundEndData: {
           roundNumber: 1,
           team0Points: 6,
@@ -494,8 +388,6 @@ describe("gameTableReducer", () => {
     expect(state.playedCards).toEqual([]);
     expect(state.playableCards).toEqual([]);
     expect(state.currentHandNumber).toBeNull();
-    expect(state.currentSignal).toBeNull();
-    expect(state.moveLog).toEqual([]);
     expect(state.roundEndData).toBeNull();
   });
 

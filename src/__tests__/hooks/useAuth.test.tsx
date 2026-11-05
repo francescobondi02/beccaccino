@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
   navigate: vi.fn(),
+  disconnectSocket: vi.fn(),
+}));
+
+vi.mock("@/sockets/socketClient", () => ({
+  disconnectSocket: mocks.disconnectSocket,
 }));
 
 vi.mock("react-router-dom", () => ({
@@ -170,6 +175,19 @@ describe("useAuth", () => {
     });
     expect(mocks.apiPost).toHaveBeenCalledWith("/users/logout");
     expect(mocks.navigate).toHaveBeenCalledWith("/", { replace: true });
+  });
+
+  it("drops the previous user's socket when the signed-in identity changes", async () => {
+    mocks.apiPost.mockResolvedValue(undefined);
+    renderWithAuth(<Probe id="current" />, null);
+    await screen.findByText("anonymous");
+    mocks.disconnectSocket.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Login current" }));
+    await waitFor(() => expect(mocks.disconnectSocket).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole("button", { name: "Logout current" }));
+    await waitFor(() => expect(mocks.disconnectSocket).toHaveBeenCalledTimes(2));
   });
 
   it("preserves the current user when logout fails", async () => {

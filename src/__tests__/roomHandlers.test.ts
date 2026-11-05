@@ -28,8 +28,6 @@ vi.mock("socket.io-client", () => ({
 }));
 
 import {
-  disconnectRoomSocket,
-  isConnected,
   leaveRoom,
   registerRoomHandlers,
   subscribeToRoomEvent,
@@ -227,11 +225,5 @@ describe("roomHandlers", () => {
       roomCode: "ROOM",
     });
     expect(mockSocket.disconnect).not.toHaveBeenCalled();
-  });
-
-  it("exposes connection state and explicit disconnection", () => {
-    expect(isConnected()).toBe(true);
-    disconnectRoomSocket();
-    expect(mockSocket.disconnect).toHaveBeenCalled();
   });
 });
