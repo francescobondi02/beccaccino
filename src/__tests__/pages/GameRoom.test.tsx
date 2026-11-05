@@ -237,6 +237,20 @@ describe("GameRoom state synchronization", () => {
     expect(screen.getByTestId("ready-button")).toHaveTextContent("Non pronto");
   });
 
+  it("chooses a team and enables readiness", async () => {
+    mocks.apiGet.mockResolvedValue(room([{ ...alice, team: null }, bob]));
+    renderGameRoom();
+
+    fireEvent.click(await screen.findByTestId("team-1-button"));
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
+      "/rooms/ROOM/choose-team", { team: 1 },
+    ));
+    await waitFor(() => expect(screen.getByTestId("ready-button")).toBeEnabled());
+    expect(screen.queryByTestId("team-1-button")).not.toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalledWith("Sei nella squadra 2!");
+  });
+
   it("configures virtual bots and lets an arriving friend take a placeholder", async () => {
     mocks.apiGet.mockResolvedValue(room([{ ...alice, isReady: true }]));
     mocks.apiPost.mockResolvedValue({ ...room([alice]), botTier: "forte" });
