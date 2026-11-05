@@ -325,6 +325,25 @@ it('seats the player, marks ready and opens the table when the game starts', asy
   expect(mockReplace).toHaveBeenCalledWith('/game/ABC123');
 });
 
+it('waits for bots to fill the table instead of timing out the ready request', async () => {
+  waitingMode = true;
+  (waiting.players as { team: number | null }[])[0].team = 0;
+  const implementation = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, options: RequestInit) => url.endsWith('/ready')
+    ? new Promise((_, reject) => options.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
+    : implementation(url, options));
+  await renderScreen(<RoomScreen />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Sono pronto' })).toBeEnabled());
+  jest.useFakeTimers();
+  try {
+    await fireEvent.press(screen.getByRole('button', { name: 'Sono pronto' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('https://becca.example/api/rooms/ABC123/ready', expect.anything()));
+    await act(async () => { jest.advanceTimersByTime(60_000); });
+    // Still waiting on the server: the button must not re-enable and invite a second, toggling tap.
+    expect(screen.getByRole('button', { name: 'Sono pronto' })).toBeDisabled();
+  } finally { jest.useRealTimers(); }
+});
+
 it('fails explicitly on an incompatible server instead of inventing a completed trick', () => {
   delete game.lastCompletedTrick;
   expect(() => readGameState(game)).toThrow();

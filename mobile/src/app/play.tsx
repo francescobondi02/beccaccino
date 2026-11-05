@@ -11,7 +11,7 @@ import ScreenHeader from '@/components/ScreenHeader';
 import { colors, fonts } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
-import { readLobby, readRoomCode, readWaitingRoom, type Lobby, type WaitingRoom } from '@/lib/game';
+import { botStartTimeoutMs, readLobby, readRoomCode, readWaitingRoom, type Lobby, type WaitingRoom } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { latestOnly } from '@/lib/latest';
 import { sessionRequest, type SessionUser } from '@/lib/session';
@@ -100,7 +100,7 @@ function Lobby({ user }: { user: SessionUser }) {
     }
   };
   const startPractice = () => act('practice', async (signal) =>
-    `/game/${readRoomCode(await sessionRequest('/api/rooms/practice', signal, { tier: 'forte' }, 90_000))}`);
+    `/game/${readRoomCode(await sessionRequest('/api/rooms/practice', signal, { tier: 'forte' }, botStartTimeoutMs))}`);
   const create = () => act('create', async (signal) =>
     `/room/${readWaitingRoom(await sessionRequest('/api/rooms', signal, {})).code}`);
   const join = (roomCode: string) => act(`join:${roomCode}`, async (signal) =>

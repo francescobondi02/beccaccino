@@ -96,6 +96,8 @@ export function readRoom(value: unknown): Room {
   return { id: integer(data.id), code: readRoomCode(data), isPractice: data.isPractice,
     pausedAt: nullable(data.pausedAt, text), players };
 }
+// Starting a table may wait for the bot service to wake up (up to ~75 s on the server).
+export const botStartTimeoutMs = 90_000;
 export const botTiers = ['facile', 'medio', 'forte', 'esperto'] as const;
 export type BotTier = typeof botTiers[number];
 export type WaitingPlayer = { userId: number; username: string; team: number | null; isReady: boolean };

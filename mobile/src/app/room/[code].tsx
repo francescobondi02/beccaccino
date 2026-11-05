@@ -11,7 +11,7 @@ import ScreenHeader from '@/components/ScreenHeader';
 import { colors, fonts } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
-import { botTiers, readWaitingRoom, type BotTier, type WaitingPlayer, type WaitingRoom } from '@/lib/game';
+import { botStartTimeoutMs, botTiers, readWaitingRoom, type BotTier, type WaitingPlayer, type WaitingRoom } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { latestOnly } from '@/lib/latest';
 import { sessionRequest, type SessionUser } from '@/lib/session';
@@ -77,12 +77,12 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
     (socket) => socket.emit('join_room', { roomCode: code, userId: user.id, username: user.username }),
     roomEvents, () => void load(), (event) => { if (event === 'game_started') { touchFeedback('success'); toGame(); } });
 
-  const act = async (path: string, body: unknown) => {
+  const act = async (path: string, body: unknown, timeoutMs?: number) => {
     if (busy) return false;
     setBusy(true);
     setError(null);
     try {
-      await sessionRequest(path, lifetime.current.signal, body);
+      await sessionRequest(path, lifetime.current.signal, body, timeoutMs);
       await load();
       return true;
     } catch (cause) {
@@ -156,7 +156,7 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
               <ActionButton compact secondary label="Esci" disabled={busy} onPress={() => setConfirmLeave(true)} />
               <ActionButton bolt={!me?.isReady} label={me?.isReady ? 'Non sono pronto' : 'Sono pronto'}
                 secondary={me?.isReady} disabled={busy || !me || me.team === null}
-                onPress={() => void act(`/api/rooms/${code}/ready`, { isReady: !me?.isReady })} />
+                onPress={() => void act(`/api/rooms/${code}/ready`, { isReady: !me?.isReady }, botStartTimeoutMs)} />
             </View>
           </View>
         </View>
