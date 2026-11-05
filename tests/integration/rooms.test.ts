@@ -1,6 +1,7 @@
 import { prisma } from "../../src/db";
 import { clearDatabase } from "../helpers/database";
 import { api, apiAs } from "../helpers/serverHarness";
+import { getSocketInstance, setSocketInstance } from "../../src/socketInstance";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -91,6 +92,87 @@ describe("Room API", () => {
       expect(lobby.body.activeGames).toEqual([
         expect.objectContaining({ code: waitingRoom.body.code, started: false }),
       ]);
+    });
+  });
+
+  describe("waiting-room leave", () => {
+    const originalIo = getSocketInstance();
+    let events: { target: string; event: string; payload: unknown }[];
+    beforeEach(() => {
+      events = [];
+      setSocketInstance({
+        to: (target: string) => ({
+          emit: (event: string, payload: unknown) => events.push({ target, event, payload }),
+        }),
+      } as any);
+    });
+    afterEach(() => setSocketInstance(originalIo));
+
+    async function seatedRoom(count: number) {
+      const users = [];
+      for (let index = 0; index < count; index++) users.push(await createUser(`seat${index}`));
+      const created = await apiAs(users[0].id, users[0].username).post("/api/rooms").send({});
+      const roomCode: string = created.body.code;
+      for (const [index, user] of users.entries()) {
+        if (index > 0) {
+          await apiAs(user.id, user.username).post("/api/rooms/join").send({ roomCode });
+        }
+        await apiAs(user.id, user.username)
+          .post(`/api/rooms/${roomCode}/choose-team`)
+          .send({ team: index % 2 });
+      }
+      return { users, roomCode };
+    }
+
+    it("refuses an onlyIfWaiting leave once the game has started", async () => {
+      const { users: [user], roomCode } = await seatedRoom(1);
+      await prisma.gameRoom.update({ where: { code: roomCode }, data: { started: true } });
+
+      const res = await apiAs(user.id, user.username)
+        .post(`/api/rooms/${roomCode}/leave`)
+        .send({ onlyIfWaiting: true });
+
+      expect(res.statusCode).toBe(409);
+      expect(await prisma.player.count({ where: { abandonedAt: { not: null } } })).toBe(0);
+    });
+
+    it("clears readiness and updates the lobby after a player leaves", async () => {
+      const { users: [stays, leaves], roomCode } = await seatedRoom(2);
+      await apiAs(stays.id, stays.username)
+        .post(`/api/rooms/${roomCode}/ready`)
+        .send({ isReady: true });
+
+      const res = await apiAs(leaves.id, leaves.username)
+        .post(`/api/rooms/${roomCode}/leave`)
+        .send({ onlyIfWaiting: true });
+
+      expect(res.statusCode).toBe(200);
+      expect(await prisma.player.findMany({ select: { userId: true, isReady: true } })).toEqual([
+        { userId: stays.id, isReady: false },
+      ]);
+      expect(events).toContainEqual({
+        target: "lobby",
+        event: "room_updated",
+        payload: { roomCode, currentPlayers: 1 },
+      });
+      expect(events).toContainEqual(
+        expect.objectContaining({ target: roomCode, event: "room_settings_changed" }),
+      );
+    });
+
+    it("removes a started room from the lobby list", async () => {
+      const { users, roomCode } = await seatedRoom(4);
+      for (const user of users) {
+        await apiAs(user.id, user.username)
+          .post(`/api/rooms/${roomCode}/ready`)
+          .send({ isReady: true });
+      }
+
+      expect(events).toContainEqual({
+        target: "lobby",
+        event: "room_deleted",
+        payload: { roomCode },
+      });
     });
   });
 

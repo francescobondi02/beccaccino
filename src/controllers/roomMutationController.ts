@@ -74,7 +74,10 @@ export const setRoomBots = async (req: Request, res: Response) => {
 export const leaveRoom = async (req: Request, res: Response) => {
   const { userId } = requireUser(req);
   const roomCode = parseRoomCode(req.params.roomCode);
-  return res.status(200).json(await leaveRoomOperation({ roomCode, userId }));
+  const onlyIfWaiting = req.body?.onlyIfWaiting === true;
+  return res
+    .status(200)
+    .json(await leaveRoomOperation({ roomCode, userId, onlyIfWaiting }));
 };
 
 export const resumePlayerControl = async (req: Request, res: Response) => {

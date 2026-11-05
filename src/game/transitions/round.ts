@@ -293,7 +293,10 @@ export async function startFirstRound(
         createdAt: roundSetup.createdAt,
       }).remainingMs,
     );
-    publishEvents([{ target: roomCode, event: "game_started", payload: {} }]);
+    publishEvents([
+      { target: roomCode, event: "game_started", payload: {} },
+      { target: "lobby", event: "room_deleted", payload: { roomCode } },
+    ]);
   } catch (error) {
     clearRuntimeRoom(roomCode);
     throw error;
