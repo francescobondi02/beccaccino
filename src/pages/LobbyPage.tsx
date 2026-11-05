@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import AuthDialog from "@/components/AuthDialog";
@@ -26,7 +26,10 @@ const LobbyPage = () => {
   const userId = user?.id ?? null;
   const isAuthenticated = user !== null;
   const [showAuthDialog, setShowAuthDialog] = useState(false);
-  const [roomCode, setRoomCode] = useState("");
+  const [searchParams] = useSearchParams();
+  const [roomCode, setRoomCode] = useState(
+    () => searchParams.get("join")?.toUpperCase() ?? "",
+  );
   const [resumingRoomCode, setResumingRoomCode] = useState<string | null>(null);
   const isConnected = useConnectionStatus() === "connected";
   const {

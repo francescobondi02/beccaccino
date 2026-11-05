@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { useWaitingRoom } from "@/hooks/useWaitingRoom";
 import { apiPost, ApiError } from "@/lib/api";
+import { handleActiveRoomConflict } from "@/lib/roomRedirect";
 import { waitingRoomSlots } from "@/rooms/waitingRoomState";
 
 const GameRoom = () => {
@@ -21,13 +22,14 @@ const GameRoom = () => {
     loading: authLoading,
     error: authError,
     retry: retryAuth,
-  } = useAuth({ redirectOnFail: true });
+  } = useAuth({ redirectOnFail: `/?join=${roomCode}` });
   const userId = user?.id ?? null;
   const username = user?.username ?? "";
   const [isUpdating, setIsUpdating] = useState(false);
 
   const handleLoadError = useCallback(
     (error: unknown) => {
+      if (handleActiveRoomConflict(error, navigate)) return;
       if (error instanceof ApiError) {
         if (error.status === 404) {
           toast.error("Stanza non trovata");

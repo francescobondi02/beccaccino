@@ -81,9 +81,9 @@ vi.mock("sonner", () => ({
   toast: mocks.toast,
 }));
 
-function renderLobby() {
+function renderLobby(path = "/") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[path]}>
       <LobbyPage />
     </MemoryRouter>,
   );
@@ -129,6 +129,13 @@ describe("LobbyPage room commands", () => {
       expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");
     },
   );
+
+  it("keeps an invitation code from a signed-out room link", () => {
+    mocks.auth.user = null;
+    renderLobby("/?join=abc123");
+
+    expect(screen.getByRole("textbox", { name: "Codice stanza" })).toHaveValue("ABC123");
+  });
 
   it("submits invitation codes through the native form", async () => {
     mocks.apiPost.mockResolvedValue({});

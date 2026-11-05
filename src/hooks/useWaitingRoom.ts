@@ -62,32 +62,29 @@ export function useWaitingRoom({
     return request;
   }, [onLeaveError, roomCode, userId]);
 
-  const refetchRoom = useCallback(async () => {
-    if (!userId || !roomCode) return;
-
-    try {
-      const room = await apiGet<RoomResponse>(`/rooms/${roomCode}`);
-      if (room.started) gameStarted.current = true;
-      dispatch({ type: "room_loaded", room });
-    } catch (error) {
-      console.error("Error refetching room on reconnect:", error);
-    }
-  }, [roomCode, userId]);
+  const loadRoom = useCallback(async (isActive: () => boolean = () => true) => {
+    const room = await apiGet<RoomResponse>(`/rooms/${roomCode}`);
+    if (!isActive()) return;
+    if (room.started) gameStarted.current = true;
+    dispatch({ type: "room_loaded", room });
+  }, [roomCode]);
 
   const connectionStatus = useConnectionStatus();
 
   useEffect(() => {
     if (!userId || !roomCode) return;
     let active = true;
+    const isActive = () => active;
+    gameStarted.current = false;
     loadFailed.current = false;
 
     dispatch({ type: "loading_started" });
-    void apiGet<RoomResponse>(`/rooms/${roomCode}?userId=${userId}`)
-      .then((room) => {
-        if (active) {
-          if (room.started) gameStarted.current = true;
-          dispatch({ type: "room_loaded", room });
-        }
+    void loadRoom(isActive)
+      .catch(async (error: unknown) => {
+        // Invite links reach non-members: join first, then load as a member.
+        if (!(error instanceof ApiError && error.status === 403)) throw error;
+        await apiPost("/rooms/join", { roomCode });
+        await loadRoom(isActive);
       })
       .catch((error: unknown) => {
         if (!active) return;
@@ -99,16 +96,18 @@ export function useWaitingRoom({
     return () => {
       active = false;
     };
-  }, [onLoadError, roomCode, userId]);
+  }, [loadRoom, onLoadError, roomCode, userId]);
 
+  const isMember = state.room !== null;
   useEffect(() => {
-    if (!userId || !username || !roomCode) return;
+    if (!isMember || !userId || !username || !roomCode) return;
 
-    gameStarted.current = false;
     const unregisterRoom = registerRoomHandlers(
       roomCode,
       { userId, username },
-      () => void refetchRoom(),
+      () => void loadRoom().catch((error: unknown) => {
+        console.error("Error refetching room on reconnect:", error);
+      }),
     );
     const unsubscribers = [
       subscribeToRoomEvent("player_joined", ({ player }) => {
@@ -150,7 +149,7 @@ export function useWaitingRoom({
         }
       }
     };
-  }, [leaveWaitingRoom, pathname, refetchRoom, roomCode, userId, username]);
+  }, [isMember, leaveWaitingRoom, loadRoom, pathname, roomCode, userId, username]);
 
   return {
     ...state,

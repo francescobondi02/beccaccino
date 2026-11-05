@@ -11,7 +11,8 @@ export interface AuthUser {
 }
 
 interface UseAuthOptions {
-  redirectOnFail?: boolean;
+  /** Redirect signed-out users home, or to the given path. */
+  redirectOnFail?: boolean | string;
 }
 
 export const AUTH_QUERY_KEY = ["auth", "current-user"] as const;
@@ -57,7 +58,7 @@ export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
     if (!query.isSuccess || query.data) return;
 
     if (redirectOnFail) {
-      navigate("/", { replace: true });
+      navigate(redirectOnFail === true ? "/" : redirectOnFail, { replace: true });
     }
   }, [navigate, query.data, query.isSuccess, redirectOnFail]);
 
