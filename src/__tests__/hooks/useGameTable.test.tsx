@@ -337,6 +337,48 @@ describe("useGameTable turn synchronization", () => {
     await waitFor(() => expect(result.current.playableCards).toEqual([myCard]));
   });
 
+  it.each([
+    ["card_played", { playerId: 13, userId: 4, suit: "coppe", value: "tre", position: 3, handNumber: 1, signal: null }],
+    ["turn_timer_started", { turnUserId: 2, totalMs: 60_000, serverTimestamp: 1, phase: "play_card", isBot: false }],
+    ["game_finished", { winnerTeam: 0, totalRounds: 3, finalScores: { team0: 15, team1: 11 }, roundsWon: { team0: 2, team1: 1 } }],
+  ])("replaces an initial load discarded by %s", async (event, payload) => {
+    const initial = deferred<GameStateResponse>();
+    mocks.apiGet
+      .mockReturnValueOnce(initial.promise)
+      .mockResolvedValue(gameState({ currentTurnUserId: 2 }));
+    const { result } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    await waitFor(() => expect(stateRequestCount()).toBe(1));
+
+    emitSocket(event, payload);
+    await act(async () => initial.resolve(gameState({ currentTurnUserId: 3 })));
+
+    await waitFor(() => expect(result.current.gameStateStatus).toBe("ready"));
+    expect(stateRequestCount()).toBe(2);
+  });
+
+  it("requests playable cards once per turn and no state after an ordinary card", async () => {
+    mocks.apiGet.mockImplementation((path) =>
+      Promise.resolve(path === "/games/ROOM/state"
+        ? gameState({ currentTurnUserId: 1 })
+        : { playableCards: [myCard] }),
+    );
+    const playableRequests = () => mocks.apiGet.mock.calls.length - stateRequestCount();
+    const { result } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    await waitFor(() => expect(result.current.playableCards).toEqual([myCard]));
+    expect(playableRequests()).toBe(1);
+
+    vi.useFakeTimers();
+    emitSocket("card_played", { playerId: 10, userId: 1, suit: "denara", value: "asso", position: 0, handNumber: 1, signal: null });
+    emitSocket("turn_timer_started", { turnUserId: 2, totalMs: 60_000, serverTimestamp: 1, phase: "play_card", isBot: false });
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+
+    expect(stateRequestCount()).toBe(1);
+    expect(playableRequests()).toBe(1);
+  });
+
   it("holds a completed trick across stale and new-round reconciliation", async () => {
     let stateCalls = 0;
     const playedCards = [0, 1].map((position) => ({

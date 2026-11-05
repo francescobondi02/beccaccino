@@ -51,6 +51,7 @@ export function useGameTable(
   const gameRoomCodeRef = useRef(gameRoomCode);
   const playersRef = useRef(players);
   const stateRequestSequence = useRef(0);
+  const pendingStateRequest = useRef<number | null>(null);
   const playableRequestSequence = useRef(0);
   const hasLoadedGameState = useRef(false);
   const requestController = useRef<AbortController | null>(null);
@@ -105,6 +106,7 @@ export function useGameTable(
     if (!uid || !code || !signal || signal.aborted) return;
 
     const requestId = ++stateRequestSequence.current;
+    pendingStateRequest.current = requestId;
     if (!hasLoadedGameState.current) {
       setGameStateStatus("loading");
     }
@@ -115,29 +117,16 @@ export function useGameTable(
       dispatch({ type: "state_fetched", data, now: Date.now() });
       hasLoadedGameState.current = true;
       setGameStateStatus("ready");
-
-      // Fetch playable cards immediately if it's our turn
-      if (
-        data.status !== "paused" &&
-        !data.playerControls?.some((player) => player.userId === uid && player.botModel !== null) &&
-        data.currentTurnUserId === uid &&
-        data.round?.briscola &&
-        data.currentHandNumber !== null &&
-        (data.playedCards?.length ?? 0) < 4
-      ) {
-        await fetchPlayableCards(code);
-      } else {
-        playableRequestSequence.current += 1;
-        dispatch({ type: "playable_cards_fetched", cards: [] });
-      }
     } catch (error) {
       if (signal.aborted || requestId !== stateRequestSequence.current) return;
       console.error("Error refetching game state:", error);
       if (!hasLoadedGameState.current) {
         setGameStateStatus("error");
       }
+    } finally {
+      if (pendingStateRequest.current === requestId) pendingStateRequest.current = null;
     }
-  }, [fetchPlayableCards]);
+  }, []);
 
   const setRequestsEnabled = useCallback((enabled: boolean) => {
     const controller = requestController.current;
@@ -163,7 +152,8 @@ export function useGameTable(
     };
   }, [userId, gameRoomCode, refetchGameState]);
 
-  // Fetch playable cards when it's my turn
+  // Fetch playable cards when it's my turn, including after every snapshot
+  // (state_fetched replaces myCards and clears playable cards).
   useEffect(() => {
     const canRequestPlayableCards =
       state.gameStatus !== "paused" &&
@@ -191,7 +181,7 @@ export function useGameTable(
     state.currentHandNumber,
     state.playedCards.length,
     state.completedTricks.length,
-    state.myCards.length,
+    state.myCards,
     state.turnTimer,
     fetchPlayableCards,
   ]);
@@ -233,12 +223,15 @@ export function useGameTable(
       }, delay);
       reconciliationTimers.add(timer);
     };
+    // Discard an in-flight snapshot that predates this event, and replace it
+    // so the table never waits on a response that will be ignored.
     const invalidateStateRequests = () => {
+      if (pendingStateRequest.current !== stateRequestSequence.current) return;
       stateRequestSequence.current += 1;
+      scheduleRefetch(300);
     };
 
     const handleCardPlayed = (data: CardPlayedPayload) => {
-      cancelScheduledRefetches();
       invalidateStateRequests();
       playableRequestSequence.current += 1;
       dispatch({
@@ -247,22 +240,18 @@ export function useGameTable(
         myUserId: userIdRef.current,
         username: usernameOf(data.userId) ?? `#${data.userId}`,
       });
-      // position is the card's index in the trick, so position + 1 is the
-      // trick size after this play. Completed tricks use the hold effect above.
-      if (data.position + 1 < 4) {
-        scheduleRefetch(300);
-      }
+      // turn_timer_started carries the next turn; completed tricks refetch
+      // after the hold effect above.
     };
 
     const handleBriscolaChosen = (data: BriscolaChosenPayload) => {
-      invalidateStateRequests();
+      stateRequestSequence.current += 1;
       dispatch({ type: "briscola_chosen", briscola: data.briscola });
-      // Refetch to get updated turn info
+      // The event lacks the opening hand number needed to play.
       scheduleRefetch(300);
     };
 
     const handleNewRoundStarted = (data: NewRoundStartedPayload) => {
-      invalidateStateRequests();
       playableRequestSequence.current += 1;
       dispatch({ type: "new_round_started", data });
       setNotice(`Inizio del round ${data.roundNumber}`);
@@ -299,7 +288,6 @@ export function useGameTable(
     };
 
     const handlePlayerControlChanged = (data: PlayerControlChangedPayload) => {
-      invalidateStateRequests();
       playableRequestSequence.current += 1;
       dispatch({ type: "player_control_changed", player: data });
       setNotice(data.abandonedAt
@@ -311,7 +299,6 @@ export function useGameTable(
     };
 
     const handlePracticeLifecycleChanged = () => {
-      invalidateStateRequests();
       playableRequestSequence.current += 1;
       void refetchGameState();
     };
