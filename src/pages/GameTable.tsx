@@ -510,7 +510,8 @@ const GameTable = () => {
             <Button
               variant="default"
               size="sm"
-              disabled={deal.phase !== "ready"}
+              disabled
+              title="La scelta si apre appena le carte sono pronte"
               data-testid="choose-trump-button"
             >
               <Crown className="h-4 w-4" aria-hidden="true" />
