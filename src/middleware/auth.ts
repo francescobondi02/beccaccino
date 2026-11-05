@@ -6,7 +6,7 @@ import {
   isTestAuthBypassEnabled,
   testRequestIdentity,
 } from "../auth/testAuthBypass";
-import { unauthorized } from "../http/errors";
+import { forbidden, unauthorized } from "../http/errors";
 
 // Estende Request per includere user
 declare global {
@@ -15,6 +15,18 @@ declare global {
       user?: JwtPayload;
     }
   }
+}
+
+// The cookie is SameSite=None in production, so a foreign page could submit a
+// form with it. Browsers always label their own origin; Bearer clients are immune.
+function isCrossSiteMutation(req: Request): boolean {
+  const origin = req.headers.origin;
+  return (
+    !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+    origin !== undefined &&
+    origin !== process.env.FRONTEND_URL &&
+    req.headers["sec-fetch-site"] !== "same-origin"
+  );
 }
 
 export const authenticateToken = async (
@@ -31,6 +43,9 @@ export const authenticateToken = async (
   if (authorization !== undefined || token !== undefined) {
     if (typeof token !== "string" || token.length === 0) {
       return next(unauthorized("Invalid or expired token"));
+    }
+    if (authorization === undefined && isCrossSiteMutation(req)) {
+      return next(forbidden("Cross-site request rejected"));
     }
 
     try {

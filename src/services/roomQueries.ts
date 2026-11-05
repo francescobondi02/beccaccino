@@ -9,25 +9,18 @@ export class ActiveGameConflictError extends GameError {
   }
 }
 
-export async function findActiveMultiplayerGame(userId: number) {
-  return prisma.player.findFirst({
-    where: {
-      userId,
-      abandonedAt: null,
-      gameRoom: { started: true, finished: false, isPractice: false },
-    },
-    select: {
-      gameRoom: {
-        select: { code: true },
-      },
-    },
-  });
-}
-
 export async function assertNoActiveMultiplayerGame(
   userId: number,
 ): Promise<void> {
-  const activeGame = await findActiveMultiplayerGame(userId);
+  const activeGame = await prisma.player.findFirst({
+    where: {
+      userId,
+      abandonedAt: null,
+      gameRoom: { finished: false, isPractice: false },
+    },
+    orderBy: { gameRoom: { started: "desc" } },
+    select: { gameRoom: { select: { code: true } } },
+  });
   if (activeGame) {
     throw new ActiveGameConflictError(activeGame.gameRoom.code);
   }
@@ -48,8 +41,8 @@ export async function listRoomsForLobby(userId: number) {
   });
   const activeGames = await prisma.gameRoom.findMany({
     where: {
-      started: true,
       finished: false,
+      OR: [{ started: true }, { isPractice: false }],
       players: { some: { userId, abandonedAt: null } },
     },
     include: {
@@ -64,17 +57,11 @@ export async function listRoomsForLobby(userId: number) {
   };
 }
 
-export function findRoomByCode(roomCode: string) {
-  return prisma.gameRoom.findUnique({
-    where: { code: roomCode },
-    include: {
-      players: { select: PUBLIC_PLAYER_SELECT },
-    },
-  });
-}
-
 export async function getRoomForUser(roomCode: string, userId: number) {
-  const room = await findRoomByCode(roomCode);
+  const room = await prisma.gameRoom.findUnique({
+    where: { code: roomCode },
+    include: { players: { select: PUBLIC_PLAYER_SELECT } },
+  });
   if (!room) throw notFound("Room not found");
   const player = room.players.find((player) => player.userId === userId);
   if (!player) {

@@ -1,4 +1,4 @@
-import { computeRoundScore } from "../../src/domain/game/roundScore";
+import { computeRoundScore, settleRound } from "../../src/domain/game/roundScore";
 import { determineTrickWinner } from "../../src/domain/game/trickWinner";
 import { Suit, Value } from "@prisma/client";
 
@@ -103,5 +103,25 @@ describe("computeRoundScore", () => {
       const scores = computeRoundScore(hands, TEAM_PLAYERS, "coppe");
       expect(scores.team0.points + scores.team1.points).toBe(11);
     }
+  });
+});
+
+describe("settleRound", () => {
+  const score = (team0Raw: number, team1Raw: number) => ({
+    team0: { raw: team0Raw, points: Math.floor(team0Raw / 3), figures: team0Raw % 3 },
+    team1: { raw: team1Raw, points: Math.floor(team1Raw / 3), figures: team1Raw % 3 },
+  });
+
+  it("adds the cricca bonus to the caller team before choosing the winner", () => {
+    const settled = settleRound(score(19, 16), 1);
+    expect([settled.team0.points, settled.team1.points, settled.winnerTeam]).toEqual([6, 8, 1]);
+  });
+
+  it("breaks equal points by figures", () => {
+    expect(settleRound(score(16, 17), null).winnerTeam).toBe(1);
+  });
+
+  it("awards an exact tie to team 0", () => {
+    expect(settleRound(score(16, 16), null).winnerTeam).toBe(0);
   });
 });

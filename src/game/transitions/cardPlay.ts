@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../db";
-import { computeRoundScore } from "../../domain/game/roundScore";
+import { computeRoundScore, settleRound } from "../../domain/game/roundScore";
 import { determineTrickWinner } from "../../domain/game/trickWinner";
 import { isLegalCard } from "../../domain/game/legalCards";
 import { sumRoundScores, decideGameWinner } from "../../domain/game/gameScore";
@@ -222,6 +222,7 @@ async function playCardUnlocked({
     const nextPlayer = room.players.find(
       (candidate) => candidate.seat === nextTurnSeat,
     );
+    publishEvents([cardEvent]);
     if (nextPlayer) {
       startRuntimeTurn(
         roomCode,
@@ -235,7 +236,6 @@ async function playCardUnlocked({
         },
       );
     }
-    publishEvents([cardEvent]);
     return;
   }
 
@@ -265,6 +265,7 @@ async function playCardUnlocked({
     const winnerPlayer = room.players.find(
       (candidate) => candidate.id === trickWinnerPlayerId,
     );
+    publishEvents([cardEvent]);
     if (winnerPlayer) {
       startRuntimeTurn(
         roomCode,
@@ -279,7 +280,6 @@ async function playCardUnlocked({
         TRICK_DISPLAY_MS,
       );
     }
-    publishEvents([cardEvent]);
     return;
   }
 
@@ -295,7 +295,7 @@ async function playCardUnlocked({
     }
   }
 
-  const roundScore = computeRoundScore(
+  const roundScore = settleRound(computeRoundScore(
     allHands.map((hand) => ({
       winnerId:
         hand.id === currentHand.id ? trickWinnerPlayerId : hand.winnerId,
@@ -312,22 +312,8 @@ async function playCardUnlocked({
     })),
     playerTeams,
     currentRound.briscola!,
-  );
-
-  if (currentRound.cricca) {
-    const callerTeam = playerTeams[allHands[0].starterId];
-    if (callerTeam === 0) roundScore.team0.points += 3;
-    if (callerTeam === 1) roundScore.team1.points += 3;
-  }
-
-  let roundWinnerTeam: number;
-  if (roundScore.team0.points !== roundScore.team1.points) {
-    roundWinnerTeam = roundScore.team0.points > roundScore.team1.points ? 0 : 1;
-  } else if (roundScore.team0.figures !== roundScore.team1.figures) {
-    roundWinnerTeam = roundScore.team0.figures > roundScore.team1.figures ? 0 : 1;
-  } else {
-    roundWinnerTeam = 0;
-  }
+  ), currentRound.cricca ? playerTeams[allHands[0].starterId] : null);
+  const roundWinnerTeam = roundScore.winnerTeam;
 
   const previousCompletedRounds = await prisma.round.findMany({
     where: {
@@ -461,6 +447,7 @@ async function playCardUnlocked({
       callerUserId: newCaller?.userId ?? null,
     },
   });
+  publishEvents(events);
   if (newCaller) {
     startRuntimeTurn(
       roomCode,
@@ -478,5 +465,4 @@ async function playCardUnlocked({
       }).remainingMs,
     );
   }
-  publishEvents(events);
 }

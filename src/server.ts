@@ -10,11 +10,6 @@ import {
 } from "./auth/activeSession";
 import { isTestAuthBypassEnabled } from "./auth/testAuthBypass";
 
-type SocketHandshake = {
-  address: string;
-  headers: Record<string, string | string[] | undefined>;
-};
-
 export type CreateServerOptions = {
   allowTestAuthBypass?: boolean;
   corsOrigin?: string;
@@ -26,14 +21,6 @@ export type CreatedServer = {
   io: Server;
   close: () => Promise<void>;
 };
-
-function getClientIp(handshake: SocketHandshake): string {
-  const forwardedFor = handshake.headers["x-forwarded-for"];
-  if (typeof forwardedFor === "string" && forwardedFor.length > 0) {
-    return forwardedFor.split(",")[0].trim();
-  }
-  return handshake.address;
-}
 
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
   const corsOrigin = options.corsOrigin ?? process.env.FRONTEND_URL;
@@ -79,24 +66,27 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
     }
   });
 
-  const ipConnectionCounts = new Map<string, number>();
+  // Keyed by the verified account: forwarded IPs are spoofable, and website
+  // sockets share the Vercel proxy's egress IP. The raw address is only used
+  // when the test bypass leaves the socket unauthenticated.
+  const connectionCounts = new Map<string, number>();
   io.use((socket, next) => {
-    const ip = getClientIp(socket.handshake);
-    const current = ipConnectionCounts.get(ip) ?? 0;
+    const userId = socket.data.user?.userId;
+    const key = userId ? `user:${userId}` : socket.handshake.address;
+    const current = connectionCounts.get(key) ?? 0;
     if (current >= maxSocketsPerIp) {
-      logger.warn({ ip, current }, "socket_per_ip_limit_exceeded");
-      return next(new Error("Too many connections from this IP"));
+      logger.warn({ key, current }, "socket_connection_limit_exceeded");
+      return next(new Error("Too many connections"));
     }
 
-    ipConnectionCounts.set(ip, current + 1);
-    socket.data.clientIp = ip;
+    connectionCounts.set(key, current + 1);
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
-      const remaining = (ipConnectionCounts.get(ip) ?? 1) - 1;
-      if (remaining <= 0) ipConnectionCounts.delete(ip);
-      else ipConnectionCounts.set(ip, remaining);
+      const remaining = (connectionCounts.get(key) ?? 1) - 1;
+      if (remaining <= 0) connectionCounts.delete(key);
+      else connectionCounts.set(key, remaining);
     };
     socket.on("disconnect", release);
     socket.conn.once("close", release);
@@ -120,7 +110,7 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
     if (!closePromise) {
       closePromise = new Promise<void>((resolve) => {
         io.close(() => {
-          ipConnectionCounts.clear();
+          connectionCounts.clear();
           resolve();
         });
       });

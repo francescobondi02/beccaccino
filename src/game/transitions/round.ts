@@ -293,7 +293,10 @@ export async function startFirstRound(
         createdAt: roundSetup.createdAt,
       }).remainingMs,
     );
-    publishEvents([{ target: roomCode, event: "game_started", payload: {} }]);
+    publishEvents([
+      { target: roomCode, event: "game_started", payload: {} },
+      { target: "lobby", event: "room_deleted", payload: { roomCode } },
+    ]);
   } catch (error) {
     clearRuntimeRoom(roomCode);
     throw error;
@@ -431,17 +434,6 @@ async function setBriscolaUnlocked({
     "briscola_set",
   );
 
-  startRuntimeTurn(
-    gameRoom.code,
-    player.userId,
-    "play_card",
-    gameRoom.pauseEpoch,
-    {
-      roundId: currentRound.id,
-      handId: firstHand.id,
-      playedCardCount: 0,
-    },
-  );
   publishEvents([
     {
       target: gameRoom.code,
@@ -454,6 +446,17 @@ async function setBriscolaUnlocked({
       },
     },
   ]);
+  startRuntimeTurn(
+    gameRoom.code,
+    player.userId,
+    "play_card",
+    gameRoom.pauseEpoch,
+    {
+      roundId: currentRound.id,
+      handId: firstHand.id,
+      playedCardCount: 0,
+    },
+  );
   return {
     round: updatedRound,
     hand: firstHand,

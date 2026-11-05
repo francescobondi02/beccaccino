@@ -1,7 +1,8 @@
 // src/middleware/rateLimiter.ts
 /**
  * Simple in-memory rate limiter middleware.
- * Tracks requests by IP and rejects with 429 when limit is exceeded.
+ * Tracks requests by IP (or by authenticated user with keyByUser) and rejects
+ * with 429 when limit is exceeded.
  * Not suitable for multi-instance deployments (use Redis-backed solution instead).
  */
 
@@ -17,10 +18,16 @@ interface RateLimiterOptions {
   windowMs: number; // Time window in milliseconds
   maxRequests: number; // Max requests per window
   message?: string; // Custom error message
+  keyByUser?: boolean; // Players sharing one Wi-Fi get separate budgets
 }
 
 export function rateLimiter(options: RateLimiterOptions) {
-  const { windowMs, maxRequests, message = "Too many requests, please try again later" } = options;
+  const {
+    windowMs,
+    maxRequests,
+    message = "Too many requests, please try again later",
+    keyByUser = false,
+  } = options;
 
   // Each rateLimiter call gets its own store so different routes can have different limits
   const store = new Map<string, RateLimitEntry>();
@@ -44,7 +51,9 @@ export function rateLimiter(options: RateLimiterOptions) {
       return next();
     }
 
-    const key = req.ip || req.socket.remoteAddress || "unknown";
+    const key = keyByUser && req.user
+      ? `user:${req.user.userId}`
+      : req.ip || req.socket.remoteAddress || "unknown";
     const now = Date.now();
 
     let entry = store.get(key);
@@ -86,6 +95,7 @@ export const generalRateLimiter = rateLimiter({
   windowMs: 60_000,
   maxRequests: 100,
   message: "Too many requests, please slow down",
+  keyByUser: true,
 });
 
 // Game actions: 60 requests per minute (one action per second average)
@@ -93,4 +103,5 @@ export const gameRateLimiter = rateLimiter({
   windowMs: 60_000,
   maxRequests: 60,
   message: "Too many game actions, please slow down",
+  keyByUser: true,
 });

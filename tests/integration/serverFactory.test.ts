@@ -99,6 +99,14 @@ describe("Production server factory", () => {
     await expect(waitForConnect(accepted)).resolves.toBeUndefined();
   });
 
+  it("caps sockets per account, not per shared or forwarded IP", async () => {
+    const url = await startServer();
+    const first = await createSocketUser();
+    const second = await createSocketUser();
+    await waitForConnect(clientFor(url, first.token));
+    await expect(waitForConnect(clientFor(url, second.token))).resolves.toBeUndefined();
+  });
+
   it("releases an IP slot after disconnect", async () => {
     const url = await startServer();
     const { token } = await createSocketUser();
@@ -107,7 +115,7 @@ describe("Production server factory", () => {
 
     const rejected = clientFor(url, token);
     await expect(waitForConnectError(rejected)).resolves.toMatchObject({
-      message: "Too many connections from this IP",
+      message: "Too many connections",
     });
 
     first.disconnect();

@@ -198,7 +198,7 @@ describe("first-round startup", () => {
       setSocketInstance(originalIo);
     }
 
-    expect(events).toEqual(["turn_timer_started", "game_started"]);
+    expect(events).toEqual(["turn_timer_started", "game_started", "room_deleted"]);
     expect(runtimeAtStart).toMatchObject({
       phase: "choose_briscola",
     });

@@ -66,8 +66,10 @@ route -> game controller -> round/card-play operation
 ```
 
 Each operation owns its database writes, runtime handoff, and publication.
-Transactions commit before runtime starts or clears, and runtime changes precede
-game events. Publication failure is logged and captured but does not fail an
+Transactions commit before runtime starts or clears. Move events
+(`card_played`, `briscola_chosen`, round results) publish before the next
+turn's `turn_timer_started`, so clients reducing events in order keep the new
+timer; runtime clears precede `game_finished`. Publication failure is logged and captured but does not fail an
 already committed request.
 
 `services/gameState.ts` and `game/snapshots/` are read-only. A game-state GET

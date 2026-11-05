@@ -123,23 +123,6 @@ describe("Auth Lifecycle", () => {
   });
 
   describe("GET /api/users/me (session check)", () => {
-    it("returns current user when authenticated (test env bypasses auth)", async () => {
-      // In test env, auth middleware is bypassed, but we still test the endpoint logic
-      // We need to set req.user manually — in test mode auth is skipped
-      // So this test verifies the endpoint itself works
-      const registerRes = await request(getServer())
-        .post("/api/users/register")
-        .send(credentials);
-      expect(registerRes.statusCode).toBe(201);
-
-      // In test mode, auth is bypassed so /me won't have req.user set
-      // This is a known limitation of the test setup — the endpoint itself is tested
-      // by verifying it doesn't crash
-      const res = await request(getServer()).get("/api/users/me");
-      // Without req.user, should return 401
-      expect(res.statusCode).toBe(401);
-    });
-
     describe("Native login", () => {
       beforeEach(async () => {
         await request(getServer()).post("/api/users/register").send(credentials);
@@ -236,15 +219,46 @@ describe("Auth Lifecycle", () => {
     });
   });
 
+  describe("Cross-site cookie requests", () => {
+    const frontendUrl = process.env.FRONTEND_URL;
+    beforeAll(() => {
+      process.env.FRONTEND_URL = "https://becca.example";
+    });
+    afterAll(() => {
+      process.env.FRONTEND_URL = frontendUrl;
+    });
+
+    const leave = (headers: Record<string, string>) =>
+      request(getServer()).post("/api/rooms/NOROOM/leave").set(headers);
+
+    it("rejects cookie mutations from a foreign origin but not same-origin, allowed or bearer ones", async () => {
+      const browser = await request(getServer()).post("/api/users/register").send(credentials);
+      const Cookie = browser.headers["set-cookie"][0].split(";")[0];
+      const native = await request(getServer()).post("/api/users/native/login").send(credentials);
+      const evil = "https://evil.example";
+
+      expect((await leave({ Cookie, Origin: evil })).statusCode).toBe(403);
+      expect((await leave({ Cookie, Origin: "https://becca.example" })).statusCode).toBe(404);
+      expect((await leave({ Cookie })).statusCode).toBe(404);
+      expect(
+        (await leave({ Cookie, Origin: "https://preview.example", "Sec-Fetch-Site": "same-origin" }))
+          .statusCode,
+      ).toBe(404);
+      expect(
+        (await leave({ Origin: evil, Authorization: `Bearer ${native.body.token}` })).statusCode,
+      ).toBe(404);
+    });
+  });
+
   describe("POST /api/users/logout", () => {
-    it("clears the auth cookie", async () => {
-      await request(getServer()).post("/api/users/register").send(credentials);
+    it("clears the auth cookie even when the session is no longer valid", async () => {
+      const res = await request(getServer())
+        .post("/api/users/logout")
+        .set("Cookie", "authToken=expired.or.deleted");
 
-      const res = await request(getServer()).post("/api/users/logout");
-
-      // In test mode, auth is bypassed so logout endpoint is accessible
       expect(res.statusCode).toBe(200);
       expect(res.body.message).toMatch(/logged out/i);
+      expect(res.headers["set-cookie"][0]).toMatch(/^authToken=;.*Expires=Thu, 01 Jan 1970/);
     });
   });
 });
