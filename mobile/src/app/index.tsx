@@ -9,7 +9,7 @@ import Logo from '@/components/Logo';
 import Offset from '@/components/Offset';
 import OffsetPressable from '@/components/OffsetPressable';
 import SoundToggle from '@/components/SoundToggle';
-import { colors, fonts } from '@/constants/theme';
+import { colors, fonts, shared } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
@@ -33,7 +33,7 @@ export default function HomeScreen() {
   const signedIn = session.status === 'signedIn';
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={shared.screen}>
       <FitScreen>
         <View style={styles.content}>
           <View style={styles.header}>
@@ -76,7 +76,6 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: 24, paddingVertical: 10, gap: 12 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },

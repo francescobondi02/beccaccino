@@ -8,7 +8,7 @@ import FitScreen from '@/components/FitScreen';
 import OffsetPressable from '@/components/OffsetPressable';
 import Panel from '@/components/Panel';
 import ScreenHeader from '@/components/ScreenHeader';
-import { colors, fonts } from '@/constants/theme';
+import { colors, fonts, shared } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
 import { botStartTimeoutMs, readLobby, readRoomCode, readWaitingRoom, type Lobby, type WaitingRoom } from '@/lib/game';
@@ -101,20 +101,20 @@ function LobbyView({ user }: { user: SessionUser }) {
   const validCode = /^[A-Z0-9]{6}$/.test(code);
 
   return (
-    <View style={styles.layout}>
+    <View style={shared.layout}>
       <View style={styles.side}>
         <Panel>
-          <Text style={styles.eyebrow}>✳︎  ALLENAMENTO</Text>
+          <Text style={shared.eyebrow}>✳︎  ALLENAMENTO</Text>
           <Text style={styles.cardTitle}>Tu, il socio e due rivali: tutti bot allenati.</Text>
           {lobby?.practice
             ? <ActionButton bolt label="Riprendi" disabled={pending !== null}
               onPress={() => router.push(`/game/${lobby.practice!.code}`)} />
             : <ActionButton bolt label={pending === 'practice' ? 'Preparo il tavolo…' : 'Gioca contro i bot'}
               disabled={!lobby || pending !== null} onPress={() => void startPractice()} />}
-          {pending === 'practice' && <Text style={styles.note}>Il primo avvio dei bot può richiedere fino a un minuto e mezzo.</Text>}
+          {pending === 'practice' && <Text style={shared.note}>Il primo avvio dei bot può richiedere fino a un minuto e mezzo.</Text>}
         </Panel>
         <View style={styles.friends}>
-          <Text style={styles.eyebrow}>✳︎  CON GLI AMICI</Text>
+          <Text style={shared.eyebrow}>✳︎  CON GLI AMICI</Text>
           <ActionButton secondary label={pending === 'create' ? 'Creo la stanza…' : 'Crea una stanza'}
             disabled={!lobby || pending !== null} onPress={() => void create()} />
           <View style={styles.codeRow}>
@@ -136,7 +136,7 @@ function LobbyView({ user }: { user: SessionUser }) {
             <Text style={styles.liveText}>{online ? 'DAL VIVO' : 'OFFLINE'}</Text>
           </View>
         </View>
-        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+        {error && <Text accessibilityRole="alert" style={shared.error}>{error}</Text>}
         {!lobby && !error && <ActivityIndicator accessibilityLabel="Carico le stanze" color={colors.primary} />}
         {lobby?.games.slice(0, 2).map((room, index) => <RoomCard key={room.code} room={room} index={index} label="Rientra"
           me={user.id} disabled={pending !== null} onPress={() => router.push(`/${room.started ? 'game' : 'room'}/${room.code}`)} />)}
@@ -144,14 +144,14 @@ function LobbyView({ user }: { user: SessionUser }) {
         {lobby && lobby.open.length === 0 && (
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>Nessuna stanza aperta.</Text>
-            <Text style={styles.body}>Creane una e condividi il codice: i posti vuoti li possono coprire i bot.</Text>
+            <Text style={shared.body}>Creane una e condividi il codice: i posti vuoti li possono coprire i bot.</Text>
           </View>
         )}
         {lobby?.open.slice(0, visibleRooms - Math.min(2, lobby.games.length)).map((room, index) =>
           <RoomCard key={room.code} room={room} index={index + 1} label="Entra" me={user.id}
             disabled={pending !== null} onPress={() => void join(room.code)} />)}
         {lobby && lobby.open.length > visibleRooms - Math.min(2, lobby.games.length) &&
-          <Text style={styles.note}>Altre stanze disponibili: entra con il codice.</Text>}
+          <Text style={shared.note}>Altre stanze disponibili: entra con il codice.</Text>}
       </View>
     </View>
   );
@@ -161,14 +161,14 @@ export default function PlayScreen() {
   const router = useRouter();
   const { state: session } = useSession();
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={shared.screen}>
       <ScreenHeader title="Gioca" />
       <FitScreen>
         {session.status === 'signedIn' ? <LobbyView key={session.user.id} user={session.user} /> : (
           <Panel style={styles.signedOut}>
-            <Text style={styles.eyebrow}>✳︎  SERVE UN ACCOUNT</Text>
+            <Text style={shared.eyebrow}>✳︎  SERVE UN ACCOUNT</Text>
             <Text accessibilityRole="header" style={styles.title}>Siediti al tavolo.</Text>
-            <Text style={styles.body}>Accedi con il tuo account BECCA per allenarti con i bot o giocare con gli amici.</Text>
+            <Text style={shared.body}>Accedi con il tuo account BECCA per allenarti con i bot o giocare con gli amici.</Text>
             <ActionButton bolt label="Accedi per giocare" onPress={() => router.navigate('/account')} />
           </Panel>
         )}
@@ -178,17 +178,11 @@ export default function PlayScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  layout: { flexDirection: 'row', gap: 24, paddingHorizontal: 24, paddingVertical: 14, maxWidth: 960, width: '100%', alignSelf: 'center' },
   side: { width: 300, gap: 18 },
   main: { flex: 1, gap: 10 },
   signedOut: { maxWidth: 520, alignSelf: 'center', margin: 20 },
-  eyebrow: { color: colors.pink, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
   title: { ...fonts.display, color: colors.text, fontSize: 28 },
   cardTitle: { ...fonts.body, color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '600' },
-  body: { ...fonts.body, color: colors.muted, fontSize: 14, lineHeight: 20 },
-  note: { ...fonts.body, color: colors.muted, fontSize: 12, lineHeight: 17 },
-  error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
   friends: { gap: 10 },
   codeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   codeInput: { flex: 1, minHeight: 44, borderRadius: 7, borderWidth: 2, borderColor: colors.line, paddingHorizontal: 12,

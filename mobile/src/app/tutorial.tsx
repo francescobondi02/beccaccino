@@ -11,7 +11,7 @@ import { PlayerBadge, TrumpBadge } from '@/components/Hud';
 import Panel from '@/components/Panel';
 import TableCard from '@/components/TableCard';
 import TableFelt from '@/components/TableFelt';
-import { colors, fonts, hard } from '@/constants/theme';
+import { colors, fonts, hard, shared } from '@/constants/theme';
 import useCardDrag from '@/hooks/useCardDrag';
 import useCloseOrHome from '@/hooks/useCloseOrHome';
 import useReducedMotion from '@/hooks/useReducedMotion';
@@ -195,8 +195,8 @@ export default function TutorialScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.screen} accessibilityElementsHidden={phase === 'result'}
+    <SafeAreaView style={shared.screen}>
+      <View style={shared.screen} accessibilityElementsHidden={phase === 'result'}
         importantForAccessibility={phase === 'result' ? 'no-hide-descendants' : 'auto'}>
         {stage}
       </View>
@@ -206,7 +206,7 @@ export default function TutorialScreen() {
           <FitScreen>
           <View style={styles.resultContent}>
             <View accessibilityViewIsModal style={styles.resultWrap}><Panel>
-              <Text style={styles.resultEyebrow}>{result?.wins ? 'LA PRESA È TUA' : 'SI IMPARA GIOCANDO'}</Text>
+              <Text style={shared.eyebrow}>{result?.wins ? 'LA PRESA È TUA' : 'SI IMPARA GIOCANDO'}</Text>
               <Text accessibilityRole="header" style={styles.resultTitle}>{result?.title}</Text>
               <Text style={styles.explanation}>{result?.explanation}</Text>
               <ActionButton label="Riprova la presa" onPress={reset} />
@@ -221,7 +221,6 @@ export default function TutorialScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
   stage: { flex: 1, margin: 8 },
   exit: { position: 'absolute', top: 0, left: 0, gap: 5, zIndex: 4, alignItems: 'flex-start' },
   offline: { color: colors.muted, fontSize: 10, fontWeight: '800', textAlign: 'center', letterSpacing: 0.6 },
@@ -241,7 +240,6 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: '#08060dd9' },
   resultContent: { padding: 20 },
   resultWrap: { width: '100%', maxWidth: 520, alignSelf: 'center' },
-  resultEyebrow: { color: colors.pink, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
   resultTitle: { ...fonts.display, color: colors.primary, fontSize: 28 },
   explanation: { ...fonts.body, color: colors.text, fontSize: 16, lineHeight: 24 },
 });

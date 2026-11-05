@@ -8,7 +8,7 @@ import FitScreen from '@/components/FitScreen';
 import GameDialog from '@/components/GameDialog';
 import Offset from '@/components/Offset';
 import ScreenHeader from '@/components/ScreenHeader';
-import { colors, fonts } from '@/constants/theme';
+import { colors, fonts, shared } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
 import { botStartTimeoutMs, botTiers, readWaitingRoom, type BotTier, type WaitingPlayer, type WaitingRoom } from '@/lib/game';
@@ -104,7 +104,7 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
   if (!room) return (
     <View style={styles.center}>
       {error ? <>
-        <Text accessibilityRole="alert" style={styles.error}>{error}</Text>
+        <Text accessibilityRole="alert" style={shared.error}>{error}</Text>
         <ActionButton label="Riprova" onPress={() => void load()} />
         <ActionButton secondary label="Torna a Gioca" onPress={() => router.replace('/play')} />
       </> : <ActivityIndicator accessibilityLabel="Entro nella stanza" color={colors.primary} />}
@@ -121,7 +121,7 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
   return (
     <>
       <FitScreen>
-        <View style={styles.layout}>
+        <View style={shared.layout}>
           <View style={styles.side}>
             <Offset color={colors.purple} depth={5} radius={12}>
               <View accessible accessibilityLabel={`Codice stanza ${code.split('').join(' ')}`} style={styles.ticket}>
@@ -131,7 +131,7 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
             </Offset>
             <ActionButton secondary label="Invita amici"
               onPress={() => void Share.share({ message: `Giochiamo a Beccaccino su BECCA! Codice stanza: ${code}` })} />
-            <Text style={styles.eyebrow}>✳︎  BOT NEI POSTI VUOTI</Text>
+            <Text style={[shared.eyebrow, styles.eyebrowGap]}>✳︎  BOT NEI POSTI VUOTI</Text>
             <View style={styles.chips}>
               {[null, ...botTiers].map((tier) => <ActionButton key={tier ?? 'none'} compact secondary={room.botTier !== tier}
                 selected={room.botTier === tier} label={tier ?? 'Nessuno'} disabled={busy}
@@ -152,12 +152,12 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
                 </View>
               ))}
             </View>
-            {waiting.length > 0 && <Text style={styles.note}>In attesa di squadra: {waiting.map((p) => p.username).join(', ')}</Text>}
-            {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+            {waiting.length > 0 && <Text style={shared.note}>In attesa di squadra: {waiting.map((p) => p.username).join(', ')}</Text>}
+            {error && <Text accessibilityRole="alert" style={shared.error}>{error}</Text>}
             <View style={styles.footer}>
               <View style={styles.status}>
                 <Text accessibilityLiveRegion="polite" style={styles.hint}>{hint}</Text>
-                <Text style={styles.note}>{online ? 'Collegato dal vivo' : 'Ricollego…'} · {room.players.length}/4 al tavolo</Text>
+                <Text style={shared.note}>{online ? 'Collegato dal vivo' : 'Ricollego…'} · {room.players.length}/4 al tavolo</Text>
               </View>
               <ActionButton compact secondary label="Esci" disabled={busy} onPress={() => setConfirmLeave(true)} />
               <ActionButton bolt={!me?.isReady} label={me?.isReady ? 'Non sono pronto' : 'Sono pronto'}
@@ -182,7 +182,7 @@ export default function RoomScreen() {
   const router = useRouter();
   const valid = /^[A-Za-z0-9]{6,12}$/.test(code ?? '');
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={shared.screen}>
       <ScreenHeader title={valid ? `Stanza ${code}` : 'Stanza'} />
       {valid && session.status === 'signedIn'
         ? <WaitingRoomView key={`${session.user.id}:${code}`} code={code} user={session.user} />
@@ -195,16 +195,14 @@ export default function RoomScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 14, padding: 24 },
-  layout: { flexDirection: 'row', gap: 24, paddingHorizontal: 24, paddingVertical: 14, maxWidth: 960, width: '100%', alignSelf: 'center' },
   side: { width: 250, gap: 12 },
   main: { flex: 1, gap: 12 },
   ticket: { alignItems: 'center', paddingVertical: 12, borderRadius: 12, borderWidth: 2, borderColor: colors.ink,
     backgroundColor: colors.primary },
   ticketLabel: { color: colors.ink, fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
   ticketCode: { ...fonts.display, color: colors.ink, fontSize: 34, letterSpacing: 4 },
-  eyebrow: { color: colors.pink, fontSize: 10, fontWeight: '800', letterSpacing: 1.4, marginTop: 4 },
+  eyebrowGap: { marginTop: 4 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   teams: { flexDirection: 'row', gap: 16 },
   team: { flex: 1, gap: 8 },
@@ -226,7 +224,5 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
   status: { flex: 1, gap: 2 },
   hint: { ...fonts.display, color: colors.text, fontSize: 17, letterSpacing: -0.3 },
-  note: { ...fonts.body, color: colors.muted, fontSize: 12, lineHeight: 17 },
   body: { ...fonts.body, color: colors.muted, fontSize: 15, lineHeight: 22 },
-  error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
 });

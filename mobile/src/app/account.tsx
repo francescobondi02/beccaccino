@@ -4,7 +4,7 @@ import { ActivityIndicator, Keyboard, Linking, KeyboardAvoidingView, Platform, P
 
 import ActionButton from '@/components/ActionButton';
 import Sheet from '@/components/Sheet';
-import { colors, fonts } from '@/constants/theme';
+import { colors, shared } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useCloseOrHome from '@/hooks/useCloseOrHome';
 
@@ -37,7 +37,7 @@ export default function AccountScreen() {
             {state.status === 'loading' ? (
               <View accessible accessibilityRole="progressbar" accessibilityLabel="Verifica dell’account in corso" accessibilityState={{ busy: true }} style={styles.loading}>
                 <ActivityIndicator accessible={false} color={colors.primary} />
-                <Text style={styles.description}>Un attimo, verifichiamo il tuo account.</Text>
+                <Text style={shared.body}>Un attimo, verifichiamo il tuo account.</Text>
               </View>
             ) : <>
               {state.message && <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.error}>{state.message}</Text>}
@@ -68,11 +68,11 @@ export default function AccountScreen() {
                 </View>
                 <ActionButton label="Accedi" disabled={!username.trim() || !password} onPress={submit} />
                 <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(siteUrl)} style={styles.link}>
-                  <Text style={styles.description}>Non hai un account? <Text style={styles.linkText}>Registrati sul sito</Text></Text>
+                  <Text style={shared.body}>Non hai un account? <Text style={styles.linkText}>Registrati sul sito</Text></Text>
                 </Pressable>
               </>}
               {state.status === 'signedIn' && <>
-                <Text style={styles.description}>Tutto pronto. Il tavolo ti aspetta: tre bot allenati e una presa da vincere.</Text>
+                <Text style={shared.body}>Tutto pronto. Il tavolo ti aspetta: tre bot allenati e una presa da vincere.</Text>
                 <View style={styles.row}>
                   <View style={styles.grow}><ActionButton bolt label="Gioca" onPress={() => router.replace('/play')} /></View>
                   <ActionButton secondary label="Esci dall’account" onPress={() => { void logout(); }} />
@@ -90,7 +90,6 @@ export default function AccountScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  description: { ...fonts.body, color: colors.muted, fontSize: 14, lineHeight: 20 },
   error: { color: colors.danger, fontSize: 15, lineHeight: 21 },
   fields: { flexDirection: 'row', gap: 14 },
   stacked: { flexDirection: 'column' },
