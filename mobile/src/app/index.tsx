@@ -7,6 +7,7 @@ import FitScreen from '@/components/FitScreen';
 import HomeCardFan from '@/components/HomeCardFan';
 import Logo from '@/components/Logo';
 import Offset from '@/components/Offset';
+import OffsetPressable from '@/components/OffsetPressable';
 import SoundToggle from '@/components/SoundToggle';
 import { colors, fonts } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
@@ -15,17 +16,12 @@ import { playSound } from '@/lib/sound';
 
 function Tile({ label, hint, icon, onPress }: { label: string; hint: string; icon: React.ReactNode; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityHint={hint} style={styles.tileSlot}
-      onPress={() => { touchFeedback(); playSound('tap'); onPress(); }}>
-      {({ pressed }) => (
-        <Offset color={colors.purpleDeep} depth={4} radius={12}>
-          <View style={[styles.tile, pressed && styles.tilePressed]}>
-            <View style={styles.tileIcon}>{icon}</View>
-            <Text style={styles.tileLabel}>{label.toUpperCase()}</Text>
-          </View>
-        </Offset>
-      )}
-    </Pressable>
+    <OffsetPressable radius={12} accessibilityLabel={label} accessibilityHint={hint} style={styles.tileSlot} onPress={onPress}>
+      <View style={styles.tile}>
+        <View style={styles.tileIcon}>{icon}</View>
+        <Text style={styles.tileLabel}>{label.toUpperCase()}</Text>
+      </View>
+    </OffsetPressable>
   );
 }
 

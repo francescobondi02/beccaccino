@@ -1,18 +1,17 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionButton from '@/components/ActionButton';
 import FitScreen from '@/components/FitScreen';
-import Offset from '@/components/Offset';
+import OffsetPressable from '@/components/OffsetPressable';
 import Panel from '@/components/Panel';
 import ScreenHeader from '@/components/ScreenHeader';
 import { colors, fonts } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
 import { botStartTimeoutMs, readLobby, readRoomCode, readWaitingRoom, type Lobby, type WaitingRoom } from '@/lib/game';
-import { touchFeedback } from '@/lib/haptics';
 import { latestOnly } from '@/lib/latest';
 import { sessionRequest, type SessionUser } from '@/lib/session';
 
@@ -33,27 +32,21 @@ function RoomCard({ room, index, label, me, disabled, onPress }: {
   const names = room.players.map((p) => p.userId === me ? 'Tu' : p.username)
     .sort((a, b) => Number(b === 'Tu') - Number(a === 'Tu')).join(', ');
   return (
-    <Pressable accessibilityRole="button" disabled={disabled}
-      accessibilityLabel={`${label} ${room.code}, ${room.players.length} su 4: ${names}`}
-      onPress={() => { touchFeedback(); onPress(); }}>
-      {({ pressed }) => (
-        <Offset color={colors.purpleDeep} depth={4} radius={10}>
-          <View style={[styles.room, { backgroundColor: roomColors[index % roomColors.length] },
-            pressed && styles.roomPressed, disabled && styles.roomDisabled]}>
-            <View style={styles.roomText}>
-              <Text style={styles.roomCode}>{room.code}</Text>
-              <Text numberOfLines={1} style={styles.roomNames}>{names}</Text>
-            </View>
-            <Seats room={room} />
-            <Text style={styles.roomAction}>{label.toUpperCase()} ›</Text>
-          </View>
-        </Offset>
-      )}
-    </Pressable>
+    <OffsetPressable radius={10} disabled={disabled} onPress={onPress}
+      accessibilityLabel={`${label} ${room.code}, ${room.players.length} su 4: ${names}`}>
+      <View style={[styles.room, { backgroundColor: roomColors[index % roomColors.length] }, disabled && styles.roomDisabled]}>
+        <View style={styles.roomText}>
+          <Text style={styles.roomCode}>{room.code}</Text>
+          <Text numberOfLines={1} style={styles.roomNames}>{names}</Text>
+        </View>
+        <Seats room={room} />
+        <Text style={styles.roomAction}>{label.toUpperCase()} ›</Text>
+      </View>
+    </OffsetPressable>
   );
 }
 
-function Lobby({ user }: { user: SessionUser }) {
+function LobbyView({ user }: { user: SessionUser }) {
   const router = useRouter();
   const [lobby, setLobby] = useState<Lobby | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -171,7 +164,7 @@ export default function PlayScreen() {
     <SafeAreaView style={styles.screen}>
       <ScreenHeader title="Gioca" />
       <FitScreen>
-        {session.status === 'signedIn' ? <Lobby key={session.user.id} user={session.user} /> : (
+        {session.status === 'signedIn' ? <LobbyView key={session.user.id} user={session.user} /> : (
           <Panel style={styles.signedOut}>
             <Text style={styles.eyebrow}>✳︎  SERVE UN ACCOUNT</Text>
             <Text accessibilityRole="header" style={styles.title}>Siediti al tavolo.</Text>
@@ -211,7 +204,6 @@ const styles = StyleSheet.create({
   emptyTitle: { ...fonts.display, color: colors.text, fontSize: 20 },
   room: { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 56, paddingHorizontal: 16, paddingVertical: 8,
     borderRadius: 10, borderWidth: 2, borderColor: colors.ink },
-  roomPressed: { transform: [{ translateX: 3 }, { translateY: 3 }] },
   roomDisabled: { opacity: 0.6 },
   roomText: { flex: 1 },
   roomCode: { ...fonts.display, color: colors.ink, fontSize: 20, letterSpacing: 1 },
