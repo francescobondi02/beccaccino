@@ -325,6 +325,42 @@ it('seats the player, marks ready and opens the table when the game starts', asy
   expect(mockReplace).toHaveBeenCalledWith('/game/ABC123');
 });
 
+it('leaves only a waiting room, and opens the table if the game already started', async () => {
+  waitingMode = true;
+  const implementation = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, options: RequestInit) => url.endsWith('/leave')
+    ? Promise.resolve({ ok: false, status: 409 }) : implementation(url, options));
+  await renderScreen(<RoomScreen />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'Esci' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Esci dalla stanza' }));
+  expect(fetchMock).toHaveBeenCalledWith('https://becca.example/api/rooms/ABC123/leave', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ onlyIfWaiting: true }) }));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/game/ABC123'));
+  expect(mockReplace).not.toHaveBeenCalledWith('/play');
+});
+
+it('sets the bot tier for empty seats', async () => {
+  waitingMode = true;
+  await renderScreen(<RoomScreen />);
+  await fireEvent.press(await screen.findByRole('button', { name: 'medio' }));
+  expect(fetchMock).toHaveBeenCalledWith('https://becca.example/api/rooms/ABC123/bots', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ tier: 'medio' }) }));
+});
+
+it('reopens my rooms where they are: waiting room before the start, table after', async () => {
+  const mine = (code: string, started: boolean) => ({ ...openRoom, code, started, isPractice: false,
+    players: [{ userId: 7, team: 0, isReady: false, user: { username: 'Socio' } }] });
+  const implementation = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((url: string, options: RequestInit) => url.endsWith('/api/rooms/available')
+    ? Promise.resolve(response({ activeGames: [mine('WAIT01', false), mine('LIVE01', true)], availableRooms: [] }))
+    : implementation(url, options));
+  await renderScreen(<PlayScreen />);
+  await fireEvent.press(await screen.findByRole('button', { name: /^Rientra WAIT01/ }));
+  expect(mockPush).toHaveBeenLastCalledWith('/room/WAIT01');
+  await fireEvent.press(screen.getByRole('button', { name: /^Rientra LIVE01/ }));
+  expect(mockPush).toHaveBeenLastCalledWith('/game/LIVE01');
+});
+
 it('waits for bots to fill the table instead of timing out the ready request', async () => {
   waitingMode = true;
   (waiting.players as { team: number | null }[])[0].team = 0;

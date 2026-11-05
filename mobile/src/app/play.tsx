@@ -146,7 +146,7 @@ function Lobby({ user }: { user: SessionUser }) {
         {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
         {!lobby && !error && <ActivityIndicator accessibilityLabel="Carico le stanze" color={colors.primary} />}
         {lobby?.games.slice(0, 2).map((room, index) => <RoomCard key={room.code} room={room} index={index} label="Rientra"
-          me={user.id} disabled={pending !== null} onPress={() => router.push(`/game/${room.code}`)} />)}
+          me={user.id} disabled={pending !== null} onPress={() => router.push(`/${room.started ? 'game' : 'room'}/${room.code}`)} />)}
         {!!lobby?.games.length && <Text accessibilityRole="header" style={[styles.listTitle, styles.subTitle]}>STANZE APERTE</Text>}
         {lobby && lobby.open.length === 0 && (
           <View style={styles.empty}>

@@ -14,7 +14,7 @@ import useSocketRefresh from '@/hooks/useSocketRefresh';
 import { botStartTimeoutMs, botTiers, readWaitingRoom, type BotTier, type WaitingPlayer, type WaitingRoom } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { latestOnly } from '@/lib/latest';
-import { sessionRequest, type SessionUser } from '@/lib/session';
+import { sessionRequest, SessionHttpError, type SessionUser } from '@/lib/session';
 
 const roomEvents = ['player_joined', 'player_left', 'player_disconnected', 'team_chosen', 'ready_changed',
   'room_settings_changed', 'game_started'] as const;
@@ -77,7 +77,8 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
     (socket) => socket.emit('join_room', { roomCode: code, userId: user.id, username: user.username }),
     roomEvents, () => void load(), (event) => { if (event === 'game_started') { touchFeedback('success'); toGame(); } });
 
-  const act = async (path: string, body: unknown, timeoutMs?: number) => {
+  // Resolves true on success, otherwise the failure (already shown) or false when another action is running.
+  const act = async (path: string, body: unknown, timeoutMs?: number): Promise<unknown> => {
     if (busy) return false;
     setBusy(true);
     setError(null);
@@ -88,12 +89,16 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
     } catch (cause) {
       if (!lifetime.current.signal.aborted) setError(cause instanceof Error ? cause.message : 'Operazione non riuscita.');
       await load();
-      return false;
+      return cause;
     } finally {
       if (!lifetime.current.signal.aborted) setBusy(false);
     }
   };
-  const leave = async () => { if (await act(`/api/rooms/${code}/leave`, {})) router.replace('/play'); };
+  const leave = async () => {
+    const result = await act(`/api/rooms/${code}/leave`, { onlyIfWaiting: true });
+    if (result === true) router.replace('/play');
+    else if (result instanceof SessionHttpError && result.status === 409) toGame();
+  };
 
   if (!room) return (
     <View style={styles.center}>
