@@ -10,6 +10,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GameTable from "@/pages/GameTable";
+import { ApiError } from "@/lib/api";
 import type { CompletedTrick, PlayedCardData, PlayerControl, RoundEndData, RoundDeal } from "@/game/model";
 import type { GameFinishedPayload } from "@/sockets/events";
 
@@ -489,6 +490,22 @@ describe("GameTable page behavior", () => {
     expect(
       screen.queryByRole("button", { name: "Niente" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("reports a rejected card and reloads the authoritative table", async () => {
+    mocks.gameHook.playedCards = [
+      { playerId: 11, userId: 2, suit: "spade", value: "due", position: 0 },
+    ];
+    mocks.apiPost.mockRejectedValue(
+      new ApiError(400, "Invalid card", { error: "Devi rispondere a spade" }),
+    );
+    renderGameTable();
+
+    fireEvent.click(await screen.findByTestId("hand-card-coppe-asso"));
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith("Devi rispondere a spade"));
+    expect(mocks.gameHook.refetchGameState).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("hand-card-coppe-asso")).toBeEnabled();
   });
 
   it("renders a retryable game-state failure", async () => {
