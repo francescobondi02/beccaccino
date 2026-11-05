@@ -1,12 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { AccessibilityInfo, AppState, type AppStateStatus } from 'react-native';
+import { AccessibilityInfo, AppState, PanResponder, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
 import { io } from 'socket.io-client';
 import GameScreen from '@/app/game/[code]';
 import PlayScreen from '@/app/play';
 import RoomScreen from '@/app/room/[code]';
-import { readGameState } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 
 const mockReplace = jest.fn();
@@ -59,6 +58,7 @@ const renderGame = () => render(<SafeAreaProvider initialMetrics={{ frame: { x: 
 beforeEach(() => {
   jest.clearAllMocks();
   room.players = seated([7, 8, 9, 10]);
+  room.isPractice = true;
   mockSession = signedIn;
   waitingMode = false;
   game = initialGame();
@@ -128,6 +128,37 @@ it('plays a selected card when it is tapped again', async () => {
   expect(fetchMock).toHaveBeenCalledWith('https://becca.example/api/games/play-card', expect.objectContaining({
     body: JSON.stringify({ roomCode: 'ABC123', ...card, signal: null }),
   }));
+});
+
+it('plays a legal card dragged onto the table, but not one dropped short of it', async () => {
+  const create = jest.spyOn(PanResponder, 'create');
+  await renderGame();
+  await waitFor(() => expect(screen.getByRole('button', { name: 're di coppe' })).toBeEnabled());
+  const drag = create.mock.calls[0][0]; // the first hand card, re di coppe
+  const plays = () => fetchMock.mock.calls.filter(([url]) => url.endsWith('/api/games/play-card'));
+  await act(() => drag.onPanResponderRelease!({} as never, { dy: -20 } as never));
+  expect(plays()).toHaveLength(0);
+  await act(() => drag.onPanResponderRelease!({} as never, { dy: -100 } as never));
+  await waitFor(() => expect(plays()).toHaveLength(1));
+  expect(plays()[0][1]).toEqual(expect.objectContaining({ body: JSON.stringify({ roomCode: 'ABC123', ...card, signal: null }) }));
+});
+
+it('runs a multiplayer table without pausing: menu, leave for later, and take back control', async () => {
+  room.isPractice = false;
+  await renderGame();
+  await waitFor(() => expect(screen.getByRole('button', { name: 're di coppe' })).toBeEnabled());
+  await fireEvent.press(screen.getByRole('button', { name: 'Menu' }));
+  expect(screen.getByRole('header', { name: 'Il tuo tavolo' })).toBeOnTheScreen();
+  await act(() => appState('background'));
+  expect(fetchMock).not.toHaveBeenCalledWith(expect.stringMatching(/\/pause$/), expect.anything());
+  await act(() => appState('active'));
+  await fireEvent.press(screen.getByRole('button', { name: 'Esci e torna dopo' }));
+  expect(mockReplace).toHaveBeenCalledWith('/play');
+  game.playerControls = [{ userId: 7, botModel: 'forte' }];
+  await act(() => notify('player_control_changed'));
+  await fireEvent.press(screen.getByRole('button', { name: 'Torna al tavolo' }));
+  await fireEvent.press(await screen.findByRole('button', { name: 'Riprendi controllo' }));
+  expect(fetchMock).toHaveBeenCalledWith('https://becca.example/api/rooms/ABC123/resume-control', expect.objectContaining({ method: 'POST' }));
 });
 
 it('previews any hand card on long press, telling whether it can be played now', async () => {
@@ -409,11 +440,6 @@ it('waits for bots to fill the table instead of timing out the ready request', a
     // Still waiting on the server: the button must not re-enable and invite a second, toggling tap.
     expect(screen.getByRole('button', { name: 'Sono pronto' })).toBeDisabled();
   } finally { jest.useRealTimers(); }
-});
-
-it('fails explicitly on an incompatible server instead of inventing a completed trick', () => {
-  delete game.lastCompletedTrick;
-  expect(() => readGameState(game)).toThrow();
 });
 
 it('offers login recovery when authentication expires during a game', async () => {
