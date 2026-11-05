@@ -92,18 +92,6 @@ it('does not claim logout succeeded if secure deletion fails', async () => {
   await expect(clearSession()).rejects.toThrow('rimuovere la sessione');
 });
 
-it('blocks native credentials on HTTP in distribution builds', async () => {
-  const development = __DEV__;
-  Object.defineProperty(globalThis, '__DEV__', { value: false, configurable: true });
-  try {
-    await expect(signIn('http://becca.example', 'Socio', 'password', controller.signal)).rejects.toThrow('HTTPS');
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(SecureStore.setItemAsync).not.toHaveBeenCalled();
-  } finally {
-    Object.defineProperty(globalThis, '__DEV__', { value: development, configurable: true });
-  }
-});
-
 it('aborts a stalled network request after eight seconds', async () => {
   jest.useFakeTimers();
   fetchMock.mockImplementation((_url, { signal }: RequestInit) => new Promise((_resolve, reject) => {

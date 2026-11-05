@@ -21,6 +21,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+const validToken = (token: unknown): token is string => typeof token === 'string' && /^\S+$/.test(token);
+
 function readUser(value: unknown): SessionUser {
   if (!isRecord(value) || !Number.isInteger(value.id) || typeof value.id !== 'number' || value.id < 1 ||
     typeof value.username !== 'string' || !value.username.trim()) {
@@ -80,7 +82,7 @@ export async function signIn(
     if (error instanceof SessionHttpError && error.status === 401) throw new Error('Nome utente o password non corretti.');
     throw error;
   }
-  if (!isRecord(body) || typeof body.token !== 'string' || !/^\S+$/.test(body.token)) {
+  if (!isRecord(body) || !validToken(body.token)) {
     throw new Error('Il server non ha restituito una sessione valida.');
   }
   const user = readUser(body.user);
@@ -110,7 +112,7 @@ export async function readSessionCredentials(backendUrl: string | undefined): Pr
   } catch (cause) {
     throw new Error('La sessione salvata non è leggibile. Rimuovila e accedi di nuovo.', { cause });
   }
-  if (!isRecord(saved) || typeof saved.origin !== 'string' || typeof saved.token !== 'string' || !/^\S+$/.test(saved.token)) {
+  if (!isRecord(saved) || typeof saved.origin !== 'string' || !validToken(saved.token)) {
     throw new Error('La sessione salvata non è valida. Rimuovila e accedi di nuovo.');
   }
   if (saved.origin !== origin) return null;
