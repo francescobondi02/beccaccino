@@ -3,6 +3,7 @@ import { Router } from "express";
 import {
   register,
   login,
+  nativeLogin,
   logout,
 } from "../controllers/authController";
 import {
@@ -21,6 +22,7 @@ const router = Router();
 
 router.post("/register", authRateLimiter, register);
 router.post("/login", authRateLimiter, login);
+router.post("/native/login", authRateLimiter, nativeLogin);
 router.post("/logout", authenticateToken, logout);
 router.get("/me", authenticateToken, getCurrentUser);
 router.get("/me/stats", authenticateToken, getUserStats);

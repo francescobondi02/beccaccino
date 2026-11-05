@@ -58,8 +58,14 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
   io.use(async (socket, next) => {
     if (allowTestAuthBypass) return next();
 
-    const token = authTokenFromCookieHeader(socket.handshake.headers.cookie);
+    const nativeToken: unknown = socket.handshake.auth?.token;
+    const token = nativeToken === undefined
+      ? authTokenFromCookieHeader(socket.handshake.headers.cookie)
+      : nativeToken;
     if (!token) return next(new Error("Authentication required"));
+    if (typeof token !== "string" || !/^\S+$/.test(token)) {
+      return next(new Error("Invalid or expired token"));
+    }
 
     try {
       const session = await verifyActiveSession(token);

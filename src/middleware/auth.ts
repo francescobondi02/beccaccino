@@ -22,11 +22,13 @@ export const authenticateToken = async (
   _res: Response,
   next: NextFunction,
 ) => {
-  const token = req.cookies?.authToken;
+  const authorization = req.headers.authorization;
+  const token = authorization === undefined
+    ? req.cookies?.authToken
+    : /^Bearer +(\S+)$/i.exec(authorization)?.[1];
 
-  // A real cookie is authoritative even in tests. This keeps the bypass from
-  // masking invalid or expired login state.
-  if (token !== undefined) {
+  // Explicit credentials never fall through to a cookie or the test bypass.
+  if (authorization !== undefined || token !== undefined) {
     if (typeof token !== "string" || token.length === 0) {
       return next(unauthorized("Invalid or expired token"));
     }

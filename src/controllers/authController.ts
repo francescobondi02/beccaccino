@@ -5,6 +5,7 @@ import {
   parseRegistrationInput,
 } from "../http/input/users";
 import { loginUser, registerUser } from "../services/userAuth";
+import { generateToken } from "../utils/jwt";
 
 export const register = async (req: Request, res: Response) => {
   const user = await registerUser(parseRegistrationInput(req.body));
@@ -16,6 +17,13 @@ export const login = async (req: Request, res: Response) => {
   const user = await loginUser(parseLoginInput(req.body));
   setAuthCookie(res, user);
   return res.status(200).json(user);
+};
+
+export const nativeLogin = async (req: Request, res: Response) => {
+  const user = await loginUser(parseLoginInput(req.body));
+  const token = generateToken({ userId: user.id, username: user.username });
+  res.setHeader("Cache-Control", "no-store");
+  return res.status(200).json({ user, token });
 };
 
 export const logout = async (_req: Request, res: Response) => {
