@@ -163,7 +163,7 @@ test.describe("Arcade interface", () => {
         json: { availableRooms: [], activeGames: [] },
       }));
       await page.route("**/rooms", (route) => route.fulfill({ json: { code: "ROOM" } }));
-      await page.route("**/rooms/ROOM?*", (route) => route.fulfill({ json: {
+      await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
         id: 20, code: "ROOM", started: false, finished: false,
         players: [{ id: 10, userId: 1, username: "Giulia", seat: 0, team: 0, isReady: true }],
       } }));
