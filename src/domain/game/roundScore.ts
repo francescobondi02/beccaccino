@@ -73,3 +73,20 @@ export function computeRoundScore(
     team1: splitRawScore(rawScores.team1),
   };
 }
+
+/**
+ * Adds the caller team's 3-point cricca bonus, then picks the round winner:
+ * more points, then more figures; an exact tie goes to team 0.
+ */
+export function settleRound(
+  score: ReturnType<typeof computeRoundScore>,
+  criccaTeam: number | null,
+) {
+  const team0 = { ...score.team0, points: score.team0.points + (criccaTeam === 0 ? 3 : 0) };
+  const team1 = { ...score.team1, points: score.team1.points + (criccaTeam === 1 ? 3 : 0) };
+  const winnerTeam =
+    team0.points !== team1.points
+      ? team0.points > team1.points ? 0 : 1
+      : team1.figures > team0.figures ? 1 : 0;
+  return { team0, team1, winnerTeam };
+}
