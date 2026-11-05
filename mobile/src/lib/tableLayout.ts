@@ -13,7 +13,8 @@ export function tableLayout(width: number, height: number, largeText = false) {
     handX: [centerX - handWidth * 1.18, centerX + handWidth * 0.18],
     seats: [
       { x: 8, y: centerY - 30 },
-      { x: centerX - seatWidth / 2, y: largeText ? 90 : 4 },
+      // Large-text badges are too tall to fit above the partner's card: sit beside it instead.
+      { x: largeText ? centerX + cardWidth / 2 + 6 : centerX - seatWidth / 2, y: 4 },
       { x: width - seatWidth - 8, y: centerY - 30 },
       { x: centerX - seatWidth / 2, y: height - 20 },
     ],
