@@ -9,6 +9,7 @@ import { clearDatabase } from "../helpers/database";
 import { apiAs } from "../helpers/serverHarness";
 import * as events from "../../src/runtime/eventPublisher";
 import * as score from "../../src/domain/game/gameScore";
+import { getSocketInstance, setSocketInstance } from "../../src/socketInstance";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -16,6 +17,26 @@ beforeEach(async () => {
 afterEach(() => jest.restoreAllMocks());
 
 describe("Game flow", () => {
+  it("publishes each move before the next turn timer", async () => {
+    const { roomCode, round, cards } = await setupGame();
+    const originalIo = getSocketInstance();
+    const emitted: string[] = [];
+    setSocketInstance({
+      to: () => ({ emit: (event: string) => emitted.push(event) }),
+    } as any);
+    try {
+      await chooseBriscola(roomCode, round, cards);
+      await oneHand(roomCode, round, 1);
+    } finally {
+      setSocketInstance(originalIo);
+    }
+    expect(emitted).toEqual([
+      "briscola_chosen",
+      "turn_timer_started",
+      ...Array(4).fill(["card_played", "turn_timer_started"]).flat(),
+    ]);
+  });
+
   it("sets up a game, chooses briscola, and plays a full round", async () => {
     const published = jest.spyOn(events, "publishEvents");
     const { roomCode, round, cards } = await setupGame();

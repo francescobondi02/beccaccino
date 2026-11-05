@@ -434,17 +434,6 @@ async function setBriscolaUnlocked({
     "briscola_set",
   );
 
-  startRuntimeTurn(
-    gameRoom.code,
-    player.userId,
-    "play_card",
-    gameRoom.pauseEpoch,
-    {
-      roundId: currentRound.id,
-      handId: firstHand.id,
-      playedCardCount: 0,
-    },
-  );
   publishEvents([
     {
       target: gameRoom.code,
@@ -457,6 +446,17 @@ async function setBriscolaUnlocked({
       },
     },
   ]);
+  startRuntimeTurn(
+    gameRoom.code,
+    player.userId,
+    "play_card",
+    gameRoom.pauseEpoch,
+    {
+      roundId: currentRound.id,
+      handId: firstHand.id,
+      playedCardCount: 0,
+    },
+  );
   return {
     round: updatedRound,
     hand: firstHand,

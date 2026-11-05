@@ -222,6 +222,7 @@ async function playCardUnlocked({
     const nextPlayer = room.players.find(
       (candidate) => candidate.seat === nextTurnSeat,
     );
+    publishEvents([cardEvent]);
     if (nextPlayer) {
       startRuntimeTurn(
         roomCode,
@@ -235,7 +236,6 @@ async function playCardUnlocked({
         },
       );
     }
-    publishEvents([cardEvent]);
     return;
   }
 
@@ -265,6 +265,7 @@ async function playCardUnlocked({
     const winnerPlayer = room.players.find(
       (candidate) => candidate.id === trickWinnerPlayerId,
     );
+    publishEvents([cardEvent]);
     if (winnerPlayer) {
       startRuntimeTurn(
         roomCode,
@@ -279,7 +280,6 @@ async function playCardUnlocked({
         TRICK_DISPLAY_MS,
       );
     }
-    publishEvents([cardEvent]);
     return;
   }
 
@@ -461,6 +461,7 @@ async function playCardUnlocked({
       callerUserId: newCaller?.userId ?? null,
     },
   });
+  publishEvents(events);
   if (newCaller) {
     startRuntimeTurn(
       roomCode,
@@ -478,5 +479,4 @@ async function playCardUnlocked({
       }).remainingMs,
     );
   }
-  publishEvents(events);
 }
