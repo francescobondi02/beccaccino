@@ -74,6 +74,8 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
   const reduced = useReducedMotion();
   const [dragging, setDragging] = useState(false);
   const [zoom, setZoom] = useState<Card | null>(null);
+  // A held card can leave the hand (e.g. auto-played) without a press-out: drop its preview.
+  if (zoom && !game.myCards.some((card) => cardKey(card) === cardKey(zoom))) setZoom(null);
   const [motion] = useState(() => ({ collect: new Animated.Value(0), glow: new Animated.Value(0) }));
   const position = (playerId: number) => relativeSeat(room, playerId, userId);
   const score = game.totalPoints;

@@ -141,6 +141,17 @@ it('previews any hand card on long press, telling whether it can be played now',
   expect(fetchMock).not.toHaveBeenCalledWith('https://becca.example/api/games/play-card', expect.anything());
 });
 
+it('drops the card preview when the held card leaves the hand', async () => {
+  await renderGame();
+  await waitFor(() => expect(screen.getByRole('button', { name: 're di coppe' })).toBeEnabled());
+  await fireEvent(screen.getByRole('button', { name: 'cavallo di bastoni' }), 'longPress');
+  expect(screen.getByText('CAVALLO DI BASTONI')).toBeOnTheScreen();
+  game.myCards = [card];
+  await act(() => notify('auto_played'));
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'cavallo di bastoni' })).toBeNull());
+  expect(screen.queryByText('CAVALLO DI BASTONI')).toBeNull();
+});
+
 it('opens the last trick from the table, laid out with the winner marked', async () => {
   game.lastCompletedTrick = { roundId: 1, handNumber: 1, winnerUserId: 8, cards: [7, 8, 9, 10].map((userId, index) => ({
     playerId: userId, userId, suit: 'spade', value: ['quattro', 'tre', 'sei', 'sette'][index], position: index, signal: null, handNumber: 1 })) };
