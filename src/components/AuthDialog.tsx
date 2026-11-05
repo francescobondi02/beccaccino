@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Mail, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { apiPost } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -134,25 +134,6 @@ const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
             ) : (
               "Registrati"
             )}
-          </Button>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">oppure</span>
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full"
-            disabled
-          >
-            <Mail className="mr-2 h-4 w-4" />
-            Google non disponibile
           </Button>
 
           <div className="text-center text-sm">
