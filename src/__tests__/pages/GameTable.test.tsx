@@ -76,8 +76,6 @@ const mocks = vi.hoisted(() => ({
     notice: null as string | null,
     playerControls: [] as PlayerControl[],
     isPractice: false,
-    allHands: null,
-    moveLog: [],
     roundEndData: null as RoundEndData | null,
     gameFinishedData: null as GameFinishedPayload | null,
     gameStatus: "playing" as
@@ -313,8 +311,6 @@ describe("GameTable page behavior", () => {
     mocks.gameHook.playedCards = [];
     mocks.gameHook.lastHand = [];
     mocks.gameHook.isPractice = false;
-    mocks.gameHook.allHands = null;
-    mocks.gameHook.moveLog = [];
     mocks.gameHook.notice = null;
     mocks.gameHook.playerControls = [];
     mocks.gameHook.roundEndData = null;

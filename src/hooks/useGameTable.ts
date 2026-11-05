@@ -238,7 +238,6 @@ export function useGameTable(
         type: "card_played",
         data,
         myUserId: userIdRef.current,
-        username: usernameOf(data.userId) ?? `#${data.userId}`,
       });
       // turn_timer_started carries the next turn; completed tricks refetch
       // after the hold effect above.

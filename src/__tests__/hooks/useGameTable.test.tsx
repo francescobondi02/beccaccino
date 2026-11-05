@@ -51,7 +51,6 @@ function gameState(
   overrides: Partial<GameStateResponse> = {},
 ): GameStateResponse {
   return {
-    pausedAt: null,
     round: { id: 20, number: 1, briscola: "spade" },
     currentHandNumber: 1,
     callerUserId: 1,
@@ -67,7 +66,6 @@ function gameState(
     },
     turnTimer: null,
     isPractice: false,
-    allHands: null,
     ...overrides,
     status: overrides.status ?? "playing",
     finishedGame: overrides.finishedGame ?? null,
@@ -250,7 +248,6 @@ describe("useGameTable turn synchronization", () => {
     mocks.apiGet.mockResolvedValue(
       gameState({
         status: "paused",
-        pausedAt: "2026-08-27T18:00:00.000Z",
         currentTurnUserId: 1,
         turnTimer: null,
         isPractice: true,
@@ -264,7 +261,6 @@ describe("useGameTable turn synchronization", () => {
     );
 
     await waitFor(() => expect(result.current.gameStatus).toBe("paused"));
-    expect(result.current.pausedAt).toBe("2026-08-27T18:00:00.000Z");
     expect(result.current.playableCards).toEqual([]);
     expect(
       mocks.apiGet.mock.calls.some(
@@ -279,7 +275,6 @@ describe("useGameTable turn synchronization", () => {
       .mockResolvedValueOnce(
         gameState({
           status: "paused",
-          pausedAt: "2026-08-27T18:00:00.000Z",
           isPractice: true,
         }),
       )
