@@ -369,6 +369,26 @@ describe("Socket.IO real WebSocket integration", () => {
     });
   });
 
+  describe("malformed payloads", () => {
+    it("rejects missing or non-object payloads without crashing", async () => {
+      const user = await createUser("Alice");
+      const roomCode = await createRoom(user);
+      const client = createClient();
+      await waitForConnect(client);
+
+      client.emit("leave_room");
+      client.emit("leave_room", { roomCode: 42 });
+      client.emit("send_chat_message");
+      client.emit("send_chat_message", null);
+      await expect(
+        new Promise((resolve) => client.emit("join_room", null, resolve)),
+      ).resolves.toEqual({ ok: false, error: "Invalid payload" });
+      await expect(joinSocketRoom(client, roomCode, user)).resolves.toEqual({
+        ok: true,
+      });
+    });
+  });
+
   // =========================================================================
   // leave_room
   // =========================================================================
