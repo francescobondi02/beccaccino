@@ -137,6 +137,38 @@ describe("LobbyPage room commands", () => {
     expect(screen.getByRole("textbox", { name: "Codice stanza" })).toHaveValue("ABC123");
   });
 
+  it("opens sign-in instead of sending room commands while signed out", () => {
+    mocks.auth.user = null;
+    renderLobby();
+
+    fireEvent.click(screen.getByTestId("create-room-button"));
+    expect(screen.getByTestId("auth-dialog")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("room-code-input"), { target: { value: "ABC123" } });
+    fireEvent.click(screen.getByTestId("join-by-code-button"));
+    fireEvent.click(screen.getByTestId("practice-button"));
+
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+    expect(mocks.apiGet).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("sends one room command at a time", async () => {
+    const created = deferred<{ code: string }>();
+    mocks.apiPost.mockReturnValue(created.promise);
+    renderLobby();
+
+    fireEvent.click(screen.getByTestId("create-room-button"));
+    fireEvent.click(screen.getByTestId("hero-primary-action"));
+    fireEvent.change(screen.getByTestId("room-code-input"), { target: { value: "ABC123" } });
+    fireEvent.click(screen.getByTestId("join-by-code-button"));
+
+    expect(mocks.apiPost).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("create-room-button")).toBeDisabled();
+    expect(screen.getByTestId("join-by-code-button")).toBeDisabled();
+    await act(async () => created.resolve({ code: "NEW123" }));
+    expect(mocks.navigate).toHaveBeenCalledWith("/room/NEW123");
+  });
+
   it("submits invitation codes through the native form", async () => {
     mocks.apiPost.mockResolvedValue({});
     renderLobby();

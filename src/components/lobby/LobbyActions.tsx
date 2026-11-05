@@ -7,6 +7,7 @@ interface LobbyActionsProps {
   onCreateRoom: () => void;
   onPractice: () => void;
   onJoinByCode: () => void;
+  disabled?: boolean;
 }
 
 export default function LobbyActions({
@@ -15,10 +16,11 @@ export default function LobbyActions({
   onCreateRoom,
   onPractice,
   onJoinByCode,
+  disabled = false,
 }: LobbyActionsProps) {
   return (
     <div className="arcade-lobby-actions">
-      <button type="button" className="arcade-entry arcade-entry-create" onClick={onCreateRoom} data-testid="create-room-button">
+      <button type="button" className="arcade-entry arcade-entry-create" onClick={onCreateRoom} disabled={disabled} data-testid="create-room-button">
         <span className="arcade-entry-top" aria-hidden="true"><Plus size={32} /><ArrowUpRight size={25} /></span>
         <span className="arcade-entry-copy"><strong>Crea una stanza.</strong><span>Chiama gli amici. Al tavolo ci pensi tu.</span></span>
         <span className="arcade-entry-link">Si gioca <ArrowRight size={19} aria-hidden="true" /></span>
@@ -44,7 +46,7 @@ export default function LobbyActions({
             spellCheck={false}
             data-testid="room-code-input"
           />
-          <button type="submit" className="arcade-code-submit" aria-label="Entra con il codice" data-testid="join-by-code-button"><ArrowRight size={24} aria-hidden="true" /></button>
+          <button type="submit" className="arcade-code-submit" aria-label="Entra con il codice" disabled={disabled} data-testid="join-by-code-button"><ArrowRight size={24} aria-hidden="true" /></button>
         </div>
       </form>
     </div>
