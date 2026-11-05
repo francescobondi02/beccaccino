@@ -13,6 +13,7 @@ import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
 import { readLobby, readRoomCode, readWaitingRoom, type Lobby, type WaitingRoom } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
+import { latestOnly } from '@/lib/latest';
 import { sessionRequest, type SessionUser } from '@/lib/session';
 
 const lobbyEvents = ['room_created', 'room_updated', 'room_full', 'room_deleted'] as const;
@@ -59,17 +60,19 @@ function Lobby({ user }: { user: SessionUser }) {
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const request = useRef<AbortController | null>(null);
+  const [begin] = useState(latestOnly);
 
   const load = useCallback(async () => {
     const signal = request.current?.signal;
     if (!signal) return;
+    const latest = begin();
     try {
       const next = readLobby(await sessionRequest('/api/rooms/available', signal));
-      if (!signal.aborted) { setLobby(next); setError(null); }
+      if (!signal.aborted && latest()) { setLobby(next); setError(null); }
     } catch (cause) {
-      if (!signal.aborted) setError(cause instanceof Error ? cause.message : 'Non riesco a caricare le stanze.');
+      if (!signal.aborted && latest()) setError(cause instanceof Error ? cause.message : 'Non riesco a caricare le stanze.');
     }
-  }, []);
+  }, [begin]);
   useFocusEffect(useCallback(() => {
     const controller = new AbortController();
     request.current = controller;

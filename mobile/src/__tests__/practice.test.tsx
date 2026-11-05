@@ -282,6 +282,34 @@ it('retries the lobby socket after a non-authentication middleware rejection', a
   } finally { jest.useRealTimers(); }
 });
 
+// The first request answers last with stale data; only the newer response may be shown.
+const answerFirstRequestLast = (path: string, stale: unknown) => {
+  const implementation = fetchMock.getMockImplementation()!;
+  let finish!: () => void;
+  fetchMock.mockImplementationOnce((url: string) => {
+    if (!url.endsWith(path)) throw new Error(`Unexpected first request ${url}`);
+    return new Promise((resolve) => { finish = () => resolve(response(stale)); });
+  }).mockImplementation(implementation);
+  return () => finish();
+};
+
+it('ignores an older lobby response that arrives after a newer one', async () => {
+  const finishStale = answerFirstRequestLast('/api/rooms/available', { activeGames: [], availableRooms: [] });
+  await renderScreen(<PlayScreen />);
+  await screen.findByRole('button', { name: 'Entra XYZ789, 1 su 4: Gianni' });
+  await act(() => finishStale());
+  expect(screen.getByRole('button', { name: 'Entra XYZ789, 1 su 4: Gianni' })).toBeOnTheScreen();
+});
+
+it('ignores an older waiting-room response that arrives after a newer one', async () => {
+  waitingMode = true;
+  const finishStale = answerFirstRequestLast('/api/rooms/ABC123', { ...waiting, botTier: 'facile' });
+  await renderScreen(<RoomScreen />);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Nessuno' })).toBeSelected());
+  await act(() => finishStale());
+  expect(screen.getByRole('button', { name: 'Nessuno' })).toBeSelected();
+});
+
 it('seats the player, marks ready and opens the table when the game starts', async () => {
   waitingMode = true;
   await renderScreen(<RoomScreen />);

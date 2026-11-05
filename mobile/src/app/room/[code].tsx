@@ -13,6 +13,7 @@ import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
 import { botTiers, readWaitingRoom, type BotTier, type WaitingPlayer, type WaitingRoom } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
+import { latestOnly } from '@/lib/latest';
 import { sessionRequest, type SessionUser } from '@/lib/session';
 
 const roomEvents = ['player_joined', 'player_left', 'player_disconnected', 'team_chosen', 'ready_changed',
@@ -57,18 +58,20 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
   const navigate = useRef(router.replace);
   useEffect(() => { navigate.current = router.replace; });
   const toGame = useCallback(() => navigate.current(`/game/${code}`), [code]);
+  const [begin] = useState(latestOnly);
   const load = useCallback(async () => {
     const signal = lifetime.current.signal;
+    const latest = begin();
     try {
       const next = readWaitingRoom(await sessionRequest(`/api/rooms/${code}`, signal));
-      if (signal.aborted) return;
+      if (signal.aborted || !latest()) return;
       if (next.started) { toGame(); return; }
       setRoom(next);
       setError(null);
     } catch (cause) {
-      if (!signal.aborted) setError(cause instanceof Error ? cause.message : 'Non riesco a leggere la stanza.');
+      if (!signal.aborted && latest()) setError(cause instanceof Error ? cause.message : 'Non riesco a leggere la stanza.');
     }
-  }, [code, toGame]);
+  }, [begin, code, toGame]);
   useEffect(() => { void load(); }, [load]);
   const { online } = useSocketRefresh(
     (socket) => socket.emit('join_room', { roomCode: code, userId: user.id, username: user.username }),
