@@ -174,17 +174,14 @@ export default function TutorialScreen() {
         <TableCard key={`${replay}-${index}`} image={card.image}
           label={`${card.seat}: ${card.label}${result && winnerIndex === index ? ', vince la presa' : ''}`}
           index={index} layout={layout} reduceMotion={reduceMotion}
-          origin={{
-            x: layout.seats[index].x + layout.seatWidth / 2 - layout.cardWidth / 2,
-            y: layout.seats[index].y + 16 - layout.cardHeight / 2,
-          }}
+          origin={{ x: layout.seats[index].x + layout.seatWidth / 2, y: layout.seats[index].y + 16 }}
           destination={destination} collect={motion.collect} glow={motion.glow} winner={!!result && winnerIndex === index} />
       ))}
       {result && <TableCard image={result.image} label={`4. Tu: ${result.label}${result.wins ? ', vince la presa' : ''}`}
         index={3} layout={layout} reduceMotion={reduceMotion}
         origin={{
-          x: layout.handX[hand.indexOf(result)] + layout.handWidth / 2 - layout.cardWidth / 2,
-          y: layout.handY + layout.handHeight / 2 - layout.cardHeight / 2,
+          x: layout.handX[hand.indexOf(result)] + layout.handWidth / 2,
+          y: layout.handY + layout.handHeight / 2,
         }}
         destination={destination} collect={motion.collect} glow={motion.glow} winner={result.wins} progress={motion.play} />}
       {hand.map((card, index) => card !== result && (

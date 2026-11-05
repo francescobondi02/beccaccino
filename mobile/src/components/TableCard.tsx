@@ -21,14 +21,17 @@ export default function TableCard({ image, label, index, layout, origin, destina
     return () => animation.stop();
   }, [entry, index, progress, reduceMotion]);
   const travel = progress ?? entry;
+  // `origin` and `destination` are centre points; the card rests with its top-left at `target`.
   const target = layout.cards[index];
+  const centreX = target.x + layout.cardWidth / 2;
+  const centreY = target.y + layout.cardHeight / 2;
   const moveX = Animated.add(
-    travel.interpolate({ inputRange: [0, 1], outputRange: [origin.x - target.x, 0] }),
-    collect.interpolate({ inputRange: [0, 1], outputRange: [0, destination.x - target.x - layout.cardWidth / 2] }),
+    travel.interpolate({ inputRange: [0, 1], outputRange: [origin.x - centreX, 0] }),
+    collect.interpolate({ inputRange: [0, 1], outputRange: [0, destination.x - centreX] }),
   );
   const moveY = Animated.add(
-    travel.interpolate({ inputRange: [0, 1], outputRange: [origin.y - target.y, 0] }),
-    collect.interpolate({ inputRange: [0, 1], outputRange: [0, destination.y - target.y - layout.cardHeight / 2] }),
+    travel.interpolate({ inputRange: [0, 1], outputRange: [origin.y - centreY, 0] }),
+    collect.interpolate({ inputRange: [0, 1], outputRange: [0, destination.y - centreY] }),
   );
   const scale = Animated.multiply(
     travel.interpolate({ inputRange: [0, 1], outputRange: [progress ? layout.handWidth / layout.cardWidth : 0.5, 1] }),
