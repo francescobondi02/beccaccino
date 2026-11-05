@@ -14,8 +14,9 @@ export async function findActiveMultiplayerGame(userId: number) {
     where: {
       userId,
       abandonedAt: null,
-      gameRoom: { started: true, finished: false, isPractice: false },
+      gameRoom: { finished: false, isPractice: false },
     },
+    orderBy: { gameRoom: { started: "desc" } },
     select: {
       gameRoom: {
         select: { code: true },
@@ -48,8 +49,8 @@ export async function listRoomsForLobby(userId: number) {
   });
   const activeGames = await prisma.gameRoom.findMany({
     where: {
-      started: true,
       finished: false,
+      OR: [{ started: true }, { isPractice: false }],
       players: { some: { userId, abandonedAt: null } },
     },
     include: {

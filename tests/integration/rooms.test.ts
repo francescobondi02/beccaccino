@@ -71,6 +71,29 @@ describe("Room API", () => {
     });
   });
 
+  describe("one unfinished multiplayer room per user", () => {
+    it("rejects create and join while seated in a waiting room and lists it as active", async () => {
+      const user = await createUser("waiting");
+      const owner = await createUser("owner");
+      const waitingRoom = await apiAs(user.id, user.username).post("/api/rooms").send({});
+      const otherRoom = await apiAs(owner.id, owner.username).post("/api/rooms").send({});
+
+      const create = await apiAs(user.id, user.username).post("/api/rooms").send({});
+      const join = await apiAs(user.id, user.username)
+        .post("/api/rooms/join")
+        .send({ roomCode: otherRoom.body.code });
+      for (const res of [create, join]) {
+        expect(res.statusCode).toBe(409);
+        expect(res.body.activeRoomCode).toBe(waitingRoom.body.code);
+      }
+
+      const lobby = await apiAs(user.id, user.username).get("/api/rooms/available");
+      expect(lobby.body.activeGames).toEqual([
+        expect.objectContaining({ code: waitingRoom.body.code, started: false }),
+      ]);
+    });
+  });
+
   describe("GET /api/rooms/:roomCode", () => {
     it("returns only public player fields", async () => {
       const user = await createUser("creator");
@@ -128,8 +151,8 @@ describe("Room API", () => {
         .post("/api/rooms/join")
         .send({ roomCode });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.body.error).toMatch(/already/i);
+      expect(res.statusCode).toBe(409);
+      expect(res.body.activeRoomCode).toBe(roomCode);
     });
 
     it("rejects joining a full room", async () => {
