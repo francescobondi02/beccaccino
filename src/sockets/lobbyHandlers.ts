@@ -1,4 +1,4 @@
-import { getSocket, isSocketConnected } from "./socketClient";
+import { getSocket } from "./socketClient";
 import type { ServerToClientEvents } from "./events";
 
 type LobbyEventName =
@@ -29,9 +29,7 @@ export function registerLobbyHandlers(
   onReconnect?: () => void,
 ): () => void {
   const socket = getSocket();
-  if (!isSocketConnected()) {
-    socket.connect();
-  }
+  socket.connect();
 
   const joinLobby = () => {
     socket.emit("join_lobby", { userId });

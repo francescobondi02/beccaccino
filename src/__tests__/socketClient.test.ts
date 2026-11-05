@@ -28,7 +28,6 @@ vi.mock("sonner", () => ({
 // Must import after mocking
 import {
   getSocket,
-  isSocketConnected,
   disconnectSocket,
   getConnectionStatus,
 } from "@/sockets/socketClient";
@@ -81,25 +80,6 @@ describe("socketClient", () => {
       const socket1 = getSocket();
       const socket2 = getSocket();
       expect(socket1).toBe(socket2);
-    });
-  });
-
-  describe("isSocketConnected", () => {
-    it("returns false when socket is not connected", () => {
-      mockSocket.connected = false;
-      getSocket(); // ensure socket exists
-      expect(isSocketConnected()).toBe(false);
-    });
-
-    it("returns true when socket is connected", () => {
-      getSocket(); // ensure socket exists
-      mockSocket.connected = true;
-      expect(isSocketConnected()).toBe(true);
-    });
-
-    it("returns false when no socket has been created", () => {
-      // disconnectSocket was called in beforeEach
-      expect(isSocketConnected()).toBe(false);
     });
   });
 

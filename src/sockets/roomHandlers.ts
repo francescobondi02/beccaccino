@@ -1,4 +1,4 @@
-import { getSocket, isSocketConnected, disconnectSocket } from "./socketClient";
+import { getSocket } from "./socketClient";
 import type { ServerToClientEvents } from "./events";
 
 type UserShort = { userId: number; username: string };
@@ -30,9 +30,7 @@ export function registerRoomHandlers(
   const socket = getSocket();
   let active = true;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
-  if (!isSocketConnected()) {
-    socket.connect();
-  }
+  socket.connect();
 
   const joinRoom = () => {
     clearTimeout(retryTimer);
@@ -77,9 +75,3 @@ export function subscribeToRoomEvent<Event extends RoomEventName>(
   socket.on(event, listener);
   return () => socket.off(event, listener);
 }
-
-export function disconnectRoomSocket() {
-  disconnectSocket();
-}
-
-export const isConnected = () => isSocketConnected();
