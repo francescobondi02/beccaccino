@@ -28,7 +28,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const pending = useRef<AbortController | null>(null);
   const perform = useCallback((
     action: (signal: AbortSignal) => Promise<SessionState>,
-    failure: (error: unknown) => SessionState,
+    failure: (error: unknown) => SessionState | null,
   ): Promise<boolean> => {
     if (pending.current) return Promise.resolve(false);
     const controller = new AbortController();
@@ -38,7 +38,8 @@ export function SessionProvider({ children }: PropsWithChildren) {
       setState(next);
       return true;
     }, (error: unknown) => {
-      if (pending.current === controller) setState(failure(error));
+      const next = pending.current === controller ? failure(error) : null;
+      if (next) setState(next);
       return false;
     }).finally(() => {
       if (pending.current === controller) pending.current = null;
@@ -64,13 +65,15 @@ export function SessionProvider({ children }: PropsWithChildren) {
     };
   }, [perform, restore]);
 
+  // Foreground check stays silent so open tables keep their sockets: only an expired token signs out.
   useEffect(() => {
     if (state.status !== 'signedIn') return;
     const subscription = AppState.addEventListener('change', (value) => {
-      if (value === 'active') retry();
+      if (value === 'active') void perform(restore, (error) =>
+        error instanceof SessionHttpError && error.status === 401 ? restoreFailure(error) : null);
     });
     return () => subscription.remove();
-  }, [retry, state.status]);
+  }, [perform, restore, state.status]);
 
   const login = async (username: string, password: string) => {
     if (pending.current) return false;
@@ -82,7 +85,10 @@ export function SessionProvider({ children }: PropsWithChildren) {
     }));
   };
   const logout = async () => {
-    if (pending.current) return false;
+    // While signed in, the only pending work is a silent revalidation: logging out supersedes it.
+    if (pending.current && state.status !== 'signedIn') return false;
+    pending.current?.abort();
+    pending.current = null;
     const previous = state;
     setState({ status: 'loading' });
     return perform(async () => {

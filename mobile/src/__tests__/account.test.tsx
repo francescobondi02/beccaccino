@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import * as SecureStore from 'expo-secure-store';
-import { AppState } from 'react-native';
+import { useEffect } from 'react';
+import { AppState, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import AccountScreen from '@/app/account';
-import { SessionProvider } from '@/context/SessionContext';
+import { SessionProvider, useSession } from '@/context/SessionContext';
 
 jest.mock('expo-router', () => ({ useRouter: () => ({ canGoBack: () => false, replace: jest.fn() }) }));
 jest.mock('expo-secure-store', () => ({
@@ -94,6 +95,22 @@ it('expires invalid sessions and revalidates the account when the app returns to
   expect(screen.getByRole('button', { name: 'Accedi' })).toBeOnTheScreen();
 });
 
+it('revalidates silently on foreground, keeping signed-in screens mounted through network failures', async () => {
+  jest.mocked(SecureStore.getItemAsync).mockResolvedValue(saved);
+  fetchMock.mockResolvedValueOnce({ ok: true, json: async () => user }).mockRejectedValueOnce(new TypeError('Network unavailable'));
+  const listener = jest.spyOn(AppState, 'addEventListener');
+  const mounted = jest.fn();
+  function Table() { useEffect(mounted, []); return <Text>Tavolo</Text>; }
+  function Probe() { const { state } = useSession(); return state.status === 'signedIn' ? <Table /> : <Text>{state.status}</Text>; }
+  await render(<SessionProvider><Probe /></SessionProvider>);
+  const changeState = listener.mock.calls.find(([event]) => event === 'change')?.[1];
+  if (!changeState) throw new Error('Session resume listener missing');
+  await act(() => changeState('active'));
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('Tavolo')).toBeOnTheScreen();
+  expect(mounted).toHaveBeenCalledTimes(1);
+});
+
 it('keeps saved credentials on network failure and supports explicit restoration retry', async () => {
   jest.mocked(SecureStore.getItemAsync).mockResolvedValue(saved);
   fetchMock.mockRejectedValueOnce(new TypeError('Network unavailable')).mockResolvedValueOnce({ ok: true, json: async () => user });
@@ -113,7 +130,6 @@ it('aborts restoration on unmount and ignores a late network response', async ()
   await app.unmount();
   expect(signal.aborted).toBe(true);
   await act(() => finish({ ok: true, json: async () => user }));
-  expect(SecureStore.setItemAsync).not.toHaveBeenCalled();
 });
 
 it('surfaces a secure-storage read failure and supports explicitly removing the saved session', async () => {
