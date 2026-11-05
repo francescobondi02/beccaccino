@@ -48,7 +48,7 @@ export function useWaitingRoom({
     const key = `${userId}:${roomCode}`;
     if (departure.current?.key === key) return departure.current.request;
 
-    const request: Promise<boolean> = apiPost<void>(`/rooms/${roomCode}/leave`, {})
+    const request: Promise<boolean> = apiPost<void>(`/rooms/${roomCode}/leave`, { onlyIfWaiting: true })
       .then(() => true)
       .catch((error: unknown) => {
         if (departure.current?.request === request) departure.current = null;

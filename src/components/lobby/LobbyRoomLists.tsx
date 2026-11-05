@@ -11,7 +11,7 @@ interface LobbyRoomListsProps {
   isLoading: boolean;
   resumingRoomCode: string | null;
   onJoin: (roomCode: string) => void;
-  onOpenGame: (roomCode: string) => void;
+  onOpenGame: (game: LobbyRoom) => void;
   onResumePractice: (roomCode: string) => void;
 }
 
@@ -153,7 +153,7 @@ export default function LobbyRoomLists({
                       <Button
                         variant="default"
                         size="sm"
-                        onClick={() => onOpenGame(game.code)}
+                        onClick={() => onOpenGame(game)}
                         className="bg-amber-500 hover:bg-amber-600 text-white"
                       >
                         Rientra

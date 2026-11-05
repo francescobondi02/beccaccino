@@ -12,6 +12,7 @@ export interface LobbyRoomPlayer {
 export interface LobbyRoom extends SocketLobbyRoom {
   isPractice?: boolean;
   pausedAt?: string | null;
+  started?: boolean;
   players?: LobbyRoomPlayer[];
 }
 
@@ -24,6 +25,7 @@ interface LobbyRoomResponse {
 interface ActiveGameResponse extends LobbyRoomResponse {
   isPractice: boolean;
   pausedAt: string | null;
+  started?: boolean;
 }
 
 export interface LobbyRoomsResponse {
@@ -85,6 +87,7 @@ export function lobbyRoomsReducer(
           ...toLobbyRoom(room),
           isPractice: room.isPractice,
           pausedAt: room.pausedAt,
+          started: room.started,
         })),
         isLoading: false,
       };

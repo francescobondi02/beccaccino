@@ -369,7 +369,7 @@ describe("GameRoom state synchronization", () => {
     expect(await screen.findByText("Lobby")).toBeInTheDocument();
     await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(
       "/rooms/ROOM/leave",
-      {},
+      { onlyIfWaiting: true },
     ));
     expect(mocks.apiPost).toHaveBeenCalledOnce();
   });
@@ -382,7 +382,7 @@ describe("GameRoom state synchronization", () => {
     fireEvent.click(screen.getByTestId("leave-room-button"));
 
     expect(await screen.findByText("Lobby")).toBeInTheDocument();
-    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", {});
+    expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/leave", { onlyIfWaiting: true });
     expect(mocks.apiPost).toHaveBeenCalledOnce();
   });
 

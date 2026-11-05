@@ -253,6 +253,24 @@ describe("LobbyPage room commands", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
+  it("reopens unstarted rooms in the waiting room and started ones at the table", async () => {
+    mocks.apiGet.mockResolvedValue({
+      availableRooms: [],
+      activeGames: [
+        { id: 20, code: "WAIT01", players: [], isPractice: false, pausedAt: null, started: false },
+        { id: 21, code: "LIVE01", players: [], isPractice: false, pausedAt: null, started: true },
+      ],
+    });
+    renderLobby();
+
+    const [waiting, live] = await screen.findAllByRole("button", { name: "Rientra" });
+    fireEvent.click(waiting);
+    fireEvent.click(live);
+
+    expect(mocks.navigate).toHaveBeenNthCalledWith(1, "/room/WAIT01");
+    expect(mocks.navigate).toHaveBeenNthCalledWith(2, "/game/LIVE01");
+  });
+
   it("separates paused practice games and resumes before navigating", async () => {
     mocks.apiGet.mockResolvedValue({
       availableRooms: [{ id: 10, code: "LIST01", players: [] }],

@@ -151,7 +151,9 @@ const LobbyPage = () => {
           isLoading={isLoading}
           resumingRoomCode={resumingRoomCode}
           onJoin={(code) => void joinRoom(code)}
-          onOpenGame={(code) => navigate(`/game/${code}`)}
+          onOpenGame={({ code, started }) =>
+            navigate(`/${started === false ? "room" : "game"}/${code}`)
+          }
           onResumePractice={(code) => void handleResumePractice(code)}
         />
       ) : (
