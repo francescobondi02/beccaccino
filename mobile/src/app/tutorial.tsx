@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   AccessibilityInfo, Animated, Easing, Image, Modal, Pressable,
@@ -14,6 +13,7 @@ import TableCard from '@/components/TableCard';
 import TableFelt from '@/components/TableFelt';
 import { colors, fonts, hard } from '@/constants/theme';
 import useCardDrag from '@/hooks/useCardDrag';
+import useCloseOrHome from '@/hooks/useCloseOrHome';
 import useReducedMotion from '@/hooks/useReducedMotion';
 import { playSound } from '@/lib/sound';
 import { tableLayout } from '@/lib/tableLayout';
@@ -78,7 +78,6 @@ function HandCard({ card, index, layout, selected, disabled, reduceMotion, onPre
 }
 
 export default function TutorialScreen() {
-  const router = useRouter();
   const { width, height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [board, setBoard] = useState({
@@ -120,7 +119,7 @@ export default function TutorialScreen() {
     };
   }, [motion, phase, reduceMotion, selected]);
 
-  const exit = () => router.canGoBack() ? router.back() : router.replace('/');
+  const exit = useCloseOrHome();
   const reset = () => {
     motion.play.setValue(0);
     motion.collect.setValue(0);

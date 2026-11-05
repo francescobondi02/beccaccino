@@ -6,6 +6,7 @@ import ActionButton from '@/components/ActionButton';
 import Sheet from '@/components/Sheet';
 import { colors, fonts } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
+import useCloseOrHome from '@/hooks/useCloseOrHome';
 
 const siteUrl = 'https://beccaccino-client.vercel.app';
 
@@ -18,7 +19,7 @@ export default function AccountScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [focused, setFocused] = useState<'user' | 'password' | null>(null);
-  const close = () => router.canGoBack() ? router.back() : router.replace('/');
+  const close = useCloseOrHome();
   const passwordInput = useRef<ComponentRef<typeof TextInput>>(null);
   const submit = () => {
     if (state.status !== 'signedOut' || !username.trim() || !password) return;

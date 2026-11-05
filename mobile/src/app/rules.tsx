@@ -5,6 +5,7 @@ import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
 import ActionButton from '@/components/ActionButton';
 import Sheet from '@/components/Sheet';
 import { colors, fonts } from '@/constants/theme';
+import useCloseOrHome from '@/hooks/useCloseOrHome';
 
 const rules = [
   {
@@ -50,7 +51,7 @@ export default function RulesScreen() {
     onPanResponderRelease: (_, { dx }) => { if (Math.abs(dx) > 40) go(dx < 0 ? page + 1 : page - 1); },
   });
 
-  const close = () => router.canGoBack() ? router.back() : router.replace('/');
+  const close = useCloseOrHome();
   return (
     <Sheet title="Come si gioca" onClose={close} width={640}>
       <Animated.View {...swipe.panHandlers} style={[styles.copyCard, { transform: [{ translateX: slide }],
