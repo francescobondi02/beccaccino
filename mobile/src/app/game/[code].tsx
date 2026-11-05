@@ -12,7 +12,7 @@ import { colors } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useLiveGame from '@/hooks/useLiveGame';
 import { cardImage } from '@/lib/cardImages';
-import { cardKey, cardLabel, signalIcons, signals, suits, type Card, type Signal } from '@/lib/game';
+import { cardKey, cardLabel, ourSide, signalIcons, signals, suits, teamOf, type Card, type Signal } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 import type { SessionUser } from '@/lib/session';
@@ -27,7 +27,7 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
   const [now, setNow] = useState(Date.now);
   const reduced = useReducedMotion();
   const { announcement, done } = useGameAnnouncements(snapshot, completedTrick, user.id);
-  const won = snapshot?.game.finishedGame?.winnerTeam === 0;
+  const won = !!snapshot && snapshot.game.finishedGame?.winnerTeam === teamOf(snapshot.room, user.id);
   useEffect(() => { if (won) { touchFeedback('success'); playSound('win'); } }, [won]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 500);
@@ -72,6 +72,8 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
   const overlay = dialog !== null || paused || finished || showSummary;
   const closeDialog = () => setDialog(null);
   const practice = room.isPractice;
+  const summary = game.roundSummary && ourSide(room, user.id, game.roundSummary.team0Points, game.roundSummary.team1Points);
+  const final = game.finishedGame && ourSide(room, user.id, game.finishedGame.finalScores.team0, game.finishedGame.finalScores.team1);
   const goHome = () => router.replace('/play');
   const pause = async () => {
     setDialog('menu');
@@ -150,11 +152,11 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
       <ActionButton secondary label="Continua a giocare" disabled={busy} onPress={() => setDialog('menu')} />
     </GameDialog>
     <GameDialog title={`Fine mano ${game.roundSummary?.roundNumber ?? ''}`} visible={showSummary && !finished} onClose={() => {}} dismissable={false}>
-      <Text style={styles.body}>Noi {game.roundSummary?.team0Points} · Loro {game.roundSummary?.team1Points}</Text>
+      <Text style={styles.body}>Noi {summary?.[0]} · Loro {summary?.[1]}</Text>
       <Text style={styles.caption}>Tra poco distribuisco le nuove carte.</Text>
     </GameDialog>
-    <GameDialog title={game.finishedGame?.winnerTeam === 0 ? 'La partita è vostra!' : 'Vincono gli avversari'} visible={finished} onClose={() => {}} dismissable={false}>
-      <View style={styles.finalBoard}><ScoreBoard us={[game.finishedGame?.finalScores.team0 ?? 0, 0]} them={[game.finishedGame?.finalScores.team1 ?? 0, 0]} /></View>
+    <GameDialog title={won ? 'La partita è vostra!' : 'Vincono gli avversari'} visible={finished} onClose={() => {}} dismissable={false}>
+      <View style={styles.finalBoard}><ScoreBoard us={[final?.[0] ?? 0, 0]} them={[final?.[1] ?? 0, 0]} /></View>
       <Text style={styles.body}>{game.finishedGame?.totalRounds} mani giocate. {practice ? 'Allenamento completato.' : 'Partita conclusa.'}</Text>
       {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
       <ActionButton label="Torna a Gioca" disabled={busy} onPress={() => void (practice ? leave() : goHome())} />

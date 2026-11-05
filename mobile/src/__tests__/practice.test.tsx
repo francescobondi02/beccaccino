@@ -7,6 +7,7 @@ import GameScreen from '@/app/game/[code]';
 import PlayScreen from '@/app/play';
 import RoomScreen from '@/app/room/[code]';
 import { readGameState } from '@/lib/game';
+import { touchFeedback } from '@/lib/haptics';
 
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
@@ -23,10 +24,9 @@ jest.mock('expo-secure-store', () => ({ getItemAsync: jest.fn() }));
 jest.mock('socket.io-client', () => ({ io: jest.fn() }));
 jest.mock('@/lib/haptics', () => ({ touchFeedback: jest.fn() }));
 
-const room = {
-  id: 1, code: 'ABC123', isPractice: true, pausedAt: null,
-  players: [7, 8, 9, 10].map((userId, seat) => ({ userId, seat, team: seat % 2, user: { username: seat === 0 ? 'Socio' : `Bot ${seat}` } })),
-};
+const seated = (userIds: number[]) => userIds.map((userId, seat) =>
+  ({ userId, seat, team: seat % 2, user: { username: userId === 7 ? 'Socio' : `Bot ${seat}` } }));
+const room = { id: 1, code: 'ABC123', isPractice: true, pausedAt: null, players: seated([7, 8, 9, 10]) };
 const card = { suit: 'coppe', value: 're' };
 const openRoom = { id: 2, code: 'XYZ789', started: false, botTier: null,
   players: [{ userId: 20, team: 0, isReady: false, user: { username: 'Gianni' } }] };
@@ -56,6 +56,7 @@ const renderGame = () => render(<SafeAreaProvider initialMetrics={{ frame: { x: 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  room.players = seated([7, 8, 9, 10]);
   waitingMode = false;
   game = initialGame();
   waiting = { id: 3, code: 'ABC123', started: false, botTier: null, players: [{ userId: 7, team: null, isReady: false, user: { username: 'Socio' } }] };
@@ -200,6 +201,25 @@ it('chooses briscola through the existing room API and shows final server scores
   await act(() => notify('game_finished'));
   await waitFor(() => expect(screen.getByLabelText('Noi 42 punti e 0 figure, loro 35 punti e 0 figure')).toBeOnTheScreen());
   expect(screen.getByRole('header', { name: 'La partita è vostra!' })).toBeOnTheScreen();
+});
+
+it('shows scores, round summary and result from the side of a player on team 1', async () => {
+  room.players = seated([8, 7, 9, 10]);
+  game.status = 'choosing_briscola';
+  game.round = { id: 2, number: 2, briscola: null, cricca: false, deal: { remainingMs: 10_000, animationMs: 2400, reviewMs: 1600 } };
+  game.roundSummary = { roundNumber: 1, team0Points: 3, team1Points: 8, winnerTeam: 1 };
+  game.totalPoints = { team0Points: 3, team1Points: 8, team0Figures: 1, team1Figures: 2 };
+  await renderGame();
+  await waitFor(() => expect(screen.getByText('Noi 8 · Loro 3')).toBeOnTheScreen());
+  // The round summary hides the table from accessibility; the scoreboard is still drawn behind it.
+  expect(screen.getByLabelText('Noi 8 punti e 2 figure, loro 3 punti e 1 figure', { includeHiddenElements: true })).toBeOnTheScreen();
+  game.status = 'finished';
+  game.roundSummary = null;
+  game.finishedGame = { winnerTeam: 1, totalRounds: 5, finalScores: { team0: 35, team1: 42 } };
+  await act(() => notify('game_finished'));
+  await waitFor(() => expect(screen.getByRole('header', { name: 'La partita è vostra!' })).toBeOnTheScreen());
+  expect(screen.getByLabelText('Noi 42 punti e 0 figure, loro 35 punti e 0 figure')).toBeOnTheScreen();
+  expect(touchFeedback).toHaveBeenCalledWith('success');
 });
 
 const renderScreen = (node: React.ReactElement) => render(<SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 844, height: 390 },

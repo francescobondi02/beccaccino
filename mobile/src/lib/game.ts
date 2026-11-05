@@ -51,6 +51,18 @@ function nullable<T>(value: unknown, parse: (item: unknown) => T): T | null {
 const displayName = (user: unknown) => text(record(user).username).replace(/\s*\(bot\)$/i, '');
 export function cardKey(card: Card): string { return `${card.value}_${card.suit}`; }
 export function cardLabel(card: Card): string { return `${card.value} di ${card.suit}`; }
+const seatOf = (room: Room, userId: number) => room.players.find((p) => p.userId === userId)?.seat ?? 0;
+// Where a player sits as seen by the viewer: 0 left, 1 partner opposite, 2 right, 3 the viewer.
+export function relativeSeat(room: Room, userId: number, viewerId: number): number {
+  return ((seatOf(room, userId) - seatOf(room, viewerId) + 4) % 4 + 3) % 4;
+}
+export function teamOf(room: Room, userId: number): number {
+  return room.players.find((p) => p.userId === userId)?.team ?? 0;
+}
+// The server reports team 0 and team 1; the table always shows [ours, theirs].
+export function ourSide<T>(room: Room, viewerId: number, team0: T, team1: T): [T, T] {
+  return teamOf(room, viewerId) === 1 ? [team1, team0] : [team0, team1];
+}
 export function readCard(value: unknown): Card {
   const data = record(value);
   return { suit: member(data.suit, suits), value: member(data.value, values) };

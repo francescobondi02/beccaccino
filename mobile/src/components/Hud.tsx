@@ -3,7 +3,7 @@ import { AccessibilityInfo, Animated, Easing, Image, Pressable, StyleSheet, Text
 import { colors, hard } from '@/constants/theme';
 import { cardImage } from '@/lib/cardImages';
 import type { Announcement } from '@/hooks/useGameAnnouncements';
-import { cardKey, cardLabel, signalIcons, type Room, type Suit, type Trick } from '@/lib/game';
+import { cardKey, cardLabel, relativeSeat, signalIcons, type Room, type Suit, type Trick } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 
@@ -139,7 +139,6 @@ export function LastTrickButton({ trick, onPress }: { trick: Trick; onPress: () 
 
 // The previous trick laid out like the table: you at the bottom, your partner opposite, winner highlighted.
 export function TrickReview({ trick, room, userId }: { trick: Trick; room: Room; userId: number }) {
-  const mySeat = room.players.find((p) => p.userId === userId)?.seat ?? 0;
   const spots = [styles.spotLeft, styles.spotTop, styles.spotRight, styles.spotBottom];
   return (
     <View style={styles.review}>
@@ -148,7 +147,7 @@ export function TrickReview({ trick, room, userId }: { trick: Trick; room: Room;
         const winner = card.userId === trick.winnerUserId;
         return (
           <View key={cardKey(card)} accessible accessibilityLabel={`${player?.username}: ${cardLabel(card)}${winner ? ', prende' : ''}`}
-            style={[styles.spot, spots[(((player?.seat ?? 0) - mySeat + 4) % 4 + 3) % 4]]}>
+            style={[styles.spot, spots[relativeSeat(room, card.userId, userId)]]}>
             <View style={[styles.reviewCard, winner && styles.reviewWinner]}>
               <Image source={cardImage(card)} style={styles.trumpImage} />
             </View>

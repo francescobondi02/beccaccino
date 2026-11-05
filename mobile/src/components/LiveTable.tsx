@@ -11,7 +11,7 @@ import { colors, hard } from '@/constants/theme';
 import useCardDrag from '@/hooks/useCardDrag';
 import useReducedMotion from '@/hooks/useReducedMotion';
 import { cardImage } from '@/lib/cardImages';
-import { cardKey, cardLabel, type Card, type GameState, type Room, type Trick } from '@/lib/game';
+import { cardKey, cardLabel, ourSide, relativeSeat, type Card, type GameState, type Room, type Trick } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 import { tableLayout } from '@/lib/tableLayout';
@@ -75,11 +75,9 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
   const [dragging, setDragging] = useState(false);
   const [zoom, setZoom] = useState<Card | null>(null);
   const [motion] = useState(() => ({ collect: new Animated.Value(0), glow: new Animated.Value(0) }));
-  const mySeat = room.players.find((p) => p.userId === userId)!.seat;
-  const position = (userId: number) => {
-    const seat = room.players.find((p) => p.userId === userId)!.seat;
-    return ((seat - mySeat + 4) % 4 + 3) % 4;
-  };
+  const position = (playerId: number) => relativeSeat(room, playerId, userId);
+  const score = game.totalPoints;
+  const [us, them] = ourSide<[number, number]>(room, userId, [score.team0Points, score.team0Figures], [score.team1Points, score.team1Figures]);
   const winner = completedTrick ? room.players.find((p) => p.userId === completedTrick.winnerUserId) : null;
   const winnerSeat = layout.seats[winner ? position(winner.userId) : 3];
   const cards = completedTrick?.cards ?? game.playedCards;
@@ -112,8 +110,7 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
       <TableFelt bottom={layout.handHeight * 0.45} />
       <View style={styles.topLeft}>
         <ActionButton compact secondary label={room.isPractice ? "Pausa / menu" : "Menu"} glyph={room.isPractice ? "II" : "☰"} onPress={onMenu} />
-        <ScoreBoard us={[game.totalPoints.team0Points, game.totalPoints.team0Figures]}
-          them={[game.totalPoints.team1Points, game.totalPoints.team1Figures]} />
+        <ScoreBoard us={us} them={them} />
         {game.lastCompletedTrick && <LastTrickButton trick={game.lastCompletedTrick} onPress={onHistory} />}
       </View>
       <View style={styles.topRight}>
