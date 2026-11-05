@@ -96,8 +96,7 @@ export default function useLiveGame(code: string, user: SessionUser) {
         await refresh();
         return !lifetime.signal.aborted;
       } catch (cause) {
-        report(cause);
-        // A timed-out POST may already have committed. Reconcile; never resend it.
+        // A timed-out POST may already have committed. Reconcile; never resend it, then show why it failed.
         await refresh();
         report(cause);
         return false;

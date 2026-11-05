@@ -17,7 +17,7 @@ import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 import type { SessionUser } from '@/lib/session';
 
-function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
+function GameTable({ code, user }: { code: string; user: SessionUser }) {
   const router = useRouter();
   const { retry: retrySession } = useSession();
   const { snapshot, connection, error, needsLogin, busy, syncing, completedTrick, finishCollection, mutate, refresh } = useLiveGame(code, user);
@@ -82,6 +82,7 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
   const leave = async () => {
     if (await mutate(`/api/rooms/${code}/leave`, {})) goHome();
   };
+  const errorAlert = error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>;
   const signal = signalChoice?.key === turnKey ? signalChoice.signal : null;
   const signalPicker = canPlay && game.playedCards.length === 0 && <View style={styles.signalChoices}>
     <Text style={styles.signalTitle}>SEGNO?</Text>
@@ -99,7 +100,7 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
   };
   const controls = <>
     {remaining !== null && connection === 'ready' && !paused && <View style={styles.statusRow}><TimerBadge seconds={remaining} /></View>}
-    {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+    {errorAlert}
     {error ? <ActionButton secondary label="Riprova" onPress={() => void refresh()} />
       : controlledByBot ? <ActionButton label="Riprendi controllo" disabled={!enabled}
         onPress={() => void mutate(`/api/rooms/${code}/resume-control`, {})} />
@@ -124,13 +125,13 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
         <Image source={cardImage({ suit, value: 'asso' })} accessible={false} style={styles.suitCard} />
         <Text style={styles.suitLabel}>{suit.toUpperCase()}</Text>
       </Pressable>)}</View>
-      {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+      {errorAlert}
     </GameDialog>
     <GameDialog title={paused ? 'Allenamento in pausa' : 'Il tuo tavolo'} visible={!finished && !showSummary && dialog !== 'abandon' && dialog !== 'history' && (dialog === 'menu' || paused)}
-      onClose={closeDialog} dismissable={!paused}>
+      onClose={paused ? undefined : closeDialog}>
       <Text style={styles.body}>{!practice ? 'La partita continua anche senza di te: allo scadere del tempo gioca il server. Puoi rientrare da Gioca.'
         : paused ? 'La partita è conservata sul server. Riparti quando vuoi.' : 'Metti in pausa prima di uscire: disconnettersi non ferma i bot.'}</Text>
-      {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+      {errorAlert}
       {practice ? <ActionButton label={paused ? 'Riprendi partita' : 'Metti in pausa'} disabled={busy || connection !== 'ready'}
         onPress={() => { void mutate(`/api/rooms/${code}/${paused ? 'resume' : 'pause'}`, {}).then((ok) => { if (ok && paused) closeDialog(); }); }} />
         : <ActionButton label="Torna al tavolo" onPress={closeDialog} />}
@@ -147,18 +148,18 @@ function PracticeTable({ code, user }: { code: string; user: SessionUser }) {
     <GameDialog title="Abbandonare la partita?" visible={dialog === 'abandon'} onClose={() => setDialog('menu')}>
       <Text style={styles.body}>{practice ? 'L’allenamento verrà archiviato e non potrai riprenderlo. Nessun effetto sulla classifica.'
         : 'Un bot prenderà il tuo posto fino alla fine e non potrai rientrare. Il tuo socio continua a giocare.'}</Text>
-      {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+      {errorAlert}
       <ActionButton label="Conferma abbandono" disabled={busy} onPress={() => void leave()} />
       <ActionButton secondary label="Continua a giocare" disabled={busy} onPress={() => setDialog('menu')} />
     </GameDialog>
-    <GameDialog title={`Fine mano ${game.roundSummary?.roundNumber ?? ''}`} visible={showSummary && !finished} onClose={() => {}} dismissable={false}>
+    <GameDialog title={`Fine mano ${game.roundSummary?.roundNumber ?? ''}`} visible={showSummary && !finished}>
       <Text style={styles.body}>Noi {summary?.[0]} · Loro {summary?.[1]}</Text>
       <Text style={styles.caption}>Tra poco distribuisco le nuove carte.</Text>
     </GameDialog>
-    <GameDialog title={won ? 'La partita è vostra!' : 'Vincono gli avversari'} visible={finished} onClose={() => {}} dismissable={false}>
+    <GameDialog title={won ? 'La partita è vostra!' : 'Vincono gli avversari'} visible={finished}>
       <View style={styles.finalBoard}><ScoreBoard us={[final?.[0] ?? 0, 0]} them={[final?.[1] ?? 0, 0]} /></View>
       <Text style={styles.body}>{game.finishedGame?.totalRounds} mani giocate. {practice ? 'Allenamento completato.' : 'Partita conclusa.'}</Text>
-      {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+      {errorAlert}
       <ActionButton label="Torna a Gioca" disabled={busy} onPress={() => void (practice ? leave() : goHome())} />
     </GameDialog>
   </View>;
@@ -174,7 +175,7 @@ export default function GameScreen() {
       <ActionButton label="Account" onPress={() => router.replace('/account')} />
     </View>
   );
-  return <PracticeTable key={`${session.user.id}:${code}`} code={code} user={session.user} />;
+  return <GameTable key={`${session.user.id}:${code}`} code={code} user={session.user} />;
 }
 const styles = StyleSheet.create({
   screen: { flex: 1 },
