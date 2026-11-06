@@ -15,6 +15,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 import serving.app as serving_app  # noqa: E402
+import serving.tiers as serving_tiers  # noqa: E402
 from becca_env.deck import Card, Suit, Value  # noqa: E402
 from becca_env.game import BeccaGame, GamePhase, Signal  # noqa: E402
 from serving.app import BOT_SERVICE_TOKEN_ENV, app  # noqa: E402
@@ -292,6 +293,43 @@ def test_malformed_state_returns_422(client):
     )
     assert response.status_code == 422
     assert "malformed game state" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "corrupt",
+    [
+        lambda state: state.pop("win_points"),
+        lambda state: state.update(round_number="uno"),
+        lambda state: state.update(hands=[]),
+    ],
+    ids=["missing-key", "non-numeric", "wrong-type"],
+)
+def test_any_malformed_state_returns_422_not_500(client, corrupt):
+    game = BeccaGame(seed=17)
+    state = game_to_state_dict(game, game.current_seat)
+    corrupt(state)
+
+    response = client.post(
+        "/act",
+        json={"state": state, "seat": game.current_seat, "tier": "forte"},
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+    )
+    assert response.status_code == 422
+    assert "malformed game state" in response.json()["detail"]
+
+
+@needs_checkpoint("esperto")
+def test_unloadable_tier_artifact_returns_503(client, monkeypatch):
+    def corrupt_artifact(_path):
+        raise serving_tiers.InferenceArtifactError("invalid inference artifact hash")
+
+    monkeypatch.setattr(serving_tiers, "load_inference_artifact", corrupt_artifact)
+    monkeypatch.setattr(serving_tiers, "_agent_cache", {})
+    game = BeccaGame(seed=18)
+
+    response = _act(client, game, "esperto")
+    assert response.status_code == 503
+    assert "esperto" in response.json()["detail"]
 
 
 def test_temperature_out_of_range_is_rejected(client):

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from becca_env.deck import Card
 from becca_env.game import GamePhase
-from serving.state_adapter import StateAdapterError, state_dict_to_game
+from serving.state_adapter import state_dict_to_game
 from serving.tiers import (
     TierUnavailableError,
     UnknownTierError,
@@ -100,8 +100,9 @@ def act(request: ActRequest) -> BriscolaMove | CardMove:
     """Choose a move for a bot seat from raw game state."""
     try:
         game = state_dict_to_game(request.state)
-    except StateAdapterError as exc:
-        raise HTTPException(422, f"malformed game state: {exc}") from exc
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        # StateAdapterError is a ValueError; raw lookups/int() fail with the others.
+        raise HTTPException(422, f"malformed game state: {exc!r}") from exc
 
     if game.current_seat != request.seat:
         raise HTTPException(

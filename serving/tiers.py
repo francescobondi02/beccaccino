@@ -18,8 +18,8 @@ import torch
 from evaluation.arena import NeuralAgent
 from evaluation.heuristic import HeuristicAgent
 from inference.pimc import PIMCAgent, PIMCConfig
-from serving.artifact import load_inference_artifact
-from training.checkpoint import build_net, load_checkpoint
+from serving.artifact import InferenceArtifactError, load_inference_artifact
+from training.checkpoint import CheckpointIntegrityError, build_net, load_checkpoint
 
 _AI_ROOT = Path(__file__).resolve().parent.parent
 
@@ -131,7 +131,13 @@ def _load_net(tier: Tier) -> torch.nn.Module:
     if not path.exists():
         raise TierUnavailableError(f"tier {tier.name!r} needs a checkpoint at {path}")
 
-    checkpoint = load_inference_artifact(path) if tier.inference_artifact else load_checkpoint(path)
+    try:
+        if tier.inference_artifact:
+            checkpoint = load_inference_artifact(path)
+        else:
+            checkpoint = load_checkpoint(path)
+    except (InferenceArtifactError, CheckpointIntegrityError) as exc:
+        raise TierUnavailableError(f"tier {tier.name!r} cannot load {path}: {exc}") from exc
     net = build_net(checkpoint, torch.device("cpu"))
     net.eval()
     return net
