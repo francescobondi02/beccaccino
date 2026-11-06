@@ -491,7 +491,7 @@ test.describe("Arcade interface", () => {
     await page.addInitScript(() => localStorage.setItem("becca-ui", "classic"));
     await page.goto("/");
     await expect(page.locator("html")).toHaveAttribute("data-ui", "arcade");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("NON È SOLO FORTUNA.");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("NON È SOLO FORTUNA.");
     await expect(page.getByText(/dati demo|tavoli dimostrativi/i)).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "TROVA IL TUO SOCIO.", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /interfaccia/i })).toHaveCount(0);
@@ -502,7 +502,7 @@ test.describe("Arcade interface", () => {
     await page.getByTestId("open-auth-button").click();
     await expect(page.getByTestId("auth-dialog")).toBeVisible();
     await page.getByRole("button", { name: "Chiudi", exact: true }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("NON È SOLO FORTUNA.");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("NON È SOLO FORTUNA.");
   });
 
   test("keeps rules accessible and uses system motion preferences without public effects controls", async ({ page }) => {
