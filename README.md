@@ -87,8 +87,12 @@ python -m scripts.train \
   --device cpu
 ```
 
-`training/engine.py` is the only production PPO lifecycle. The script modules
-are configuration adapters; BC collection runs before the shared engine.
+`training/engine.py` is the only production PPO lifecycle, including the
+curriculum (`config.curriculum_stages`). The script modules are configuration
+adapters; BC collection runs before the shared engine.
+
+Training writes to `checkpoints/` and `runs/` by default; their outputs are
+git-ignored local files.
 
 For Kaggle setup, smoke, resume, and Run D2 commands, follow
 [docs/TRAINING_RUNBOOK.md](docs/TRAINING_RUNBOOK.md). A paid run must not launch
@@ -132,7 +136,8 @@ observation encoding, checkpoint inference, legality validation, and action
 decoding. `GET /tiers` reports only tiers whose required local checkpoints are
 available. `GET /health` is public for platform probes. `GET /ready` lets the
 backend verify the requested tier and shared credential before creating a
-practice room. The service refuses to start without `BOT_SERVICE_TOKEN`;
+practice room. The service refuses to start without `BOT_SERVICE_TOKEN` or
+when the `forte` agent cannot be built;
 `/ready` and `POST /act` require `Authorization: Bearer <token>`.
 
 `forte` serves the locally tested Kaggle policy: 82,280,448 training actions,
@@ -140,8 +145,18 @@ practice room. The service refuses to start without `BOT_SERVICE_TOKEN`;
 artifact's input size. This is an operator-selected deployment, not evidence of
 superiority over Run D2. `esperto` retains Run D2 with experimental PIMC search.
 
-The supported online target is a Render Free Docker service. Its cold start is
-handled by the backend before practice-room creation. See
+Known limitation: `facile` loads a full training checkpoint from
+`checkpoints/kaggle-runb/checkpoints/runB_bc.pt`, not a verified inference
+artifact. That file is git-ignored and `.dockerignore` excludes `checkpoints`,
+so the deployment image cannot serve `facile` and `GET /tiers` omits it there.
+The decision on this tier is pending.
+
+The supported online target is a Render Free Docker service. The `Dockerfile`
+defaults to `PORT=10000` (the local example above uses 8011), verifies the
+`esperto` artifact and builds the `forte` agent at image build time, and runs
+one uvicorn worker. `render.yaml` sets `healthCheckPath: /health` and
+`autoDeployTrigger: off`. Its cold start is handled by the backend before
+practice-room creation. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the platform decision, deployment
 procedure, secrets, and verification gates.
 
@@ -178,4 +193,95 @@ serving/      Raw-state FastAPI endpoint, tier loading, parity fixtures
 scripts/      Training, scoring, Kaggle, benchmark, and audit CLIs
 tests/        Unit, regression, serving, packaging, and parity coverage
 docs/         Current runbook, evaluation protocol, experiment ledger, archive
+checkpoints/  Local training output (default ckpt_dir; git-ignored)
+runs/         Local metrics and logs (default log_dir; git-ignored)
+Dockerfile    Serving image for the Render deployment
+render.yaml   Render service definition
+CLAUDE.md     Agent-facing development context
 ```
+
+## Subdirectories & Boundaries
+
+- becca_env: [./becca_env/README.md](./becca_env/README.md) - Pure-Python
+  engine (deck, rules, `BeccaGame`), signal convention, 518-feature and frozen
+  1888-feature observation encoders, 160-slot action mask, and the
+  `BeccaEnv` Gymnasium environment with reward shaping. No I/O.
+- training: [./training/README.md](./training/README.md) - Canonical
+  `run_ppo` lifecycle, learner/opponent rollouts with per-`(env, seat)` GAE,
+  V1–V4 networks, centralized critic, behavioral cloning, and atomic format-3
+  checkpoints with SHA-256 sidecars and provenance.
+- evaluation: [./evaluation/README.md](./evaluation/README.md) - Random and
+  frozen heuristic baselines, seeded arena and mirrored-deal records, Elo,
+  confidence intervals, persisted champion protocol, and the fail-closed
+  NearPerfect-v1 gate.
+- inference: [./inference/README.md](./inference/README.md) - Public-constraint
+  hand sampling, determinized game copies, and the shared PIMC search agent.
+- serving: [./serving/README.md](./serving/README.md) - FastAPI `/act`,
+  `/tiers`, `/health`, `/ready`, `/version`; backend state adapter; tier
+  construction; checksum-verified inference artifacts (except `facile`) and
+  parity fixtures.
+- scripts: [./scripts/README.md](./scripts/README.md) - Operator CLIs for
+  training, scoring, champion selection, artifact export, fixture generation,
+  Kaggle runs, benchmarks, bot audits, and annotation batches.
+
+## Interface
+
+- Python package roots discovered by setuptools: `becca_env`, `training`,
+  `evaluation`, `inference`, `serving` (`[pyproject.toml:tool.setuptools.packages.find]`).
+  `scripts` is run from the source tree as `python -m scripts.<name>`.
+- Shared agent contract: every agent exposes `select_action(game, seat)`
+  returning a `Suit`, a `(Card, Signal | None)` leader pair, or a follower
+  `Card` (`[evaluation/arena.py:NeuralAgent]`, `[evaluation/heuristic.py:HeuristicAgent]`,
+  `[inference/pimc.py:PIMCAgent]`).
+- HTTP contract consumed by the backend: `POST /act`, `GET /ready`,
+  `GET /tiers`, `GET /health`, `GET /version` (`[serving/app.py:app]`).
+- Deployment: `Dockerfile` installs only the `serve` extra, listens on
+  `PORT` (default `10000`) with one uvicorn worker, and fails the build if the
+  `esperto` artifact or the `forte` agent cannot load. `render.yaml` deploys it
+  on Render Free with `healthCheckPath: /health`, `autoDeployTrigger: off`
+  and the `BOT_SERVICE_TOKEN` secret.
+
+## Invariants
+
+- Rules mirror the backend: teams `{0, 2}` / `{1, 3}`, quattro di denara opens
+  round 1, follow suit when able, raw ×3 scoring with a `+3` last-trick bonus
+  and `+9` Cricca bonus (`[becca_env/game.py:TEAM_OF_SEAT]`,
+  `[becca_env/rules.py:compute_round_scores]`, `[becca_env/game.py:CRICCA_RAW_BONUS]`).
+- Signals are legal regardless of honesty; `becca_env/signals.py` is the one
+  convention used by reward shaping, the BC teacher, PIMC weighting and audits
+  (`[becca_env/signals.py:signal_is_honest]`).
+- `EVAL_SEED_BASE` and the heuristic yardstick are frozen
+  (`[evaluation/arena.py:EVAL_SEED_BASE]`, `[evaluation/heuristic.py:HeuristicAgent]`).
+- Backend and Python exchange enum strings, never card or suit indices
+  (`[serving/state_adapter.py:state_dict_to_game]`).
+
+## Side Effects
+
+- Training writes checkpoints, CSV metrics, plots, TensorBoard logs and,
+  optionally, Weights & Biases runs; spawns vector-env subprocesses
+  (`[training/engine.py:run_ppo]`, `[training/trainer.py:train]`).
+- Evaluation writes non-overwritable JSONL score artifacts
+  (`[evaluation/protocol.py:write_score_jsonl]`).
+- Every checkpoint save runs `git` subprocesses and enumerates installed
+  packages for provenance (`[training/checkpoint.py:save_checkpoint_payload]`,
+  `[training/provenance.py:checkpoint_provenance]`).
+- Serving reads `BOT_SERVICE_TOKEN`, loads `forte` and `esperto` artifacts
+  from `serving/models/`, and listens for HTTP (`[serving/app.py:lifespan]`).
+  `facile` instead loads a full training checkpoint from
+  `checkpoints/kaggle-runb/checkpoints/runB_bc.pt` with `load_checkpoint`
+  (`[serving/tiers.py:TIERS]`).
+- Scripts write files: `export_inference_artifact` writes an artifact and its
+  `.sha256` sidecar; `gen_bot_fixtures` overwrites
+  `serving/fixtures/bot_states.json`; `generate_annotation_scenarios` reads the
+  master seed and model and writes the batch and manifest; `score_checkpoints`
+  writes JSONL (`[scripts/export_inference_artifact.py:main]`,
+  `[scripts/gen_bot_fixtures.py:main]`,
+  `[scripts/generate_annotation_scenarios.py:write_batch_outputs]`,
+  `[scripts/score_checkpoints.py:main]`).
+- `scripts/kaggle_run.py` calls the external `kaggle` CLI, and `push-code`
+  writes `.source-provenance.json` into the staged dataset
+  (`[scripts/kaggle_run.py:_run]`, `[scripts/kaggle_run.py:push_code]`).
+
+## Verification
+
+- Run: `cd ai && pytest`
