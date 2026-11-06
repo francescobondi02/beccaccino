@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { constants } from "fs";
 import { open } from "fs/promises";
-import { parse as parseDotenv } from "dotenv";
+import { parseEnv } from "node:util";
 
 export interface DatabaseUrlDescription {
   readonly host: string;
@@ -70,7 +70,7 @@ export async function loadEnvironmentFile(
     await handle.close();
   }
 
-  const parsed = parseDotenv(contents);
+  const parsed = parseEnv(contents.toString("utf8")) as Record<string, string>;
   for (const name of ["DATABASE_URL", "DIRECT_URL"] as const) {
     if (!parsed[name]) throw new Error(`${name} is required in --env-file`);
     process.env[name] = parsed[name];

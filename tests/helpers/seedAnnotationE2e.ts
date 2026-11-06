@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+import { existsSync } from "node:fs";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { annotationStateHash } from "../../src/annotations/state";
 import {
@@ -6,7 +6,7 @@ import {
   annotationScenarioState,
 } from "./annotationScenario";
 
-dotenv.config();
+if (existsSync(".env")) process.loadEnvFile();
 
 async function main() {
   const prisma = new PrismaClient({ log: [] });

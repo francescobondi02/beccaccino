@@ -144,8 +144,8 @@ npx prisma studio
 ```
 
 Never run `prisma migrate reset` against a shared or production database. Test
-setup uses `npm run db:test:prepare`, which refuses any host/database other than
-the explicit local `becca_test` target. Annotation status/import/export uses
+setup uses `npm run db:test:prepare`, which migrates only the local `becca_test`
+URL hard-coded in `package.json`. Annotation status/import/export uses
 the guarded scripts under `scripts/annotations/`; see
 [`scripts/annotations/README.md`](scripts/annotations/README.md).
 

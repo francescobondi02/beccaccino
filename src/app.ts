@@ -3,7 +3,6 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
-import dotenv from "dotenv";
 import pinoHttp from "pino-http";
 import { randomUUID } from "crypto";
 import path from "path";
@@ -16,8 +15,6 @@ import { logger } from "./logger";
 import { prisma } from "./db";
 import { errorHandler } from "./http/errorHandler";
 import { isRuntimeRecoveryReady } from "./runtime/recovery";
-
-dotenv.config();
 
 const app = express();
 

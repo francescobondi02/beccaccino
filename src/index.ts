@@ -1,5 +1,5 @@
-import dotenv from "dotenv";
-dotenv.config();
+import { existsSync } from "node:fs";
+if (existsSync(".env")) process.loadEnvFile();
 
 import { prisma } from "./db";
 import { logger } from "./logger";
