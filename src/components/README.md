@@ -16,7 +16,7 @@ Subdirectories:
 
 Direct components (all default exports unless noted):
 - `AnnotationScenario` — props `scenario`, `startedAt`, `isSubmitting`, `errorMessage?`, `onLoadAnotherScenario?`, `onConfirm(action, difficulty, responseTimeMs)`, `onSkip(comment, difficulty, responseTimeMs)` [AnnotationScenario.tsx:AnnotationScenario]
-- `AuthDialog` — props `open`, `onOpenChange`; login/register form plus a permanently disabled "Google non disponibile" button [AuthDialog.tsx:AuthDialog]
+- `AuthDialog` — props `open`, `onOpenChange`; login/register form [AuthDialog.tsx:AuthDialog]
 - `AuthErrorState` — props `onRetry`; "Impossibile verificare la sessione" card [AuthErrorState.tsx:AuthErrorState]
 - `ConnectionBanner` — props `{ status: ConnectionStatus }` [ConnectionBanner.tsx:ConnectionBanner]
 - `ErrorBoundary` (named export, class component) [ErrorBoundary.tsx:ErrorBoundary]
@@ -25,13 +25,13 @@ Direct components (all default exports unless noted):
 - `Header` — props `onAuthenticate?`, `onBeforeNavigate?: () => Promise<boolean>`; renders primary navigation "Gioca" (`/`), "Tavoli" (`/?view=rooms`) and "Classifica" (`/leaderboard`), an account menu with `/profile`, `/leaderboard`, `/annotate` and "Esci", and its own `ArcadeRules` dialog behind the "Come si gioca" button [Header.tsx:Header]
 - `LastTrickDialog` — props `open`, `onOpenChange`, `lastHand`, `players`, `userId` [LastTrickDialog.tsx:LastTrickDialog]
 - `PlayerSeat` — props `player`, `isTurn`, `showRole?`, `countdown?`, `signal?`, `testId?` [PlayerSeat.tsx:PlayerSeat]
-- `PlayingCard` — props `suit?`, `value?`, `size?` (`sm` | `md` | `lg`), `onClick?`, `clickable?`, `disabled?`, `className?`, `data-testid?` [PlayingCard.tsx:PlayingCard]
+- `PlayingCard` — props `suit?`, `value?`, `size?` (`sm` | `md` | `lg`), `onClick?`, `clickable?`, `disabled?`, `className?`, `data-testid?`, `aria-pressed?` [PlayingCard.tsx:PlayingCard]
 - `RoundEndDialog` — props `open`, `result`, `totalPoints`, `myTeam`, `callerName`, `practiceActions?` [RoundEndDialog.tsx:RoundEndDialog]
 - `SignalBadge` — props `{ signal: string }` [SignalBadge.tsx:SignalBadge]
-- `SignalDialog` — props `open`, `onOpenChange`, `onSelect(signal | null)` [SignalDialog.tsx:SignalDialog]
+- `SignalDialog` — props `open`, `onOpenChange`, `onSelect(signal | null)`, `inline?`, `disabled?` [SignalDialog.tsx:SignalDialog]
 - `TableCenter` — props `cards` (with `position`), `winnerUserId?`, `children?` [TableCenter.tsx:TableCenter]
 - `TrickHistoryDialog` — props `open`, `onOpenChange`, `title`, `description`, `tricks`, `testId`, `actions?`, `children?`; also exports types `HistoryPlay`, `HistoryTrick` [TrickHistoryDialog.tsx:TrickHistoryDialog], [TrickHistoryDialog.tsx:HistoryTrick]
-- `TrumpSuitDialog` — props `open`, `onSelectSuit(suit)`, `myCards`, `practiceActions?` [TrumpSuitDialog.tsx:TrumpSuitDialog]
+- `TrumpSuitDialog` — props `open`, `onSelectSuit(suit)`, `myCards`, `practiceActions?`, `inline?`, `disabled?` [TrumpSuitDialog.tsx:TrumpSuitDialog]
 
 ## Invariants
 - `AnnotationScenario` resets all selections and dialogs when `scenario.id` changes [AnnotationScenario.tsx:AnnotationScenario]
@@ -43,10 +43,11 @@ Direct components (all default exports unless noted):
 - `GameResult` shows only awards with a positive count and lists every tied player; round details and trick counts appear only when `result.statistics` exists [GameResult.tsx:GameResult]
 - `Header` awaits `onBeforeNavigate()` and cancels navigation or logout when it resolves `false`; if logout then fails after `onBeforeNavigate()` resolved `true`, it navigates to `/` [Header.tsx:Header]
 - `PlayingCard` maps the DB suit `denara` to the image file name `denari` (`/images/cards/<value>_<suit>.png`) and falls back to a symbol card if the image fails [PlayingCard.tsx:suitFileMap], [PlayingCard.tsx:PlayingCard]
-- `PlayingCard` is a `<button>` only when `onClick` is given, and calls it only when `clickable && !disabled` [PlayingCard.tsx:PlayingCard]
+- `PlayingCard` is a `<button>` only when `onClick` is given, and calls it only when `clickable && !disabled`; `aria-pressed` is applied only to that button [PlayingCard.tsx:PlayingCard]
 - `RoundEndDialog` and `TrumpSuitDialog` cannot be dismissed by Escape or outside clicks; `TrumpSuitDialog` shows only cards with `inHand` [RoundEndDialog.tsx:RoundEndDialog], [TrumpSuitDialog.tsx:TrumpSuitDialog]
 - `TrumpSuitDialog` sends the enum suit values `denara`, `coppe`, `spade`, `bastoni` [TrumpSuitDialog.tsx:italianSuits]
 - `SignalDialog` is non-modal, ignores outside interaction and Escape, and offers `striscio`, `busso`, `volo` or `null` ("Niente") [SignalDialog.tsx:SignalDialog]
+- With `inline`, `SignalDialog` and `TrumpSuitDialog` render no Radix dialog: they render an inline signal bar (with "Niente, gioca" and a cancel button that calls `onOpenChange(false)`) or an inline suit picker while `open`, and nothing otherwise. `disabled` disables every choice in both modes [SignalDialog.tsx:SignalDialog], [TrumpSuitDialog.tsx:TrumpSuitDialog]
 - `PlayerSeat` shows its countdown only on the active turn and turns destructive at `<= 10` seconds [PlayerSeat.tsx:PlayerSeat]
 
 ## Side Effects

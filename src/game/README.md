@@ -6,8 +6,8 @@ table (`src/hooks/useGameTable.ts`). The server remains authoritative; these
 modules only shape and display its data.
 
 ## Interface
-- Model types: `Signal`, `PlayerPosition`, `PlayerCard`, `PlayerControl`, `RoundDeal`, `RoundDealView`, `PlayedCardData`, `CompletedTrick`, `TotalPoints`, `TurnTimer`, `RoundEndData`, `MoveLogEntry`, `RevealedHand` [model.ts:PlayerCard], [model.ts:TurnTimer]
-- `GameStateResponse` — response of `GET /games/:code/state` (`status`, `round` with optional `deal`, `myCards`, `playedCards`, `lastHandCards`, `totalPoints`, `turnTimer`, `finishedGame`, `isPractice`, `playerControls?`, `allHands`, `roundSummary?`, …) [model.ts:GameStateResponse]
+- Model types: `Signal`, `PlayerPosition`, `PlayerCard`, `PlayerControl`, `RoundDeal`, `RoundDealView`, `PlayedCardData`, `CompletedTrick`, `TotalPoints`, `TurnTimer`, `RoundEndData` [model.ts:PlayerCard], [model.ts:TurnTimer]
+- `GameStateResponse` — response of `GET /games/:code/state` (`status`, `round` with optional `deal`, `myCards`, `playedCards`, `lastHandCards`, `totalPoints`, `turnTimer`, `finishedGame`, `isPractice`, `playerControls?`, `roundSummary?`, …) [model.ts:GameStateResponse]
 - `PositionedPlayer` — `RoomPlayer` plus `position`, `isLocalPlayer`, `isTeammate` [presentation.ts:PositionedPlayer]
 - `trickWinner(cards, briscola): number | null` [presentation.ts:trickWinner]
 - `positionPlayers(players, currentUserId): PositionedPlayer[]` [presentation.ts:positionPlayers]
@@ -23,7 +23,7 @@ modules only shape and display its data.
 - `card_played` clears the current turn, timer and playable cards (the next timer arrives via `turn_timer_started`), starts a new trick when `position === 0`, removes the card from `myCards` when it is the local user's, and queues a `CompletedTrick` when 4 cards are on the table [state.ts:gameTableReducer]
 - `playable_cards_fetched` is ignored while any completed trick is still queued [state.ts:gameTableReducer]
 - `completed_trick_released` drops the oldest queued trick and clears `playedCards` only if they are exactly that trick in the same round [state.ts:gameTableReducer]
-- The move log is cleared when a fetched state belongs to a different round, and on `new_round_started` [state.ts:gameTableReducer]
+- `state_fetched` replaces the whole snapshot (including `myCards`) and clears playable cards; `new_round_started` empties the hand, trick, playable cards and round summary until the next snapshot [state.ts:gameTableReducer]
 - `player_control_changed` replaces that user's control entry and clears playable cards [state.ts:gameTableReducer]
 
 ## Side Effects

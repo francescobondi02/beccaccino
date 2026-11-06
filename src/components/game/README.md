@@ -3,13 +3,14 @@
 ## Overview
 Views for the live game table: the board (seats, trick area, hand, deal and
 trick-collection animations), the score header, the pause/abandon toolbar, the
-paused-practice dialog, signal speech bubbles, and the portrait-rotation prompt.
+paused-practice dialog, signal speech bubbles, and the portrait-rotation prompt
+(rendered by the `App` layout route on every live route, not by the table).
 State comes from props (`src/game/` types); no component here fetches data.
 `GameBoard` reads reduced motion from `@/hooks/useReducedMotion`.
 
 ## Interface
-- `GameBoard` (default export) — props `players`, `currentTurnUserId`, `currentSignal`, `countdown`, `playedCards`, `briscola`, `callerUserId`, `currentUserId`, `hand`, `playableCards`, `onCardClick`, optional `deal`, `animatedCard`, `completedTrick`, `fastCollection`, `notice`, `children` [GameBoard.tsx:GameBoard]
-- `GameScoreHeader` (default export) — props `roomCode`, `briscola`, `roundNumber`, `handNumber`, `playerTeam`, `totalPoints` [GameScoreHeader.tsx:GameScoreHeader]
+- `GameBoard` (default export) — props `players`, `currentTurnUserId`, `currentSignal`, `countdown`, `playedCards`, `briscola`, `callerUserId`, `currentUserId`, `hand`, `playableCards`, `onCardClick`, optional `deal`, `animatedCard`, `completedTrick`, `fastCollection`, `notice`, `children`, and mobile-only `mobile`, `header`, `trumpChoice`, `selectedCard`, `mobileActions` [GameBoard.tsx:GameBoard]
+- `GameScoreHeader` (default export) — props `roomCode`, `briscola`, `roundNumber`, `handNumber`, `playerTeam`, `totalPoints`, `mobile?` [GameScoreHeader.tsx:GameScoreHeader]
 - `GameActions` (default export) — props `isPausing?`, `isLeaving`, `onPause?`, `onLeave`; pause button plus confirmed "Abbandona" alert dialog [GameActions.tsx:GameActions]
 - `PausedPracticeDialog` (default export) — props `open`, `confirmAbandon`, `isLeaving`, `isResuming`, `onCancelAbandon`, `onConfirmAbandon`, `onRequestAbandon`, `onResume` [PausedPracticeDialog.tsx:PausedPracticeDialog]
 - `SignalCallout` (default export) — props `signal`, `position`, `username` [SignalCallout.tsx:SignalCallout]
@@ -24,7 +25,8 @@ State comes from props (`src/game/` types); no component here fetches data.
 - `CardDeal` renders only while `deal.phase === "dealing"` and is keyed by `hand[0]?.roundId`; while the hand is presenting (`deal.phase !== "ready"`), hand cards at index `>= deal.dealtCards` are `invisible` [GameBoard.tsx:GameBoard]
 - The table centre holds a polite live region (`role="status" aria-live="polite"`) with a status line ("Presa a …", "Raccolta delle carte...", "Distribuzione delle carte...", "Guarda le tue carte", briscola choice, "Il bot gioca al tuo posto", "Tocca a te" / "Tocca a …") and a line joining the declared signal and `notice` [GameBoard.tsx:GameBoard]
 - `CardDeal` renders 40 dealt cards and offsets their delays by time already elapsed since `deal.startedAt`, so a remount does not restart the deal [GameBoard.tsx:CardDeal]
-- `GameScoreHeader` shows own/opponent points via `pointsForPlayerTeam` and displays the enum `denara` as "denari" [GameScoreHeader.tsx:GameScoreHeader]
+- `GameScoreHeader` shows own/opponent points via `pointsForPlayerTeam` and displays the enum `denara` as "denari"; with `mobile` it renders a compact `mobile-lab-header` (brand, room code, NOI:LORO score, briscola) [GameScoreHeader.tsx:GameScoreHeader]
+- With `mobile`, `GameBoard` renders the `mobile-lab-live` layout styled by `src/styles/mobile-table.css`: `header`, opponent and partner seats with signal badges (no `SignalCallout`), a status line with an inline countdown, `trumpChoice`, the current trick, the hand, `children` and `mobileActions`. While `selectedCard` is set, the status names that card and asks for a signal, and that hand card gets `aria-pressed` [GameBoard.tsx:GameBoard]
 - `GameActions` shows the pause button only when `onPause` is provided; the abandon text and `data-testid` differ for practice (`onPause` set) vs multiplayer [GameActions.tsx:GameActions]
 - `PausedPracticeDialog` cannot be dismissed: `onOpenChange` is a no-op and Escape is prevented [PausedPracticeDialog.tsx:PausedPracticeDialog]
 - `RotateDevicePrompt` is open exactly when `(pointer: coarse) and (orientation: portrait)` matches; Escape and outside clicks are prevented [RotateDevicePrompt.tsx:PORTRAIT_TOUCH], [RotateDevicePrompt.tsx:RotateDevicePrompt]

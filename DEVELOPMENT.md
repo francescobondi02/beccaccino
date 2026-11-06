@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Node.js** 24+ (matches CI)
-- Backend running at `http://localhost:8000` (via Finch Compose from project root)
+- Backend running at `http://localhost:8000` (`docker compose up -d` from the project root, or `docker compose up -d db adminer` plus `cd backend && npm run dev`)
 
 ## Environment Setup
 
@@ -19,6 +19,12 @@ VITE_SOCKET_URL=http://localhost:8000
 
 > **Important:** Vite only exposes variables prefixed with `VITE_` to the client code.
 
+In development the browser always calls `/api` and `/socket.io/` on the Vite
+server, which proxies both to the origin of `VITE_SOCKET_URL` (falling back to
+`VITE_API_URL`, then `http://localhost:8000`). Only production builds read
+`VITE_API_URL` as the REST base (default `/api`); production sockets always use
+the page origin.
+
 ## Starting the Frontend
 
 ```sh
@@ -33,13 +39,15 @@ The dev server runs at **http://localhost:8081**.
 
 ```
 frontend/
+├── api/socket-proxy.ts         # Vercel Function: WebSocket bridge to Render
+├── server/socketProxy.ts       # createSocketProxy() used by the function
 ├── src/
-│   ├── main.tsx                # React entry point
-│   ├── App.tsx                 # Router + QueryClient and Sonner providers
+│   ├── main.tsx                # React entry point; registers /sw.js in production
+│   ├── App.tsx                 # Providers, app-update check, routes, .arcade-app layout route
 │   ├── pages/
-│   │   ├── LobbyPage.tsx       # Home/lobby page (login, room list, create/join)
-│   │   ├── GameRoom.tsx        # Waiting room (team pick, ready up)
-│   │   ├── GameTable.tsx       # Active game (card play, trump, rounds)
+│   │   ├── LobbyPage.tsx       # Home/lobby page (login, room list, create/join, ?join= prefill)
+│   │   ├── GameRoom.tsx        # Waiting room (team pick, ready up, bots, invite link)
+│   │   ├── GameTable.tsx       # Active game (desktop and mobile live-table layouts)
 │   │   ├── Profile.tsx         # User profile and statistics
 │   │   ├── Leaderboard.tsx     # Global leaderboard
 │   │   ├── Practice.tsx        # Practice game setup
@@ -48,16 +56,16 @@ frontend/
 │   ├── components/
 │   │   ├── AnnotationScenario.tsx # Shared context and play-card/briscola decisions
 │   │   ├── annotation/         # Annotation summary, trick, action, and dialog views
-│   │   ├── game/               # Active-table board, score, and practice controls
-│   │   ├── lobby/              # Lobby actions, room lists, and card background
+│   │   ├── game/               # Board, score header, practice controls, RotateDevicePrompt
+│   │   ├── lobby/              # Lobby hero, actions, room lists, and card artwork
 │   │   ├── rooms/              # Waiting-room player presentation
 │   │   ├── AuthDialog.tsx      # Login/register modal
 │   │   ├── Header.tsx          # Top nav bar
 │   │   ├── PlayingCard.tsx     # Card image renderer
-│   │   ├── TrumpSuitDialog.tsx # Briscola selection dialog
-│   │   ├── PracticeHistoryDialog.tsx # Development-only practice history
+│   │   ├── TrumpSuitDialog.tsx # Briscola selection (dialog or inline on mobile)
+│   │   ├── SignalDialog.tsx    # Leader signal choice (dialog or inline on mobile)
 │   │   ├── RoundEndDialog.tsx  # Round results
-│   │   ├── GameFinishedDialog.tsx  # Game over screen
+│   │   ├── GameResult.tsx      # Full-page final scores and awards
 │   │   ├── LastTrickDialog.tsx # View last trick
 │   │   └── ui/                 # shadcn/ui primitives (do not edit manually)
 │   ├── sockets/
@@ -66,26 +74,34 @@ frontend/
 │   │   ├── lobbyHandlers.ts    # Lobby events (room_created, room_updated, etc.)
 │   │   └── roomHandlers.ts     # Room events (player_joined, team_chosen, etc.)
 │   ├── hooks/
+│   │   ├── useAppUpdate.ts     # Production /version.json polling and reload toast
 │   │   ├── useAuth.ts          # Shared authentication state and actions
 │   │   ├── useConnectionStatus.ts # Socket status and reconnect refresh
 │   │   ├── useGameTable.ts     # Game table loading and socket coordination
 │   │   ├── useLobbyRooms.ts    # Lobby fetch and socket reconciliation
+│   │   ├── useMobileTable.ts   # Landscape-phone media query for the live table
+│   │   ├── useReducedMotion.ts # prefers-reduced-motion media query
+│   │   ├── useRoundDeal.ts     # Round deal presentation phases
 │   │   ├── useTurnCountdown.ts # Server-authoritative timer presentation
 │   │   └── useWaitingRoom.ts   # Waiting-room fetch and socket reconciliation
 │   ├── game/                   # Game DTOs, reducer state, and view selectors
-│   ├── annotations/            # Expert annotation API model types
+│   ├── annotations/            # Expert annotation API model and presentation helpers
 │   ├── rooms/                  # Room DTOs, normalization, and pure reducers
-│   ├── v2/                     # Unrouted V2 design foundation
+│   ├── preview/                # Development-only prototypes (/preview/*)
+│   ├── styles/                 # arcade.css, mobile-app.css, mobile-table.css
 │   └── lib/
 │       ├── api.ts              # Typed REST request helpers
+│       ├── fullscreen.ts       # Phone fullscreen and landscape lock
 │       ├── roomRedirect.ts     # Active-room conflict navigation
-│       ├── sentryUser.ts       # Browser error-reporting identity
 │       └── utils.ts            # cn() utility (clsx + tailwind-merge)
 ├── public/
 │   ├── images/cards/           # Italian card images ({value}_{suit}.png)
-│   └── images/semi/            # Suit icons
+│   ├── images/semi/            # Suit icons
+│   ├── manifest.webmanifest    # Installable app manifest
+│   └── sw.js, offline.html     # Service worker and offline page
 ├── index.html                  # HTML entry
-├── vite.config.ts              # Vite config (port 8081, @ alias)
+├── vite.config.ts              # Port 8081, /api and /socket.io proxy, @ alias, app-version plugin
+├── vercel.json                 # Rewrites, headers, Function settings
 ├── tailwind.config.ts          # Tailwind + custom animations
 ├── tsconfig.json               # TypeScript config
 └── package.json
@@ -98,7 +114,11 @@ frontend/
 - **State management**: Local React state + React Query. No global store.
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
 - **Page ownership**: Pages own route adaptation, user feedback, commands, and view composition. Hooks own asynchronous coordination. Reducers and selectors remain pure.
-- **Practice history**: When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
+- **Trick history**: Live games, including practice, expose only the previous completed trick through `LastTrickDialog` ("Ultima presa"). There is no full practice history or revealed-hand view, including in development.
+- **Mobile live table**: `useMobileTable()` matches landscape coarse-pointer screens up to 540px high. `GameTable` then renders the `GameBoard` mobile layout (`src/styles/mobile-table.css`) with inline briscola and signal choices and a collapsible tools menu.
+- **Identity changes**: `useAuth` drops the singleton socket whenever the signed-in user changes, so the next handshake carries the new cookie identity.
+- **Invite links**: `/room/:code` joins non-members through `POST /rooms/join`; signed-out visitors are redirected to `/?join=CODE` with the code prefilled.
+- **App updates**: Production builds poll `/version.json` and show a persistent "Aggiornamento disponibile" toast with a reload action when the build id differs (see [Deployment](#deployment)).
 - **Practice pause**: The explicit pause action stops server-side bot and timer activity before returning home. Paused games appear under `Allenamenti in pausa`; resume completes before navigation, while direct paused-game links show blocking resume and confirmed-abandon controls. Disconnects never pause a game automatically.
 - **Expert annotations**: REST-only workflow. The backend supplies immutable
   scenario identity and legal actions; the client returns the selected action
@@ -121,10 +141,10 @@ cd frontend
 npm test
 
 # Run tests in watch mode (development)
-npm run test:watch
+npx vitest
 
 # Run tests with coverage report
-npm run test:coverage
+npx vitest run --coverage
 ```
 
 #### Unit Test Structure
@@ -132,12 +152,16 @@ npm run test:coverage
 ```
 frontend/src/__tests__/
 ├── setup.ts                # jest-dom, browser API, and environment setup
+├── annotations/           # Annotation presentation helpers
 ├── components/            # Component rendering and interaction
-├── hooks/                 # Auth, connection, and game-state behavior
+├── game/                  # Game presentation selectors
+├── hooks/                 # Auth, connection, game-state reducer and timers
 ├── pages/                 # Page request and workflow states
-├── rooms/                 # Room response normalization
+├── rooms/                 # Room normalization and reducers
 ├── *Handlers.test.ts      # Lobby and room socket subscriptions
 ├── socketClient.test.ts   # Socket singleton behavior
+├── useAppUpdate.test.ts   # Version polling and update toast
+├── fullscreen.test.ts     # Phone fullscreen helpers
 └── utils.test.ts          # Shared utility behavior
 ```
 
@@ -146,7 +170,7 @@ test-file and test counts.
 
 #### Coverage
 
-Run `npm run test:coverage` to generate a coverage report. The HTML report is written to `coverage/` and the terminal shows a summary table. CI requires at least 70% statements, branches, and lines, plus 60% functions.
+Run `npx vitest run --coverage` to generate a coverage report. The HTML report is written to `coverage/` and the terminal shows a summary table. `vitest.config.ts` sets thresholds of 70% statements, branches, and lines, plus 60% functions; they apply only to coverage runs. CI runs `npm test` without coverage, so it does not enforce them.
 
 ---
 
@@ -156,7 +180,7 @@ End-to-end tests use **Playwright** to simulate 4 real browser sessions playing 
 
 #### Prerequisites
 
-- Finch DB running (`finch compose up -d db` from project root)
+- PostgreSQL running (`docker compose up -d db` from the project root)
 - Backend dependencies and environment configured
 - Frontend dependencies installed
 
@@ -165,24 +189,22 @@ It does not reuse servers already listening on ports 8000 and 8081 unless
 `E2E_REUSE_SERVERS=true` is set explicitly. The auto-started backend uses the
 isolated `becca_test` database.
 
-For the release-quality local gate, run `./scripts/pre-push.sh` from the project
-root. It uses a unique PostgreSQL schema, dedicated ports, and a deterministic
-local bot stub. `./scripts/pre-push.sh --keep-open` leaves that verified stack
-at `http://localhost:18081` for manual review until Ctrl-C.
+Set `E2E_EXTERNAL_SERVERS=true` to skip `webServer` entirely and test servers you
+started yourself (with `E2E_BASE_URL` for a non-default frontend URL).
 
 #### Commands
 
 ```sh
 cd frontend
 
-# Run E2E tests (headless)
-npm run test:e2e
+# Run E2E tests (headless; there is no npm script)
+npx playwright test
 
 # Run E2E tests in headed mode (watch the bots play in real browsers)
-npm run test:e2e:headed
+npx playwright test --headed
 
 # Run E2E tests with Playwright's interactive UI
-npm run test:e2e:ui
+npx playwright test --ui
 ```
 
 #### E2E Test Structure
@@ -193,8 +215,12 @@ frontend/e2e/
 │   ├── BotPlayer.ts        # Player abstraction (register, join, play cards, etc.)
 │   └── fixtures.ts         # Playwright fixtures with createBot factory
 ├── annotation.spec.ts      # Account login, expert code, answer, skip, and ratings
-├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
+├── arcade-ui.spec.ts       # Arcade layout, round recap, results, rules, and table demo
 ├── first-trick.spec.ts     # Briscola selection and the first 4-card trick
+├── game-motion.spec.ts     # Table layout and card travel/collection animations
+├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
+├── mobile-app.spec.ts      # Real routes in the landscape shell, mobile multiplayer and practice
+├── mobile-preview.spec.ts  # /preview/mobile prototype
 └── practice-pause-resume.spec.ts # Pause, resume, direct overlay, mobile, abandon
 ```
 
@@ -226,7 +252,7 @@ if (await alice.isMyTurn()) {
 Key patterns:
 - **Turn detection**: a player has at least one card with `data-playable="true"`
 - **Card playability**: only the active player's legal cards expose that attribute
-- **Game state**: `data-briscola`, `data-game-finished` attributes for assertions
+- **Game state**: `data-briscola` and `data-current-turn-userid` on `game-table-page`; `data-game-finished="true"` on the `GameResult` page
 - **Cross-player sync**: Each bot polls its own view; WebSocket events update the DOM
 
 #### Configuration
@@ -257,18 +283,16 @@ npx playwright test first-trick --headed --timeout=120000
 | `npm run build:dev` | Development build |
 | `npm run preview` | Preview production build locally |
 | `npm run lint` | Run ESLint |
-| `npm test` | Run Vitest (unit tests) |
-| `npm run test:watch` | Vitest in watch mode |
-| `npm run test:coverage` | Vitest with coverage |
-| `npm run test:e2e` | Run Playwright E2E tests (headless) |
-| `npm run test:e2e:headed` | Run Playwright E2E tests (visible browsers) |
-| `npm run test:e2e:ui` | Run Playwright with interactive UI |
+| `npm test` | Run Vitest once (unit tests) |
+
+Without an npm script: `npx vitest` (watch mode), `npx vitest run --coverage`,
+`npx playwright test` (add `--headed` or `--ui`), `npx playwright show-report`.
 
 ## Styling Conventions
 
 - **Tailwind CSS** with custom theme (HSL CSS variables for colors)
 - **shadcn/ui** components in `src/components/ui/` — regenerate via CLI, don't edit manually
-- **Dark mode** via CSS class (configured in `tailwind.config.ts`)
+- **Theme**: `next-themes` forces `html[data-ui="arcade"]`; there is no theme switch. `tailwind.config.ts` still sets `darkMode: ["class"]`.
 - Custom animations: `fade-in`, `glow`, `scroll-up`, `scroll-down`
 
 ## Routes
@@ -283,6 +307,10 @@ npx playwright test first-trick --headed --timeout=120000
 | `/practice` | Practice | Practice tier selection |
 | `/annotate` | Annotation | Shared-code gate and expert scenario labeling |
 | `*` | NotFound | 404 |
+
+All routes above share a layout route that renders `.arcade-app` and
+`RotateDevicePrompt`. In development only, `/preview/profile`, `/preview/mobile/*`
+and `/preview/*` render the design prototypes in `src/preview/`.
 
 ## Expert Annotation API
 
@@ -307,6 +335,22 @@ GET  /annotations/next
 POST /annotations/responses
 ```
 
+## Deployment
+
+- `.github/workflows/ci.yml` runs on pushes to `main` and `develop` and on pull
+  requests: Node 24, `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`,
+  `npm run build`.
+- `.github/workflows/deploy.yml` runs after a successful CI run for a push to
+  `main`. It checks out that exact commit, runs `npm ci`, installs
+  `vercel@59.7.0`, then runs `vercel pull --environment=production`,
+  `vercel build --prod` and `vercel deploy --prebuilt --prod`. There is no
+  post-deploy check. Direct Vercel Git deployments are disabled in `vercel.json`.
+- Every Vite build generates a random UUID, bakes it into the bundle as
+  `import.meta.env.VITE_APP_VERSION`, and emits `dist/version.json` with
+  `{ "version": "<uuid>" }`. The id is not a commit SHA, so any rebuild counts
+  as a new version. `vercel.json` serves `/version.json` with
+  `Cache-Control: no-store` and excludes it from the SPA rewrite.
+
 ## Card Image Naming Convention
 
 Images are at `/images/cards/{value}_{suit}.png`:
@@ -318,14 +362,14 @@ Images are at `/images/cards/{value}_{suit}.png`:
 ## Troubleshooting
 
 **Blank page / API calls failing:**
-- Check that `frontend/.env` exists with `VITE_API_URL` set
+- Verify the backend is running at the proxy target (`VITE_SOCKET_URL`, else `VITE_API_URL`, else `http://localhost:8000`)
 - Vite requires a restart when `.env` files change
 
 **CORS errors:**
-- Ensure the backend `FRONTEND_URL` matches `http://localhost:8081`
+- Development requests are same-origin through the Vite proxy. CORS applies only when a build calls a cross-origin `VITE_API_URL`; then the backend `FRONTEND_URL` must match the page origin
 - All `fetch()` must include `credentials: "include"`
 
 **Socket not connecting:**
-- Check `VITE_SOCKET_URL` in `.env`
+- The client always connects to the page origin at `/socket.io/`; in development check the proxy target above
 - Verify backend is running and accessible
 - Annotation access does not authenticate the game Socket.IO connection
