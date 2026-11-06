@@ -23,42 +23,38 @@ npm run dev            # http://localhost:8081
 |---|---|
 | `npm run dev` | Vite dev server with HMR |
 | `npm run build` | Production build → `dist/` |
+| `npm run build:dev` | Build in Vite `development` mode |
 | `npm run preview` | Preview the production build locally |
 | `npm run typecheck` | TypeScript project checks |
 | `npm run lint` | ESLint |
 | `npm test` | Vitest unit tests |
-| `npm run test:coverage` | Vitest unit tests with coverage |
-| `npm run test:e2e` | Playwright end-to-end (auto-starts backend and frontend) |
-| `../scripts/pre-push.sh` | Full backend, frontend, migration, and Playwright gate |
-
-Run `../scripts/pre-push.sh --keep-open` to leave the verified isolated stack
-available at `http://localhost:18081` for manual testing until Ctrl-C.
+| `npx playwright test` | Playwright end-to-end (no npm script; see `playwright.config.ts`) |
 
 ## Environment variables
 
 | Var | Purpose |
 |---|---|
-| `VITE_API_URL` | Backend REST base URL, e.g. `http://localhost:8000/api` |
-| `VITE_SOCKET_URL` | Development-only Socket.IO URL, e.g. `http://localhost:8000` |
-| `VITE_SENTRY_DSN` | Optional — Sentry DSN for browser error tracking |
-| `VITE_SENTRY_RELEASE` | Sentry release identifier supplied by the deployment workflow |
+| `VITE_API_URL` | Production REST base URL (default `/api`), e.g. `http://localhost:8000/api`; in development only the Vite proxy fallback origin |
+| `VITE_SOCKET_URL` | Development-only Vite proxy origin for `/api` and `/socket.io`, e.g. `http://localhost:8000` |
 
-Vite bakes these into the bundle at build time. Production Socket.IO connections
-always use the page origin; `VITE_SOCKET_URL` only overrides local development.
-Source maps are disabled unless `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`,
-`SENTRY_PROJECT`, and a release identifier are all present. Configured builds
-generate hidden maps, upload them to Sentry, and delete them after upload.
+Only `VITE_API_URL` is read by application code, and Vite bakes it into the
+production bundle at build time. Production Socket.IO connections always use the
+page origin. No Sentry or other error-reporting integration exists.
 
 ## Deployment
 
-GitHub Actions validates `main`, checks out the exact successful commit, and
-uses the pinned Vercel CLI to build and deploy it. Configure repository secrets
-with a `VERCEL_TOKEN` scoped to the `beccaccino-client` project. Optional
-`SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` secrets enable source map
-upload during the trusted deployment build. The workflow resolves the Vercel
-project IDs through the API under the `francesco-bondi-s-projects` scope before
-building. Direct Vercel Git deployments are disabled in `vercel.json`, and a
-missing Vercel token fails the deployment workflow.
+`.github/workflows/ci.yml` (CI) runs on pushes to `main` and `develop` and on
+pull requests: Node 24, `npm ci`, `npm run typecheck`, `npm run lint`,
+`npm test`, `npm run build`.
+
+`.github/workflows/deploy.yml` runs when CI completes for a push to `main` and
+only if CI succeeded. It checks out the exact CI commit (`head_sha`), runs
+`npm ci`, installs the pinned Vercel CLI (`vercel@59.7.0`), then runs
+`vercel pull --environment=production`, `vercel build --prod` and
+`vercel deploy --prebuilt --prod`. It reads the repository secrets
+`VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` directly. There is no
+post-deploy verification step. Direct Vercel Git deployments are disabled in
+`vercel.json`.
 
 Production REST defaults to `/api`. Vercel forwards REST and Socket.IO polling
 to Render through external rewrites. WebSocket upgrades on `/socket.io/` use
@@ -76,11 +72,6 @@ Before production promotion, verify authenticated events and reconnects through 
 Vercel deployment, including a connection lasting beyond five minutes. Local
 tests do not prove Vercel's routing or runtime behavior. Function CPU, memory and
 data transfer contribute to Vercel usage.
-
-Builds also require a commit SHA from Vercel or GitHub Actions and write that
-non-secret revision to `/version.json`. After deployment, GitHub Actions waits for the exact
-commit and then verifies the frontend document, backend database readiness, and
-AI model health.
 
 ## Expert annotation
 
@@ -111,5 +102,68 @@ predicted difficulty, importance, tags, or model suggestions.
   `components/annotation` render focused views and receive explicit callbacks.
 - `src/lib/api.ts` and the typed socket modules are the transport boundaries.
 
-The active application remains V1. `src/v2/` is an unrouted design foundation and
-must stay isolated until V2 product ownership and migration are explicitly decided.
+`src/preview/profileDemo.ts` is imported by the production `src/pages/Profile.tsx`
+and ships in production builds.
+
+## Interface
+
+Subdirectory contracts:
+
+- [src](./src/README.md) — application source: entry point, route table, and links to every feature module.
+- [api](./api/README.md) — Vercel Function `api/socket-proxy.ts` (WebSocket bridge to Render).
+- [server](./server/README.md) — `createSocketProxy(target)` implementation used by the function.
+- `public/` — static assets; see [Static assets (`public/`)](#static-assets-public).
+- `e2e/` (Playwright specs and helpers) and `src/__tests__/` (Vitest suites) are test-only and have no contract file.
+
+Root configuration files:
+
+- `index.html` — HTML shell with `#root`, loads `/src/main.tsx`, links `/manifest.webmanifest` and icons [index.html:root]
+- `vite.config.ts` — dev server on `::`:8081 proxying `/api` and `/socket.io` (with `ws`) to the origin of `VITE_SOCKET_URL` or `VITE_API_URL` (default `http://localhost:8000`); `@` alias to `src`; manual chunks `vendor`, `ui`, `socket` [vite.config.ts:server.proxy], [vite.config.ts:manualChunks]
+- `vitest.config.ts` — jsdom environment, setup `src/__tests__/setup.ts`, includes `src/**/*.{test,spec}.{ts,tsx}` and `server/**/*.test.ts` (node environment), coverage thresholds 70/70/60/70 excluding `src/components/ui/**` [vitest.config.ts:test]
+- `playwright.config.ts` — `testDir: ./e2e`, one worker, 60 s test timeout, base URL `E2E_BASE_URL` or `http://localhost:8081`; on CI, `forbidOnly` and 1 retry; HTML report in `PLAYWRIGHT_REPORT_DIR` (default `playwright-report`), output in `PLAYWRIGHT_OUTPUT_DIR` (default `test-results`); unless `E2E_EXTERNAL_SERVERS=true` it starts `cd ../backend && npm run dev:e2e` and `npm run dev`, reusing running servers only when `E2E_REUSE_SERVERS=true` [playwright.config.ts:webServer]
+- `vercel.json` — rewrites `/socket.io/?transport=websocket` to `/api/socket-proxy`, `/api/*` and other `/socket.io/` traffic to `https://beccaccino-server.onrender.com`, everything except `/assets/` to `/index.html`; Git deployments disabled; security headers and immutable caching for `/assets/` [vercel.json:rewrites], [vercel.json:git.deploymentEnabled]
+- `components.json` — shadcn/ui configuration (aliases `@/components`, `@/lib/utils`, `@/components/ui`) [components.json:aliases]
+- `eslint.config.js`, `tsconfig*.json`, `tailwind.config.ts`, `postcss.config.js` — lint, type-check and styling configuration.
+- `.github/workflows/ci.yml`, `.github/workflows/deploy.yml` — CI and production deployment (see [Deployment](#deployment)).
+
+### Static assets (`public/`)
+
+Vite and Vercel serve these files at the site root. The build copies every file
+here verbatim into `dist/`, so keep documentation out of this directory.
+
+- `sw.js` — service worker; registered from `src/main.tsx` only in production (`navigator.serviceWorker.register("/sw.js")`) [public/sw.js:fetch]
+- `offline.html` — standalone Italian offline page with a "Riprova" (reload) button [public/offline.html:Riprova]
+- `manifest.webmanifest` — "Beccaccino Online" / "Becca", `display: "fullscreen"`, `orientation: "landscape"`, icons `/icons/icon-192.png`, `/icons/icon-512.png`, `/icons/icon-maskable-512.png` (maskable), and wide/narrow screenshots in `/screenshots/` [public/manifest.webmanifest:display]
+- `icons/icon.svg` and `icons/apple-touch-icon.png` — linked from `index.html` (SVG icon and Apple touch icon), not from the manifest; `favicon.ico` is the 32×32 icon [index.html:root]
+- `images/cards/` — 40 card PNGs named `<value>_<suit>.png` with the suit spelled `denari`; `images/semi/` — four suit icons `<suit>_seme.png` with the enum spelling `denara`
+- `robots.txt` — allows all crawlers [public/robots.txt:User-agent]
+- `version.json` — git-ignored (`.gitignore` describes it as generated by the production build), but no build step, Vite config or workflow writes it. Fresh checkouts and deployments have no `/version.json`; a stale local copy may exist.
+
+Invariants:
+
+- The service worker never serves the app from cache: it ignores non-navigation requests and only falls back to the cached `/offline.html` when a navigation fetch fails [public/sw.js:fetch]
+- On install it caches only `/offline.html` in cache `becca-offline-v1` and calls `skipWaiting()`; on activate it deletes every other cache and claims clients [public/sw.js:install], [public/sw.js:activate]
+- Card image names must match `PlayingCard` (`src/components/PlayingCard.tsx`); suit icons are referenced as `/images/semi/<enum suit>_seme.png`
+
+## Invariants
+
+- In development the REST base is always `/api` (proxied by Vite); in production it is `VITE_API_URL` or `/api` [src/lib/api.ts:API_URL]
+- The Socket.IO client always connects to `window.location.origin` with path `/socket.io/` [src/sockets/socketClient.ts:SOCKET_URL]
+- All REST calls send cookies (`credentials: "include"`); the socket uses `withCredentials: true` [src/lib/api.ts:request], [src/sockets/socketClient.ts:getSocket]
+- The WebSocket bridge accepts only same-origin HTTPS upgrades and forwards only the `authToken` cookie [server/socketProxy.ts:createSocketProxy]
+- The service worker is registered only in production and never caches the app itself [src/main.tsx:createRoot], [public/sw.js:fetch]
+- Development-only preview routes are excluded from production builds by `import.meta.env.DEV` checks [src/App.tsx:App]; `src/preview/profileDemo.ts` still ships because `src/pages/Profile.tsx` imports it statically
+
+## Side Effects
+
+- Browser REST and Socket.IO traffic to the backend through `/api` and `/socket.io/` (see [src/README.md](./src/README.md)).
+- In production on Vercel: outbound WebSocket connections from the `api/socket-proxy` function to Render [api/socket-proxy.ts:default]
+- Browser Cache Storage use by `public/sw.js` [public/sw.js:install]
+
+## Verification
+
+- Run: `cd frontend && npm test` (Vitest)
+- Run: `cd frontend && npm run typecheck`
+- Run: `cd frontend && npm run lint`
+- Run: `cd frontend && npm run build`
+- End-to-end: `cd frontend && npx playwright test` (uses `playwright.config.ts`).
