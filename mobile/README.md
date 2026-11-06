@@ -33,17 +33,20 @@ The app currently provides a landscape home, a native rules guide, an offline
 guided trick, real username/password login, secure session restoration/logout,
 a server-backed **Gioca** hub (practice, live room list, create/join by code), a
 native waiting room and the shared live table for practice and multiplayer. Native stack navigation handles
-back gestures and platform transitions; touch controls have at least 48-point
-targets, and large text switches the home to a scrollable single-column layout.
-Home and tutorial use unmodified copies of the five real deck images from
-`frontend/public/images/cards/`, not the stylized SVG illustrations. These
+back gestures and platform transitions. Standard buttons are at least 50 points
+tall; compact buttons are 40 points, the round sound toggle 44 points and the
+round sheet close X 36 points (with a 10-point `hitSlop`). Screens never
+scroll: `FitScreen` scales content that is taller than the screen down to fit.
+The home card fan and the tutorial use unmodified copies of five real deck images from
+`frontend/public/images/cards/`, not the stylized SVG illustrations; the home
+**Prova** tile also shows a sixth, `asso_coppe.png`. These
 sources are only 63×100 pixels; enlarging them does not add detail, and
 Retina-quality rendering will require higher-resolution originals. Only the
 forty original cards are bundled. No browser or WebView renders app screens.
 
 The home fan consists of five native images with individual rotations, shadows,
 perspective and gentle floating motion. Pressing the artwork tilts the fan,
-without triggering navigation or blocking the surrounding scroll view. Motion
+without triggering navigation. Motion
 uses the native driver, does not reserve interaction handles, and stops when the
 screen loses focus or the app becomes inactive. The shared reduced-motion
 preference keeps both home and table still until the preference is known,
@@ -54,7 +57,8 @@ is decorative and excluded from screen-reader navigation.
 
 “Prova una presa” is a playable, explicitly offline learning exercise, not a
 multiplayer preview. Three cards are already on the table; the player selects
-one of two legal cards and confirms separately. The played card moves into the
+one of two legal cards and confirms with a second tap or **Gioca**; dragging a
+card onto the table plays it immediately. The played card moves into the
 fourth position, the winner is identified with text as well as color, and the result
 explains the Beccaccino rule. Replay resets the same authored scenario. No
 network requests, accounts, rewards, saved progression or new game engine are
@@ -62,7 +66,8 @@ involved.
 
 The design follows Apple's game guidance: teach through play, allow direct
 selection of objects, keep frequent actions near the thumbs, and respect safe
-areas. Confirmation prevents an exploratory tap from immediately playing a card.
+areas. Confirmation prevents an exploratory tap from immediately playing a card; a drag
+onto the table is treated as a deliberate play.
 The landscape game is a full-screen native scene, not a split tutorial page.
 It preserves the website's purple felt, luminous oval rail, partner opposite,
 opponents at the sides and cards in hand at the bottom. A locally generated
@@ -71,7 +76,8 @@ confirmed card travels from its actual hand position, the winning card pulses
 and the trick moves toward the winner before the short result modal opens.
 All transforms use React Native's native animation driver and stop on unmount.
 The table fits the safe-area viewport without scrolling in normal landscape.
-Portrait and enlarged text can scroll/pan the same table, with controls below it.
+Enlarged text widens the seat badges and moves the partner's badge beside the
+card; the controls stay docked at the bottom right.
 Reduced motion skips travel, pulse and collection; motion stays off until the
 system preference is known, listens for changes and logs query failures.
 Card names, selected states and result announcements support screen readers;
@@ -104,9 +110,10 @@ home or the in-game menu; the choice is stored on the device.
 
 ## Playing
 
-**Fammi giocare** opens `/play`. It loads `GET /api/rooms/available`, joins the
-Socket.IO `lobby` and reloads on `room_*` events. Your started games appear
-under **Le tue partite** (Rientra); open rooms can be joined by tap or by the
+**Gioca** opens `/play`. It loads `GET /api/rooms/available`, joins the
+Socket.IO `lobby` and reloads on `room_*` events. Up to two of your active
+multiplayer rooms, started or still waiting, appear under **Le tue partite**
+(Rientra) and open the table or the waiting room; open rooms can be joined by tap or by the
 six-character code. **Crea una stanza** calls `POST /api/rooms`.
 
 The waiting room (`/room/[code]`) joins the room socket and reloads on
@@ -132,14 +139,16 @@ The server supplies `lastCompletedTrick`, including its winner and round,
 so collection and history work across rounds without a second rules engine.
 
 Select a legal card, optionally choose a leader signal, then confirm with
-**Gioca**. All forty cards are available; a horizontal hand scroll keeps touch
-targets usable on small screens. Briscola choice, round scores, figures,
+**Gioca**. All forty cards are available; the hand is a fan whose card overlap
+adapts to the available width, without scrolling. Briscola choice, round scores, figures,
 timeouts, bot-control recovery, last-trick history and final scores come from
 the backend. The approved felt and card-flight components are shared with the
 offline exercise. Native-driver entry/lift/collection, system haptics and
-Android ripple provide touch feedback; reduced motion remains supported.
+sound effects provide touch feedback; reduced motion remains supported.
 
-**Pausa / menu** requests a real server pause. Returning to the practice screen
+The on-screen menu button opens the menu and, in practice, immediately requests
+a real server pause. The Android back button only opens the menu and does not
+pause; use **Metti in pausa** there. Returning to the practice screen
 is enabled only after the server confirms it. Backgrounding disconnects the
 socket and attempts a pause, but mobile suspension or missing connectivity can
 prevent that request: use explicit pause before leaving when it must be guaranteed.
@@ -207,24 +216,31 @@ Socket.IO accepts native `auth.token` as well as existing browser cookies.
 Explicit invalid native tokens never fall back to cookies. Registration, profile editing and account deletion are outside
 this first integration slice. Expo authentication is not game authentication.
 
-For the approved local phone preview, the real backend runs separately on port
-8001 against `becca_mobile_dev`, not the website's local DB or public service.
+For an optional local phone preview, run a backend yourself and set
+`EXPO_PUBLIC_BACKEND_URL` in `.env.local` to its origin; no tracked
+configuration defines that backend's port or database. Use a separate
+development database, not the website's local DB or the public service.
 Only integration tests may reset the guarded `localhost/becca_test` database.
-Use test credentials on local HTTP. The preview signing key is ephemeral, so a
-backend restart invalidates saved preview sessions. Remove `.env.local` before
+Use test credentials on local HTTP. If that backend's signing key changes (for example a
+generated key on restart), saved preview sessions become invalid. Remove `.env.local` before
 exporting a release so it targets the HTTPS production origin. Never disable native transport security.
 
 ## Architecture and platform rules
 
 - `src/app/`: Expo Router screens and native navigation.
-- `src/lib/`: backend access and pure logic; no React imports.
+- `src/lib/`: backend access and pure logic; no React imports except the
+  `useSoundEnabled` hook in `sound.ts`.
 - `src/context/SessionContext.tsx`: native account/session lifecycle.
 - `src/constants/theme.ts`: the existing BECCA palette.
 - Use React Native primitives and `StyleSheet`, not HTML, CSS, shadcn or WebViews.
   `react-dom` is version-aligned with React for Expo Router's tooling peers;
   app platforms and screens remain native-only.
-- Respect safe areas, system navigation, font scaling, screen readers and minimum
-  48-point touch targets. Keep content scrollable at large font sizes.
+- Respect safe areas, system navigation, font scaling and screen readers.
+  Screens do not scroll; `FitScreen` scales oversized content down instead.
+- Touch targets are not yet uniformly 48 points: compact buttons are 40, the
+  sound toggle, room-code input and account link 44, and the sheet close X 36
+  (10-point `hitSlop`). Touch-target sizes and large-text behaviour are an open
+  item deferred to the upcoming mobile design work.
 - Orientation is landscape; layouts still adapt to resized windows and platform
   restrictions. iPad-specific UI is outside this initial phone scope.
 - Keep server-authoritative game rules and REST/Socket.IO contracts unchanged.
@@ -268,6 +284,51 @@ There is deliberately no production, submit or auto-update configuration.
 The `.dev` bundle/package identifiers and `becca-dev` scheme are development
 identities; review distribution identifiers and signing before store releases.
 No EAS account/project, cloud build or publication is required by this setup.
+
+## Interface
+
+- [Mobile source](./src/README.md): routes, components, hooks, session context,
+  theme and backend library.
+- `package.json` scripts: `start`, `start:dev-client`, `android`, `ios`,
+  `build:android`, `build:ios`, `typecheck`, `lint`, `test`, `doctor`, `export`,
+  `check`, `check:sdk`. The app entry point is `expo-router/entry` (`main`).
+- `app.json`: Expo config (name `BECCA Dev`, scheme `becca-dev`, landscape
+  orientation, plugins `expo-router`, `expo-secure-store`, `expo-splash-screen`,
+  experiments `typedRoutes` and `reactCompiler`).
+- `jest.setup.ts`: Jest setup that mocks `expo-audio`
+  (`setAudioModeAsync`, `createAudioPlayer`).
+- `eslint.config.js`: `eslint-config-expo/flat`, ignoring `dist/**` and
+  `coverage/**`.
+- `tsconfig.json`: strict TypeScript with the `@/*` alias for `./src/*`.
+
+## Invariants
+
+- The only runtime configuration is `EXPO_PUBLIC_BACKEND_URL`: an empty value
+  means `https://beccaccino-server.onrender.com`; any other value must be a
+  bare origin, and release builds require HTTPS (`src/lib/backend.ts`).
+- The server owns game rules and state. The app sends mutations over REST
+  and treats Socket.IO events only as reload signals. Room, lobby and game reads
+  are parsed with the validators in `src/lib/game.ts`, account responses with
+  `readUser` in `src/lib/session.ts`. Responses to game and waiting-room
+  mutations (play-card, choose-briscola, pause/resume, resume-control, leave,
+  choose-team, ready, bots) are discarded unparsed.
+- Authentication uses a bearer token stored with `expo-secure-store` and bound
+  to its backend origin; browser cookies are never used (`credentials: 'omit'`).
+- Generated native folders (`/ios`, `/android`), `dist/` and `.env*.local` are
+  ignored by `.gitignore`.
+
+## Side Effects
+
+- HTTP requests and Socket.IO connections to the configured backend.
+- Secure-storage entries `becca.session` (origin and token) and `becca.sound`
+  (sound preference) on the device.
+- Audio playback, haptics and screen-reader announcements on the device.
+- Opens the website registration page in the system browser from the account
+  screen.
+
+## Verification
+
+- Run: `cd mobile && npm run check`
 
 ## Official references
 

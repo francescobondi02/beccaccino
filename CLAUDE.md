@@ -7,12 +7,17 @@ Real-time multiplayer Italian card game (Beccaccino) for 4 players in 2 teams. P
 ```
 backend/    Express 5 + Socket.IO + Prisma (Node 24, TypeScript)
 frontend/   React 18 + Vite + Tailwind + shadcn/ui (TypeScript)
+mobile/     Expo 58 + React Native + Expo Router (Node 26, TypeScript)
 ai/         Python 3.11+ Gymnasium environment for RL self-play training
 ```
 
 Frontend ↔ Backend: REST API for game actions + WebSocket for real-time state sync.
 Database: PostgreSQL 15 via Prisma ORM.
 Repo: github.com/francescobondi02/beccaccino (monorepo, no workspaces).
+The native mobile app is independent of the website UI; see `mobile/README.md`.
+Native login, lobby, waiting room and live table (practice and multiplayer) are
+implemented over the same REST/Socket.IO API. Do not replace native
+screens with web components or change server rules for presentation concerns.
 
 ## Game Rules (Beccaccino)
 
@@ -81,12 +86,10 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 | backend | GAME_WIN_POINTS | Points to win (default 41, lower for testing) |
 | backend | TURN_TIMEOUT_SECONDS | Card play timeout (default 60) |
 | backend | BRISCOLA_TIMEOUT_SECONDS | Briscola choice timeout (default 90) |
-| backend | SENTRY_DSN | Sentry error tracking DSN (optional, disables if unset) |
 | backend | BOT_SERVICE_URL | Python bot inference service (unset = bots disabled) |
 | backend | BOT_THINK_DELAY_MS | Pause before a bot plays (default 1000) |
 | frontend | VITE_API_URL | Backend REST base URL (`/api`) |
 | frontend | VITE_SOCKET_URL | Backend WebSocket URL |
-| frontend | VITE_SENTRY_DSN | Sentry error tracking DSN (optional, disables if unset) |
 
 ## Deployment
 
