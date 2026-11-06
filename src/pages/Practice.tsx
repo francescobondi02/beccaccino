@@ -58,13 +58,13 @@ const Practice = () => {
     <div className="circolo-shell">
       <Header />
 
-      <div className="container max-w-3xl mx-auto p-4 pt-24">
-        <Button variant="ghost" className="mb-6" onClick={() => navigate("/")}>
+      <main className="arcade-practice container max-w-3xl mx-auto p-4 pt-24">
+        <Button variant="ghost" className="arcade-page-back mb-6" onClick={() => navigate("/")}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Torna alla home
         </Button>
 
-        <div className="text-center mb-10">
+        <div className="arcade-practice-copy text-center mb-10">
           <p className="circolo-kicker mb-3">Tavolo d'allenamento</p>
           <h1 className="font-display mb-3 text-4xl font-bold text-primary">
             Allenati contro i bot
@@ -74,7 +74,7 @@ const Practice = () => {
           </p>
         </div>
 
-        <div className="max-w-md mx-auto">
+        <div className="arcade-practice-bot max-w-md mx-auto">
           <Card className="circolo-surface transition-[transform,border-color,box-shadow] hover:-translate-y-1 hover:border-accent/70">
             <CardContent className="pt-6 flex flex-col h-full">
               <div className="flex items-center gap-2 mb-2">
@@ -104,10 +104,10 @@ const Practice = () => {
           </Card>
         </div>
 
-        <p className="text-xs text-muted-foreground text-center mt-8">
+        <p className="arcade-practice-note text-xs text-muted-foreground text-center mt-8">
           Gli allenamenti non contano per la classifica.
         </p>
-      </div>
+      </main>
     </div>
   );
 };

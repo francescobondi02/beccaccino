@@ -14,7 +14,6 @@ import GameBoard from "@/components/game/GameBoard";
 import GameScoreHeader from "@/components/game/GameScoreHeader";
 import PausedPracticeDialog from "@/components/game/PausedPracticeDialog";
 import GameActions from "@/components/game/GameActions";
-import RotateDevicePrompt from "@/components/game/RotateDevicePrompt";
 import { AlertCircle, Crown, History, Loader2, Maximize2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
@@ -538,8 +537,6 @@ const GameTable = () => {
           {!trumpDialogOpen && gameActions}
         </div>
       </GameBoard>
-
-      <RotateDevicePrompt />
 
       {/* Dialogs */}
       <SignalDialog

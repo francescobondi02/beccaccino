@@ -3,9 +3,7 @@ import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
 import type { ServerToClientEvents, ClientToServerEvents } from "./events";
 
-const SOCKET_URL = import.meta.env.PROD
-  ? window.location.origin
-  : import.meta.env.VITE_SOCKET_URL || window.location.origin;
+const SOCKET_URL = window.location.origin;
 
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 

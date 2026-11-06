@@ -161,7 +161,7 @@ const Profile = ({ preview = false }: { preview?: boolean }) => {
     <div className="circolo-shell">
       <Header />
 
-      <main className="arcade-dashboard">
+      <main className="arcade-dashboard arcade-profile">
         {isPreview && (
           <div className="mb-6 rounded-lg border border-primary/30 bg-primary/10 p-4 text-sm text-primary">
             <p>Anteprima locale · dati dimostrativi · nessun accesso necessario.</p>

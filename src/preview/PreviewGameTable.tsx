@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ArrowLeft, CircleHelp, Pause, Play, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, CircleHelp, MessageSquare, Pause, Play, RotateCcw, Trophy } from "lucide-react";
 import GameBoard from "@/components/game/GameBoard";
 import GameScoreHeader from "@/components/game/GameScoreHeader";
 import SignalDialog from "@/components/SignalDialog";
@@ -8,13 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import type { PlayedCardData, PlayerCard, Signal } from "@/game/model";
 import { positionPlayers } from "@/game/presentation";
-
-const players = positionPlayers(
-  ["Alex (tu)", "Luca", "Giulia", "Marta"].map((username, seat) => ({
-    id: seat + 1, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-  })),
-  1,
-);
 
 const hand: PlayerCard[] = [
   ["denara", "asso"], ["spade", "tre"], ["coppe", "re"], ["bastoni", "cavallo"],
@@ -30,11 +23,20 @@ interface PreviewGameTableProps {
   effectsEnabled: boolean;
   motionStopped: boolean;
   onToggleEffects: () => void;
+  mobile?: boolean;
+  localUsername?: string;
+  onFinish?: () => void;
 }
 
 export default function PreviewGameTable({
-  room, onBack, effectsEnabled, motionStopped, onToggleEffects,
+  room, onBack, effectsEnabled, motionStopped, onToggleEffects, mobile = false, localUsername = "Alex", onFinish,
 }: PreviewGameTableProps) {
+  const players = positionPlayers(
+    [`${localUsername} (tu)`, "Luca", "Giulia", "Marta"].map((username, seat) => ({
+      id: seat + 1, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
+    })),
+    1,
+  );
   const [card, setCard] = useState<PlayerCard | null>(null);
   const [pendingCard, setPendingCard] = useState<PlayerCard | null>(null);
   const [signal, setSignal] = useState<Signal | null>(null);
@@ -64,9 +66,15 @@ export default function PreviewGameTable({
     setComplete(false);
     setSpeakerId(1);
   };
+  const effectsButton = (
+    <Button variant="ghost" aria-pressed={effectsEnabled} onClick={onToggleEffects}>
+      {effectsEnabled ? <Pause size={16} /> : <Play size={16} />}
+      <span className="mobile-tool-label">{effectsEnabled ? "Pausa effetti" : "Attiva effetti"}</span>
+    </Button>
+  );
 
   return (
-    <main className="club-preview club-match-preview circolo-shell relative" lang="it" data-motion={motionStopped ? "off" : "on"}>
+    <main className={`club-preview circolo-shell relative ${mobile ? "arcade-game-page mobile-table-preview" : "club-match-preview"}`} lang="it" data-motion={motionStopped ? "off" : "on"}>
       <h1 className="sr-only" tabIndex={-1}>{room} · Tavolo demo</h1>
       <GameScoreHeader
         roomCode="DEMO" briscola="denara" roundNumber={3} handNumber={1}
@@ -87,12 +95,12 @@ export default function PreviewGameTable({
             ? `Presa completa: quattro carte in tavola${signal ? ` · ${signal}` : ""}.`
             : `La tua carta è in tavola${signal ? ` · ${signal}` : ""}. Fai giocare gli altri tre.`}
         </p>
-        <Button disabled={!card || complete} onClick={() => setComplete(true)}>Completa la presa</Button>
+        <Button disabled={!card || complete} onClick={() => setComplete(true)}><ArrowRight size={18} /><span className="mobile-tool-label">Completa la presa</span></Button>
         <Dialog open={calloutsOpen} onOpenChange={(open) => {
           setCalloutsOpen(open);
           if (open) setSignal(null);
         }}>
-          <DialogTrigger asChild><Button variant="secondary">Fumetti</Button></DialogTrigger>
+          <DialogTrigger asChild><Button variant="secondary"><MessageSquare size={18} /><span className="mobile-tool-label">Fumetti</span></Button></DialogTrigger>
           <DialogContent className="max-w-[calc(100%_-_32px)] sm:max-w-sm">
             <DialogHeader>
               <DialogTitle>Fai parlare il tavolo.</DialogTitle>
@@ -112,15 +120,14 @@ export default function PreviewGameTable({
                 }}>{item}</Button>
               ))}
             </div>
+            {mobile && effectsButton}
           </DialogContent>
         </Dialog>
-        <Button ref={resetButton} variant="secondary" onClick={reset}><RotateCcw size={16} /> Ricomincia</Button>
-        <Button variant="secondary" onClick={() => setRulesOpen(true)}><CircleHelp size={16} /> Regole</Button>
-        <Button variant="ghost" aria-pressed={effectsEnabled} onClick={onToggleEffects}>
-          {effectsEnabled ? <Pause size={16} /> : <Play size={16} />}
-          {effectsEnabled ? "Pausa effetti" : "Attiva effetti"}
-        </Button>
-        <Button variant="ghost" onClick={onBack}><ArrowLeft size={16} /> Tutti i tavoli</Button>
+        <Button ref={resetButton} variant="secondary" onClick={reset}><RotateCcw size={16} /><span className="mobile-tool-label">Ricomincia</span></Button>
+        <Button variant="secondary" onClick={(event) => { event.currentTarget.focus(); setRulesOpen(true); }}><CircleHelp size={16} /><span className="mobile-tool-label">Regole</span></Button>
+        {!mobile && effectsButton}
+        <Button variant="ghost" onClick={onBack}><ArrowLeft size={16} /><span className="mobile-tool-label">Tutti i tavoli</span></Button>
+        {onFinish && <Button variant="secondary" onClick={onFinish}><Trophy size={18} /><span className="mobile-tool-label">Risultato demo</span></Button>}
       </aside>
       {pendingCard && <SignalDialog open onOpenChange={(open) => {
         if (!open) setPendingCard(null);

@@ -41,6 +41,7 @@ export default function LobbyActions({
             className="arcade-code-input"
             maxLength={6}
             autoComplete="off"
+            autoCapitalize="characters"
             spellCheck={false}
             data-testid="room-code-input"
           />

@@ -1,18 +1,19 @@
 import { useState, type ReactNode } from "react";
 import { MotionConfig } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, Zap } from "lucide-react";
-import { useReducedMotion } from "@/v2/hooks/useReducedMotion";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 import ArcadeHero from "./ArcadeHero";
 import ArcadeRules from "./ArcadeRules";
 
 export default function ArcadeLobby({ children, onPlay }: { children: ReactNode; onPlay: () => void }) {
   const [rulesOpen, setRulesOpen] = useState(false);
   const motionStopped = useReducedMotion();
+  const [searchParams] = useSearchParams();
 
   return (
     <MotionConfig reducedMotion={motionStopped ? "always" : "user"}>
-      <div className="arcade-lobby">
+      <div className="arcade-lobby" data-view={searchParams.get("view") === "rooms" ? "rooms" : "play"}>
         <a className="club-skip" href="#main-content">Vai al contenuto</a>
         <main id="main-content" tabIndex={-1}>
           <div className="club-preview arcade-live-hero" data-motion={motionStopped ? "off" : "on"}>

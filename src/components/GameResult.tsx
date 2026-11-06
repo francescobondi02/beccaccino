@@ -36,8 +36,8 @@ export default function GameResult({
   }).filter((award) => award.count > 0) : [];
 
   return (
-    <main className="circolo-shell min-h-screen px-4 py-10 sm:px-8" data-testid="game-result-page" data-game-finished="true">
-      <div className="relative mx-auto max-w-4xl space-y-8">
+    <main className="arcade-result circolo-shell min-h-screen px-4 py-10 sm:px-8" data-testid="game-result-page" data-game-finished="true">
+      <div className="arcade-result-content relative mx-auto max-w-4xl space-y-8">
         <header className="text-center space-y-2">
           <Trophy className="mx-auto h-10 w-10 text-primary" aria-hidden="true" />
           <h1 ref={heading} tabIndex={-1} className="text-3xl font-bold outline-none">
@@ -102,7 +102,7 @@ export default function GameResult({
             </table>
           </details>
         )}
-        <Button className="w-full" variant="gradient" onClick={() => void onHome()} disabled={isReturningHome}>
+        <Button className="arcade-result-home w-full" variant="gradient" onClick={() => void onHome()} disabled={isReturningHome}>
           {isReturningHome ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uscita in corso...</> : "Torna alla lobby"}
         </Button>
       </div>

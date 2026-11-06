@@ -837,14 +837,6 @@ html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
   html[data-ui="arcade"] .arcade-round-dialog .mt-3 { margin-top: 4px; }
 }
 
-.arcade-rotate-prompt { display: none; }
-@media (orientation: portrait) and (max-width: 600px) and (pointer: coarse) {
-  .arcade-rotate-prompt { position: fixed; z-index: 60; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 32px; background: hsl(var(--background) / .97); text-align: center; }
-  .arcade-rotate-prompt h2 { font-size: 32px; font-weight: 950; font-style: italic; letter-spacing: -.04em; text-transform: uppercase; color: hsl(var(--primary)); }
-  .arcade-rotate-prompt p { margin-bottom: 10px; color: hsl(var(--muted-foreground)); }
-  .arcade-rotate-prompt button { min-height: 48px; }
-  .arcade-rotate-icon { width: 64px; height: 64px; color: hsl(var(--primary)); }
-}
 @media (orientation: portrait) and (prefers-reduced-motion: no-preference) {
   .arcade-rotate-icon { animation: arcade-rotate-hint 2.4s ease-in-out infinite; }
 }

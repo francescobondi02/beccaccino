@@ -48,54 +48,61 @@ test.describe("Arcade interface", () => {
     expect(Date.now()).toBeLessThan(readyAt + 1800);
   });
 
-  test("keeps full-page results after reload with optional tied awards", async ({ page }) => {
-    const state: GameStateResponse = {
-      status: "finished", pausedAt: null,
-      round: { id: 30, number: 1, briscola: "spade" },
-      callerUserId: 1, currentTurnUserId: null, currentHandNumber: null,
-      myCards: [], playedCards: [], lastHandCards: [],
-      totalPoints: { team0Points: 7, team1Points: 4, team0Figures: 1, team1Figures: 1 },
-      turnTimer: null, isPractice: true, allHands: null,
-      finishedGame: {
-        winnerTeam: 0, totalRounds: 1, finalScores: { team0: 7, team1: 4 }, roundsWon: { team0: 1, team1: 0 },
-        statistics: {
+  for (const mobile of [false, true]) {
+    test.describe(mobile ? "Touch landscape results" : "Desktop results", () => {
+      test.use({ hasTouch: mobile });
+      test("keeps full-page results after reload with optional tied awards", async ({ page }) => {
+        await page.routeWebSocket(/\/socket\.io\//, () => {});
+        const state: GameStateResponse = {
+          status: "finished", pausedAt: null,
+          round: { id: 30, number: 1, briscola: "spade" },
+          callerUserId: 1, currentTurnUserId: null, currentHandNumber: null,
+          myCards: [], playedCards: [], lastHandCards: [],
+          totalPoints: { team0Points: 7, team1Points: 4, team0Figures: 1, team1Figures: 1 },
+          turnTimer: null, isPractice: true, allHands: null,
+          finishedGame: {
+            winnerTeam: 0, totalRounds: 1, finalScores: { team0: 7, team1: 4 }, roundsWon: { team0: 1, team1: 0 },
+            statistics: {
+              players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
+                playerId: 10 + seat, username, team: seat % 2, tricksWon: seat < 2 ? 5 : 0,
+                busso: seat < 2 ? 2 : 0, acesCaptured: seat === 2 ? 2 : 0, acesLost: seat === 1 ? 2 : 0,
+              })),
+              rounds: [{ number: 1, winnerTeam: 0, team0Points: 7, team1Points: 4, team0Figures: 1, team1Figures: 1 }],
+            },
+          },
+        };
+        await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
+        await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
+          id: 20, code: "ROOM", started: true, finished: true, isPractice: true,
           players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-            playerId: 10 + seat, username, team: seat % 2, tricksWon: seat < 2 ? 5 : 0,
-            busso: seat < 2 ? 2 : 0, acesCaptured: seat === 2 ? 2 : 0, acesLost: seat === 1 ? 2 : 0,
+            id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
           })),
-          rounds: [{ number: 1, winnerTeam: 0, team0Points: 7, team1Points: 4, team0Figures: 1, team1Figures: 1 }],
-        },
-      },
-    };
-    await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-      id: 20, code: "ROOM", started: true, finished: true, isPractice: true,
-      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-      })),
-    } }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
-    for (const width of [1440, 390]) {
-      await page.setViewportSize({ width, height: 844 });
-      await page.goto("/game/ROOM");
-      await expect(page.getByTestId("game-result-page")).toBeVisible();
-      await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(page.getByText("Giulia, Luca", { exact: true })).toBeVisible();
-      await page.getByText("Punteggi delle smazzate", { exact: true }).click();
-      await expect(page.getByRole("cell", { name: "7 punti · 1 figure", exact: true })).toBeVisible();
-      await page.getByRole("button", { name: "Torna alla lobby" }).click({ trial: true });
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.reload();
-      await expect(page.getByTestId("game-result-page")).toBeVisible();
-      state.finishedGame!.statistics!.players.forEach((player) => {
-        player.busso = 0; player.acesCaptured = 0; player.acesLost = 0;
+        } }));
+        await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
+        for (const [width, height] of mobile ? [[568, 320], [844, 390], [1024, 768]] : [[1440, 844], [390, 844]]) {
+          await page.setViewportSize({ width, height });
+          await page.goto("/game/ROOM");
+          await expect(page.getByTestId("game-result-page")).toBeVisible();
+          await expect(page.getByRole("dialog")).toHaveCount(0);
+          await expect(page.getByText("Giulia, Luca", { exact: true })).toBeVisible();
+          await page.getByText("Punteggi delle smazzate", { exact: true }).click();
+          await expect(page.getByRole("cell", { name: "7 punti · 1 figure", exact: true })).toBeVisible();
+          if (mobile) await expect(page.getByRole("button", { name: "Torna alla lobby" })).toBeInViewport({ ratio: 1 });
+          await page.getByRole("button", { name: "Torna alla lobby" }).click({ trial: true });
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          await page.reload();
+          await expect(page.getByTestId("game-result-page")).toBeVisible();
+          state.finishedGame!.statistics!.players.forEach((player) => {
+            player.busso = 0; player.acesCaptured = 0; player.acesLost = 0;
+          });
+          await page.reload();
+          await expect(page.getByRole("heading", { name: "Premi della partita" })).toHaveCount(0);
+          state.finishedGame!.statistics!.players[0].busso = 2;
+          state.finishedGame!.statistics!.players[1].busso = 2;
+        }
       });
-      await page.reload();
-      await expect(page.getByRole("heading", { name: "Premi della partita" })).toHaveCount(0);
-      state.finishedGame!.statistics!.players[0].busso = 2;
-      state.finishedGame!.statistics!.players[1].busso = 2;
-    }
-  });
+    });
+  }
 
   for (const reducedMotion of ["no-preference", "reduce"] as const) {
     test(`deals to four players before trump selection (${reducedMotion})`, async ({ page }) => {
