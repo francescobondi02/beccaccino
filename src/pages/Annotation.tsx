@@ -237,8 +237,8 @@ const Annotation = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="container mx-auto min-w-0 px-4 pb-12 pt-24">
-        <div className="mx-auto max-w-6xl space-y-6">
+      <main className="arcade-annotation container mx-auto min-w-0 px-4 pb-12 pt-24">
+        <div className="arcade-annotation-content mx-auto max-w-6xl space-y-6">
           <div className="flex flex-col gap-5 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
               <Button

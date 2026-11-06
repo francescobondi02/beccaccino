@@ -98,7 +98,6 @@ frontend/
 - **State management**: Local React state + React Query. No global store.
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
 - **Page ownership**: Pages own route adaptation, user feedback, commands, and view composition. Hooks own asynchronous coordination. Reducers and selectors remain pure.
-- **V2 status**: `src/v2/` is not imported by the active router or stylesheet entry point. Do not duplicate V1 behavior there until migration ownership is decided.
 - **Practice history**: When running the Vite dev server (`npm run dev`, where `import.meta.env.DEV` is true), practice games show a history icon that opens the large `PracticeHistoryDialog`. It groups played cards by trick, using card images with player names and declared signals, and clears when a new deck is dealt. Revealed hands are opt-in, hidden by default, and reset when the dialog closes. There is no practice side rail or table layout shift.
 - **Practice pause**: The explicit pause action stops server-side bot and timer activity before returning home. Paused games appear under `Allenamenti in pausa`; resume completes before navigation, while direct paused-game links show blocking resume and confirmed-abandon controls. Disconnects never pause a game automatically.
 - **Expert annotations**: REST-only workflow. The backend supplies immutable

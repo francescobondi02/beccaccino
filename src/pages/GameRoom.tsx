@@ -8,6 +8,8 @@ import Header from "@/components/Header";
 import WaitingRoomPlayers from "@/components/rooms/WaitingRoomPlayers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { useWaitingRoom } from "@/hooks/useWaitingRoom";
 import { apiPost, ApiError } from "@/lib/api";
@@ -26,6 +28,8 @@ const GameRoom = () => {
   const userId = user?.id ?? null;
   const username = user?.username ?? "";
   const [isUpdating, setIsUpdating] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const inviteUrl = `${window.location.origin}/room/${roomCode}`;
 
   const handleLoadError = useCallback(
     (error: unknown) => {
@@ -130,10 +134,18 @@ const GameRoom = () => {
     }
   };
 
-  const handleShareLink = () => {
-    const inviteUrl = `${window.location.origin}/room/${roomCode}`;
-    void navigator.clipboard.writeText(inviteUrl);
-    toast.success("Link di invito copiato!");
+  const handleShareLink = async () => {
+    if (!navigator.clipboard?.writeText) {
+      setInviteOpen(true);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      toast.success("Link di invito copiato!");
+    } catch {
+      toast.error("Copia automatica non riuscita. Copia il link qui sotto.");
+      setInviteOpen(true);
+    }
   };
 
   const handleLeaveRoom = async () => {
@@ -198,18 +210,23 @@ const GameRoom = () => {
       <Header onBeforeNavigate={leaveWaitingRoom} />
 
       <div className="arcade-waiting-room container mx-auto px-4 pt-24 pb-12">
-        <div className="max-w-4xl mx-auto animate-fade-in">
-          <Card className="circolo-surface mb-8">
-            <CardHeader>
+        <div className="arcade-waiting-layout max-w-4xl mx-auto animate-fade-in">
+          <Card className="arcade-waiting-settings circolo-surface mb-8">
+            <CardHeader className="arcade-waiting-heading">
               <CardTitle className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <Users className="h-6 w-6 text-primary" />
-                  <span data-testid="room-code-display">Stanza: {roomCode}</span>
+                  <div>
+                    <span data-testid="room-code-display">Stanza: {roomCode}</span>
+                    <p className="text-sm font-normal text-muted-foreground mt-1">
+                      Giocatori: {room.players.length} / 4
+                    </p>
+                  </div>
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleShareLink}
+                  onClick={() => void handleShareLink()}
                   className="gap-2"
                 >
                   <Share2 className="h-4 w-4" />
@@ -217,15 +234,39 @@ const GameRoom = () => {
                 </Button>
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="arcade-waiting-options">
               <p className="text-muted-foreground text-center">
                 {room.started
                   ? "La partita è iniziata!"
                   : "In attesa che tutti i giocatori siano pronti..."}
               </p>
-              <p className="text-sm text-muted-foreground text-center mt-2">
-                Giocatori: {room.players.length} / 4
-              </p>
+              {myPlayer?.team === null && (
+                <Card className="arcade-waiting-team-choice circolo-surface mt-6">
+                  <CardContent className="p-6 text-center">
+                    <p className="text-muted-foreground mb-4">
+                      Scegli una squadra prima di poterti mettere pronto
+                    </p>
+                    <div className="flex flex-col justify-center gap-3 sm:flex-row sm:gap-4">
+                      <Button
+                        variant="outline"
+                        onClick={() => void handleChooseTeam(0)}
+                        disabled={team0Players >= 2}
+                        data-testid="team-0-button"
+                      >
+                        Squadra 1 ({team0Players}/2)
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => void handleChooseTeam(1)}
+                        disabled={team1Players >= 2}
+                        data-testid="team-1-button"
+                      >
+                        Squadra 2 ({team1Players}/2)
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
               <div className="mt-6 space-y-2">
                 <label htmlFor="room-bot-tier" className="block text-sm font-medium">
                   Completa i posti liberi con bot
@@ -244,18 +285,23 @@ const GameRoom = () => {
                   <option value="forte">Forte</option>
                   <option value="esperto">Esperto</option>
                 </select>
-                <p id="room-bot-description" className="text-sm text-muted-foreground">
-                  {room.botTier
-                    ? "I bot entrano quando tutti sono pronti. Prima, ogni posto resta libero per un amico. La partita conta per la classifica e non si può mettere in pausa. Cambiare difficoltà azzera i pronti."
-                    : "Potete partire anche in meno di quattro. Cambiare questa impostazione azzera i pronti."}
-                </p>
+                <details>
+                  <summary className="cursor-pointer text-sm text-muted-foreground">
+                    {room.botTier ? "Partita classificata · dettagli" : "Come funzionano i bot"}
+                  </summary>
+                  <p id="room-bot-description" className="text-sm text-muted-foreground">
+                    {room.botTier
+                      ? "I bot entrano quando tutti sono pronti. Prima, ogni posto resta libero per un amico. La partita conta per la classifica e non si può mettere in pausa. Cambiare difficoltà azzera i pronti."
+                      : "Potete partire anche in meno di quattro. Cambiare questa impostazione azzera i pronti."}
+                  </p>
+                </details>
               </div>
             </CardContent>
           </Card>
 
           <WaitingRoomPlayers players={playerSlots} currentUserId={userId} />
 
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="arcade-waiting-actions grid sm:grid-cols-2 gap-4">
             <Button
               variant={myPlayer?.isReady ? "secondary" : "gradient"}
               size="lg"
@@ -283,36 +329,17 @@ const GameRoom = () => {
               Lascia la stanza
             </Button>
           </div>
-
-          {myPlayer?.team === null && (
-            <Card className="circolo-surface mt-6">
-              <CardContent className="p-6 text-center">
-                <p className="text-muted-foreground mb-4">
-                  Scegli una squadra prima di poterti mettere pronto
-                </p>
-                <div className="flex flex-col justify-center gap-3 sm:flex-row sm:gap-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => void handleChooseTeam(0)}
-                    disabled={team0Players >= 2}
-                    data-testid="team-0-button"
-                  >
-                    Squadra 1 ({team0Players}/2)
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => void handleChooseTeam(1)}
-                    disabled={team1Players >= 2}
-                    data-testid="team-1-button"
-                  >
-                    Squadra 2 ({team1Players}/2)
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Invita i tuoi amici</DialogTitle>
+            <DialogDescription>Seleziona e copia il link, oppure condividi il codice {roomCode}.</DialogDescription>
+          </DialogHeader>
+          <Input aria-label="Link di invito" value={inviteUrl} readOnly onFocus={(event) => event.target.select()} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

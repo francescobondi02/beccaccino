@@ -44,12 +44,12 @@ src/
     useConnectionStatus.ts Socket status and reconnect refresh
     useGameTable.ts     Game table state and socket coordination
     useLobbyRooms.ts    Lobby room hydration and socket coordination
+    useReducedMotion.ts OS reduced-motion preference
     useTurnCountdown.ts Server-authoritative timer presentation
     useWaitingRoom.ts   Waiting-room hydration and socket coordination
   game/                 Game DTOs, reducer state, and presentation selectors
   annotations/          Expert annotation API model types
   rooms/                Room DTOs, normalization, and pure state reducers
-  v2/                   Unrouted V2 design foundation
   lib/
     api.ts              Typed REST helpers and ApiError
     roomRedirect.ts     Active-room conflict navigation
@@ -79,7 +79,6 @@ public/
 - Hooks coordinate REST, Socket.IO, and reconnect behavior.
 - Reducers and selectors are pure and independently tested.
 - Feature view components receive data and callbacks; they do not fetch or subscribe.
-- V2 is not part of the active router. Keep it isolated until product migration is explicit.
 
 ### Socket.IO Client (socketClient.ts)
 - Singleton pattern: `getSocket()` creates once, returns same instance
@@ -128,8 +127,11 @@ public/
   suggested actions
 
 ### Environment
-- `VITE_API_URL` — backend REST (e.g., `http://localhost:8000/api`)
-- `VITE_SOCKET_URL` — backend socket (e.g., `http://localhost:8000`)
+- `VITE_API_URL` — production REST override; development proxy fallback target.
+- `VITE_SOCKET_URL` — development backend origin (e.g., `http://localhost:8000`).
+  Vite proxies `/api` and `/socket.io` to this origin, defaulting to port 8000.
+  Development browser requests stay same-origin so phone/LAN cookies and sockets
+  work without pointing at the phone's localhost. Production sockets remain same-origin.
 
 ## Build
 
@@ -156,6 +158,26 @@ npx playwright show-report  # HTML report with traces after failures
 
 - Arcade is the only active interface. `next-themes` forces `html[data-ui="arcade"]`,
   ignoring older `becca-ui` preferences. There is no interface switch or classic lobby.
+- `/preview/mobile` is a development-only landscape prototype of the player flow:
+  home, `/lobby`, `/room`, `/practice`, `/leaderboard`, `/profile`, `/account`,
+  `/table` and `/result` under that prefix. Unknown preview paths show a local 404.
+  Home reuses the desktop SVG illustrations; gameplay retains the original PNGs.
+  `MobilePages` shares landscape navigation, scrollable panels and pinned primary actions.
+  Room, account and profile changes are in-memory demo state; no API calls or credentials
+  are persisted. Reload resets the demo. Do not enter real credentials.
+  The table opts into `PreviewGameTable`'s mobile layout, reusing the live `GameBoard`
+  with compact tools; its trophy button opens the shared `GameResult` with demo data.
+  The desktop preview retains its circular table. Portrait touchscreens see a
+  non-dismissible rotation dialog. These preview data paths remain isolated from
+  actual accounts, rooms and game state.
+- Actual routes share `.arcade-app` and `styles/mobile-app.css`: coarse-pointer
+  landscape devices use a viewport-sized shell, compact navigation, SVG home artwork,
+  independently scrolling panels and visible waiting-room/practice actions.
+  The home "Tavoli" navigation uses `/?view=rooms`; both views retain live lobby data.
+  Profile, rankings, expert annotation, results and the Italian 404 use the same shell.
+  No alternate mobile API/state layer or Capacitor integration is introduced.
+  Passive notifications do not intercept touch controls; actionable notifications
+  retain their buttons. Room invitations provide manual copying when clipboard access fails.
 - `ArcadeHero` and `ArcadeRules` are shared between the real lobby and `/preview`
   (development only). Real room actions continue through `LobbyPage`; never connect
   production routes to the prototype's sample data.
@@ -207,11 +229,13 @@ npx playwright show-report  # HTML report with traces after failures
   layouts retain at least 320px of content height rather than clipping controls.
   Short live landscape screens use persistent signal badges and notices instead of
   comic callouts, which would cover the partner's played card.
-- Portrait phones see `RotateDevicePrompt` over the table, with "Continua in verticale" so
-  portrait play stays possible. `lib/fullscreen.ts` requests fullscreen plus a landscape
+- Portrait touch devices see a non-dismissible `RotateDevicePrompt` on all actual routes.
+  Rotation never unmounts the underlying page or leaves the room.
+  `lib/fullscreen.ts` requests fullscreen plus a landscape
   orientation lock on phones only (Practice "Gioca", the prompt, and the "Schermo intero"
-  tool); iPhone Safari supports neither, so failures are ignored. Leaving the table exits fullscreen.
-- `public/manifest.webmanifest` makes the app installable (fullscreen display, any orientation,
+  tool and mobile header); iPhone Safari supports neither, so failures are ignored.
+  Leaving the table exits fullscreen.
+- `public/manifest.webmanifest` makes the app installable (fullscreen display, landscape orientation,
   separate maskable icon, wide/narrow screenshots for the richer Android install sheet).
   `public/sw.js`, registered in production only, never caches the app: it passes navigations
   to the network and shows the cached `offline.html` when that fails. Its fetch handler is

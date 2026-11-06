@@ -1,27 +1,38 @@
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Maximize2, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { canEnterGameFullscreen, enterGameFullscreen } from "@/lib/fullscreen";
 
-// Shown by CSS only on portrait phones; playing in portrait stays possible.
-export default function RotateDevicePrompt() {
-  const [dismissed, setDismissed] = useState(false);
-  if (dismissed) return null;
+const PORTRAIT_TOUCH = "(pointer: coarse) and (orientation: portrait)";
 
+function subscribe(onChange: () => void) {
+  const media = window.matchMedia(PORTRAIT_TOUCH);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+
+export default function RotateDevicePrompt() {
+  const portrait = useSyncExternalStore(subscribe, () => window.matchMedia(PORTRAIT_TOUCH).matches);
   return (
-    <section className="arcade-rotate-prompt" aria-labelledby="rotate-prompt-title">
-      <RotateCw className="arcade-rotate-icon" aria-hidden="true" />
-      <h2 id="rotate-prompt-title">Gira il telefono</h2>
-      <p>Il tavolo dà il meglio in orizzontale.</p>
-      {canEnterGameFullscreen() && (
-        <Button onClick={() => void enterGameFullscreen()}>
-          <Maximize2 className="mr-2 h-4 w-4" aria-hidden="true" />
-          Gioca a schermo intero
-        </Button>
-      )}
-      <Button variant="ghost" onClick={() => setDismissed(true)}>
-        Continua in verticale
-      </Button>
-    </section>
+    <Dialog open={portrait}>
+      <DialogContent
+        className="arcade-orientation-dialog text-center [&>button:last-child]:hidden"
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => event.preventDefault()}
+      >
+        <RotateCw className="arcade-rotate-icon mx-auto" aria-hidden="true" />
+        <DialogHeader className="text-center">
+          <DialogTitle>Gira il telefono</DialogTitle>
+          <DialogDescription>BECCA si gioca in orizzontale. Ruota il telefono per continuare.</DialogDescription>
+        </DialogHeader>
+        {canEnterGameFullscreen() && (
+          <div><Button onClick={() => void enterGameFullscreen()}>
+            <Maximize2 className="mr-2 h-4 w-4" aria-hidden="true" />
+            Apri a schermo intero
+          </Button></div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

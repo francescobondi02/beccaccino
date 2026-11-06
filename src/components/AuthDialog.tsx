@@ -78,7 +78,7 @@ const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-card" data-testid="auth-dialog">
+      <DialogContent className="arcade-auth-dialog sm:max-w-md bg-card" data-testid="auth-dialog">
         <DialogHeader>
           <DialogTitle className="text-center text-2xl">
             {isLogin ? "Accedi" : "Registrati"}
@@ -97,6 +97,7 @@ const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
               id="username"
               data-testid="username-input"
               placeholder="Il tuo nome utente"
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="bg-secondary border-border"
@@ -110,6 +111,7 @@ const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
               data-testid="password-input"
               type="password"
               placeholder="La tua password"
+              autoComplete={isLogin ? "current-password" : "new-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="bg-secondary border-border"

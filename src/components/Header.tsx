@@ -1,4 +1,5 @@
-import { ClipboardCheck, User, LogOut, Trophy, Zap } from "lucide-react";
+import { useState } from "react";
+import { CircleHelp, ClipboardCheck, Gamepad2, Maximize2, User, Users, LogOut, Trophy, Zap } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
@@ -12,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import ArcadeRules from "@/components/lobby/ArcadeRules";
+import { canEnterGameFullscreen, enterGameFullscreen } from "@/lib/fullscreen";
 
 interface HeaderProps {
   onAuthenticate?: () => void;
@@ -20,9 +23,11 @@ interface HeaderProps {
 
 const Header = ({ onAuthenticate, onBeforeNavigate }: HeaderProps) => {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const { user, logout } = useAuth();
   const username = user?.username;
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const showingRooms = pathname === "/" && new URLSearchParams(search).get("view") === "rooms";
 
   const handleNavigate = async (path: string) => {
     if (onBeforeNavigate && !(await onBeforeNavigate())) return;
@@ -54,6 +59,7 @@ const Header = ({ onAuthenticate, onBeforeNavigate }: HeaderProps) => {
   };
 
   return (
+    <>
     <header className="club-header arcade-header">
       <div className="arcade-header-inner">
         <button
@@ -66,12 +72,21 @@ const Header = ({ onAuthenticate, onBeforeNavigate }: HeaderProps) => {
           <span>BECCA<span className="club-brand-caption">VECCHIA SCUOLA. NUOVA ENERGIA.</span></span>
         </button>
 
-        {pathname !== "/" && (
-          <nav aria-label="Navigazione principale">
-            <button onClick={() => void handleNavigate("/")}>Gioca</button>
-            <button aria-current={pathname === "/leaderboard" ? "page" : undefined} onClick={() => void handleNavigate("/leaderboard")}>Classifica</button>
-          </nav>
-        )}
+        <nav className={pathname === "/" ? "arcade-home-nav" : undefined} aria-label="Navigazione principale">
+          <button aria-current={pathname === "/" && !showingRooms ? "page" : undefined} onClick={() => void handleNavigate("/")}><Gamepad2 aria-hidden="true" /><span className="arcade-nav-label">Gioca</span></button>
+          <button className="arcade-mobile-only" aria-current={showingRooms ? "page" : undefined} onClick={() => void handleNavigate("/?view=rooms")}><Users aria-hidden="true" /><span className="arcade-nav-label">Tavoli</span></button>
+          <button aria-current={pathname === "/leaderboard" ? "page" : undefined} onClick={() => void handleNavigate("/leaderboard")}><Trophy aria-hidden="true" /><span className="arcade-nav-label">Classifica</span></button>
+        </nav>
+
+        <div className="arcade-app-tools">
+          {canEnterGameFullscreen() && (
+            <Button variant="ghost" size="icon" aria-label="Schermo intero" onClick={() => void enterGameFullscreen()}><Maximize2 /></Button>
+          )}
+          <Button variant="ghost" size="icon" aria-label="Come si gioca" onClick={(event) => {
+            event.currentTarget.focus();
+            setRulesOpen(true);
+          }}><CircleHelp /></Button>
+        </div>
 
         {username ? (
           <DropdownMenu>
@@ -79,7 +94,7 @@ const Header = ({ onAuthenticate, onBeforeNavigate }: HeaderProps) => {
               <Button
                 variant="ghost"
                 aria-label="Menu account"
-                className="flex items-center gap-2 text-foreground hover:bg-secondary hover:text-foreground"
+                className="arcade-account-trigger flex items-center gap-2 text-foreground hover:bg-secondary hover:text-foreground"
               >
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="bg-gradient-primary text-primary-foreground">
@@ -116,6 +131,8 @@ const Header = ({ onAuthenticate, onBeforeNavigate }: HeaderProps) => {
         )}
       </div>
     </header>
+    <ArcadeRules open={rulesOpen} onOpenChange={setRulesOpen} />
+    </>
   );
 };
 
