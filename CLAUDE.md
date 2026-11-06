@@ -94,9 +94,10 @@ or executing runtime. `/ready` remains unavailable while any room recovery
 fails, and the non-overlapping periodic reconciler retries failed or missing
 runtime.
 
-Practice resume commits `pausedAt = null` and a new pause epoch before calling
-the same recovery path for that room. It returns success only after current
-runtime exists. Paused rooms are excluded from recovery. Snapshot reads remain
+Practice resume commits `pausedAt = null` and a new pause epoch, restores bot
+seats, then calls `startRuntimeTurn` directly (not the recovery path) when that
+turn has no runtime, so no deal-presentation delay is added. Paused rooms are
+excluded from recovery. Snapshot reads remain
 side-effect free.
 
 Runtime responsibilities are separate:
@@ -111,8 +112,9 @@ Runtime responsibilities are separate:
 - `eventPublisher.ts`: best-effort Socket.IO publication
 
 Player control survives restarts in `Player.botModel`, `timeoutCount`, and
-`abandonedAt`. Three consecutive human timeouts hand the retained seat to a
-real bot; successful manual moves reset the count atomically. Socket rejoin or
+`abandonedAt`. In multiplayer rooms, three consecutive human timeouts hand the
+retained seat to a real bot; practice rooms never do, because their single human
+must stay the archived player. Successful manual moves reset the count atomically. Socket rejoin or
 `POST /api/rooms/:roomCode/resume-control` reclaims AFK control, never a
 permanently abandoned seat. Multiplayer leave preserves player identity,
 cards, history, and ranking eligibility, but removes the abandoned membership
@@ -157,8 +159,9 @@ npx prisma generate
 npm run db:test:prepare
 ```
 
-`db:test:prepare` is destructive only to the local `becca_test` database and
-refuses non-test mode, non-local hosts, or another database name. Integration
+`db:test:prepare` runs `prisma migrate deploy` with `NODE_ENV=test` against the
+local `becca_test` URL hard-coded in `package.json`; it never targets another
+host or database and does not reset data. Integration
 tests use the shared reset in `tests/helpers/database.ts`.
 
 Practice retirement archives and deletes in one transaction. Runtime state is

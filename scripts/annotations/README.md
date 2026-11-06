@@ -1,5 +1,7 @@
 # Annotation Database Scripts
 
+## Overview
+
 These scripts run the validated backend annotation tooling against an explicit
 environment file. Create it at an unpredictable path without following an
 existing file or symlink, then open the printed path in a trusted editor:
@@ -82,7 +84,8 @@ not delete scenario rows or expert responses, and apply fails if the catalog
 changed after the dry run.
 
 Export pseudonymous, self-contained JSONL to a new mode-`600` file at an
-absolute path outside the checkout:
+absolute path outside `backend/`. The tool rejects only paths inside `backend/`;
+keep exports outside the repository too:
 
 ```sh
 mkdir -p "$HOME/.becca/annotation-exports"
@@ -96,3 +99,60 @@ Export refuses to overwrite an existing path and publishes the file only after
 every row validates. Status and dry-run are database-read-only but update local
 generated build artifacts. Database credentials and export salts never belong
 in the repository or command-line arguments.
+
+## Interface
+
+- `_run.sh <command> [args...]`: builds the backend (`npm run build`) and runs
+  `node dist/scripts/annotationDatabase.js` with the given arguments.
+- `status.sh [args...]`: `_run.sh status`.
+- `import.sh [args...]`: `_run.sh import`.
+- `export.sh [args...]`: `_run.sh export`.
+- `restore-active` has no dedicated wrapper; call `_run.sh restore-active`.
+- Commands and flags are parsed by `parseAnnotationDatabaseArgs` in
+  `src/scripts/annotationDatabaseCli.ts`; full usage is printed by
+  `_run.sh help` (`ANNOTATION_DATABASE_USAGE`). `help` is also selected with no
+  arguments or when `--help` or `-h` appears anywhere.
+
+## Invariants
+
+- Every command except `help` requires `--env-file`; the file must be a
+  regular, non-symlink file with mode `600` or stricter and must define
+  `DATABASE_URL` and `DIRECT_URL` with the same database name; host and port
+  are not compared (`src/scripts/annotationEnvironment.ts:loadEnvironmentFile`).
+- `--apply` requires `--confirm-plan <token>`, and `--confirm-plan` is valid
+  only with `--apply` (`annotationDatabaseCli.ts:parseAnnotationDatabaseArgs`).
+  Apply fails unless the recomputed plan token equals the confirmed token
+  (`src/scripts/annotationDatabase.ts:annotationImportPlanToken`,
+  `annotationRestorePlanToken`).
+- Plan tokens also hash the Node version, backend sources, compiled `dist`
+  files, these shell wrappers, `package.json`, `package-lock.json`,
+  `prisma/schema.prisma`, and `tsconfig.json`, so changing Node or the toolkit
+  between dry run and apply invalidates the token
+  (`annotationDatabase.ts:annotationDatabaseToolSha256`).
+- Import and restore run in a serializable transaction
+  (`src/scripts/importAnnotationScenarios.ts:importLoadedAnnotationBatch`,
+  `restoreActiveAnnotationBatch`).
+- Export requires `--output` to be an absolute path outside `backend/`
+  (`annotationDatabaseCli.ts:parseAnnotationDatabaseArgs`, rechecked after
+  resolving symlinks) and never overwrites an existing file
+  (`src/scripts/atomicAnnotationExport.ts:writeAnnotationExportFile`).
+- Export requires `ANNOTATION_EXPORT_SALT` with at least 16 characters
+  (`annotationDatabase.ts:main`, `src/scripts/exportAnnotations.ts:pseudonymFor`).
+
+## Side Effects
+
+- Runs `npm run build`, rewriting `backend/dist` (with placeholder local
+  database URLs used only for the build step) (`_run.sh`).
+- Reads the env file and connects to the target PostgreSQL database.
+- `import --apply` inserts `AnnotationScenario` rows, active by default, so
+  without `--replace-active` the new batch is active alongside the existing
+  active catalog. With `--replace-active` it also toggles `active` flags.
+  `restore-active --apply` only toggles `active` flags.
+- `export` writes a new mode-`600` JSONL file at `--output`.
+- Writes a database-target line to stderr and a JSON summary to stdout.
+
+## Verification
+
+- Run: `cd backend && npx jest tests/unit/annotationDatabase.test.ts tests/unit/exportAnnotations.test.ts`
+- Run: `cd backend && npx jest tests/integration/annotationDatabase.test.ts tests/integration/annotationImport.test.ts --runInBand`
+  (needs the `becca_test` PostgreSQL database)
