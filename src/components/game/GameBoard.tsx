@@ -11,7 +11,7 @@ import type {
   RoundDealView,
 } from "@/game/model";
 import type { PositionedPlayer } from "@/game/presentation";
-import { useReducedMotion } from "@/v2/hooks/useReducedMotion";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 interface GameBoardProps {
   players: PositionedPlayer[];

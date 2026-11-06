@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import ArcadeHero from "@/components/lobby/ArcadeHero";
 import ArcadeRules from "@/components/lobby/ArcadeRules";
-import { useReducedMotion } from "@/v2/hooks/useReducedMotion";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 import PreviewGameTable from "./PreviewGameTable";
 import "@/styles/arcade.css";
 
