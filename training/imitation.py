@@ -39,8 +39,6 @@ from becca_env.observation import (
 )
 from evaluation.heuristic import HeuristicAgent
 
-ACTION_SIZE = 160
-
 
 @dataclass
 class ImitationDataset:

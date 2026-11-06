@@ -8,9 +8,7 @@ import torch
 
 from becca_env.env import BeccaEnv
 from becca_env.observation import FULL_STATE_SIZE, OBS_SIZE
-from training.network import BeccaNet, BeccaNetV2
-
-ACTION_SIZE = 160
+from training.network import ACTION_SIZE, BeccaNet, BeccaNetV2
 
 
 class RolloutBuffer:

@@ -58,9 +58,6 @@ class PIMCConfig:
     rollout_depth_tricks: int = 10
     """How deep to roll out each (action, world) pair. 10 = full round."""
 
-    discount: float = 1.0
-    """Reward discounting between game steps. 1.0 since game is short."""
-
     rollout_policy: str = "heuristic"
     """Who plays during the rollout phase:
        'net'       — V4 net acts for everyone (uses self-play distribution)

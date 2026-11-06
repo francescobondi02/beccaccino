@@ -4,6 +4,7 @@ imports cheaply from tests and scripts."""
 from __future__ import annotations
 
 import math
+import statistics
 from collections.abc import Sequence
 
 DEFAULT_Z = 1.96  # 95% two-sided normal quantile
@@ -30,8 +31,7 @@ def paired_mean_interval(scores: Sequence[float], z: float = DEFAULT_Z) -> tuple
     mean = sum(scores) / len(scores)
     if len(scores) < 2:
         return (0.0, 1.0)
-    variance = sum((score - mean) ** 2 for score in scores) / (len(scores) - 1)
-    half_width = z * math.sqrt(variance / len(scores))
+    half_width = z * statistics.stdev(scores) / math.sqrt(len(scores))
     return max(0.0, mean - half_width), min(1.0, mean + half_width)
 
 
@@ -49,6 +49,5 @@ def paired_difference_interval(
     mean = sum(differences) / len(differences)
     if len(differences) < 2:
         return (-1.0, 1.0)
-    variance = sum((difference - mean) ** 2 for difference in differences) / (len(differences) - 1)
-    half_width = z * math.sqrt(variance / len(differences))
+    half_width = z * statistics.stdev(differences) / math.sqrt(len(differences))
     return mean - half_width, mean + half_width

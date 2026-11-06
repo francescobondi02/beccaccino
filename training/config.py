@@ -49,7 +49,6 @@ class TrainConfig:
     # Network
     hidden_size: int = 512
     num_layers: int = 3
-    activation: str = "relu"
     use_layer_norm: bool = True
     network_version: int = 2
     # V4 transformer dims (ignored unless network_version == 4)
