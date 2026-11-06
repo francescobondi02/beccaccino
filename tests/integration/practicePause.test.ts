@@ -19,6 +19,7 @@ import {
 import { logger } from "../../src/logger";
 import * as cardQueries from "../../src/services/playableCards";
 import { recoverRoomRuntime } from "../../src/runtime/recovery";
+import { changePlayerControl } from "../../src/services/playerControl";
 import * as turnState from "../../src/game/snapshots/turnState";
 import {
   getSocketInstance,
@@ -562,6 +563,27 @@ describe("Practice pause and resume", () => {
         (call) => call[1] === "bot_fallback_to_autoplay",
       ),
     ).toBe(false);
+  });
+
+  it("keeps the practice human in control after three timeouts, so leaving still retires", async () => {
+    const roomCode = await startPractice();
+    const player = await prisma.player.findFirstOrThrow({
+      where: { gameRoom: { code: roomCode }, userId },
+    });
+    await prisma.player.update({ where: { id: player.id }, data: { timeoutCount: 3 } });
+
+    await changePlayerControl({ roomCode, userId, action: "timeout" });
+    clearRuntimeRoom(roomCode);
+    await recoverRoomRuntime(roomCode);
+    expect(
+      (await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).botModel,
+    ).toBeNull();
+
+    const left = await apiAs(userId, "pause-human")
+      .post(`/api/rooms/${roomCode}/leave`)
+      .send({});
+    expect(left.statusCode).toBe(200);
+    expect(await prisma.gameRoom.findUnique({ where: { code: roomCode } })).toBeNull();
   });
 
   it("discards a human timeout already executing before pause and resume", async () => {

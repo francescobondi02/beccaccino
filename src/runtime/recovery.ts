@@ -55,7 +55,9 @@ export async function recoverRoomRuntimeUnlocked(
   if (!turn) throw new Error("Active room has no current turn");
 
   // Finish a takeover if the process stopped after committing the third timeout.
-  const overdue = room.players.filter((player) => player.botModel === null && player.timeoutCount >= 3);
+  const overdue = room.isPractice
+    ? []
+    : room.players.filter((player) => player.botModel === null && player.timeoutCount >= 3);
   if (overdue.length > 0) {
     const tier = replacementBotTier(room);
     await prisma.player.updateMany({

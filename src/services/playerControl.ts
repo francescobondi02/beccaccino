@@ -33,7 +33,11 @@ export async function changePlayerControlUnlocked(args: PlayerControlChange) {
   if (args.action === "abandon" && room.isPractice) {
     throw new GameError("Use practice abandonment for this room", 400);
   }
-  if (args.action === "timeout" && (player.botModel !== null || player.timeoutCount < 3)) {
+  // Practice has one human: a bot takeover would leave nobody to archive the match as.
+  if (
+    args.action === "timeout" &&
+    (room.isPractice || player.botModel !== null || player.timeoutCount < 3)
+  ) {
     return { success: true };
   }
 
