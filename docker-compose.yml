@@ -1,3 +1,16 @@
+# Local development only (`make dev`). Production uses backend/Dockerfile and ai/Dockerfile.
+# Values marked dev-only are not secrets; override them in an optional root .env.
+name: beccaccino
+
+x-node-env: &node-env
+  NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}
+  # Runs npm ci only when package-lock.json changed. Installs from a lockfile copy that points
+  # at NPM_CONFIG_REGISTRY, because npm drops the path of a mirror URL (e.g. https://host/npm/).
+  NPM_CI: >-
+    test node_modules/.package-lock.json -nt package-lock.json || (mkdir -p /install
+    && cp package.json /install && sed "s|https://registry.npmjs.org/|$${NPM_CONFIG_REGISTRY%/}/|"
+    package-lock.json > /install/package-lock.json && cd /install && npm ci)
+
 services:
   db:
     image: postgres:15
@@ -28,28 +41,36 @@ services:
   backend:
     container_name: becca-backend
     image: node:24-alpine3.21
-    command: sh -c "npm ci && npm run dev"
+    command: >-
+      sh -c 'eval "$$NPM_CI" && npx prisma generate && npx prisma migrate deploy
+      && npx ts-node --transpile-only scripts/seedDevUsers.ts
+      && npx ts-node-dev src/index.ts'
     working_dir: /app
     volumes:
       - ./backend:/app
       - backend_node_modules:/app/node_modules
+      - backend_node_modules:/install/node_modules
     ports:
       - "8000:8000"
-
     depends_on:
       db:
         condition: service_healthy
       bot:
         condition: service_healthy
-
     environment:
-      - NODE_ENV=development
-      - PORT=8000
-      - NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org}
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/becca
-      - DIRECT_URL=postgresql://postgres:postgres@db:5432/becca
-      - BOT_SERVICE_URL=http://bot:8011
-      - BOT_SERVICE_TOKEN=${BOT_SERVICE_TOKEN:-}
+      NODE_ENV: development
+      PORT: 8000
+      <<: *node-env
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/becca
+      DIRECT_URL: postgresql://postgres:postgres@db:5432/becca
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret}
+      BOT_SERVICE_URL: http://bot:8011
+      BOT_SERVICE_TOKEN: ${BOT_SERVICE_TOKEN:-dev-only-bot-token}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 5s
+      start_period: 10m
+      start_interval: 2s
 
   bot:
     build:
@@ -58,7 +79,7 @@ services:
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     command: uvicorn serving.app:app --host 0.0.0.0 --port 8011 --reload
     environment:
-      - BOT_SERVICE_TOKEN=${BOT_SERVICE_TOKEN:-}
+      BOT_SERVICE_TOKEN: ${BOT_SERVICE_TOKEN:-dev-only-bot-token}
     volumes:
       - ./ai/becca_env:/app/becca_env:ro
       - ./ai/serving:/app/serving:ro
@@ -73,18 +94,47 @@ services:
   frontend:
     image: node:24-alpine3.21
     working_dir: /app
-    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
+    command: sh -c 'eval "$$NPM_CI" && npm run dev -- --host 0.0.0.0'
     environment:
-      - NODE_ENV=development
-      - NPM_CONFIG_REGISTRY=${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org}
-      - BACKEND_URL=http://backend:8000
+      NODE_ENV: development
+      <<: *node-env
+      BACKEND_URL: http://backend:8000
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
+      - frontend_node_modules:/install/node_modules
     ports:
       - "8081:8081"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081"]
+      interval: 5s
+      start_period: 10m
+      start_interval: 2s
+
+  mobile:
+    image: node:26-slim
+    working_dir: /app
+    command: sh -c 'eval "$$NPM_CI" && npx expo start --go --lan --port 8082'
+    environment:
+      <<: *node-env
+      # LAN_IP comes from the Makefile, so a phone on the same Wi-Fi reaches Metro and the API.
+      REACT_NATIVE_PACKAGER_HOSTNAME: ${LAN_IP:-localhost}
+      EXPO_PUBLIC_BACKEND_URL: http://${LAN_IP:-localhost}:8000
+    volumes:
+      - ./mobile:/app
+      - ./backend/src/contract:/backend/src/contract:ro # shared types, see tsconfig.json
+      - mobile_node_modules:/app/node_modules
+      - mobile_node_modules:/install/node_modules
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8082/status').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 5s
+      start_period: 10m
+      start_interval: 2s
 
 volumes:
   db_data:
   backend_node_modules:
   frontend_node_modules:
+  mobile_node_modules:

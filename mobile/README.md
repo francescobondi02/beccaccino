@@ -181,15 +181,20 @@ Do not install native build tools or submit cloud builds merely to use Expo Go.
 The app uses production (`https://beccaccino-server.onrender.com`) by default,
 so it shares accounts and data with the website. Native login and live games
 require the native backend support (login, socket token, last trick) to be
-deployed there. To use a local backend instead, copy `.env.example` to
-`.env.local`, set `EXPO_PUBLIC_BACKEND_URL` to its **origin** (without `/api`)
-and restart Metro. Delete `.env.local` to return to production.
+deployed there. `make dev` at the repository root runs Metro in Docker on
+port 8082 against the local backend, with `EXPO_PUBLIC_BACKEND_URL` set to
+`http://<LAN IP>:8000`; see [Develop locally](../README.md#develop-locally).
+That variable wins over any `.env.local`. To run Metro outside Docker against
+a local backend, copy `.env.example` to `.env.local`, set
+`EXPO_PUBLIC_BACKEND_URL` to its **origin** (without `/api`) and restart Metro.
+Delete `.env.local` to return to production.
 
 The local backend listens on port 8000. On a physical phone with Expo Go,
 `EXPO_PUBLIC_BACKEND_URL` must use the laptop's LAN IP (for example
 `http://192.168.x.y:8000`), not `localhost`: on the phone, `localhost` means the
 phone. Accounts live in the backend's database, so a production-site account
-does not exist on a local backend; register a new one in the app.
+does not exist on a local backend; use a seeded account (`alice`, password
+`password`) or register a new one in the app.
 
 For Android Emulator, the host machine is normally `10.0.2.2`; iOS Simulator can reach the Mac's localhost.
 Use HTTPS on devices; native transport policies may reject local HTTP. Release
@@ -224,13 +229,10 @@ Socket.IO accepts native `auth.token` as well as existing browser cookies.
 Explicit invalid native tokens never fall back to cookies. Profile editing and account deletion are outside
 this first integration slice. Expo authentication is not game authentication.
 
-For an optional local phone preview, run a backend yourself (port 8000) and set
-`EXPO_PUBLIC_BACKEND_URL` in `.env.local` to its LAN origin, as above. Use a separate
-development database, not the website's local DB or the public service.
-Only integration tests may reset the guarded `localhost/becca_test` database.
-Use test credentials on local HTTP. If that backend's signing key changes (for example a
-generated key on restart), saved preview sessions become invalid. Remove `.env.local` before
-exporting a release so it targets the HTTPS production origin. Never disable native transport security.
+The local backend is a development database only. Only integration tests may
+reset the guarded `localhost/becca_test` database. Remove `.env.local` before
+exporting a release so it targets the HTTPS production origin. Never disable
+native transport security.
 
 ## Architecture and platform rules
 

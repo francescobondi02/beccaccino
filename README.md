@@ -14,34 +14,54 @@ The repository is a monorepo without npm workspaces. All four modules (`ai`,
 - `ai` provides the Python game engine used for training and the FastAPI bot
   service that the backend calls for bot moves.
 
-## Local Interface & Invariants
+## Develop locally
 
-The root folder contains local development tooling only.
+The host needs only Docker and make. Everything else, including Node, Python
+and Expo Metro, runs in containers with hot reload. Dependencies live in named
+volumes, never in host `node_modules`.
 
-- `setup.sh`: starts the `db` service with `docker compose --env-file backend/.env up db -d --wait`,
-  installs backend dependencies, runs `npx prisma generate` and
-  `npx prisma migrate deploy` on `becca`, pushes the schema to `becca_test` with
-  `npx prisma db push --skip-generate`, then installs frontend dependencies.
-  - Invariant: it exports `NODE_ENV=development` and a localhost `DATABASE_URL`
-    and `DIRECT_URL` first, so an inherited production URL never reaches the
-    migrations.
-- `cleanup.sh`: runs `docker compose down -v` (removes containers and the
-  database volume), then deletes `backend/node_modules`,
-  `frontend/node_modules` and `mobile/node_modules`.
-- `setup.sh` prepares only `backend` and `frontend`. It does not install
-  `mobile/` (see [mobile/README.md](./mobile/README.md)) or the Python `ai/`
-  environment (see [ai/README.md](./ai/README.md)).
-- The `backend` compose service does not set `JWT_SECRET`; the backend loads it
-  from the mounted `backend/.env` through `process.loadEnvFile()`
-  (`backend/src/index.ts`), and exits at startup when it is missing.
-- `init-db.sql`: `CREATE DATABASE becca;` and `CREATE DATABASE becca_test;`.
-  `docker-compose.yml` mounts it into `/docker-entrypoint-initdb.d/`, so it runs
-  only when the `db_data` volume is first created.
-- `docker-compose.yml`: services `db` (postgres:15, port 5432), `adminer`
-  (port 8080), `backend` (port 8000, waits for healthy `db` and `bot`), `bot`
-  (`uvicorn serving.app:app`, bound to `127.0.0.1:8011`), and `frontend`
-  (port 8081).
-- `Makefile`: `make dev` and `make stop` run `docker compose --env-file backend/.env` up/down.
+```sh
+make dev     # build and start everything, then print the URLs and the Expo QR code
+make logs    # follow the logs
+make test    # backend unit + integration (becca_test), frontend Vitest, mobile check
+make stop    # stop, keep data
+make reset   # delete the database and dependency volumes, then start fresh
+make qr      # print the Expo Go URL and QR code again
+```
+
+`make dev` runs detached and returns once every service is healthy, so the
+terminal stays free and the URLs are printed at the end.
+
+| Service | URL |
+| --- | --- |
+| Web | http://localhost:8081 |
+| API | http://localhost:8000 (also `http://<LAN IP>:8000`) |
+| Expo Metro | `exp://<LAN IP>:8082` |
+| Bot | http://localhost:8011/health |
+| Adminer | http://localhost:8080 (server `db`, user and password `postgres`) |
+| PostgreSQL | localhost:5432, databases `becca` and `becca_test` |
+
+- Accounts: the backend seeds `alice`, `bob`, `carol` and `dave`, all with the
+  password `password`, on every start
+  (`backend/scripts/seedDevUsers.ts`). The seed skips existing users and
+  refuses to run unless `NODE_ENV=development` and the database host is local.
+  It is not part of the production image or start command.
+- Phone: install Expo Go, join the same Wi-Fi as the Mac and scan the QR code
+  printed by `make dev` or `make qr`. The Makefile reads the Mac's LAN IP
+  (`ipconfig getifaddr en0`, then `en1`) and passes it to Metro
+  (`REACT_NATIVE_PACKAGER_HOSTNAME`) and to the app
+  (`EXPO_PUBLIC_BACKEND_URL=http://<LAN IP>:8000`). Override it with
+  `make dev LAN_IP=192.168.1.20`.
+- Configuration: no `.env` is required. `docker-compose.yml` sets dev-only,
+  non-secret defaults for `JWT_SECRET` and `BOT_SERVICE_TOKEN`. An optional root
+  `.env` can override them, and can set `NPM_CONFIG_REGISTRY` and
+  `PIP_INDEX_URL` to an approved mirror on restricted networks. An optional
+  `backend/.env` can still set other backend variables such as `GAME_WIN_POINTS`.
+- Migrations run on every backend start for `becca`; `make test` migrates
+  `becca_test` itself. `init-db.sql` creates both databases when the `db_data`
+  volume is first created.
+- The Python training environment in `ai/` is separate; see
+  [ai/README.md](./ai/README.md).
 
 ## Subdirectories & System Boundaries
 
@@ -98,7 +118,7 @@ The root folder contains local development tooling only.
   (`docker-compose.yml` sets `http://bot:8011`).
 - Production: backend on Render (`https://beccaccino-server.onrender.com`, the
   default origin of `mobile/src/lib/backend.ts`), web frontend on Vercel.
-- `cleanup.sh` deletes the local database volume (`docker compose down -v`).
+- `make reset` deletes the local database volume.
 - CI: `.github/workflows/<module>.yml`, path-filtered.
 
 ## Operator Documents
@@ -109,10 +129,5 @@ The root folder contains local development tooling only.
 
 ## System Verification
 
-There is no root test target. Run each module's suite:
-
-- Run: `cd backend && npm run test:unit` (no database), and
-  `cd backend && npm run test:integration` (needs Docker Postgres with `becca_test`).
-- Run: `cd frontend && npm test`
-- Run: `cd mobile && npm run check` (typecheck, lint and Jest)
+- Run: `make test` (backend, frontend and mobile, inside the containers)
 - Run: `cd ai && pytest`
