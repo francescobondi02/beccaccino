@@ -14,6 +14,7 @@ import {
   CreatedServer,
 } from "../../src/server";
 import { clearDatabase } from "../helpers/database";
+import { authCookie } from "../helpers/serverHarness";
 import { getTurnTimerState } from "../../src/runtime/turnTimer";
 import { changePlayerControl } from "../../src/services/playerControl";
 
@@ -29,11 +30,11 @@ let serverUrl: string;
 /** All client sockets created during a test — cleaned up in afterEach */
 let clients: ClientSocket[] = [];
 
-function createClient(opts: Record<string, unknown> = {}): ClientSocket {
+function createClient(user: TestUser): ClientSocket {
   const client = ioc(serverUrl, {
     transports: ["websocket"],
     forceNew: true,
-    ...opts,
+    extraHeaders: { cookie: authCookie(user.id, user.username) },
   });
   clients.push(client);
   return client;
@@ -90,14 +91,9 @@ interface JoinRoomResult {
 function joinSocketRoom(
   socket: ClientSocket,
   roomCode: string,
-  user: TestUser,
 ): Promise<JoinRoomResult> {
   return new Promise((resolve) => {
-    socket.emit(
-      "join_room",
-      { roomCode, userId: user.id, username: user.username },
-      resolve,
-    );
+    socket.emit("join_room", { roomCode }, resolve);
   });
 }
 
@@ -106,10 +102,7 @@ function joinSocketRoom(
 // ---------------------------------------------------------------------------
 
 beforeAll((done) => {
-  runtime = createServer({
-    allowTestAuthBypass: true,
-    corsOrigin: "*",
-  });
+  runtime = createServer();
   httpServer = runtime.httpServer;
   ioServer = runtime.io;
 
@@ -146,10 +139,7 @@ interface TestUser {
 }
 
 function authHeaders(user: TestUser) {
-  return {
-    "x-test-user-id": String(user.id),
-    "x-test-username": user.username,
-  };
+  return { Cookie: authCookie(user.id, user.username) };
 }
 
 /** Create a user via REST and return their id + username */
@@ -225,10 +215,10 @@ describe("Socket.IO real WebSocket integration", () => {
     it("acknowledges only after the socket has joined the room", async () => {
       const user = await createUser("Alice");
       const roomCode = await createRoom(user);
-      const client = createClient();
+      const client = createClient(user);
       await waitForConnect(client);
 
-      await expect(joinSocketRoom(client, roomCode, user)).resolves.toEqual({
+      await expect(joinSocketRoom(client, roomCode)).resolves.toEqual({
         ok: true,
       });
       expect(
@@ -242,11 +232,11 @@ describe("Socket.IO real WebSocket integration", () => {
       const roomCode = await createRoom(u1);
       await joinRoom(roomCode, u2);
 
-      const client1 = createClient();
+      const client1 = createClient(u1);
       await waitForConnect(client1);
-      await joinSocketRoom(client1, roomCode, u1);
+      await joinSocketRoom(client1, roomCode);
 
-      const client2 = createClient();
+      const client2 = createClient(u2);
       await waitForConnect(client2);
 
       const playerJoinedPromise = waitForEvent<{
@@ -263,7 +253,7 @@ describe("Socket.IO real WebSocket integration", () => {
         "player_joined"
       );
 
-      client2.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
+      client2.emit("join_room", { roomCode });
 
       const event = await playerJoinedPromise;
       expect(event.player).toEqual({
@@ -282,24 +272,24 @@ describe("Socket.IO real WebSocket integration", () => {
       const roomCode = await createRoom(observer);
       await joinRoom(roomCode, returningUser);
 
-      const observerClient = createClient();
-      const primaryClient = createClient();
-      const secondTabClient = createClient();
+      const observerClient = createClient(observer);
+      const primaryClient = createClient(returningUser);
+      const secondTabClient = createClient(returningUser);
       await Promise.all([
         waitForConnect(observerClient),
         waitForConnect(primaryClient),
         waitForConnect(secondTabClient),
       ]);
-      await joinSocketRoom(observerClient, roomCode, observer);
+      await joinSocketRoom(observerClient, roomCode);
 
       let joinedEvents = 0;
       observerClient.on("player_joined", ({ player }) => {
         if (player.userId === returningUser.id) joinedEvents += 1;
       });
 
-      await joinSocketRoom(primaryClient, roomCode, returningUser);
-      await joinSocketRoom(primaryClient, roomCode, returningUser);
-      await joinSocketRoom(secondTabClient, roomCode, returningUser);
+      await joinSocketRoom(primaryClient, roomCode);
+      await joinSocketRoom(primaryClient, roomCode);
+      await joinSocketRoom(secondTabClient, roomCode);
       await delay(100);
 
       expect(joinedEvents).toBe(1);
@@ -321,14 +311,14 @@ describe("Socket.IO real WebSocket integration", () => {
         },
       });
 
-      const client = createClient();
+      const client = createClient(switchingUser);
       await waitForConnect(client);
-      await joinSocketRoom(client, firstRoomCode, switchingUser);
+      await joinSocketRoom(client, firstRoomCode);
       expect(
         ioServer.sockets.adapter.rooms.get(firstRoomCode)?.has(client.id!),
       ).toBe(true);
 
-      await joinSocketRoom(client, secondRoomCode, switchingUser);
+      await joinSocketRoom(client, secondRoomCode);
 
       expect(
         ioServer.sockets.adapter.rooms.get(firstRoomCode)?.has(client.id!),
@@ -341,11 +331,11 @@ describe("Socket.IO real WebSocket integration", () => {
     it("should emit error if room does not exist", async () => {
       const u = await createUser("Charlie");
 
-      const client = createClient();
+      const client = createClient(u);
       await waitForConnect(client);
 
       const errorPromise = waitForEvent<{ message: string }>(client, "error");
-      client.emit("join_room", { roomCode: "NONEXIST", userId: u.id, username: u.username });
+      client.emit("join_room", { roomCode: "NONEXIST" });
 
       const err = await errorPromise;
       expect(err.message).toBe("Room not found");
@@ -357,11 +347,11 @@ describe("Socket.IO real WebSocket integration", () => {
       const roomCode = await createRoom(u1);
       // u2 has NOT joined via REST
 
-      const client = createClient();
+      const client = createClient(u2);
       await waitForConnect(client);
 
       const errorPromise = waitForEvent<{ message: string }>(client, "error");
-      client.emit("join_room", { roomCode, userId: u2.id, username: u2.username });
+      client.emit("join_room", { roomCode });
 
       const err = await errorPromise;
       expect(err.message).toBe("You are not in this room");
@@ -372,7 +362,7 @@ describe("Socket.IO real WebSocket integration", () => {
     it("rejects missing or non-object payloads without crashing", async () => {
       const user = await createUser("Alice");
       const roomCode = await createRoom(user);
-      const client = createClient();
+      const client = createClient(user);
       await waitForConnect(client);
 
       client.emit("leave_room");
@@ -382,7 +372,7 @@ describe("Socket.IO real WebSocket integration", () => {
       await expect(
         new Promise((resolve) => client.emit("join_room", null, resolve)),
       ).resolves.toEqual({ ok: false, error: "Invalid payload" });
-      await expect(joinSocketRoom(client, roomCode, user)).resolves.toEqual({
+      await expect(joinSocketRoom(client, roomCode)).resolves.toEqual({
         ok: true,
       });
     });
@@ -398,16 +388,16 @@ describe("Socket.IO real WebSocket integration", () => {
       const roomCode = await createRoom(u1);
       await joinRoom(roomCode, u2);
 
-      const client1 = createClient();
-      const client2 = createClient();
+      const client1 = createClient(u1);
+      const client2 = createClient(u2);
       await Promise.all([
         waitForConnect(client1),
         waitForConnect(client2),
       ]);
 
       await Promise.all([
-        joinSocketRoom(client1, roomCode, u1),
-        joinSocketRoom(client2, roomCode, u2),
+        joinSocketRoom(client1, roomCode),
+        joinSocketRoom(client2, roomCode),
       ]);
 
       // Client1 leaves
@@ -441,13 +431,13 @@ describe("Socket.IO real WebSocket integration", () => {
       const roomCode = await createRoom(u1);
       await joinRoom(roomCode, u2);
 
-      const client1 = createClient();
-      const client2 = createClient();
+      const client1 = createClient(u1);
+      const client2 = createClient(u2);
       await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
 
       await Promise.all([
-        joinSocketRoom(client1, roomCode, u1),
-        joinSocketRoom(client2, roomCode, u2),
+        joinSocketRoom(client1, roomCode),
+        joinSocketRoom(client2, roomCode),
       ]);
 
       const chatPromise1 = waitForEvent<{
@@ -474,9 +464,9 @@ describe("Socket.IO real WebSocket integration", () => {
     });
 
     it("should emit error if user has not joined a room", async () => {
-      await createUser("Alice");
+      const user = await createUser("Alice");
 
-      const client = createClient();
+      const client = createClient(user);
       await waitForConnect(client);
 
       const errorPromise = waitForEvent<{ message: string }>(client, "error");
@@ -495,9 +485,9 @@ describe("Socket.IO real WebSocket integration", () => {
       const u1 = await createUser("Spammer");
       const roomCode = await createRoom(u1);
 
-      const client = createClient();
+      const client = createClient(u1);
       await waitForConnect(client);
-      await joinSocketRoom(client, roomCode, u1);
+      await joinSocketRoom(client, roomCode);
 
       // Send 5 messages rapidly (all should succeed)
       for (let i = 0; i < 5; i++) {
@@ -516,9 +506,9 @@ describe("Socket.IO real WebSocket integration", () => {
       const u1 = await createUser("Chatter");
       const roomCode = await createRoom(u1);
 
-      const client = createClient();
+      const client = createClient(u1);
       await waitForConnect(client);
-      await joinSocketRoom(client, roomCode, u1);
+      await joinSocketRoom(client, roomCode);
 
       // Send 5 messages to hit the limit
       for (let i = 0; i < 5; i++) {
@@ -545,16 +535,16 @@ describe("Socket.IO real WebSocket integration", () => {
     it("preserves seat, team, hand, and the running deadline across an ordinary disconnect", async () => {
       const { roomCode, users } = await createStartedGame();
       const user = users[0];
-      const client = createClient();
+      const client = createClient(user);
       await waitForConnect(client);
-      await joinSocketRoom(client, roomCode, user);
+      await joinSocketRoom(client, roomCode);
       const before = await request(httpServer).get(`/api/games/${roomCode}/state`).set(authHeaders(user));
       const player = await prisma.player.findFirstOrThrow({ where: { userId: user.id, gameRoom: { code: roomCode } } });
       const timer = getTurnTimerState(roomCode)!;
       client.disconnect();
-      const returning = createClient();
+      const returning = createClient(user);
       await waitForConnect(returning);
-      expect(await joinSocketRoom(returning, roomCode, user)).toEqual({ ok: true });
+      expect(await joinSocketRoom(returning, roomCode)).toEqual({ ok: true });
       const after = await request(httpServer).get(`/api/games/${roomCode}/state`).set(authHeaders(user));
       expect(after.body.myCards).toEqual(before.body.myCards);
       expect(after.body.round.id).toBe(before.body.round.id);
@@ -574,9 +564,9 @@ describe("Socket.IO real WebSocket integration", () => {
         await prisma.player.update({ where: { id: player.id }, data: { timeoutCount: 3 } });
         await changePlayerControl({ roomCode, userId: user.id, action: "timeout" });
         expect(getTurnTimerState(roomCode)?.isBot).toBe(true);
-        const client = createClient();
+        const client = createClient(user);
         await waitForConnect(client);
-        expect(await joinSocketRoom(client, roomCode, user)).toEqual({ ok: true });
+        expect(await joinSocketRoom(client, roomCode)).toEqual({ ok: true });
         expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
           botModel: null, abandonedAt: null, timeoutCount: 0,
         });
@@ -585,9 +575,9 @@ describe("Socket.IO real WebSocket integration", () => {
         const left = await request(httpServer).post(`/api/rooms/${roomCode}/leave`).set(authHeaders(user)).send({});
         expect(left.statusCode).toBe(200);
         client.disconnect();
-        const abandoned = createClient();
+        const abandoned = createClient(user);
         await waitForConnect(abandoned);
-        expect(await joinSocketRoom(abandoned, roomCode, user)).toEqual({
+        expect(await joinSocketRoom(abandoned, roomCode)).toEqual({
           ok: false, error: "Hai abbandonato questa partita",
         });
         expect(ioServer.sockets.adapter.rooms.get(roomCode)?.has(abandoned.id!)).not.toBe(true);
@@ -604,13 +594,13 @@ describe("Socket.IO real WebSocket integration", () => {
       const roomCode = await createRoom(u1);
       await joinRoom(roomCode, u2);
 
-      const client1 = createClient();
-      const client2 = createClient();
+      const client1 = createClient(u1);
+      const client2 = createClient(u2);
       await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
 
       await Promise.all([
-        joinSocketRoom(client1, roomCode, u1),
-        joinSocketRoom(client2, roomCode, u2),
+        joinSocketRoom(client1, roomCode),
+        joinSocketRoom(client2, roomCode),
       ]);
 
       const disconnectPromise = waitForEvent<{ userId: number; username: string }>(
@@ -632,17 +622,17 @@ describe("Socket.IO real WebSocket integration", () => {
       const roomCode = await createRoom(observer);
       await joinRoom(roomCode, connectedUser);
 
-      const observerClient = createClient();
-      const primaryClient = createClient();
-      const secondTabClient = createClient();
+      const observerClient = createClient(observer);
+      const primaryClient = createClient(connectedUser);
+      const secondTabClient = createClient(connectedUser);
       await Promise.all([
         waitForConnect(observerClient),
         waitForConnect(primaryClient),
         waitForConnect(secondTabClient),
       ]);
-      await joinSocketRoom(observerClient, roomCode, observer);
-      await joinSocketRoom(primaryClient, roomCode, connectedUser);
-      await joinSocketRoom(secondTabClient, roomCode, connectedUser);
+      await joinSocketRoom(observerClient, roomCode);
+      await joinSocketRoom(primaryClient, roomCode);
+      await joinSocketRoom(secondTabClient, roomCode);
 
       let disconnectedEvents = 0;
       observerClient.on("player_disconnected", () => {
@@ -672,12 +662,12 @@ describe("Socket.IO real WebSocket integration", () => {
       const roomCode = await createRoom(u1);
       await joinRoom(roomCode, u2);
 
-      const client1 = createClient();
-      const client2 = createClient();
+      const client1 = createClient(u1);
+      const client2 = createClient(u2);
       await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
 
       // Only client1 joins the socket room
-      await joinSocketRoom(client1, roomCode, u1);
+      await joinSocketRoom(client1, roomCode);
 
       let received = false;
       client1.once("player_disconnected", () => {
@@ -699,11 +689,11 @@ describe("Socket.IO real WebSocket integration", () => {
     it("should receive room_created events while in lobby", async () => {
       const u1 = await createUser("Alice");
 
-      const client1 = createClient();
+      const client1 = createClient(u1);
       await waitForConnect(client1);
 
       // Join the lobby
-      client1.emit("join_lobby", { userId: u1.id });
+      client1.emit("join_lobby");
       await delay(100);
 
       // Now another user creates a room — if the server emits room_created to lobby
@@ -724,10 +714,10 @@ describe("Socket.IO real WebSocket integration", () => {
     it("should NOT receive lobby events after leaving lobby", async () => {
       const u1 = await createUser("Alice");
 
-      const client1 = createClient();
+      const client1 = createClient(u1);
       await waitForConnect(client1);
 
-      client1.emit("join_lobby", { userId: u1.id });
+      client1.emit("join_lobby");
       await delay(100);
 
       // Leave the lobby
@@ -749,12 +739,12 @@ describe("Socket.IO real WebSocket integration", () => {
       const u1 = await createUser("Alice");
       const u2 = await createUser("Bob");
 
-      const client1 = createClient();
-      const client2 = createClient();
+      const client1 = createClient(u1);
+      const client2 = createClient(u2);
       await Promise.all([waitForConnect(client1), waitForConnect(client2)]);
 
-      client1.emit("join_lobby", { userId: u1.id });
-      client2.emit("join_lobby", { userId: u2.id });
+      client1.emit("join_lobby");
+      client2.emit("join_lobby");
       await delay(100);
 
       const promise1 = waitForEvent<{ code: string }>(client1, "room_created");

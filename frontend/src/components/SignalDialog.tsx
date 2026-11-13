@@ -7,13 +7,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import type { Signal } from "@/game/model";
-import { X } from "lucide-react";
 
 interface SignalDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (signal: Signal | null) => void;
-  inline?: boolean;
   disabled?: boolean;
 }
 
@@ -39,25 +37,11 @@ const signals = [
   },
 ];
 
-const SignalDialog = ({ open, onOpenChange, onSelect, inline = false, disabled = false }: SignalDialogProps) => {
-  if (inline) {
-    return open ? (
-      <footer className="mobile-lab-actions">
-        <div className="mobile-lab-signals" role="group" aria-label="Segnale da dichiarare">
-          <button className="mobile-lab-primary" disabled={disabled} onClick={() => onSelect(null)} data-testid="signal-button-none">Niente, gioca</button>
-          {signals.map((signal) => (
-            <button key={signal.value} disabled={disabled} onClick={() => onSelect(signal.value)} title={signal.description} data-testid={`signal-button-${signal.value}`}>{signal.label}</button>
-          ))}
-          <button className="mobile-lab-icon" disabled={disabled} aria-label="Annulla selezione" onClick={() => onOpenChange(false)}><X size={18} /></button>
-        </div>
-      </footer>
-    ) : null;
-  }
-
+const SignalDialog = ({ open, onOpenChange, onSelect, disabled = false }: SignalDialogProps) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
       <DialogContent
-        className="arcade-signal-dialog sm:max-w-sm border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl"
+        className="max-w-sm border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >

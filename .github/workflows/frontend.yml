@@ -38,4 +38,4 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - run: npm run build # no VITE_ vars needed: they are optional at build time (verified)
+      - run: npm run build

@@ -8,12 +8,9 @@ import {
   authTokenFromCookieHeader,
   verifyActiveSession,
 } from "./auth/activeSession";
-import { isTestAuthBypassEnabled } from "./auth/testAuthBypass";
 
 export type CreateServerOptions = {
-  allowTestAuthBypass?: boolean;
-  corsOrigin?: string;
-  maxSocketsPerIp?: number;
+  maxSocketsPerUser?: number;
 };
 
 export type CreatedServer = {
@@ -23,28 +20,16 @@ export type CreatedServer = {
 };
 
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
-  const corsOrigin = options.corsOrigin ?? process.env.FRONTEND_URL;
-  const allowTestAuthBypass = isTestAuthBypassEnabled(
-    options.allowTestAuthBypass,
-  );
-  const maxSocketsPerIp =
-    options.maxSocketsPerIp ??
-    parseInt(process.env.MAX_SOCKETS_PER_IP || "10", 10);
+  const maxSocketsPerUser = options.maxSocketsPerUser ?? 10;
 
   const httpServer = http.createServer(app);
   const io = new Server(httpServer, {
-    cors: {
-      origin: corsOrigin,
-      credentials: true,
-    },
     path: "/socket.io/",
     maxHttpBufferSize: 10_240,
   });
   setSocketInstance(io);
 
   io.use(async (socket, next) => {
-    if (allowTestAuthBypass) return next();
-
     const nativeToken: unknown = socket.handshake.auth?.token;
     const token = nativeToken === undefined
       ? authTokenFromCookieHeader(socket.handshake.headers.cookie)
@@ -67,26 +52,24 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
   });
 
   // Keyed by the verified account: forwarded IPs are spoofable, and website
-  // sockets share the Vercel proxy's egress IP. The raw address is only used
-  // when the test bypass leaves the socket unauthenticated.
-  const connectionCounts = new Map<string, number>();
+  // sockets share the Vercel proxy's egress IP.
+  const connectionCounts = new Map<number, number>();
   io.use((socket, next) => {
-    const userId = socket.data.user?.userId;
-    const key = userId ? `user:${userId}` : socket.handshake.address;
-    const current = connectionCounts.get(key) ?? 0;
-    if (current >= maxSocketsPerIp) {
-      logger.warn({ key, current }, "socket_connection_limit_exceeded");
+    const { userId } = socket.data.user;
+    const current = connectionCounts.get(userId) ?? 0;
+    if (current >= maxSocketsPerUser) {
+      logger.warn({ userId, current }, "socket_connection_limit_exceeded");
       return next(new Error("Too many connections"));
     }
 
-    connectionCounts.set(key, current + 1);
+    connectionCounts.set(userId, current + 1);
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
-      const remaining = (connectionCounts.get(key) ?? 1) - 1;
-      if (remaining <= 0) connectionCounts.delete(key);
-      else connectionCounts.set(key, remaining);
+      const remaining = (connectionCounts.get(userId) ?? 1) - 1;
+      if (remaining <= 0) connectionCounts.delete(userId);
+      else connectionCounts.set(userId, remaining);
     };
     socket.on("disconnect", release);
     socket.conn.once("close", release);
@@ -97,8 +80,8 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
     logger.info(
       {
         socketId: socket.id,
-        userId: socket.data.user?.userId,
-        username: socket.data.user?.username,
+        userId: socket.data.user.userId,
+        username: socket.data.user.username,
       },
       "socket_connected",
     );

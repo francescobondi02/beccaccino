@@ -16,13 +16,18 @@ import {
   getLeaderboard,
 } from "../controllers/statisticsController";
 import { authenticateToken } from "../middleware/auth";
-import { authRateLimiter, generalRateLimiter } from "../middleware/rateLimiter";
+import {
+  generalRateLimiter,
+  loginIpRateLimiter,
+  loginRateLimiter,
+  registerRateLimiter,
+} from "../middleware/rateLimiter";
 
 const router = Router();
 
-router.post("/register", authRateLimiter, register);
-router.post("/login", authRateLimiter, login);
-router.post("/native/login", authRateLimiter, nativeLogin);
+router.post("/register", registerRateLimiter, register);
+router.post("/login", loginIpRateLimiter, loginRateLimiter, login);
+router.post("/native/login", loginIpRateLimiter, loginRateLimiter, nativeLogin);
 router.post("/logout", logout); // Always clears the cookie, even for a dead session
 router.get("/me", authenticateToken, getCurrentUser);
 router.get("/me/stats", authenticateToken, getUserStats);

@@ -22,7 +22,7 @@ export default function WaitingRoomPlayers({
   currentUserId,
 }: WaitingRoomPlayersProps) {
   return (
-    <div className="arcade-waiting-players grid grid-cols-1 gap-4 mb-8 md:grid-cols-2">
+    <div className="grid grid-cols-2 gap-4 mb-8">
       {players.map((slot, index) => {
         const bot = slot && "isBotPlaceholder" in slot ? slot : null;
         const player = slot && !("isBotPlaceholder" in slot) ? slot : null;
@@ -30,7 +30,7 @@ export default function WaitingRoomPlayers({
         return (
           <Card
             key={player?.id ?? `empty-${index}`}
-            className={`arcade-waiting-player circolo-surface transition-[transform,border-color,box-shadow] duration-200 ${
+            className={`circolo-surface transition-[transform,border-color,box-shadow] duration-200 ${
               player
                 ? "hover:border-accent/70 hover:-translate-y-0.5"
                 : "opacity-50"
@@ -40,7 +40,7 @@ export default function WaitingRoomPlayers({
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div
-                    className={`arcade-waiting-avatar w-12 h-12 shrink-0 rounded-full flex items-center justify-center font-bold text-lg ${
+                    className={`w-12 h-12 shrink-0 rounded-full flex items-center justify-center font-bold text-lg ${
                       player
                         ? "bg-gradient-primary text-primary-foreground"
                         : "bg-secondary text-muted-foreground"
@@ -104,7 +104,7 @@ export default function WaitingRoomPlayers({
 
                 {player && (
                   <div
-                    className={`arcade-waiting-status w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-colors ${
+                    className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center transition-colors ${
                       player.isReady
                         ? "bg-accent/20 text-accent"
                         : "bg-muted text-muted-foreground"

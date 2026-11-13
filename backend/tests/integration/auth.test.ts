@@ -86,14 +86,14 @@ describe("Auth Lifecycle", () => {
       expect(res.body.password).toBeUndefined();
     });
 
-    it("sets auth cookie on login", async () => {
+    it("sets a same-site auth cookie on login", async () => {
       const res = await request(getServer())
         .post("/api/users/login")
         .send(credentials);
 
       const cookies = res.headers["set-cookie"];
       expect(cookies).toBeDefined();
-      expect(cookies[0]).toContain("authToken");
+      expect(cookies[0]).toMatch(/^authToken=.*HttpOnly.*SameSite=Lax/);
     });
 
     it("rejects login with wrong password", async () => {
@@ -169,14 +169,13 @@ describe("Auth Lifecycle", () => {
       });
 
       it.each(["Basic invalid", "Bearer", "Bearer invalid.token.value"])(
-        "does not let invalid explicit authorization fall through to a cookie or test identity: %s",
+        "does not let invalid explicit authorization fall through to a cookie: %s",
         async (authorization) => {
           const browser = await request(getServer()).post("/api/users/login").send(credentials);
           const response = await request(getServer())
             .get("/api/users/me")
             .set("Cookie", browser.headers["set-cookie"][0].split(";")[0])
-            .set("Authorization", authorization)
-            .set("x-test-user-id", String(browser.body.id));
+            .set("Authorization", authorization);
           expect(response.statusCode).toBe(401);
         },
       );
@@ -216,37 +215,6 @@ describe("Auth Lifecycle", () => {
 
       expect(res.statusCode).toBe(401);
       expect(res.body).toEqual({ error: "Invalid or expired token" });
-    });
-  });
-
-  describe("Cross-site cookie requests", () => {
-    const frontendUrl = process.env.FRONTEND_URL;
-    beforeAll(() => {
-      process.env.FRONTEND_URL = "https://becca.example";
-    });
-    afterAll(() => {
-      process.env.FRONTEND_URL = frontendUrl;
-    });
-
-    const leave = (headers: Record<string, string>) =>
-      request(getServer()).post("/api/rooms/NOROOM/leave").set(headers);
-
-    it("rejects cookie mutations from a foreign origin but not same-origin, allowed or bearer ones", async () => {
-      const browser = await request(getServer()).post("/api/users/register").send(credentials);
-      const Cookie = browser.headers["set-cookie"][0].split(";")[0];
-      const native = await request(getServer()).post("/api/users/native/login").send(credentials);
-      const evil = "https://evil.example";
-
-      expect((await leave({ Cookie, Origin: evil })).statusCode).toBe(403);
-      expect((await leave({ Cookie, Origin: "https://becca.example" })).statusCode).toBe(404);
-      expect((await leave({ Cookie })).statusCode).toBe(404);
-      expect(
-        (await leave({ Cookie, Origin: "https://preview.example", "Sec-Fetch-Site": "same-origin" }))
-          .statusCode,
-      ).toBe(404);
-      expect(
-        (await leave({ Origin: evil, Authorization: `Bearer ${native.body.token}` })).statusCode,
-      ).toBe(404);
     });
   });
 

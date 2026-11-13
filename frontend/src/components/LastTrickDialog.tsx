@@ -26,7 +26,7 @@ const LastTrickDialog = ({
 }: LastTrickDialogProps) => {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold text-center">
             Ultima presa
@@ -37,7 +37,7 @@ const LastTrickDialog = ({
         </DialogHeader>
 
         {lastHand.length > 0 ? (
-          <div className="grid grid-cols-2 gap-4 mt-4 justify-items-center sm:grid-cols-4">
+          <div className="grid grid-cols-4 gap-4 mt-4 justify-items-center">
             {lastHand.map((card, idx) => {
               const player = players.find((p) => p.userId === card.userId);
               const playerName =

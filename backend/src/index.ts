@@ -23,11 +23,6 @@ for (const key of REQUIRED_ENV) {
   }
 }
 
-if (!process.env.FRONTEND_URL) {
-  logger.fatal("FRONTEND_URL is required");
-  process.exit(1);
-}
-
 const { httpServer, close } = createServer();
 const port = process.env.PORT ? Number(process.env.PORT) : 8000;
 

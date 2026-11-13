@@ -5,25 +5,9 @@
 - **Node.js** 24+ (matches CI)
 - Backend running at `http://localhost:8000` (`docker compose up -d` from the project root, or `docker compose up -d db adminer` plus `cd backend && npm run dev`)
 
-## Environment Setup
+## Backend Origin
 
-```sh
-cp .env.example .env
-```
-
-This gives you:
-```env
-VITE_API_URL=http://localhost:8000/api
-VITE_SOCKET_URL=http://localhost:8000
-```
-
-> **Important:** Vite only exposes variables prefixed with `VITE_` to the client code.
-
-In development the browser always calls `/api` and `/socket.io/` on the Vite
-server, which proxies both to the origin of `VITE_SOCKET_URL` (falling back to
-`VITE_API_URL`, then `http://localhost:8000`). Only production builds read
-`VITE_API_URL` as the REST base (default `/api`); production sockets always use
-the page origin.
+See [README.md](./README.md#environment-variables) for the same-origin `/api` proxy and `BACKEND_URL`.
 
 ## Starting the Frontend
 
@@ -42,28 +26,25 @@ frontend/
 ├── api/socket-proxy.ts         # Vercel Function: WebSocket bridge to Render
 ├── server/socketProxy.ts       # createSocketProxy() used by the function
 ├── src/
-│   ├── main.tsx                # React entry point; registers /sw.js in production
-│   ├── App.tsx                 # Providers, app-update check, routes, .arcade-app layout route
+│   ├── main.tsx                # React entry point
+│   ├── App.tsx                 # Providers, app-update check, routes
 │   ├── pages/
 │   │   ├── LobbyPage.tsx       # Home/lobby page (login, room list, create/join, ?join= prefill)
 │   │   ├── GameRoom.tsx        # Waiting room (team pick, ready up, bots, invite link)
-│   │   ├── GameTable.tsx       # Active game (desktop and mobile live-table layouts)
+│   │   ├── GameTable.tsx       # Active game
 │   │   ├── Profile.tsx         # User profile and statistics
 │   │   ├── Leaderboard.tsx     # Global leaderboard
 │   │   ├── Practice.tsx        # Practice game setup
-│   │   ├── Annotation.tsx      # Expert access-code gate and annotation workflow
 │   │   └── NotFound.tsx        # 404
 │   ├── components/
-│   │   ├── AnnotationScenario.tsx # Shared context and play-card/briscola decisions
-│   │   ├── annotation/         # Annotation summary, trick, action, and dialog views
-│   │   ├── game/               # Board, score header, practice controls, RotateDevicePrompt
+│   │   ├── game/               # Board, score header, practice controls
 │   │   ├── lobby/              # Lobby hero, actions, room lists, and card artwork
 │   │   ├── rooms/              # Waiting-room player presentation
 │   │   ├── AuthDialog.tsx      # Login/register modal
 │   │   ├── Header.tsx          # Top nav bar
 │   │   ├── PlayingCard.tsx     # Card image renderer
-│   │   ├── TrumpSuitDialog.tsx # Briscola selection (dialog or inline on mobile)
-│   │   ├── SignalDialog.tsx    # Leader signal choice (dialog or inline on mobile)
+│   │   ├── TrumpSuitDialog.tsx # Briscola selection dialog
+│   │   ├── SignalDialog.tsx    # Leader signal choice dialog
 │   │   ├── RoundEndDialog.tsx  # Round results
 │   │   ├── GameResult.tsx      # Full-page final scores and awards
 │   │   ├── LastTrickDialog.tsx # View last trick
@@ -79,26 +60,21 @@ frontend/
 │   │   ├── useConnectionStatus.ts # Socket status and reconnect refresh
 │   │   ├── useGameTable.ts     # Game table loading and socket coordination
 │   │   ├── useLobbyRooms.ts    # Lobby fetch and socket reconciliation
-│   │   ├── useMobileTable.ts   # Landscape-phone media query for the live table
 │   │   ├── useReducedMotion.ts # prefers-reduced-motion media query
 │   │   ├── useRoundDeal.ts     # Round deal presentation phases
 │   │   ├── useTurnCountdown.ts # Server-authoritative timer presentation
 │   │   └── useWaitingRoom.ts   # Waiting-room fetch and socket reconciliation
 │   ├── game/                   # Game DTOs, reducer state, and view selectors
-│   ├── annotations/            # Expert annotation API model and presentation helpers
 │   ├── rooms/                  # Room DTOs, normalization, and pure reducers
-│   ├── preview/                # Development-only prototypes (/preview/*)
-│   ├── styles/                 # arcade.css, mobile-app.css, mobile-table.css
+│   ├── styles/                 # arcade.css
 │   └── lib/
 │       ├── api.ts              # Typed REST request helpers
-│       ├── fullscreen.ts       # Phone fullscreen and landscape lock
 │       ├── roomRedirect.ts     # Active-room conflict navigation
 │       └── utils.ts            # cn() utility (clsx + tailwind-merge)
 ├── public/
 │   ├── images/cards/           # Italian card images ({value}_{suit}.png)
 │   ├── images/semi/            # Suit icons
-│   ├── manifest.webmanifest    # Installable app manifest
-│   └── sw.js, offline.html     # Service worker and offline page
+│   └── icons/icon.svg          # Favicon (SVG)
 ├── index.html                  # HTML entry
 ├── vite.config.ts              # Port 8081, /api and /socket.io proxy, @ alias, app-version plugin
 ├── vercel.json                 # Rewrites, headers, Function settings
@@ -110,23 +86,15 @@ frontend/
 ## Key Architecture Decisions
 
 - **Single socket connection**: `socketClient.ts` provides a singleton. All pages use it via `lobbyHandlers.ts` and `roomHandlers.ts`.
-- **Auth via HTTP-only cookies**: The backend sets a `authToken` cookie. All `fetch()` calls use `credentials: "include"`.
+- **Auth via HTTP-only cookies**: The backend sets a `authToken` cookie. Same-origin requests send it by default.
 - **State management**: Local React state + React Query. No global store.
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
 - **Page ownership**: Pages own route adaptation, user feedback, commands, and view composition. Hooks own asynchronous coordination. Reducers and selectors remain pure.
 - **Trick history**: Live games, including practice, expose only the previous completed trick through `LastTrickDialog` ("Ultima presa"). There is no full practice history or revealed-hand view, including in development.
-- **Mobile live table**: `useMobileTable()` matches landscape coarse-pointer screens up to 540px high. `GameTable` then renders the `GameBoard` mobile layout (`src/styles/mobile-table.css`) with inline briscola and signal choices and a collapsible tools menu.
 - **Identity changes**: `useAuth` drops the singleton socket whenever the signed-in user changes, so the next handshake carries the new cookie identity.
 - **Invite links**: `/room/:code` joins non-members through `POST /rooms/join`; signed-out visitors are redirected to `/?join=CODE` with the code prefilled.
 - **App updates**: Production builds poll `/version.json` and show a persistent "Aggiornamento disponibile" toast with a reload action when the build id differs (see [Deployment](#deployment)).
 - **Practice pause**: The explicit pause action stops server-side bot and timer activity before returning home. Paused games appear under `Allenamenti in pausa`; resume completes before navigation, while direct paused-game links show blocking resume and confirmed-abandon controls. Disconnects never pause a game automatically.
-- **Expert annotations**: REST-only workflow. The backend supplies immutable
-  scenario identity and legal actions; the client returns the selected action
-  or an explicit skip plus perceived difficulty without exposing model
-  suggestions. Scenarios are discriminated as card-play or briscola decisions;
-  both reuse the same skip, timing, difficulty, retry, and stale-response flow.
-  Normal account login owns progress, while a separate shared code grants
-  expert access.
 
 ## Testing
 
@@ -152,7 +120,6 @@ npx vitest run --coverage
 ```
 frontend/src/__tests__/
 ├── setup.ts                # jest-dom, browser API, and environment setup
-├── annotations/           # Annotation presentation helpers
 ├── components/            # Component rendering and interaction
 ├── game/                  # Game presentation selectors
 ├── hooks/                 # Auth, connection, game-state reducer and timers
@@ -161,7 +128,6 @@ frontend/src/__tests__/
 ├── *Handlers.test.ts      # Lobby and room socket subscriptions
 ├── socketClient.test.ts   # Socket singleton behavior
 ├── useAppUpdate.test.ts   # Version polling and update toast
-├── fullscreen.test.ts     # Phone fullscreen helpers
 └── utils.test.ts          # Shared utility behavior
 ```
 
@@ -214,19 +180,12 @@ frontend/e2e/
 ├── helpers/
 │   ├── BotPlayer.ts        # Player abstraction (register, join, play cards, etc.)
 │   └── fixtures.ts         # Playwright fixtures with createBot factory
-├── annotation.spec.ts      # Account login, expert code, answer, skip, and ratings
-├── arcade-ui.spec.ts       # Arcade layout, round recap, results, rules, and table demo
+├── arcade-ui.spec.ts       # Arcade layout, round recap, results, and rules
 ├── first-trick.spec.ts     # Briscola selection and the first 4-card trick
 ├── game-motion.spec.ts     # Table layout and card travel/collection animations
 ├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
-├── mobile-app.spec.ts      # Real routes in the landscape shell, mobile multiplayer and practice
-├── mobile-preview.spec.ts  # /preview/mobile prototype
-└── practice-pause-resume.spec.ts # Pause, resume, direct overlay, mobile, abandon
+└── practice-pause-resume.spec.ts # Pause, resume, direct overlay, abandon
 ```
-
-The annotation E2E test seeds two valid SQL scenarios through
-`backend/tests/helpers/seedAnnotationE2e.ts`; it does not depend on a
-pre-populated local database.
 
 #### How It Works
 
@@ -292,7 +251,7 @@ Without an npm script: `npx vitest` (watch mode), `npx vitest run --coverage`,
 
 - **Tailwind CSS** with custom theme (HSL CSS variables for colors)
 - **shadcn/ui** components in `src/components/ui/` — regenerate via CLI, don't edit manually
-- **Theme**: `next-themes` forces `html[data-ui="arcade"]`; there is no theme switch. `tailwind.config.ts` still sets `darkMode: ["class"]`.
+- **Theme**: `index.html` sets `html[data-ui="arcade"]`; there is no theme switch.
 - Custom animations: `fade-in`, `glow`, `scroll-up`, `scroll-down`
 
 ## Routes
@@ -305,35 +264,7 @@ Without an npm script: `npx vitest` (watch mode), `npx vitest run --coverage`,
 | `/profile` | Profile | User stats and account settings |
 | `/leaderboard` | Leaderboard | Global player rankings |
 | `/practice` | Practice | Practice tier selection |
-| `/annotate` | Annotation | Shared-code gate and expert scenario labeling |
 | `*` | NotFound | 404 |
-
-All routes above share a layout route that renders `.arcade-app` and
-`RotateDevicePrompt`. In development only, `/preview/profile`, `/preview/mobile/*`
-and `/preview/*` render the design prototypes in `src/preview/`.
-
-## Expert Annotation API
-
-`Annotation.tsx` uses the normal BECCA registration and account login flow.
-The shared code grants expert access to that account, and the backend then
-serves one unanswered scenario at a time with the account's contribution
-count. `AnnotationScenario.tsx` rotates all seat labels around the acting seat,
-renders raw scores as points plus figures, and enables only actions present in
-`legalActions`. Card-play leaders must explicitly choose `Striscio`, `Busso`,
-`Volo`, or `Niente`; followers submit the legal null-signal action directly.
-Briscola scenarios show the full hand and four suit choices without trick
-history or an already selected briscola.
-`Non sono sicuro` accepts an optional 500-character comment before submitting
-the skipped response.
-
-The page uses these REST endpoints through `src/lib/api.ts`:
-
-```text
-GET  /annotations/status
-POST /annotations/access
-GET  /annotations/next
-POST /annotations/responses
-```
 
 ## Deployment
 
@@ -355,14 +286,8 @@ Images are at `/images/cards/{value}_{suit}.png`:
 ## Troubleshooting
 
 **Blank page / API calls failing:**
-- Verify the backend is running at the proxy target (`VITE_SOCKET_URL`, else `VITE_API_URL`, else `http://localhost:8000`)
-- Vite requires a restart when `.env` files change
-
-**CORS errors:**
-- Development requests are same-origin through the Vite proxy. CORS applies only when a build calls a cross-origin `VITE_API_URL`; then the backend `FRONTEND_URL` must match the page origin
-- All `fetch()` must include `credentials: "include"`
+- Verify the backend is running at the proxy target (`BACKEND_URL`, default `http://localhost:8000`)
 
 **Socket not connecting:**
 - The client always connects to the page origin at `/socket.io/`; in development check the proxy target above
 - Verify backend is running and accessible
-- Annotation access does not authenticate the game Socket.IO connection

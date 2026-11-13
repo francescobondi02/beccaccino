@@ -110,20 +110,6 @@ describe("Header", () => {
     expect(screen.getByText("TestPlayer")).toBeInTheDocument();
   });
 
-  it("opens expert data from the account menu", async () => {
-    renderHeader("TestPlayer");
-
-    fireEvent.keyDown(screen.getByRole("button", { name: "Menu account" }), { key: "Enter" });
-    fireEvent.click(await screen.findByText("Dati esperti"));
-
-    expect(mocks.navigate).toHaveBeenCalledWith("/annotate");
-  });
-
-  it("does not expose an interface switch to anonymous users", () => {
-    renderHeader();
-    expect(screen.queryByRole("button", { name: /interfaccia/i })).not.toBeInTheDocument();
-  });
-
   it("does not expose retired interfaces in the account menu", async () => {
     renderHeader("TestPlayer");
     fireEvent.keyDown(screen.getByRole("button", { name: "Menu account" }), { key: "Enter" });

@@ -362,7 +362,7 @@ it('seats the player, marks ready and opens the table when the game starts', asy
   await waitFor(() => expect(screen.getByRole('button', { name: 'Sono pronto' })).toBeEnabled());
   await fireEvent.press(screen.getByRole('button', { name: 'Sono pronto' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Non sono pronto' })).toBeOnTheScreen());
-  expect(socket.emit).toHaveBeenCalledWith('join_room', { roomCode: 'ABC123', userId: 7, username: 'Socio' });
+  expect(socket.emit).toHaveBeenCalledWith('join_room', { roomCode: 'ABC123' });
   await act(() => notify('game_started'));
   expect(mockReplace).toHaveBeenCalledWith('/game/ABC123');
 });

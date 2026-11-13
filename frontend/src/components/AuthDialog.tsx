@@ -78,7 +78,7 @@ const AuthDialog = ({ open, onOpenChange }: AuthDialogProps) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="arcade-auth-dialog sm:max-w-md bg-card" data-testid="auth-dialog">
+      <DialogContent className="max-w-md bg-card" data-testid="auth-dialog">
         <DialogHeader>
           <DialogTitle className="text-center text-2xl">
             {isLogin ? "Accedi" : "Registrati"}

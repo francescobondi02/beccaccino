@@ -55,7 +55,7 @@ vi.mock("@/components/AuthDialog", () => ({
     open ? <div data-testid="auth-dialog" /> : null,
 }));
 vi.mock("@/sockets/lobbyHandlers", () => ({
-  registerLobbyHandlers: (_userId: number, onReconnect: () => void) => {
+  registerLobbyHandlers: (onReconnect: () => void) => {
     mocks.reconnectLobby = onReconnect;
     return mocks.unregisterLobby;
   },

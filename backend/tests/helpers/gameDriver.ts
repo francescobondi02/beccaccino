@@ -136,10 +136,8 @@ export async function chooseBriscola(
 
   const callerPlayer = room!.players.find((p) => p.id === callerPlayerId)!;
 
-  const chooseBriscolaRes = await api()
+  const chooseBriscolaRes = await apiAs(callerPlayer.userId, callerPlayer.user.username)
     .post("/api/games/choose-briscola")
-    .set("x-test-user-id", String(callerPlayer.userId))
-    .set("x-test-username", callerPlayer.user.username)
     .send({
       gameRoomId: room!.id,
       suit: mostCommonSuit,

@@ -31,11 +31,6 @@ interface GameBoardProps {
   fastCollection?: boolean;
   notice?: string | null;
   children?: ReactNode;
-  mobile?: boolean;
-  header?: ReactNode;
-  trumpChoice?: ReactNode;
-  selectedCard?: PlayerCard | null;
-  mobileActions?: ReactNode;
 }
 
 function travelOffset(from: DOMRect, to: DOMRect) {
@@ -78,11 +73,6 @@ export default function GameBoard({
   fastCollection = false,
   notice,
   children,
-  mobile = false,
-  header,
-  trumpChoice,
-  selectedCard,
-  mobileActions,
 }: GameBoardProps) {
   const board = useRef<HTMLDivElement>(null);
   const cardOrigin = useRef<{ key: string; rect: DOMRect } | null>(null);
@@ -96,7 +86,7 @@ export default function GameBoard({
       active.forEach((animation) => animation.cancel());
       active.clear();
     };
-  }, [reducedMotion, mobile]);
+  }, [reducedMotion]);
 
   useLayoutEffect(() => {
     if (!animatedCard || lastAnimatedCard.current === animatedCard) return;
@@ -149,7 +139,7 @@ export default function GameBoard({
       animation.cancel();
       active.delete(animation);
     });
-  }, [completedTrick, fastCollection, reducedMotion, mobile]);
+  }, [completedTrick, fastCollection, reducedMotion]);
 
   const playerAt = (position: PositionedPlayer["position"]) =>
     players.find((player) => player.position === position);
@@ -224,67 +214,19 @@ export default function GameBoard({
           }`}
           clickable={isCurrentTurn && isPlayable}
           disabled={!isCurrentTurn || !isPlayable}
-          aria-pressed={mobile ? selectedCard?.id === card.id : undefined}
           data-testid={`hand-card-${card.suit}-${card.value}`}
         />
       );
     });
 
-  if (mobile) {
-    const message = [currentSignal && `${usernameOf(currentSignal.userId)} dichiara ${currentSignal.signal}`, notice]
-      .filter(Boolean).join(" · ");
-    return (
-      <div ref={board} className="mobile-lab mobile-lab-live" data-testid="game-layout">
-        {header}
-        <section className="mobile-lab-field" aria-label="Tavolo a quattro giocatori">
-          <div className="mobile-lab-felt" aria-hidden="true" />
-          {players.filter((player) => !player.isLocalPlayer).map((player) => (
-            <div className={`mobile-lab-seat mobile-lab-seat-${player.position}`} key={player.id} data-player-user-id={player.userId}>
-              <PlayerSeat player={player} isTurn={currentTurnUserId === player.userId} showRole signal={signalFor(player.userId)} />
-            </div>
-          ))}
-          <div className="mobile-lab-status" data-testid="table-status">
-            <div role="status" aria-live="polite" aria-atomic="true">
-              <strong>{selectedCard ? `${selectedCard.value} di ${selectedCard.suit === "denara" ? "denari" : selectedCard.suit}` : statusText}</strong>
-              <span className="mobile-lab-notice" title={message}>{selectedCard ? "Vuoi dichiarare un segnale?" : message}</span>
-            </div>
-            {countdown !== null && !completedTrick && !presentingHand && (
-              <span aria-label={`${countdown} secondi rimanenti`} className={`mobile-lab-countdown ${countdown <= 10 ? "text-destructive" : "text-primary"}`}>{countdown}s</span>
-            )}
-          </div>
-          {trumpChoice}
-          {playedCards.length > 0 && (
-            <div className="mobile-lab-trick" aria-label="Presa in corso" data-testid="game-table-center">
-              {players.map((player) => {
-                const card = playedCards.find((item) => item.userId === player.userId);
-                return (
-                  <div className="mobile-lab-slot" key={player.id} data-card-user-id={player.userId} data-winner={completedTrick?.winnerUserId === player.userId}>
-                    {card ? <PlayingCard suit={card.suit} value={card.value} size="lg" /> : <div className="mobile-lab-empty" aria-hidden="true" />}
-                    <span>{player.isLocalPlayer ? "Tu" : player.username}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {deal?.phase === "dealing" && <CardDeal key={hand[0]?.roundId} deal={deal} />}
-        </section>
-        <section className="mobile-lab-hand" aria-label="La tua mano" data-player-user-id={bottomPlayer?.userId}>
-          <div data-testid="player-hand">{handCards}</div>
-        </section>
-        {children}
-        {mobileActions}
-      </div>
-    );
-  }
-
   return (
     <div
       ref={board}
-      className="arcade-game-layout container mx-auto flex h-[100dvh] flex-col items-center px-3 pb-3 pt-28 sm:px-4"
+      className="arcade-game-layout container mx-auto flex flex-col items-center"
       data-testid="game-layout"
     >
       <div className="flex-1 min-h-0 flex items-center justify-center w-full">
-        <div className="arcade-arena relative flex h-full w-full max-h-[34rem] max-w-[50rem] items-center justify-center">
+        <div className="arcade-arena relative flex w-full items-center justify-center">
           <span className="arcade-table-mark" aria-hidden="true">BECCA!</span>
           <div
             className="absolute left-1/2 top-0 z-10 -translate-x-1/2"
@@ -305,7 +247,7 @@ export default function GameBoard({
           </div>
 
           <div
-            className="absolute left-0 top-1/2 z-10 -translate-y-1/2 sm:left-8"
+            className="absolute left-8 top-1/2 z-10 -translate-y-1/2"
             data-testid="player-position-left"
             data-player-user-id={leftPlayer?.userId}
           >
@@ -321,7 +263,7 @@ export default function GameBoard({
           </div>
 
           <div
-            className="absolute right-0 top-1/2 z-10 -translate-y-1/2 sm:right-8"
+            className="absolute right-8 top-1/2 z-10 -translate-y-1/2"
             data-testid="player-position-right"
             data-player-user-id={rightPlayer?.userId}
           >
@@ -371,9 +313,9 @@ export default function GameBoard({
         </div>
       </div>
 
-      <div className="arcade-hand-area flex flex-col items-center gap-3 w-full">
+      <div className="flex flex-col items-center gap-3 w-full">
         <div
-          className="arcade-player-hand flex max-w-5xl flex-wrap justify-center gap-1.5 sm:gap-2"
+          className="flex max-w-5xl flex-wrap justify-center gap-2"
           data-testid="player-hand"
         >
           {hand.every((card) => !card.inHand) && (

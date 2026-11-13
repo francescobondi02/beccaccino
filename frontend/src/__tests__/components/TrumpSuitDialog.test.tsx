@@ -31,7 +31,7 @@ describe("TrumpSuitDialog", () => {
         open
         onSelectSuit={vi.fn()}
         myCards={[]}
-        practiceActions={
+        actions={
           <div>
             <button type="button" onClick={onPause}>
               Pausa e torna alla home

@@ -21,7 +21,6 @@ import {
 import { toast } from "sonner";
 import { apiGet, apiPatch, apiDelete } from "@/lib/api";
 import { useAuth, type AuthUser } from "@/hooks/useAuth";
-import { profileDemo } from "@/preview/profileDemo";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,7 +44,7 @@ interface RecentGame {
   opponents: string[];
 }
 
-export interface UserStats {
+interface UserStats {
   totalGames: number;
   wins: number;
   winRate: number;
@@ -53,28 +52,24 @@ export interface UserStats {
   recentGames: RecentGame[];
 }
 
-const Profile = ({ preview = false }: { preview?: boolean }) => {
-  const isPreview = import.meta.env.DEV && preview;
+const Profile = () => {
   const navigate = useNavigate();
   const {
-    user: authenticatedUser,
+    user,
     loading: authLoading,
     error: authError,
     retry: retryAuth,
     setUser,
     clearUser,
-  } = useAuth({ redirectOnFail: !isPreview });
-  const user = isPreview ? profileDemo.user : authenticatedUser;
+  } = useAuth({ redirectOnFail: true });
   const username = user?.username ?? "";
   const [isEditing, setIsEditing] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [loadedStats, setStats] = useState<UserStats | null>(null);
-  const [requestStatus, setStatsStatus] = useState<
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [statsStatus, setStatsStatus] = useState<
     "loading" | "error" | "ready"
   >("loading");
-  const stats = isPreview ? profileDemo.stats : loadedStats;
-  const statsStatus = isPreview ? "ready" : requestStatus;
 
   const fetchStats = useCallback(async () => {
     setStatsStatus("loading");
@@ -95,9 +90,9 @@ const Profile = ({ preview = false }: { preview?: boolean }) => {
   }, [user]);
 
   useEffect(() => {
-    if (isPreview || !user?.id) return;
+    if (!user?.id) return;
     void fetchStats();
-  }, [fetchStats, isPreview, user?.id]);
+  }, [fetchStats, user?.id]);
 
   const handleSaveUsername = async () => {
     if (!newUsername.trim()) {
@@ -141,11 +136,11 @@ const Profile = ({ preview = false }: { preview?: boolean }) => {
     }
   };
 
-  if (authError && !isPreview) {
+  if (authError) {
     return <AuthErrorState onRetry={retryAuth} />;
   }
 
-  if (!user || (authLoading && !isPreview)) {
+  if (!user || authLoading) {
     return (
       <div
         className="min-h-screen bg-background flex items-center justify-center"
@@ -161,13 +156,7 @@ const Profile = ({ preview = false }: { preview?: boolean }) => {
     <div className="circolo-shell">
       <Header />
 
-      <main className="arcade-dashboard arcade-profile">
-        {isPreview && (
-          <div className="mb-6 rounded-lg border border-primary/30 bg-primary/10 p-4 text-sm text-primary">
-            <p>Anteprima locale · dati dimostrativi · nessun accesso necessario.</p>
-            <Link className="club-text-button" to="/">Torna alla landing <ArrowUpRight size={16} /></Link>
-          </div>
-        )}
+      <main className="arcade-dashboard">
         <section className="arcade-dashboard-hero" aria-labelledby="profile-title">
           <div className="arcade-dashboard-copy">
             <span className="club-eyebrow"><Zap size={15} /> IL TUO ANGOLO DI BECCA</span>
@@ -182,7 +171,7 @@ const Profile = ({ preview = false }: { preview?: boolean }) => {
               <Zap size={28} aria-hidden="true" />
             </CardHeader>
             <CardContent className="space-y-4">
-              {isEditing && !isPreview ? (
+              {isEditing ? (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="username">Nome utente</Label>
@@ -226,14 +215,14 @@ const Profile = ({ preview = false }: { preview?: boolean }) => {
                     <p className="text-sm text-muted-foreground">Nome utente</p>
                     <p className="arcade-username">{username}</p>
                   </div>
-                  {!isPreview && <Button
+                  <Button
                     onClick={() => setIsEditing(true)}
                     variant="secondary"
                     size="sm"
                   >
                     <Edit2 className="h-4 w-4 mr-2" />
                     Modifica
-                  </Button>}
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -361,7 +350,7 @@ const Profile = ({ preview = false }: { preview?: boolean }) => {
             </>
           )}
 
-          {!isPreview && <details className="arcade-account-settings">
+          <details className="arcade-account-settings">
             <summary>Gestione account</summary>
             <Card className="mt-4 border-destructive/30">
               <CardHeader>
@@ -396,7 +385,7 @@ const Profile = ({ preview = false }: { preview?: boolean }) => {
                 </AlertDialog>
               </CardContent>
             </Card>
-          </details>}
+          </details>
         </div>
       </main>
     </div>

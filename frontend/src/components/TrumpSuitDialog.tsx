@@ -12,11 +12,9 @@ import type { PlayerCard } from "@/game/model";
 
 type TrumpSuitDialogProps = {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
   onSelectSuit: (suit: string) => void;
   myCards: PlayerCard[];
-  practiceActions?: ReactNode;
-  inline?: boolean;
+  actions?: ReactNode;
   disabled?: boolean;
 };
 
@@ -31,30 +29,13 @@ const TrumpSuitDialog = ({
   open,
   onSelectSuit,
   myCards,
-  practiceActions,
-  inline = false,
+  actions,
   disabled = false,
-}: Omit<TrumpSuitDialogProps, "onOpenChange">) => {
-  if (inline) {
-    return open ? (
-      <section className="mobile-lab-choose" aria-labelledby="mobile-trump-title">
-        <header><span>Tocca a te</span><h2 id="mobile-trump-title">Scegli la briscola.</h2></header>
-        <p>Tocca un seme per iniziare la presa.</p>
-        <div className="mobile-lab-suits" role="group" aria-label="Scegli il seme di briscola">
-          {italianSuits.map((suit) => (
-            <button key={suit.value} disabled={disabled} onClick={() => onSelectSuit(suit.value)} data-testid={`suit-button-${suit.value}`}>
-              <img src={suit.img} alt="" />{suit.name}
-            </button>
-          ))}
-        </div>
-      </section>
-    ) : null;
-  }
-
+}: TrumpSuitDialogProps) => {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
-        className="arcade-trump-dialog sm:max-w-4xl max-h-[90vh] overflow-y-auto border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl [&>button]:hidden"
+        className="max-w-4xl max-h-[90vh] overflow-y-auto border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl [&>button]:hidden"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
@@ -92,7 +73,7 @@ const TrumpSuitDialog = ({
           <h3 className="text-sm font-semibold text-muted-foreground mb-3 text-center">
             Seleziona la briscola
           </h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-4 gap-3">
             {italianSuits.map((suit) => (
               <Button
                 key={suit.value}
@@ -114,8 +95,8 @@ const TrumpSuitDialog = ({
           </div>
         </div>
 
-        {practiceActions && (
-          <div className="border-t border-border pt-4">{practiceActions}</div>
+        {actions && (
+          <div className="border-t border-border pt-4">{actions}</div>
         )}
       </DialogContent>
     </Dialog>

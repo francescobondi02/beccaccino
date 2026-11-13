@@ -18,5 +18,3 @@ export const conflict = (
   message: string,
   details?: Record<string, unknown>,
 ) => new ClientError(409, message, details);
-export const serviceUnavailable = (message: string) =>
-  new ClientError(503, message);

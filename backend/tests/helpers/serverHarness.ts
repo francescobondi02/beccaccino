@@ -1,6 +1,7 @@
 import http from "http";
 import request from "supertest";
 import app from "../../src/app";
+import { generateToken } from "../../src/utils/jwt";
 
 let server: http.Server | null = null;
 let baseUrl = "";
@@ -36,12 +37,14 @@ export function api() {
   return request(getServer());
 }
 
+export function authCookie(userId: number, username: string): string {
+  return `authToken=${generateToken({ userId, username })}`;
+}
+
 export function apiAs(userId: number, username: string) {
   const agent = request(getServer());
   const authenticate = <T extends request.Test>(test: T): T =>
-    test
-      .set("x-test-user-id", String(userId))
-      .set("x-test-username", username) as T;
+    test.set("Cookie", authCookie(userId, username)) as T;
   return {
     get: (url: string) => authenticate(agent.get(url)),
     post: (url: string) => authenticate(agent.post(url)),

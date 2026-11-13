@@ -120,7 +120,7 @@ export default function useLiveGame(code: string, user: SessionUser) {
       socket.on('connect', () => {
         clearTimeout(retry);
         setConnection('connecting');
-        socket?.timeout(8_000).emit('join_room', { roomCode: code, userId: user.id, username: user.username },
+        socket?.timeout(8_000).emit('join_room', { roomCode: code },
           (failure: Error | null, response: unknown) => {
             if (lifetime.signal.aborted || !socket?.connected) return;
             try {
@@ -180,7 +180,7 @@ export default function useLiveGame(code: string, user: SessionUser) {
       socket?.removeAllListeners();
       socket?.disconnect();
     };
-  }, [attempt, code, user.id, user.username]);
+  }, [attempt, code, user.id]);
 
   return {
     snapshot, connection, error, needsLogin, busy, syncing, completedTrick,

@@ -39,9 +39,6 @@ test.describe("Lobby to Game Start", () => {
     for (const player of players) {
       await expect(player.page.getByTestId("room-code-display")).toBeVisible();
     }
-    await alice.page.setViewportSize({ width: 320, height: 900 });
-    expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await alice.page.screenshot({ path: test.info().outputPath("arcade-waiting-room-320.png"), fullPage: true });
 
     // Step 5: Choose teams — Alice+Carol = Team 0, Bob+Dave = Team 1
     await alice.chooseTeam(0);
@@ -77,28 +74,14 @@ test.describe("Lobby to Game Start", () => {
       players.map((player) => player.page.getByTestId("hand-card-denara-quattro").count()),
     );
     await players[callers.findIndex(Boolean)].chooseTrumpSuit("denara");
-    for (const width of [320, 390, 768, 1440]) {
-      await alice.page.setViewportSize({ width, height: 900 });
-      await expect(alice.page.getByTestId("game-table-page")).toHaveAttribute("data-briscola", "denara");
-      await expect(alice.page.getByRole("dialog")).toHaveCount(0);
-      expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      await expect(alice.page.getByTestId("player-hand")).toBeVisible();
-      if (width <= 768) {
-        const hand = await alice.page.getByTestId("player-hand").boundingBox();
-        const arena = await alice.page.locator(".arcade-arena").boundingBox();
-        expect(hand?.height).toBeLessThanOrEqual(240);
-        expect(arena?.height).toBeGreaterThanOrEqual(300);
-      }
-      if (width < 640) {
-        await expect(alice.page.locator(".arcade-mobile-trump")).toHaveText("Briscola: denari");
-        await expect(alice.page.locator(".arcade-mobile-trump")).toBeVisible();
-        const message = await alice.page.locator('[data-testid="game-table-center"] > .text-center').boundingBox();
-        const leftSeat = await alice.page.getByTestId("player-position-left").boundingBox();
-        const rightSeat = await alice.page.getByTestId("player-position-right").boundingBox();
-        expect(message?.x).toBeGreaterThanOrEqual((leftSeat?.x ?? 0) + (leftSeat?.width ?? 0));
-        expect((message?.x ?? 0) + (message?.width ?? 0)).toBeLessThanOrEqual(rightSeat?.x ?? 0);
-      }
-      await alice.page.screenshot({ path: test.info().outputPath(`arcade-game-${width}.png`), fullPage: true });
-    }
+    const [width, height] = [1440, 900];
+    await alice.page.setViewportSize({ width, height });
+    await expect(alice.page.getByTestId("game-table-page")).toHaveAttribute("data-briscola", "denara");
+    await expect(alice.page.getByTestId("briscola-panel")).toContainText("denari");
+    await expect(alice.page.getByTestId("briscola-panel")).toBeInViewport({ ratio: 1 });
+    await expect(alice.page.getByRole("dialog")).toHaveCount(0);
+    expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect(alice.page.getByTestId("player-hand")).toBeVisible();
+    await alice.page.screenshot({ path: test.info().outputPath(`arcade-game-${width}x${height}.png`), fullPage: true });
   });
 });

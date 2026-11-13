@@ -15,6 +15,5 @@ runs/
 *.log
 .env
 .private/
-out/annotations/
 .DS_Store
 wandb/

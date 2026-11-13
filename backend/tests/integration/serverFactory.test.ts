@@ -19,12 +19,8 @@ afterEach(async () => {
   if (runtime) await runtime.close();
 });
 
-async function startServer(maxSocketsPerIp = 1): Promise<string> {
-  runtime = createServer({
-    allowTestAuthBypass: false,
-    corsOrigin: "*",
-    maxSocketsPerIp,
-  });
+async function startServer(maxSocketsPerUser = 1): Promise<string> {
+  runtime = createServer({ maxSocketsPerUser });
   await new Promise<void>((resolve) => runtime!.httpServer.listen(0, resolve));
   const address = runtime.httpServer.address() as AddressInfo;
   return `http://127.0.0.1:${address.port}`;
@@ -86,7 +82,7 @@ describe("Production server factory", () => {
     expect(["Authentication required", "Invalid or expired token"]).toContain(error.message);
   });
 
-  it("does not consume an IP slot when authentication is rejected", async () => {
+  it("does not consume a connection slot when authentication is rejected", async () => {
     const url = await startServer();
     const rejected = clientFor(url);
     await expect(waitForConnectError(rejected)).resolves.toMatchObject({
@@ -107,7 +103,7 @@ describe("Production server factory", () => {
     await expect(waitForConnect(clientFor(url, second.token))).resolves.toBeUndefined();
   });
 
-  it("releases an IP slot after disconnect", async () => {
+  it("releases a connection slot after disconnect", async () => {
     const url = await startServer();
     const { token } = await createSocketUser();
     const first = clientFor(url, token);

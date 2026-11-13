@@ -74,7 +74,7 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
   }, [begin, code, toGame]);
   useEffect(() => { void load(); }, [load]);
   const { online } = useSocketRefresh(
-    (socket) => socket.emit('join_room', { roomCode: code, userId: user.id, username: user.username }),
+    (socket) => socket.emit('join_room', { roomCode: code }),
     roomEvents, () => void load(), (event) => { if (event === 'game_started') { touchFeedback('success'); toGame(); } });
 
   // Resolves true on success, otherwise the failure (already shown) or false when another action is running.

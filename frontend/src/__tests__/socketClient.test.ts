@@ -51,29 +51,12 @@ describe("socketClient", () => {
     disconnectSocket();
     vi.useRealTimers();
     vi.restoreAllMocks();
-    vi.unstubAllEnvs();
   });
 
   describe("getSocket", () => {
-    it("uses the page origin in production instead of a configured backend URL", async () => {
-      vi.stubEnv("PROD", true);
-      vi.stubEnv("VITE_SOCKET_URL", "https://other-backend.invalid");
-      vi.resetModules();
-      const client = await import("@/sockets/socketClient");
-      try {
-        client.getSocket();
-        expect(io).toHaveBeenCalledWith(
-          window.location.origin,
-          expect.any(Object),
-        );
-      } finally {
-        client.disconnectSocket();
-      }
-    });
-
-    it("creates a socket on first call", () => {
-      const socket = getSocket();
-      expect(socket).toBeDefined();
+    it("creates a socket on the page origin on first call", () => {
+      expect(getSocket()).toBeDefined();
+      expect(io).toHaveBeenCalledWith(expect.objectContaining({ reconnection: true }));
     });
 
     it("returns the same socket on subsequent calls (singleton)", () => {

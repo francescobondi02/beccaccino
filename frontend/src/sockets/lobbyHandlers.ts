@@ -24,15 +24,12 @@ interface LobbyEventSocket {
   ): void;
 }
 
-export function registerLobbyHandlers(
-  userId: number,
-  onReconnect?: () => void,
-): () => void {
+export function registerLobbyHandlers(onReconnect?: () => void): () => void {
   const socket = getSocket();
   socket.connect();
 
   const joinLobby = () => {
-    socket.emit("join_lobby", { userId });
+    socket.emit("join_lobby");
   };
 
   joinLobby();

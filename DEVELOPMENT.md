@@ -20,8 +20,8 @@ make dev
 - Bot: `http://localhost:8011/health` (inference requires the shared token)
 
 `make dev` uses Docker Compose for PostgreSQL, backend, frontend and the trained
-bot. It explicitly sets development mode, local database URLs and local browser
-URLs. Inherited production database or frontend URLs cannot redirect this stack.
+bot. It explicitly sets development mode, local database URLs and the Vite proxy
+target. Inherited production database URLs cannot redirect this stack.
 The bot token comes from the ignored `backend/.env`; Python and Node share it.
 Container dependencies stay in named volumes, separate from host `node_modules`.
 The trained, hash-verified weights are committed in `ai/serving/models/`.
@@ -52,8 +52,8 @@ that rewrites local secrets into production secrets.
 
 | Component | Production command | Configuration |
 | --- | --- | --- |
-| Backend on Render | Existing `backend/Dockerfile`: build with `npm run build`; start with `npx prisma migrate deploy && node dist/index.js` | `NODE_ENV=production` is set by the image; Render supplies database URLs, JWT secret, frontend origin and bot URL/token |
-| Frontend on Vercel | `vercel build` of `frontend/` (deploy not automated yet) | Vercel Production variables provide `VITE_API_URL` and `VITE_SOCKET_URL`; never frontend secrets |
+| Backend on Render | Existing `backend/Dockerfile`: build with `npm run build`; start with `npx prisma migrate deploy && node dist/index.js` | `NODE_ENV=production` is set by the image; Render supplies database URLs, JWT secret and bot URL/token |
+| Frontend on Vercel | `vercel build` of `frontend/` (deploy not automated yet) | No API origin variables: the browser calls `/api` and Vercel proxies it to Render; never frontend secrets |
 | Bot on Render | `ai/Dockerfile`: `uvicorn serving.app:app --host 0.0.0.0 --port "$PORT"` | Private `BOT_SERVICE_TOKEN`, matching the backend; Render supplies `PORT` |
 | Neon | No application process; backend startup runs `prisma migrate deploy` | `DATABASE_URL` is the pooled Neon URL; `DIRECT_URL` is the direct URL for the **same production database** |
 
@@ -119,9 +119,7 @@ npm run test:coverage     # with coverage report
 ### E2E Tests (Playwright)
 
 The multiplayer tests coordinate 4 independent browser contexts through the
-lobby and first trick. The annotation test uses a normal BECCA account, grants
-expert access, and verifies account-linked answer and skip submissions on
-desktop and mobile.
+lobby and first trick.
 
 #### Prerequisites
 
@@ -145,7 +143,6 @@ npm run test:e2e:ui           # Playwright interactive UI mode
 
 - **lobby-to-game.spec.ts** — 4 players register, create room, join, choose teams, ready up, game starts, verify 10 cards dealt
 - **first-trick.spec.ts** — Briscola selection → 4 players complete the first trick in correct turn order
-- **annotation.spec.ts** — Account login → expert access → answer and skip submissions with difficulty ratings
 
 #### Debugging failures
 
@@ -214,30 +211,6 @@ npx prisma studio
 
 ---
 
-## Expert Annotation Production Operations
-
-Scenario generation is offline and cannot modify production. The production
-workflow has three separate gates:
-
-1. Deploy the backend revision containing the annotation migration and API.
-2. Generate and validate a deterministic batch from `ai/`.
-3. Run the backend importer against production, first without `--apply` and
-   then with `--apply` after verifying the target and summary.
-
-Configure `ANNOTATION_ACCESS_CODE` only in the backend hosting environment. It
-is a shared invitation code that permanently grants annotation access to an
-already authenticated BECCA account; it is not a generator seed or frontend
-variable.
-
-Use [`ai/docs/EXPERT_DATA_COLLECTION.md`](ai/docs/EXPERT_DATA_COLLECTION.md) as
-the authoritative operator runbook. It covers one-time seed custody, batch
-naming, generation, manifest inspection, production import, launch
-verification, replenishment, and failure recovery. Never import a batch before
-the corresponding backend migration is deployed, and never use `--apply`
-without first reviewing the dry run against the same database.
-
----
-
 ## Environment Variables
 
 **`backend/.env`** (development):
@@ -246,7 +219,6 @@ without first reviewing the dry run against the same database.
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca"
 JWT_SECRET="your_secret_key"
 PORT=8000
-FRONTEND_URL="http://localhost:8081"
 ```
 
 **`backend/.env.test`** (integration tests — used for reference, actual injection is via `loadTestEnv.ts`):
@@ -256,7 +228,6 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
 JWT_SECRET="test-secret"
 NODE_ENV="test"
 PORT=8000
-FRONTEND_URL="http://localhost:8081"
 ```
 
 ---
