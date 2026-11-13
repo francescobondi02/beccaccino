@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - mobile/**
+      - backend/src/contract/**
       - .github/workflows/mobile.yml
   push:
     branches: [main, develop]
     paths:
       - mobile/**
+      - backend/src/contract/**
       - .github/workflows/mobile.yml
 
 permissions:

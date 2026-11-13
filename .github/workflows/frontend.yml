@@ -11,6 +11,7 @@ on:
   pull_request:
     paths:
       - frontend/**
+      - backend/src/contract/**
       - .github/workflows/frontend.yml
 
 permissions:
