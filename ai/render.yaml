@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: becca-ai
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: off
+    envVars:
+      - key: BOT_SERVICE_TOKEN
+        sync: false
