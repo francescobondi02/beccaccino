@@ -1,0 +1,296 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 42 35% 93%;
+    --foreground: 155 28% 13%;
+
+    --card: 43 46% 97%;
+    --card-foreground: 155 28% 13%;
+
+    --popover: 43 46% 97%;
+    --popover-foreground: 155 28% 13%;
+
+    --primary: 157 48% 24%;
+    --primary-foreground: 43 46% 97%;
+
+    --secondary: 43 31% 88%;
+    --secondary-foreground: 155 28% 13%;
+
+    --muted: 43 25% 89%;
+    --muted-foreground: 155 12% 36%;
+
+    --accent: 39 72% 38%;
+    --accent-foreground: 43 46% 97%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 40 35% 98%;
+
+    --border: 38 27% 74%;
+    --input: 38 27% 74%;
+    --ring: 39 72% 38%;
+
+    --radius: 0.9rem;
+    
+    --gradient-primary: linear-gradient(135deg, hsl(157 48% 24%), hsl(157 48% 24%));
+    --gradient-card: linear-gradient(180deg, hsl(43 46% 98%), hsl(43 38% 94%));
+    --gradient-warm: linear-gradient(135deg, hsl(43 46% 92%), hsl(43 38% 88%));
+    --glow-primary: 0 0 30px hsl(157 48% 24% / 0.2);
+    --glow-accent: 0 0 30px hsl(39 72% 38% / 0.22);
+  }
+
+  .dark {
+    --background: 157 31% 10%;
+    --foreground: 43 46% 95%;
+
+    --card: 157 25% 14%;
+    --card-foreground: 43 46% 95%;
+
+    --popover: 157 25% 14%;
+    --popover-foreground: 43 46% 95%;
+
+    --primary: 43 61% 72%;
+    --primary-foreground: 157 31% 10%;
+
+    --secondary: 157 18% 20%;
+    --secondary-foreground: 43 46% 95%;
+
+    --muted: 157 18% 20%;
+    --muted-foreground: 43 18% 70%;
+
+    --accent: 39 72% 50%;
+    --accent-foreground: 157 31% 10%;
+
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 40 35% 98%;
+
+    --border: 43 20% 36%;
+    --input: 43 20% 36%;
+    --ring: 39 72% 50%;
+
+    --gradient-card: linear-gradient(180deg, hsl(157 25% 16%), hsl(157 25% 13%));
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    background-image: radial-gradient(hsl(39 35% 45% / 0.08) 0.7px, transparent 0.7px);
+    background-size: 7px 7px;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: Iowan Old Style, Baskerville, Georgia, serif;
+    letter-spacing: -0.025em;
+  }
+}
+
+@layer components {
+  .circolo-shell { @apply min-h-screen bg-background text-foreground; }
+  .circolo-surface { @apply border border-border/80 bg-card shadow-[0_16px_40px_hsl(157_35%_13%_/_0.10)]; }
+  .circolo-panel { @apply border border-border/80 bg-card/95 shadow-[0_10px_28px_hsl(157_35%_13%_/_0.10)]; }
+  .circolo-kicker { @apply text-[0.68rem] font-bold uppercase tracking-[0.16em] text-accent; }
+  .circolo-table { background: radial-gradient(ellipse at center, hsl(158 42% 29%), hsl(157 48% 18%)); box-shadow: inset 0 0 0 8px hsl(39 45% 50% / .16), inset 0 0 0 10px hsl(43 45% 78% / .3), 0 28px 70px hsl(157 45% 8% / .36); }
+  .circolo-seat { box-shadow: 0 7px 0 hsl(39 34% 46% / .24), 0 14px 24px hsl(157 42% 9% / .20); }
+  .circolo-seat-active { box-shadow: 0 0 0 2px hsl(43 72% 68%), 0 7px 0 hsl(39 34% 46% / .3), 0 0 28px hsl(43 72% 58% / .38); }
+  .circolo-card { box-shadow: 0 3px 0 hsl(39 34% 40% / .30), 0 13px 20px hsl(157 42% 9% / .27); }
+  .circolo-card-playable { box-shadow: 0 4px 0 hsl(39 45% 43% / .4), 0 16px 24px hsl(157 42% 9% / .3); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+}
+
+/* Card play animations - fly in from each player's direction toward center */
+@keyframes card-fly-from-bottom {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0.5rem) scale(1);
+  }
+}
+
+@keyframes card-fly-from-top {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 60px)) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%) scale(1);
+  }
+}
+
+@keyframes card-fly-from-left {
+  from {
+    opacity: 0;
+    transform: translate(calc(-100% - 60px), -50%) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-100%, -50%) scale(1);
+  }
+}
+
+@keyframes card-fly-from-right {
+  from {
+    opacity: 0;
+    transform: translate(60px, -50%) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0.5rem, -50%) scale(1);
+  }
+}
+
+.animate-card-from-bottom {
+  animation: card-fly-from-bottom 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-card-from-top {
+  animation: card-fly-from-top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-card-from-left {
+  animation: card-fly-from-left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-card-from-right {
+  animation: card-fly-from-right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes table-card-from-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes table-card-from-top {
+  from {
+    opacity: 0;
+    transform: translateY(-60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes table-card-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes table-card-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(60px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-table-card-from-bottom {
+  animation: table-card-from-bottom 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-table-card-from-top {
+  animation: table-card-from-top 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-table-card-from-left {
+  animation: table-card-from-left 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-table-card-from-right {
+  animation: table-card-from-right 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: hsl(var(--secondary));
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary));
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--accent));
+}
+
+.infinite-scroll-up,
+.infinite-scroll-down {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation-duration: 25s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.infinite-scroll-up {
+  animation-name: scroll-up;
+}
+
+.infinite-scroll-down {
+  animation-name: scroll-down;
+}
+
+.infinite-scroll-up img,
+.infinite-scroll-down img {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+@keyframes scroll-up {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes scroll-down {
+  from {
+    transform: translateY(-50%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

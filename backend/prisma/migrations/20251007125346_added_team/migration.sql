@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Player" ADD COLUMN     "team" INTEGER,
+ALTER COLUMN "seat" DROP NOT NULL;

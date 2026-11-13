@@ -1,0 +1,45 @@
+{
+  "name": "becca-backend",
+  "dependencies": {
+    "@prisma/client": "6.16.3",
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "prisma": "6.16.3",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.3",
+    "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.7.0",
+    "@types/supertest": "^6.0.3",
+    "jest": "^30.2.0",
+    "pino-pretty": "^13.1.3",
+    "socket.io-client": "^4.8.3",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.4",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "dev": "prisma generate && prisma migrate deploy && ts-node-dev src/index.ts",
+    "dev:e2e": "npm run db:test:prepare && NODE_ENV=test DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' DIRECT_URL='postgresql://postgres:postgres@localhost:5432/becca_test' ANNOTATION_ACCESS_CODE='becca-expert' ts-node-dev src/index.ts",
+    "db:test:prepare": "NODE_ENV=test DATABASE_URL='postgresql://postgres:postgres@localhost:5432/becca_test' DIRECT_URL='postgresql://postgres:postgres@localhost:5432/becca_test' prisma migrate deploy",
+    "build": "prisma generate && tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "migrate": "prisma migrate deploy",
+    "test": "jest --runInBand",
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration --runInBand",
+    "practice:export": "node dist/scripts/exportPracticeMatches.js"
+  }
+}

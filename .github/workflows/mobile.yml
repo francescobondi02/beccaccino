@@ -1,4 +1,4 @@
-name: Mobile checks
+name: Mobile
 
 on:
   pull_request:
@@ -6,8 +6,7 @@ on:
       - mobile/**
       - .github/workflows/mobile.yml
   push:
-    branches:
-      - feat/native-mobile-foundation
+    branches: [main, develop]
     paths:
       - mobile/**
       - .github/workflows/mobile.yml
@@ -33,4 +32,6 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run export
+      # Advisory: Expo publishes SDK patches often, and the local npm feed lags them.
       - run: npm run check:sdk
+        continue-on-error: true

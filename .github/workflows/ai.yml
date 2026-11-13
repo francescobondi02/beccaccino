@@ -1,0 +1,139 @@
+name: AI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - ai/**
+      - .github/workflows/ai.yml
+  pull_request:
+    paths:
+      - ai/**
+      - .github/workflows/ai.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Torch pulls a heavy dependency tree; a cold install must not hang the runner.
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ai/pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev,train,serve]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format
+        run: ruff format --check .
+
+      - name: Test
+        run: pytest
+
+      - name: Wheel install smoke
+        run: |
+          rm -rf build
+          python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/becca-wheel .
+          python -m pip install --no-deps --target /tmp/becca-wheel-site /tmp/becca-wheel/becca_ai-*.whl
+          cd /tmp
+          PYTHONPATH=/tmp/becca-wheel-site python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          import inference.pimc
+          import serving
+          import serving.tiers
+          import torch
+          from serving.artifact import load_inference_artifact
+          from training.checkpoint import build_net
+
+          root = Path("/tmp/becca-wheel-site")
+          assert Path(inference.pimc.__file__).is_relative_to(root)
+          assert Path(serving.tiers.__file__).is_relative_to(root)
+          assert importlib.util.find_spec("serving.export_onnx") is None
+          assert importlib.util.find_spec("training.self_play_env") is None
+          artifact = load_inference_artifact(
+              Path(serving.__file__).parent / "models" / "run_d2_champion.pt"
+          )
+          assert sum(p.numel() for p in build_net(artifact, torch.device("cpu")).parameters()) == 1_262_021
+          PY
+
+      - name: Fixture drift gate
+        # The fixture is consumed byte-for-byte by the backend serializer test, so a
+        # stale committed copy is a cross-language contract break. Regenerate and fail
+        # if the working tree moved.
+        run: |
+          python -m scripts.gen_bot_fixtures
+          git diff --exit-code serving/fixtures/
+
+  container:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build production image
+        run: docker build --tag becca-ai:${{ github.sha }} .
+
+      - name: Start production image
+        run: |
+          docker run --detach --name becca-ai \
+            --env BOT_SERVICE_TOKEN=ci-token \
+            --env GIT_COMMIT_SHA=${{ github.sha }} \
+            --publish 10000:10000 \
+            becca-ai:${{ github.sha }}
+
+      - name: Verify production image
+        shell: bash
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:10000/health > /tmp/ai-health.json; then
+              break
+            fi
+            sleep 2
+          done
+          jq --exit-status \
+            '.status == "ok" and .model == "ready" and .tier == "forte"' \
+            /tmp/ai-health.json > /dev/null
+          curl --fail --silent http://127.0.0.1:10000/version \
+            | jq --exit-status \
+              '.service == "ai" and .commit == "${{ github.sha }}"' > /dev/null
+          curl --fail --silent http://127.0.0.1:10000/tiers \
+            | jq --exit-status \
+              'map(.name) as $tiers
+               | ($tiers | index("medio")) != null
+               and ($tiers | index("forte")) != null
+               and ($tiers | index("esperto")) != null' > /dev/null
+
+      - name: Print container logs
+        if: failure()
+        run: docker logs becca-ai || true
+
+      - name: Stop production image
+        if: always()
+        run: docker rm --force becca-ai || true

@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+checkpoints/*.pt
+# Pulled Kaggle run outputs: large .pt files plus a duplicate copy of this
+# source tree, which would otherwise be committed and linted as if it were ours.
+checkpoints/kaggle*/
+runs/
+.ruff_cache/
+.pytest_cache/
+*.log
+.env
+.private/
+out/annotations/
+.DS_Store
+wandb/

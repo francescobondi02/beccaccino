@@ -287,7 +287,7 @@ No EAS account/project, cloud build or publication is required by this setup.
 
 ## Interface
 
-- [Mobile source](./src/README.md): routes, components, hooks, session context,
+- [Mobile source](./src/): routes, components, hooks, session context,
   theme and backend library.
 - `package.json` scripts: `start`, `start:dev-client`, `android`, `ios`,
   `build:android`, `build:ios`, `typecheck`, `lint`, `test`, `doctor`, `export`,
