@@ -47,7 +47,7 @@ const PlayerSeat = ({
       {(showRole || player.botModel) && (
         <p className="text-xs text-muted-foreground">
           {showRole && (
-            <span className={player.botModel ? "arcade-seat-bot-role" : undefined}>
+            <span>
               {player.isTeammate ? "Socio" : "Avversario"}{player.botModel ? " · " : ""}
             </span>
           )}

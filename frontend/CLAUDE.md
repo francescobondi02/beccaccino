@@ -135,8 +135,8 @@ npx playwright show-report  # HTML report with traces after failures
 ## UI Notes
 
 - Arcade is the only interface: `index.html` sets `html[data-ui="arcade"]`.
-  There is no interface switch or classic lobby. The web app targets desktop;
-  phones use the native app in `../mobile`.
+  There is no interface switch or classic lobby. The website supports windows of
+  at least 1024×600 px; phones and tablets use the native app in `../mobile`.
 - `ArcadeHero` and `ArcadeRules` belong to the real lobby; room actions go through `LobbyPage`.
 - `GameBoard` anchors transient comic `SignalCallout` bubbles to each declaring
   player without changing hand/table layout. Persistent signal badges remain.
@@ -148,7 +148,7 @@ npx playwright show-report  # HTML report with traces after failures
   illustrations inspired by the existing Italian deck, without poker corner indices.
   Keep these illustrations separate from `PlayingCard` and gameplay.
 - Practice games keep "Pausa e torna alla home" and confirmed "Abbandona" in the bottom-right toolbar, anchored below the hand rather than overlaid on a scrolling viewport. Multiplayer offers confirmed permanent abandonment: a bot inherits the same seat and the match still counts in statistics. Neither disconnect nor unmount abandons or pauses a game. Three consecutive timeouts give control to a real bot; socket rejoin or "Riprendi controllo" restores a non-abandoned human seat. `GameActions` is shared by the toolbar, briscola dialog, and round summary. Paused practice links retain blocking resume/abandon controls; finished games use the result's "Torna alla lobby".
-- The live table reserves central space for turn, collection, signal, and system messages, without a boxed panel. Above 760px wide and 540px high, cards form a cross: partner above, opponents beside the messages, self below. Narrow or short screens use the compact grid. All layouts leave player seats clear. Releasing a completed trick removes only that trick's underlying cards, preserving newer cards received during collection.
+- The live table reserves central space for turn, collection, signal, and system messages, without a boxed panel. Cards form a cross: partner above, opponents beside the messages, self below, leaving player seats clear. Releasing a completed trick removes only that trick's underlying cards, preserving newer cards received during collection.
 - Live games retain chat and "Ultima presa", which displays only the previous completed trick's four cards. No full practice history or revealed-hand controls, including in development.
 - Round starts enter the table immediately. The server's `round.deal` snapshot
   reserves 2.4 seconds to distribute cards to all seats and 1.6 seconds to read
@@ -173,14 +173,4 @@ npx playwright show-report  # HTML report with traces after failures
   Native animations cancel on unmount or OS reduced motion; restored cards do not
   replay.
 - Cards resize based on viewport
-- Short landscape screens: `(orientation: landscape) and (max-height: 540px)` in
-  `arcade.css` moves score/briscola to a left rail and table tools to a right rail of 44px
-  icon buttons, keeps the ten-card hand on one row, and compacts in-game dialogs and page chrome.
-  Tool labels stay in the accessible name via `.arcade-tool-label`.
-  Primary messages keep their central grid row; supplementary signal/system notices use the
-  left rail below the score. The local seat stays below the hand, and short landscape
-  layouts retain at least 320px of content height rather than clipping controls.
-  Short live landscape screens use persistent signal badges and notices instead of
-  comic callouts, which would cover the partner's played card: `arcade.css` hides
-  `.signal-callout` there.
 - The website is not installable: phones use the native app in `mobile/`.

@@ -75,7 +75,7 @@ test.describe("Arcade interface", () => {
       })),
     } }));
     await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
-    for (const [width, height] of [[1440, 844], [1093, 470]]) {
+    for (const [width, height] of [[1440, 844]]) {
       await page.setViewportSize({ width, height });
       await page.goto("/game/ROOM");
       await expect(page.getByTestId("game-result-page")).toBeVisible();
@@ -224,9 +224,7 @@ test.describe("Arcade interface", () => {
 
     for (const viewport of [
       { width: 1920, height: 1080 }, { width: 1280, height: 800 },
-      { width: 1024, height: 768 }, { width: 900, height: 900 },
-      { width: 768, height: 1024 }, { width: 844, height: 390 },
-      { width: 1093, height: 470 },
+      { width: 1024, height: 768 },
     ]) {
       await page.setViewportSize(viewport);
       state.myCards = [card];
@@ -422,7 +420,7 @@ test.describe("Arcade interface", () => {
         username, wins: 17 - index, totalGames: 28, winRate: 61 - index * 4, totalPoints: 892 - index * 30,
       })) },
     }));
-    for (const width of [1440, 768]) {
+    for (const width of [1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/profile");
       await expect(page.getByRole("heading", { name: "Il mio profilo", exact: true })).toBeVisible();
@@ -481,8 +479,8 @@ test.describe("Arcade interface", () => {
     await expect(page.locator(".arcade-live-hero")).toHaveAttribute("data-motion", "off");
   });
 
-  test("fits the real homepage and login dialog on narrow windows", async ({ page }) => {
-    for (const width of [768, 1440]) {
+  test("fits the real homepage and login dialog", async ({ page }) => {
+    for (const width of [1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/");
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();

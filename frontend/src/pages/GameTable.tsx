@@ -436,12 +436,12 @@ const GameTable = () => {
             onClick={() => setLastTrickDialogOpen(true)}
           >
             <History className="h-4 w-4" aria-hidden="true" />
-            <span className="arcade-tool-label">Ultima presa</span>
+            Ultima presa
           </Button>
           {myBotControlled && !gameFinishedData && (
             <Button size="sm" disabled={isResuming} onClick={() => void handleResumeControl()}>
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              <span className="arcade-tool-label">Riprendi controllo</span>
+              Riprendi controllo
             </Button>
           )}
           {!myBotControlled && currentRound?.briscola === null && callerUserId === userId && (
@@ -453,7 +453,7 @@ const GameTable = () => {
               data-testid="choose-trump-button"
             >
               <Crown className="h-4 w-4" aria-hidden="true" />
-              <span className="arcade-tool-label">Scegli la briscola</span>
+              Scegli la briscola
             </Button>
           )}
           {!trumpDialogOpen && gameActions}

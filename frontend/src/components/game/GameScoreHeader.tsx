@@ -24,68 +24,66 @@ export default function GameScoreHeader({
 
   return (
     <>
-      <div className="arcade-room-code absolute right-4 top-4 hidden rounded-full border border-border/70 bg-card/80 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm sm:block">
+      <div className="absolute right-4 top-4 rounded-full border border-border/70 bg-card/80 px-3 py-1 text-xs text-muted-foreground backdrop-blur-sm">
         Tavolo <span className="font-mono font-semibold tracking-wider text-foreground">{roomCode}</span>
       </div>
 
-      <div className="arcade-score-rail">
-        <div className="arcade-score-dock container absolute inset-x-0 top-4 mx-auto flex justify-center px-4">
-          <Card
-            className="arcade-score-panel circolo-panel border-[hsl(39_45%_50%_/_0.6)] px-5 py-2.5 backdrop-blur-sm"
-            data-testid="team-points-panel"
-          >
-            {handNumber && roundNumber && (
-              <div className="text-center text-xs text-muted-foreground mb-2 border-b border-border pb-1">
-                Smazzata {roundNumber}<span className="arcade-score-sep"> &middot; </span>Presa {handNumber}/10
+      <div className="container absolute inset-x-0 top-4 mx-auto flex justify-center px-4">
+        <Card
+          className="arcade-score-panel circolo-panel border-[hsl(39_45%_50%_/_0.6)] px-5 py-2.5 backdrop-blur-sm"
+          data-testid="team-points-panel"
+        >
+          {handNumber && roundNumber && (
+            <div className="text-center text-xs text-muted-foreground mb-2 border-b border-border pb-1">
+              Smazzata {roundNumber} &middot; Presa {handNumber}/10
+            </div>
+          )}
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <div className="text-xs text-muted-foreground mb-1">
+                Noi · Squadra {(playerTeam ?? 0) + 1}
               </div>
-            )}
-            <div className="flex items-center gap-6">
-              <div className="text-center">
-                <div className="text-xs text-muted-foreground mb-1">
-                  Noi<span className="arcade-team-number"> · Squadra {(playerTeam ?? 0) + 1}</span>
-                </div>
-                <div
-                  className="font-mono text-2xl font-bold tabular-nums text-primary"
-                  data-testid="my-team-points"
-                >
-                  {points.own}
-                </div>
-              </div>
-              <div className="h-8 w-px bg-border" />
-              <div className="text-center">
-                <div className="text-xs text-muted-foreground mb-1">
-                  Loro<span className="arcade-team-number"> · Squadra {((playerTeam ?? 0) === 0 ? 1 : 0) + 1}</span>
-                </div>
-                <div
-                  className="font-mono text-2xl font-bold tabular-nums text-accent"
-                  data-testid="opponent-team-points"
-                >
-                  {points.opponents}
-                </div>
+              <div
+                className="font-mono text-2xl font-bold tabular-nums text-primary"
+                data-testid="my-team-points"
+              >
+                {points.own}
               </div>
             </div>
-          </Card>
-        </div>
-
-        {briscola && (
-          <Card
-            className="arcade-briscola-panel circolo-panel absolute left-4 top-4 border-[hsl(39_45%_50%_/_0.5)] px-4 py-3 backdrop-blur-sm"
-            data-testid="briscola-panel"
-          >
-            <div className="flex items-center gap-3">
-              <img
-                src={`/images/semi/${briscola}_seme.png`}
-                alt={briscolaLabel ?? ""}
-                className="w-8 h-8 object-contain"
-              />
-              <div>
-                <div className="arcade-trump-label text-xs text-muted-foreground">Briscola</div>
-                <div className="text-sm font-bold capitalize">{briscolaLabel}</div>
+            <div className="h-8 w-px bg-border" />
+            <div className="text-center">
+              <div className="text-xs text-muted-foreground mb-1">
+                Loro · Squadra {((playerTeam ?? 0) === 0 ? 1 : 0) + 1}
+              </div>
+              <div
+                className="font-mono text-2xl font-bold tabular-nums text-accent"
+                data-testid="opponent-team-points"
+              >
+                {points.opponents}
               </div>
             </div>
-          </Card>
-        )}
+          </div>
+        </Card>
       </div>
+
+      {briscola && (
+        <Card
+          className="circolo-panel absolute left-4 top-4 border-[hsl(39_45%_50%_/_0.5)] px-4 py-3 backdrop-blur-sm"
+          data-testid="briscola-panel"
+        >
+          <div className="flex items-center gap-3">
+            <img
+              src={`/images/semi/${briscola}_seme.png`}
+              alt={briscolaLabel ?? ""}
+              className="w-8 h-8 object-contain"
+            />
+            <div>
+              <div className="text-xs text-muted-foreground">Briscola</div>
+              <div className="text-sm font-bold capitalize">{briscolaLabel}</div>
+            </div>
+          </div>
+        </Card>
+      )}
     </>
   );
 }

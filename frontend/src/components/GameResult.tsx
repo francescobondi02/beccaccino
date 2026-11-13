@@ -36,7 +36,7 @@ export default function GameResult({
   }).filter((award) => award.count > 0) : [];
 
   return (
-    <main className="circolo-shell min-h-screen px-4 py-10 sm:px-8" data-testid="game-result-page" data-game-finished="true">
+    <main className="circolo-shell min-h-screen px-8 py-10" data-testid="game-result-page" data-game-finished="true">
       <div className="relative mx-auto max-w-4xl space-y-8">
         <header className="text-center space-y-2">
           <Trophy className="mx-auto h-10 w-10 text-primary" aria-hidden="true" />
@@ -46,7 +46,7 @@ export default function GameResult({
           <p>Ha vinto la Squadra {result.winnerTeam + 1} · {result.totalRounds} smazzate giocate</p>
         </header>
 
-        <section aria-label="Confronto tra squadre" className="grid gap-4 sm:grid-cols-2">
+        <section aria-label="Confronto tra squadre" className="grid grid-cols-2 gap-4">
           {([0, 1] as const).map((team) => {
             const key = team === 0 ? "team0" : "team1";
             return (
@@ -70,7 +70,7 @@ export default function GameResult({
         {awards.length > 0 && (
           <section aria-labelledby="match-awards" className="space-y-4">
             <h2 id="match-awards" className="text-xl font-bold">Premi della partita</h2>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-4">
               {awards.map((award) => (
                 <div key={award.key} className="rounded-xl border border-border bg-card p-4 space-y-2">
                   <h3 className="font-bold">{award.title}</h3>

@@ -26,7 +26,7 @@ export default function GameActions({
   onLeave,
 }: GameActionsProps) {
   return (
-    <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto">
+    <div className="flex flex-wrap justify-end gap-2">
       {onPause && <Button
         variant="outline"
         size="sm"
@@ -40,7 +40,7 @@ export default function GameActions({
         ) : (
           <Pause className="mr-2 h-4 w-4" />
         )}
-        <span className="arcade-tool-label">Pausa e torna alla home</span>
+        Pausa e torna alla home
       </Button>}
       <AlertDialog>
         <AlertDialogTrigger asChild>
@@ -51,7 +51,7 @@ export default function GameActions({
             data-testid={onPause ? "abandon-practice-button" : "abandon-multiplayer-button"}
           >
             <LogOut className="mr-2 h-4 w-4" />
-            <span className="arcade-tool-label">Abbandona</span>
+            Abbandona
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent className="bg-card">

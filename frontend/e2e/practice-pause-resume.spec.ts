@@ -116,7 +116,7 @@ test("practice game can be paused, resumed, and abandoned", async ({
       page.getByRole("heading", { name: "Allenamento in pausa" }),
     ).toHaveCount(0);
 
-    for (const width of [1440, 700]) {
+    for (const width of [1440]) {
       await page.setViewportSize({ width, height: 844 });
       await expect(tableTools.getByTestId("pause-practice-button"))
         .toBeInViewport({ ratio: 1 });
@@ -131,7 +131,7 @@ test("practice game can be paused, resumed, and abandoned", async ({
       expect(controlsGap).toBeLessThanOrEqual(20);
     }
     await page.screenshot({
-      path: testInfo.outputPath("practice-controls-narrow.png"),
+      path: testInfo.outputPath("practice-controls.png"),
       fullPage: true,
     });
     await expect(pauseButton.first()).toBeVisible();

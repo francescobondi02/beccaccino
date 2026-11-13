@@ -184,7 +184,7 @@ frontend/e2e/
 ├── first-trick.spec.ts     # Briscola selection and the first 4-card trick
 ├── game-motion.spec.ts     # Table layout and card travel/collection animations
 ├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
-└── practice-pause-resume.spec.ts # Pause, resume, direct overlay, narrow viewport, abandon
+└── practice-pause-resume.spec.ts # Pause, resume, direct overlay, abandon
 ```
 
 #### How It Works

@@ -35,7 +35,7 @@ const TrumpSuitDialog = ({
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
-        className="arcade-trump-dialog sm:max-w-4xl max-h-[90vh] overflow-y-auto border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl [&>button]:hidden"
+        className="max-w-4xl max-h-[90vh] overflow-y-auto border-[hsl(39_45%_50%_/_0.7)] bg-card shadow-2xl [&>button]:hidden"
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
       >
@@ -73,7 +73,7 @@ const TrumpSuitDialog = ({
           <h3 className="text-sm font-semibold text-muted-foreground mb-3 text-center">
             Seleziona la briscola
           </h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-4 gap-3">
             {italianSuits.map((suit) => (
               <Button
                 key={suit.value}

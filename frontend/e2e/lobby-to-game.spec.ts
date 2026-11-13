@@ -74,7 +74,7 @@ test.describe("Lobby to Game Start", () => {
       players.map((player) => player.page.getByTestId("hand-card-denara-quattro").count()),
     );
     await players[callers.findIndex(Boolean)].chooseTrumpSuit("denara");
-    for (const [width, height] of [[768, 900], [1440, 900], [1093, 470]]) {
+    for (const [width, height] of [[1440, 900]]) {
       await alice.page.setViewportSize({ width, height });
       await expect(alice.page.getByTestId("game-table-page")).toHaveAttribute("data-briscola", "denara");
       await expect(alice.page.getByTestId("briscola-panel")).toContainText("denari");
@@ -82,12 +82,6 @@ test.describe("Lobby to Game Start", () => {
       await expect(alice.page.getByRole("dialog")).toHaveCount(0);
       expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await expect(alice.page.getByTestId("player-hand")).toBeVisible();
-      if (width === 768) {
-        const hand = await alice.page.getByTestId("player-hand").boundingBox();
-        const arena = await alice.page.locator(".arcade-arena").boundingBox();
-        expect(hand?.height).toBeLessThanOrEqual(240);
-        expect(arena?.height).toBeGreaterThanOrEqual(300);
-      }
       await alice.page.screenshot({ path: test.info().outputPath(`arcade-game-${width}x${height}.png`), fullPage: true });
     }
   });

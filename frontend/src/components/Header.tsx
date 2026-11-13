@@ -86,7 +86,7 @@ const Header = ({ onAuthenticate, onBeforeNavigate }: HeaderProps) => {
                     {getInitials(username)}
                   </AvatarFallback>
                 </Avatar>
-                <span className="font-medium hidden sm:inline">{username}</span>
+                <span className="font-medium">{username}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 bg-popover z-50">

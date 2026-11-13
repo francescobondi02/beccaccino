@@ -22,7 +22,7 @@ export default function WaitingRoomPlayers({
   currentUserId,
 }: WaitingRoomPlayersProps) {
   return (
-    <div className="grid grid-cols-1 gap-4 mb-8 md:grid-cols-2">
+    <div className="grid grid-cols-2 gap-4 mb-8">
       {players.map((slot, index) => {
         const bot = slot && "isBotPlaceholder" in slot ? slot : null;
         const player = slot && !("isBotPlaceholder" in slot) ? slot : null;

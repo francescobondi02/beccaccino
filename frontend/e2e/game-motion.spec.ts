@@ -46,17 +46,11 @@ test.describe("Responsive table", () => {
       });
     });
     for (const [width, height, mode] of [
-      [1280, 900, "multiplayer"], [1280, 720, "multiplayer"], [820, 1180, "multiplayer"],
-      [761, 900, "multiplayer"], [760, 900, "multiplayer"],
-      [1093, 470, "multiplayer"], [1280, 520, "practice"],
-      [844, 390, "multiplayer"], [640, 360, "multiplayer"], [568, 320, "multiplayer"],
-      [640, 360, "afk"], [568, 360, "practice"],
+      [1280, 900, "multiplayer"], [1280, 720, "multiplayer"],
+      [1024, 600, "practice"], [1024, 600, "afk"],
     ] as const) {
       holdSnapshot = false;
       state.isPractice = mode === "practice";
-      state.round.briscola = height <= 540 ? "bastoni" : "spade";
-      state.totalPoints.team0Points = height <= 540 ? 40 : 0;
-      state.totalPoints.team1Points = height <= 540 ? 38 : 0;
       state.playerControls = players.map(({ userId, botModel }) => ({
         userId, botModel: userId === 1 && mode === "afk" ? "forte" : botModel, abandonedAt: null,
       }));
@@ -80,15 +74,13 @@ test.describe("Responsive table", () => {
         const topCard = rect('[data-testid="table-card-position-top"]');
         const bottomCard = document.querySelector('[data-testid="table-card-position-bottom"]')?.getBoundingClientRect();
         const sideCards = ["left", "right"].map((position) => rect(`[data-testid="table-card-position-${position}"]`));
-        const desktop = matchMedia("(min-width: 761px) and (min-height: 541px)").matches;
         const bubbles = [...document.querySelectorAll(".signal-callout")]
           .filter((bubble) => getComputedStyle(bubble).display !== "none")
           .map((bubble) => bubble.getBoundingClientRect());
         const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         return [
-          ...sideCards.map((card, index) => desktop
-            ? (card.top < topCard.bottom || (bottomCard && card.bottom > bottomCard.top)) && `side card ${index} outside middle row`
-            : card.top < status.bottom && `side card ${index} above compact row`),
+          ...sideCards.map((card, index) =>
+            (card.top < topCard.bottom || (bottomCard && card.bottom > bottomCard.top)) && `side card ${index} outside middle row`),
           ...cards.flatMap((card, index) => [
             seats.some((seat) => overlaps(card, seat)) && `card ${index} / seat`,
             overlaps(card, status) && `card ${index} / status`,
@@ -106,7 +98,6 @@ test.describe("Responsive table", () => {
           status.top < arena.top || status.bottom > arena.bottom ? "status outside table" : false,
           overlaps(hand, controls) && "hand / controls",
           seats.some((seat) => overlaps(seat, controls)) && "seat / controls",
-          innerHeight <= 540 && hand.bottom > innerHeight && "hand outside viewport",
           document.documentElement.scrollWidth > innerWidth && "horizontal overflow",
         ].filter(Boolean);
       });
@@ -121,27 +112,11 @@ test.describe("Responsive table", () => {
         arena: await page.locator(".arcade-arena").boundingBox(),
         hand: await page.getByTestId("player-hand").boundingBox(),
       };
-      if (height <= 540 || width >= 760) {
-        await page.screenshot({ path: test.info().outputPath(`${mode}-${width}x${height}.png`) });
-      }
+      await page.screenshot({ path: test.info().outputPath(`${mode}-${width}x${height}.png`) });
       await expect(page.locator("[data-card-user-id]")).toHaveCount(0);
-      if (width > 760 && height > 540) {
-        expect(await page.locator(".arcade-arena").boundingBox(), `Table shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.arena);
-        expect(await page.getByTestId("player-hand").boundingBox(), `Hand shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.hand);
-      }
+      expect(await page.locator(".arcade-arena").boundingBox(), `Table shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.arena);
+      expect(await page.getByTestId("player-hand").boundingBox(), `Hand shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.hand);
       expect(pendingSnapshots).toBeGreaterThan(0);
-      if (height <= 540) {
-        const cards = state.myCards;
-        state.myCards = [];
-        holdSnapshot = false;
-        await page.reload();
-        await expect(page.getByTestId("player-hand").getByRole("button")).toHaveCount(0);
-        expect(await page.locator(".arcade-arena").boundingBox(), `Table shifted with an empty hand at ${width}x${height}`).toEqual(occupiedLayout.arena);
-        const emptyHand = await page.getByTestId("player-hand").boundingBox();
-        expect(emptyHand?.y).toEqual(occupiedLayout.hand?.y);
-        expect(emptyHand?.height).toEqual(occupiedLayout.hand?.height);
-        state.myCards = cards;
-      }
     }
   });
 });
@@ -149,7 +124,6 @@ test.describe("Responsive table", () => {
 for (const [view, reducedMotion, width, height] of [
   ["desktop", "no-preference", 1440, 900],
   ["laptop", "reduce", 1280, 720],
-  ["landscape", "no-preference", 844, 390],
 ] as const) {
   test(`live cards travel and collect at every winning seat (${view}, ${reducedMotion})`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion });

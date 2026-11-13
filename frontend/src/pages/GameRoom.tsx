@@ -207,11 +207,11 @@ const GameRoom = () => {
       <ConnectionBanner status={connectionStatus} />
       <Header onBeforeNavigate={leaveWaitingRoom} />
 
-      <div className="arcade-waiting-room container mx-auto px-4 pt-24 pb-12">
+      <div className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto animate-fade-in">
           <Card className="circolo-surface mb-8">
             <CardHeader>
-              <CardTitle className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <Users className="h-6 w-6 text-primary" />
                   <div>
@@ -244,7 +244,7 @@ const GameRoom = () => {
                     <p className="text-muted-foreground mb-4">
                       Scegli una squadra prima di poterti mettere pronto
                     </p>
-                    <div className="flex flex-col justify-center gap-3 sm:flex-row sm:gap-4">
+                    <div className="flex justify-center gap-4">
                       <Button
                         variant="outline"
                         onClick={() => void handleChooseTeam(0)}
@@ -299,7 +299,7 @@ const GameRoom = () => {
 
           <WaitingRoomPlayers players={playerSlots} currentUserId={userId} />
 
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <Button
               variant={myPlayer?.isReady ? "secondary" : "gradient"}
               size="lg"
