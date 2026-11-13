@@ -2,17 +2,12 @@
 
 ## Starting the Backend
 
-Run `make dev` from the project root; see
-[Develop locally](../README.md#develop-locally). The backend container runs
-`prisma generate`, `prisma migrate deploy`, the dev account seed
-(`scripts/seedDevUsers.ts`) and `ts-node-dev` with hot reload on port 8000.
-`docker-compose.yml` sets the required variables; an optional `backend/.env`
-can add others (see `.env.example`).
+Run `make dev` from the project root; see [Develop locally](../README.md#develop-locally).
+An optional `backend/.env` can add variables (see `.env.example`).
 
 Tests do not load `.env.test`. Jest runs `tests/loadTestEnv.ts` before Prisma
 imports; it uses `TEST_DATABASE_URL` when supplied and otherwise selects the
-guarded local `becca_test` database. `make test` prepares that database with
-`npm run db:test:prepare` and runs the suites.
+guarded local `becca_test` database.
 
 ## Project Structure
 

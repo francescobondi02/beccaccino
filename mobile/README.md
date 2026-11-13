@@ -5,8 +5,10 @@ this app does not wrap it in a WebView. Both clients will use the existing backe
 
 ## Requirements
 
-- Node 26 (`nvm use`), npm and the npm lockfile.
-- For the initial phone preview: Expo Go with SDK 58 support, and a computer
+- `make dev` at the repository root runs Metro in Docker (Node 26); see
+  [Develop locally](../README.md#develop-locally). Running it on the host
+  instead needs Node 26 (`nvm use`) and npm.
+- For the phone preview: Expo Go with SDK 58 support, and a computer
   and phone on the same Wi-Fi network. The iOS App Store release 58.0.5,
   released October 22, 2026, explicitly adds SDK 58 support.
 - For native iOS builds later: macOS, Xcode and CocoaPods. Physical iPhone
@@ -16,16 +18,9 @@ this app does not wrap it in a WebView. Both clients will use the existing backe
 
 ## Expo Go preview
 
-```sh
-cd mobile
-nvm use
-npm ci
-npx expo login         # sign in yourself; never share account credentials
-npm start
-```
-
-On iPhone, sign in to Expo Go with the same **Expo account** used by the CLI,
-then scan the terminal's QR code with the Camera app. This is not a BECCA
+Run `make dev` (or `make qr` later) at the repository root and scan the printed
+QR code with the iPhone Camera app. Without Docker: `cd mobile && nvm use &&
+npm ci && npm start`. This is not a BECCA
 account. Keep Metro running; Fast Refresh updates the app after source changes.
 No USB cable, CocoaPods or custom native build is needed for this preview.
 
@@ -181,13 +176,11 @@ Do not install native build tools or submit cloud builds merely to use Expo Go.
 The app uses production (`https://beccaccino-server.onrender.com`) by default,
 so it shares accounts and data with the website. Native login and live games
 require the native backend support (login, socket token, last trick) to be
-deployed there. `make dev` at the repository root runs Metro in Docker on
-port 8082 against the local backend, with `EXPO_PUBLIC_BACKEND_URL` set to
-`http://<LAN IP>:8000`; see [Develop locally](../README.md#develop-locally).
-That variable wins over any `.env.local`. To run Metro outside Docker against
-a local backend, copy `.env.example` to `.env.local`, set
-`EXPO_PUBLIC_BACKEND_URL` to its **origin** (without `/api`) and restart Metro.
-Delete `.env.local` to return to production.
+deployed there. `make dev` points the app at the local backend
+(`http://<LAN IP>:8000`); its `EXPO_PUBLIC_BACKEND_URL` wins over `.env.local`.
+Outside Docker, copy `.env.example` to `.env.local`, set
+`EXPO_PUBLIC_BACKEND_URL` to the backend **origin** (without `/api`) and restart
+Metro. Delete `.env.local` to return to production.
 
 The local backend listens on port 8000. On a physical phone with Expo Go,
 `EXPO_PUBLIC_BACKEND_URL` must use the laptop's LAN IP (for example
@@ -229,7 +222,7 @@ Socket.IO accepts native `auth.token` as well as existing browser cookies.
 Explicit invalid native tokens never fall back to cookies. Profile editing and account deletion are outside
 this first integration slice. Expo authentication is not game authentication.
 
-The local backend is a development database only. Only integration tests may
+Only integration tests may
 reset the guarded `localhost/becca_test` database. Remove `.env.local` before
 exporting a release so it targets the HTTPS production origin. Never disable
 native transport security.

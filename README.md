@@ -21,16 +21,13 @@ and Expo Metro, runs in containers with hot reload. Dependencies live in named
 volumes, never in host `node_modules`.
 
 ```sh
-make dev     # build and start everything, then print the URLs and the Expo QR code
+make dev     # build, start detached, wait until healthy, print URLs and Expo QR
 make logs    # follow the logs
 make test    # backend unit + integration (becca_test), frontend Vitest, mobile check
 make stop    # stop, keep data
 make reset   # delete the database and dependency volumes, then start fresh
 make qr      # print the Expo Go URL and QR code again
 ```
-
-`make dev` runs detached and returns once every service is healthy, so the
-terminal stays free and the URLs are printed at the end.
 
 | Service | URL |
 | --- | --- |
@@ -41,21 +38,15 @@ terminal stays free and the URLs are printed at the end.
 | Adminer | http://localhost:8080 (server `db`, user and password `postgres`) |
 | PostgreSQL | localhost:5432, databases `becca` and `becca_test` |
 
-- Accounts: the backend seeds `alice`, `bob`, `carol` and `dave`, all with the
-  password `password`, on every start
-  (`backend/scripts/seedDevUsers.ts`). The seed skips existing users and
-  refuses to run unless `NODE_ENV=development` and the database host is local.
-  It is not part of the production image or start command.
-- Phone: install Expo Go, join the same Wi-Fi as the Mac and scan the QR code
-  printed by `make dev` or `make qr`. The Makefile reads the Mac's LAN IP
-  (`ipconfig getifaddr en0`, then `en1`) and passes it to Metro
-  (`REACT_NATIVE_PACKAGER_HOSTNAME`) and to the app
-  (`EXPO_PUBLIC_BACKEND_URL=http://<LAN IP>:8000`). Override it with
-  `make dev LAN_IP=192.168.1.20`.
+- Accounts: `alice`, `bob`, `carol`, `dave`, password `password`, seeded by
+  `backend/scripts/seedDevUsers.ts` (dev-only, never in the production image).
+- Phone: install Expo Go, join the Mac's Wi-Fi and scan the QR from `make dev`
+  or `make qr`. Wrong IP? `make dev LAN_IP=192.168.1.20`.
 - Configuration: no `.env` is required. `docker-compose.yml` sets dev-only,
   non-secret defaults for `JWT_SECRET` and `BOT_SERVICE_TOKEN`. An optional root
-  `.env` can override them, and can set `NPM_CONFIG_REGISTRY` and
-  `PIP_INDEX_URL` to an approved mirror on restricted networks. An optional
+  `.env` can override them. On restricted networks the Makefile reuses the
+  host's npm mirror (`~/.npmrc` `registry=`) and pip mirror (`pip3 config`)
+  inside the containers. An optional
   `backend/.env` can still set other backend variables such as `GAME_WIN_POINTS`.
 - Migrations run on every backend start for `becca`; `make test` migrates
   `becca_test` itself. `init-db.sql` creates both databases when the `db_data`

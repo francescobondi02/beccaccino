@@ -2,15 +2,7 @@
 
 ## Quick Start
 
-```sh
-git clone https://github.com/francescobondi02/beccaccino.git
-cd beccaccino
-make dev
-```
-
-See [Develop locally](./README.md#develop-locally) for ports, seeded accounts,
-the phone setup and every `make` target. The host needs only Docker and make.
-Production never uses the local Compose file, its dev-only defaults or the seed.
+See [Develop locally](./README.md#develop-locally).
 
 ## Production commands and environment
 
@@ -85,11 +77,9 @@ lobby and first trick.
 
 #### Prerequisites
 
-```sh
-docker compose up -d --wait db # Start only PostgreSQL
-cd backend && npm run dev     # Start backend (port 8000)
-cd frontend && npm run dev    # Start frontend (port 8081)
-```
+`make dev` running (API on 8000, web on 8081). Playwright itself runs on the
+host and needs Node and its browsers; see `frontend/README.md` for its
+environment.
 
 #### Commands
 
@@ -141,15 +131,6 @@ Each integration test suite calls `clearDatabase()` in `beforeEach` to ensure is
 
 ---
 
-## Stopping the Project
-
-```sh
-make stop     # stop containers, keep data
-make reset    # delete the database and dependency volumes (destructive), then start fresh
-```
-
----
-
 ## Database Management (Prisma)
 
 Run these inside the backend container: `docker compose exec backend sh`.
@@ -173,14 +154,6 @@ npx prisma studio
 
 ---
 
-## Environment Variables
-
-`docker-compose.yml` sets every variable the local backend needs, with dev-only
-defaults. See [Develop locally](./README.md#develop-locally) for overrides.
-Integration tests get theirs from `backend/tests/loadTestEnv.ts`.
-
----
-
 ## Docker Reference
 
 ```sh
@@ -193,9 +166,6 @@ docker compose logs -f backend  # backend only
 
 # Restart a service
 docker compose restart backend
-
-# Rebuild after Dockerfile changes
-make dev
 
 # Enter a container
 docker exec -it becca-backend sh
@@ -232,12 +202,6 @@ docker compose restart backend   # runs prisma generate on start
 The `tests/loadTestEnv.ts` file must override `DATABASE_URL` before any module loads.
 It is registered under `setupFiles` (not `setupFilesAfterEnv`) in `jest.config.js` for this reason.
 If tests are writing to `becca` instead of `becca_test`, check that the integration project config still has `setupFiles: ["<rootDir>/tests/loadTestEnv.ts"]`.
-
-**Database in inconsistent state:**
-
-```sh
-make reset
-```
 
 ---
 

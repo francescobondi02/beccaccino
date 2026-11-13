@@ -2,6 +2,15 @@
 # override with `make dev LAN_IP=192.168.1.20`.
 LAN_IP ?= $(shell ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
 export LAN_IP
+# Reuse the host's npm and pip mirrors when set (e.g. a corporate feed); unset means the public registries.
+NPM_CONFIG_REGISTRY ?= $(shell sed -n 's/^registry *= *//p' ~/.npmrc 2>/dev/null)
+PIP_INDEX_URL ?= $(shell pip3 config list 2>/dev/null | sed -n "s/^global.index-url='\(.*\)'/\1/p")
+ifneq ($(NPM_CONFIG_REGISTRY),)
+export NPM_CONFIG_REGISTRY
+endif
+ifneq ($(PIP_INDEX_URL),)
+export PIP_INDEX_URL
+endif
 
 .DEFAULT_GOAL := help
 .PHONY: help dev stop reset logs test qr
@@ -18,6 +27,7 @@ dev: ## Build and start everything in the background, then print the URLs
 	@$(MAKE) --no-print-directory qr
 
 qr: ## Print the Expo Go URL and QR code for the phone
+	@test -n "$(LAN_IP)" || echo "No LAN IP found: the phone cannot connect. Run: make dev LAN_IP=x.x.x.x"
 	@echo "Expo Go  exp://$(LAN_IP):8082"
 	-@docker compose exec mobile node -e "require('@expo/cli/build/src/utils/qr').printQRCode('exp://$(LAN_IP):8082').print()"
 
@@ -35,6 +45,6 @@ test: ## Run backend, frontend and mobile tests inside the containers
 	docker compose up --detach --wait
 	docker run --rm --network container:becca-db --volumes-from becca-backend \
 		--volume "$(CURDIR)/ai:/ai:ro" --workdir /app \
-		node:24-alpine3.21 sh -c "npm run db:test:prepare && npm test -- --testTimeout=20000"
+		node:24-alpine sh -c "npm run db:test:prepare && npm test -- --testTimeout=20000"
 	docker compose exec frontend npm test
 	docker compose exec mobile npm run check -- --testTimeout=20000

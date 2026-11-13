@@ -15,7 +15,7 @@ WORKDIR /app
 RUN python -m pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
         --extra-index-url "${PIP_INDEX_URL}" \
-        "torch==${TORCH_VERSION}"
+        "torch==${TORCH_VERSION}+cpu"
 
 COPY pyproject.toml README.md ./
 RUN python -m pip install --no-cache-dir ".[serve]"
