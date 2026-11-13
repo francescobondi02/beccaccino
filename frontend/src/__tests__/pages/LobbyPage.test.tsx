@@ -61,7 +61,9 @@ vi.mock("@/sockets/lobbyHandlers", () => ({
     return mocks.unregisterLobby;
   },
   leaveLobby: mocks.leaveLobby,
-  subscribeToLobbyChanges: (listener: () => void) => {
+}));
+vi.mock("@/sockets/socketClient", () => ({
+  subscribe: (_event: string, listener: () => void) => {
     mocks.lobbyChanged = listener;
     return vi.fn();
   },
@@ -204,7 +206,7 @@ describe("LobbyPage room commands", () => {
 
   it("redirects active-room conflicts instead of showing a generic error", async () => {
     mocks.apiPost.mockRejectedValue(
-      new ApiError(409, "Already playing", { activeRoomCode: "LIVE01" }),
+      new ApiError(409, "Already playing", { error: "Already playing", activeRoomCode: "LIVE01" }),
     );
     renderLobby();
 

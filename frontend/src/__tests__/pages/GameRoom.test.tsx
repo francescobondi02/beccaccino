@@ -58,7 +58,9 @@ vi.mock("@/sockets/roomHandlers", () => ({
     return mocks.unregisterRoom;
   },
   leaveRoom: mocks.leaveRoom,
-  subscribeToRoomEvent: (
+}));
+vi.mock("@/sockets/socketClient", () => ({
+  subscribe: (
     event: string,
     callback: (...args: never[]) => void,
   ) => {
@@ -68,8 +70,6 @@ vi.mock("@/sockets/roomHandlers", () => ({
       mocks.callbacks[key] = null;
     };
   },
-}));
-vi.mock("@/sockets/socketClient", () => ({
   getConnectionStatus: () => "connected",
   onConnectionStatusChange: (
     listener: (
@@ -366,7 +366,7 @@ describe("GameRoom state synchronization", () => {
   it("sends an invited player already seated elsewhere to that game", async () => {
     mocks.apiGet.mockRejectedValue(new ApiError(403, "Not a player"));
     mocks.apiPost.mockRejectedValue(
-      new ApiError(409, "Already in a room", { activeRoomCode: "LIVE01" }),
+      new ApiError(409, "Already in a room", { error: "Already in a room", activeRoomCode: "LIVE01" }),
     );
     renderGameRoom();
 

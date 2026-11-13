@@ -20,7 +20,10 @@ vi.mock("@/sockets/roomHandlers", () => ({
     mocks.onJoined = onJoined;
     return vi.fn();
   },
-  subscribeToRoomEvent: (event: string, handler: (payload: unknown) => void) => {
+}));
+
+vi.mock("@/sockets/socketClient", () => ({
+  subscribe: (event: string, handler: (payload: unknown) => void) => {
     mocks.handlers.set(event, handler);
     return () => mocks.handlers.delete(event);
   },
@@ -144,6 +147,29 @@ describe("useGameTable", () => {
     expect(result.current.completedTrick).toBeNull();
     expect(result.current.currentTurnUserId).toBe(1);
     expect(result.current.playableCards).toHaveLength(1);
+  });
+
+  it("holds the next trick's lead card until the completed trick leaves the table", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const cards = [2, 3, 4, 1].map((userId, index) => ({ ...lead, userId, value: (["tre", "due", "re", "asso"] as const)[index] }));
+    const lastTrick = {
+      roundNumber: 1, trickNumber: 1, winnerUserId: 1, cards,
+      onTableUntil: new Date(Date.now() + 2000).toISOString(),
+    };
+    mocks.apiGet.mockResolvedValue(gameState());
+    const { result } = renderTable();
+    await waitFor(() => expect(result.current.gameState).toBeDefined());
+
+    push({ ...cardPlayed(2, cards[3]), trick: null, lastTrick });
+    const completing = result.current.animatedCard;
+    expect(completing).toEqual(cards[3]);
+
+    const nextLead: PlayedCard = { userId: 1, suit: "denara", value: "sette", signal: null };
+    push({ ...cardPlayed(3, nextLead), trick: { number: 2, cards: [nextLead] }, lastTrick });
+    expect(result.current.animatedCard).toBe(completing);
+
+    act(() => vi.advanceTimersByTime(2100));
+    expect(result.current.animatedCard).toEqual(nextLead);
   });
 
   it("announces automatic plays and refetches on room_changed", async () => {

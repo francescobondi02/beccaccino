@@ -45,8 +45,8 @@ src/
     useRoundDeal.ts     Round deal presentation phases
     useTurnCountdown.ts Server-authoritative timer presentation
     useWaitingRoom.ts   Waiting-room hydration and socket coordination
-  game/                 keepNewer update rule and presentation selectors
-  rooms/                Lobby and waiting-room presentation selectors
+  game/                 Presentation selectors
+  rooms/                Waiting-room presentation selectors
   lib/
     api.ts              Typed REST helpers and ApiError
     roomRedirect.ts     Active-room conflict navigation

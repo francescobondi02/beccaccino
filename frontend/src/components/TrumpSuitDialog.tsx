@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import PlayingCard from "./PlayingCard";
+import { cardKey } from "@/game/presentation";
 import type { Card } from "@contract/cards";
 
 type TrumpSuitDialogProps = {
@@ -57,7 +58,7 @@ const TrumpSuitDialog = ({
           <div className="flex gap-2 flex-wrap justify-center max-w-3xl mx-auto">
             {myCards.map((card) => (
               <PlayingCard
-                key={`${card.suit}-${card.value}`}
+                key={cardKey(card)}
                 suit={card.suit}
                 value={card.value}
                 size="sm"

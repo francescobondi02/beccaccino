@@ -25,4 +25,4 @@ export const gameState = (overrides: Partial<GameState> = {}): GameState => ({
 });
 
 // Stamps the current server time, as the backend does on every response.
-export const now = (state: GameState): GameState => ({ ...state, serverTime: iso(Date.now()) });
+export const withCurrentServerTime = (state: GameState): GameState => ({ ...state, serverTime: iso(Date.now()) });

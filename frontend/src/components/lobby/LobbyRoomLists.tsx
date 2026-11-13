@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Room } from "@contract/rooms";
 
-interface RoomListsProps {
+interface LobbyRoomListsProps {
   availableRooms: Room[];
   ordinaryActiveGames: Room[];
   pausedPracticeGames: Room[];
@@ -15,7 +15,7 @@ interface RoomListsProps {
   onResumePractice: (roomCode: string) => void;
 }
 
-export default function RoomLists({
+export default function LobbyRoomLists({
   availableRooms,
   ordinaryActiveGames,
   pausedPracticeGames,
@@ -25,7 +25,7 @@ export default function RoomLists({
   onJoin,
   onOpenGame,
   onResumePractice,
-}: RoomListsProps) {
+}: LobbyRoomListsProps) {
   const hasRooms =
     availableRooms.length + ordinaryActiveGames.length + pausedPracticeGames.length >
     0;

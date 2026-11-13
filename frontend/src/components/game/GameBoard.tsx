@@ -6,7 +6,7 @@ import SignalCallout from "./SignalCallout";
 import type { Card, Signal } from "@contract/cards";
 import type { PlayedCard } from "@contract/game";
 import type { RoundDealView } from "@/game/model";
-import type { PositionedPlayer } from "@/game/presentation";
+import { cardKey, type PositionedPlayer } from "@/game/presentation";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 interface GameBoardProps {
@@ -91,8 +91,7 @@ export default function GameBoard({
     const slot = board.current?.querySelector<HTMLElement>(`[data-card-user-id="${animatedCard.userId}"]`);
     const element = slot?.firstElementChild;
     const seat = board.current?.querySelector(`[data-player-user-id="${animatedCard.userId}"]`);
-    const key = `${animatedCard.suit}-${animatedCard.value}`;
-    const origin = cardOrigin.current?.key === key && animatedCard.userId === currentUserId
+    const origin = cardOrigin.current?.key === cardKey(animatedCard) && animatedCard.userId === currentUserId
       ? cardOrigin.current.rect : seat?.getBoundingClientRect();
     cardOrigin.current = null;
     if (!slot || !element?.animate || !origin) return;
@@ -183,13 +182,13 @@ export default function GameBoard({
       const isCurrentTurn = currentTurnUserId === currentUserId;
       return (
         <PlayingCard
-          key={`${card.suit}-${card.value}`}
+          key={cardKey(card)}
           suit={card.suit}
           value={card.value}
           onClick={() => {
-            const element = board.current?.querySelector(`[data-testid="hand-card-${card.suit}-${card.value}"]`);
+            const element = board.current?.querySelector(`[data-testid="hand-card-${cardKey(card)}"]`);
             if (element) cardOrigin.current = {
-              key: `${card.suit}-${card.value}`,
+              key: cardKey(card),
               rect: element.getBoundingClientRect(),
             };
             onCardClick(card);
@@ -204,7 +203,7 @@ export default function GameBoard({
           }`}
           clickable={isCurrentTurn && isPlayable}
           disabled={!isCurrentTurn || !isPlayable}
-          data-testid={`hand-card-${card.suit}-${card.value}`}
+          data-testid={`hand-card-${cardKey(card)}`}
         />
       );
     });

@@ -4,11 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Room } from "@contract/rooms";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
-import {
-  leaveRoom,
-  registerRoomHandlers,
-  subscribeToRoomEvent,
-} from "@/sockets/roomHandlers";
+import { leaveRoom, registerRoomHandlers } from "@/sockets/roomHandlers";
+import { subscribe } from "@/sockets/socketClient";
 
 interface UseWaitingRoomOptions {
   roomCode: string | undefined;
@@ -99,7 +96,7 @@ export function useWaitingRoom({
 
     // Joining the socket room also covers reconnects: refetch what we missed.
     const unregisterRoom = registerRoomHandlers(roomCode, () => void refreshRoom());
-    const unsubscribe = subscribeToRoomEvent("room_changed", () => {
+    const unsubscribe = subscribe("room_changed", () => {
       // After our own departure the room is no longer ours to load.
       if (!departure.current) void refreshRoom();
     });

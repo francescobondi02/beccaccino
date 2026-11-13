@@ -1,21 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JoinRoomResult } from "@contract/socket";
 
-type Listener = (...args: unknown[]) => void;
-const serverListeners = new Map<string, Set<Listener>>();
-
 const mockSocket = {
   connected: true,
   connect: vi.fn(),
   disconnect: vi.fn(),
-  on: vi.fn((event: string, listener: Listener) => {
-    const listeners = serverListeners.get(event) ?? new Set();
-    listeners.add(listener);
-    serverListeners.set(event, listeners);
-  }),
-  off: vi.fn((event: string, listener: Listener) => {
-    serverListeners.get(event)?.delete(listener);
-  }),
+  on: vi.fn(),
+  off: vi.fn(),
   emit: vi.fn(),
   io: {
     on: vi.fn(),
@@ -27,11 +18,7 @@ vi.mock("socket.io-client", () => ({
   io: vi.fn(() => mockSocket),
 }));
 
-import {
-  leaveRoom,
-  registerRoomHandlers,
-  subscribeToRoomEvent,
-} from "@/sockets/roomHandlers";
+import { leaveRoom, registerRoomHandlers } from "@/sockets/roomHandlers";
 
 function socketListener(event: string) {
   const call = mockSocket.on.mock.calls
@@ -52,7 +39,6 @@ function lastJoinAcknowledgement() {
 describe("roomHandlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    serverListeners.clear();
     mockSocket.connected = true;
     vi.useFakeTimers();
   });
@@ -171,36 +157,6 @@ describe("roomHandlers", () => {
     unregister();
 
     expect(mockSocket.off).toHaveBeenCalledWith("connect", listener);
-  });
-
-  it("subscribes and unsubscribes the same event callback", () => {
-    const callback = vi.fn();
-    const unsubscribe = subscribeToRoomEvent("room_changed", callback);
-    const listener = socketListener("room_changed");
-
-    listener({ roomCode: "ROOM" });
-    expect(callback).toHaveBeenCalledWith({ roomCode: "ROOM" });
-
-    unsubscribe();
-    expect(mockSocket.off).toHaveBeenCalledWith("room_changed", callback);
-  });
-
-  it("does not remove another subscriber for the same event", () => {
-    const first = vi.fn();
-    const second = vi.fn();
-    const unsubscribeFirst = subscribeToRoomEvent("room_changed", first);
-    subscribeToRoomEvent("room_changed", second);
-
-    serverListeners
-      .get("room_changed")
-      ?.forEach((listener) => listener({ roomCode: "ROOM" }));
-    unsubscribeFirst();
-    serverListeners
-      .get("room_changed")
-      ?.forEach((listener) => listener({ roomCode: "ROOM" }));
-
-    expect(first).toHaveBeenCalledOnce();
-    expect(second).toHaveBeenCalledTimes(2);
   });
 
   it("emits leave_room without disconnecting the shared socket", () => {

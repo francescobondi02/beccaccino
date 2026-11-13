@@ -63,7 +63,7 @@ data transfer contribute to Vercel usage.
 
 - Pages adapt routes and authentication, invoke named commands, and compose views.
 - Hooks coordinate REST hydration, Socket.IO reconciliation, and reconnect recovery.
-- `src/game/` and `src/rooms/` contain pure selectors and the `keepNewer` update rule.
+- `src/game/` and `src/rooms/` contain pure selectors; `useGameTable` holds the `keepNewer` update rule.
 - Components under `components/game`, `components/lobby` and `components/rooms`
   render focused views and receive explicit callbacks.
 - `src/lib/api.ts` and the typed socket modules are the transport boundaries.

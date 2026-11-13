@@ -63,8 +63,8 @@ frontend/
 │   │   ├── useRoundDeal.ts     # Round deal presentation phases
 │   │   ├── useTurnCountdown.ts # Server-authoritative timer presentation
 │   │   └── useWaitingRoom.ts   # Waiting-room fetch and socket reconciliation
-│   ├── game/                   # keepNewer update rule and view selectors
-│   ├── rooms/                  # Lobby and waiting-room view selectors
+│   ├── game/                   # View selectors
+│   ├── rooms/                  # Waiting-room view selectors
 │   ├── styles/                 # arcade.css
 │   └── lib/
 │       ├── api.ts              # Typed REST request helpers
@@ -123,7 +123,7 @@ frontend/src/__tests__/
 ├── game/                  # Game presentation selectors
 ├── hooks/                 # Auth, connection, game state and timers
 ├── pages/                 # Page request and workflow states
-├── rooms/                 # Lobby and waiting-room selectors
+├── rooms/                 # Waiting-room selectors
 ├── *Handlers.test.ts      # Lobby and room socket subscriptions
 ├── socketClient.test.ts   # Socket singleton behavior
 ├── useAppUpdate.test.ts   # Version polling and update toast

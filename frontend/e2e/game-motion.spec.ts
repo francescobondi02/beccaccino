@@ -1,6 +1,6 @@
 import { test, expect, type WebSocketRoute } from "@playwright/test";
 import type { GameState, PlayedCard } from "../../backend/src/contract/game";
-import { cardsOf, gameState, iso, now, score, tablePlayers } from "./helpers/gameState";
+import { cardsOf, gameState, iso, withCurrentServerTime, score, tablePlayers } from "./helpers/gameState";
 
 test.describe("Responsive table", () => {
   test("keeps central messages, seats, cards and controls separate on every screen size", async ({ page }) => {
@@ -19,7 +19,7 @@ test.describe("Responsive table", () => {
       myHand: cardsOf("denara", ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]),
     });
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: players[0].username } }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: now(state) }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
     let socket: WebSocketRoute | undefined;
     await page.routeWebSocket(/\/socket\.io\//, (wire) => {
       socket = wire;
@@ -87,7 +87,7 @@ test.describe("Responsive table", () => {
       expect(await collisions(), `During play: ${mode} ${width}x${height}`).toEqual([]);
       if (!socket) throw new Error("Test socket is not connected");
       const card = { suit: "coppe", value: "asso" } as const;
-      socket.send(`42${JSON.stringify(["game_state", now({
+      socket.send(`42${JSON.stringify(["game_state", withCurrentServerTime({
         ...state, version: 2, myHand: state.myHand.slice(1), trick: { number: 2, cards: [] },
         lastTrick: {
           roundNumber: 1, trickNumber: 1, winnerUserId: 4,
@@ -136,10 +136,10 @@ for (const [view, reducedMotion, width, height] of [
         lastAction: { kind: "card_played", userId, card: { suit, value }, signal, source: "human", takeover: false },
         ...after,
       };
-      return now(state);
+      return withCurrentServerTime(state);
     };
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: names[0] } }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: now(state) }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
     let posts = 0;
     let postResponse: GameState | undefined;
     await page.route("**/games/ROOM/cards", (route) => {
@@ -279,7 +279,7 @@ for (const [view, reducedMotion, width, height] of [
           turn: { userId: 1, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
           lastAction: { kind: "briscola_chosen", userId: 1, suit: "spade", source: "human", takeover: false },
         };
-        emit("game_state", now(state));
+        emit("game_state", withCurrentServerTime(state));
         await expect(page.getByRole("dialog")).toHaveCount(0);
       }
     }

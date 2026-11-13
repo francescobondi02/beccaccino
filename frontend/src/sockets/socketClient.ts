@@ -106,6 +106,19 @@ export function getSocket(): AppSocket {
   return socket;
 }
 
+export function subscribe<Event extends keyof ServerToClientEvents>(
+  event: Event,
+  listener: ServerToClientEvents[Event],
+): () => void {
+  const socket = getSocket();
+  // socket.io cannot resolve its listener type for a generic event name.
+  const handler = listener as never;
+  socket.on(event, handler);
+  return () => {
+    socket.off(event, handler);
+  };
+}
+
 export function getConnectionStatus(): ConnectionStatus {
   // If socket exists and is connected but status is stale, correct it
   if (socket?.connected && connectionStatus !== "connected") {

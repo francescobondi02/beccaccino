@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { replaceEqualDeep, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { GameState, LastAction, PlayedCard } from "@contract/game";
 import { apiGet } from "@/lib/api";
-import { keepNewer } from "@/game/state";
-import {
-  leaveRoom,
-  registerRoomHandlers,
-  subscribeToRoomEvent,
-} from "@/sockets/roomHandlers";
+import { cardKey } from "@/game/presentation";
+import { leaveRoom, registerRoomHandlers } from "@/sockets/roomHandlers";
+import { subscribe } from "@/sockets/socketClient";
 
 // The final trick of a round leaves the table early for the round summary.
 const FINAL_TRICK_EARLY_MS = 2000;
+
+// Client update rule: drop an older state, replace an equal or newer one.
+// replaceEqualDeep keeps unchanged parts by reference, so the table does not
+// restart animations when the same state arrives twice.
+function keepNewer(old: GameState | undefined, next: GameState): GameState {
+  return old && next.version < old.version ? old : replaceEqualDeep(old, next);
+}
 
 function actionNotice(action: LastAction, username: (userId: number) => string) {
   switch (action.kind) {
@@ -68,30 +72,12 @@ export function useGameTable(roomCode: string | undefined, userId: number | null
     return () => clearTimeout(timer);
   }, [notice]);
 
-  // Animate lastAction once per new version, never for an equal one.
-  const [seen, setSeen] = useState<{ version: number; animatedCard: PlayedCard | null }>({
-    version: -1,
-    animatedCard: null,
-  });
-  if (gameState && gameState.version > seen.version) {
-    const action = gameState.lastAction;
-    setSeen({
-      version: gameState.version,
-      animatedCard: action?.kind === "card_played"
-        ? { ...action.card, userId: action.userId, signal: action.signal }
-        : null,
-    });
-    const message = action && actionNotice(action, (id) =>
-      gameState.players.find((player) => player.userId === id)?.username ?? "Giocatore");
-    if (message) setNotice(message);
-  }
-
   const serverTime = gameState?.serverTime;
   const clockOffset = useMemo(
     () => (serverTime ? Date.parse(serverTime) - Date.now() : 0),
     [serverTime],
   );
-  const localTime = (iso: string) => Date.parse(iso) - clockOffset;
+  const localTime = useCallback((iso: string) => Date.parse(iso) - clockOffset, [clockOffset]);
 
   const lastTrick = gameState?.lastTrick ?? null;
   const fastCollection = lastTrick?.trickNumber === 10;
@@ -107,13 +93,39 @@ export function useGameTable(roomCode: string | undefined, userId: number | null
   }, [lastTrickLeavesAt]);
   const completedTrick = lastTrick && Date.now() < lastTrickLeavesAt ? lastTrick : null;
 
+  // Animate lastAction once per new version, never for an equal one. A card of
+  // the next trick waits until the completed trick leaves the table.
+  const [seen, setSeen] = useState<{
+    version: number;
+    animatedCard: PlayedCard | null;
+    heldCard: PlayedCard | null;
+  }>({ version: -1, animatedCard: null, heldCard: null });
+  if (gameState && gameState.version > seen.version) {
+    const action = gameState.lastAction;
+    const card: PlayedCard | null = action?.kind === "card_played"
+      ? { ...action.card, userId: action.userId, signal: action.signal }
+      : null;
+    const held = card && completedTrick &&
+      !completedTrick.cards.some((played) => cardKey(played) === cardKey(card));
+    setSeen({
+      version: gameState.version,
+      animatedCard: held ? seen.animatedCard : card,
+      heldCard: held ? card : card ? null : seen.heldCard,
+    });
+    const message = action && actionNotice(action, (id) =>
+      gameState.players.find((player) => player.userId === id)?.username ?? "Giocatore");
+    if (message) setNotice(message);
+  } else if (seen.heldCard && !completedTrick) {
+    setSeen({ ...seen, animatedCard: seen.heldCard, heldCard: null });
+  }
+
   const deal = gameState?.round.deal ?? null;
   const roundDeal = useMemo(
     () => deal && {
-      animationEndsAt: Date.parse(deal.animationEndsAt) - clockOffset,
-      reviewEndsAt: Date.parse(deal.reviewEndsAt) - clockOffset,
+      animationEndsAt: localTime(deal.animationEndsAt),
+      reviewEndsAt: localTime(deal.reviewEndsAt),
     },
-    [deal, clockOffset],
+    [deal, localTime],
   );
 
   useEffect(() => {
@@ -122,9 +134,9 @@ export function useGameTable(roomCode: string | undefined, userId: number | null
     // Runs on every socket (re)connect: refetch what a disconnect missed.
     const unregisterRoom = registerRoomHandlers(roomCode, () => void refetchGameState());
     const unsubscribers = [
-      subscribeToRoomEvent("game_state", applyGameState),
-      subscribeToRoomEvent("room_changed", () => void refetchGameState()),
-      subscribeToRoomEvent("player_disconnected", ({ username }) => {
+      subscribe("game_state", applyGameState),
+      subscribe("room_changed", () => void refetchGameState()),
+      subscribe("player_disconnected", ({ username }) => {
         setNotice(`${username} si è disconnesso. Il suo posto resta riservato.`);
       }),
     ];
@@ -149,7 +161,7 @@ export function useGameTable(roomCode: string | undefined, userId: number | null
     playedCards,
     animatedCard: seen.animatedCard,
     currentSignal: lead?.signal
-      ? { userId: lead.userId, signal: lead.signal, cardKey: `${lead.suit}-${lead.value}` }
+      ? { userId: lead.userId, signal: lead.signal, cardKey: cardKey(lead) }
       : null,
     currentTurnUserId: turn?.userId ?? null,
     turnDeadline: turn?.deadline ? localTime(turn.deadline) : null,

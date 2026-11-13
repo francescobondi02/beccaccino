@@ -1,5 +1,5 @@
 import { test, expect } from "./helpers/fixtures";
-import { cardsOf, gameState, iso, now, score } from "./helpers/gameState";
+import { cardsOf, gameState, iso, withCurrentServerTime, score } from "./helpers/gameState";
 
 const fullHand = cardsOf("coppe", ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]);
 
@@ -9,7 +9,7 @@ test.describe("Arcade interface", () => {
     let readyAt = 0;
     await page.route("**/games/ROOM/state", (route) => {
       if (!readyAt) readyAt = Date.now() + 8000;
-      return route.fulfill({ json: now(gameState({
+      return route.fulfill({ json: withCurrentServerTime(gameState({
         status: "choosing_briscola",
         round: {
           number: 2, callerUserId: 1, briscola: null, cricca: false,
@@ -55,7 +55,7 @@ test.describe("Arcade interface", () => {
       },
     });
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: now(state) }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
     const [width, height] = [1440, 844];
     await page.setViewportSize({ width, height });
     await page.goto("/game/ROOM");
@@ -86,7 +86,7 @@ test.describe("Arcade interface", () => {
       let readyAt = 0;
       await page.route("**/games/ROOM/state", (route) => {
         if (!readyAt) readyAt = Date.now() + 4000;
-        return route.fulfill({ json: now(gameState({
+        return route.fulfill({ json: withCurrentServerTime(gameState({
           status: "choosing_briscola",
           round: {
             number: 1, callerUserId: 1, briscola: null, cricca: false,
@@ -179,7 +179,7 @@ test.describe("Arcade interface", () => {
       turn: { userId: 2, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
     });
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: now(state) }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
 
     for (const viewport of [
       { width: 1920, height: 1080 }, { width: 1280, height: 800 },
@@ -231,18 +231,18 @@ test.describe("Arcade interface", () => {
     });
     const plays: unknown[] = [];
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: now(state) }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
     await page.route("**/games/ROOM/briscola", (route) => {
       state = {
         ...state, version: 2, status: "playing", round: { ...state.round, briscola: "spade" },
         trick: { number: 1, cards: [] }, playableCards: cards,
         turn: { userId: 1, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
       };
-      return route.fulfill({ json: now(state) });
+      return route.fulfill({ json: withCurrentServerTime(state) });
     });
     await page.route("**/games/ROOM/cards", (route) => {
       plays.push(route.request().postDataJSON());
-      return route.fulfill({ json: now(state) });
+      return route.fulfill({ json: withCurrentServerTime(state) });
     });
 
     await page.goto("/game/ROOM");

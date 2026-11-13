@@ -1,20 +1,15 @@
 // Shared REST client. Centralizes the API base URL and error handling so
 // pages don't repeat the fetch + res.ok + res.json dance.
 
-// Error payloads the backend sends alongside non-2xx statuses.
-interface ApiErrorBody {
-  error?: string;
-  activeRoomCode?: string;
-  [key: string]: unknown;
-}
+import type { ErrorBody } from "@contract/http";
 
 // Thrown on any non-2xx response. `body` carries the parsed JSON body when
 // available so callers can read fields beyond `message` (e.g. activeRoomCode).
 export class ApiError extends Error {
   status: number;
-  body?: ApiErrorBody;
+  body?: ErrorBody;
 
-  constructor(status: number, message: string, body?: ApiErrorBody) {
+  constructor(status: number, message: string, body?: ErrorBody) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -46,7 +41,7 @@ async function request<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
-  const parsed = (await parseBody(res)) as ApiErrorBody | undefined;
+  const parsed = (await parseBody(res)) as ErrorBody | undefined;
 
   if (!res.ok) {
     const message = parsed?.error ?? `Request failed (${res.status})`;

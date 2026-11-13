@@ -1,3 +1,4 @@
+import type { Card } from "@contract/cards";
 import type { GamePlayer, Score } from "@contract/game";
 import type { PlayerPosition } from "@/game/model";
 
@@ -35,4 +36,8 @@ export function pointsForPlayerTeam(score: Score, team: number | null) {
   return team === 0
     ? { own: score.team0.points, opponents: score.team1.points }
     : { own: score.team1.points, opponents: score.team0.points };
+}
+
+export function cardKey(card: Card) {
+  return `${card.suit}-${card.value}`;
 }
