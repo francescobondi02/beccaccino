@@ -146,8 +146,7 @@ npx prisma studio
 Never run `prisma migrate reset` against a shared or production database. Test
 setup uses `npm run db:test:prepare`, which migrates only the local `becca_test`
 URL hard-coded in `package.json`. Annotation status/import/export uses
-the guarded scripts under `scripts/annotations/`; see
-[`scripts/annotations/README.md`](scripts/annotations/README.md).
+the guarded scripts under `scripts/annotations/`.
 
 ## Testing
 
@@ -235,9 +234,8 @@ workflows.
 
 `tests/integration/botStateFixtures.test.ts` consumes
 `../ai/serving/fixtures/bot_states.json` to verify the real TypeScript
-serializer against Python-generated states. That suite requires the full
-parent checkout with both submodules initialized and is skipped with an
-explicit message in a standalone backend checkout.
+serializer against Python-generated states. That suite fails when the file is
+missing.
 
 ### Test Architecture
 
@@ -293,8 +291,7 @@ scripts/annotations/import.sh scenarios.json manifest.json \
   --replace-active
 ```
 
-For routine database operations, prefer the guarded wrappers documented in
-[`scripts/annotations/README.md`](scripts/annotations/README.md). They require
+For routine database operations, prefer the guarded wrappers in `scripts/annotations/`. They require
 an explicit mode-`600` environment file, display only the database host and
 name, and keep import database-read-only by default. A dry run emits a plan
 token bound to the full connection configuration, compiled toolkit, complete

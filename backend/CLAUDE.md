@@ -145,9 +145,8 @@ simulation, state adaptation, and inference. Keep the implementations aligned
 through shared rule vectors, the Python-generated bot fixture consumed by the
 backend integration suite, and the runtime legal-card agreement check.
 
-The cross-language fixture test needs the full parent checkout because the
-fixture lives in the sibling `ai/` submodule. A standalone backend checkout
-skips that suite with an explicit message.
+The cross-language fixture test reads the fixture from the sibling `ai/`
+folder and fails when the file is missing.
 
 ## Database Operations
 
@@ -187,7 +186,7 @@ The database operator is also split:
 - `atomicAnnotationExport.ts`: mode-600, no-overwrite atomic export
 - `annotationDatabase.ts`: import plan confirmation and orchestration
 
-Use the wrappers documented in `scripts/annotations/README.md`. Imports and
+Use the wrappers in `scripts/annotations/`. Imports and
 active-catalog restores are dry run by default; apply requires the exact plan
 token. Restore changes only retained rows' `active` flags and never deletes
 scenarios or responses. Do not pass database credentials on the command line or

@@ -3,9 +3,8 @@
 ## System Overview
 
 BECCA is a real-time, four-player Italian card game (Beccaccino) for two teams.
-The repository is a monorepo without npm workspaces. Three modules are Git
-submodules with their own history (`ai`, `backend`, `frontend`, see
-`.gitmodules`); `mobile` lives in this repository.
+The repository is a monorepo without npm workspaces. All four modules (`ai`,
+`backend`, `frontend`, `mobile`) live in this repository.
 
 - `backend` is the authority for game state. It exposes REST mutations under
   `/api` and Socket.IO events for real-time updates, and stores data in

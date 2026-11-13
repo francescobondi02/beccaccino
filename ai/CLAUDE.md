@@ -2,7 +2,7 @@
 
 ## Scope
 
-This submodule owns offline training, evaluation, search, and bot inference for
+This module owns offline training, evaluation, search, and bot inference for
 Beccaccino. The TypeScript backend remains authoritative for persisted online
 games; the Python engine exists for high-throughput training and serving.
 

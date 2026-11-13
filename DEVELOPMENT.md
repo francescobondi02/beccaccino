@@ -3,8 +3,8 @@
 ## Quick Start
 
 ```sh
-# 0. Clone with submodules
-git clone --recursive https://github.com/francescobondi02/beccaccino.git
+# 0. Clone
+git clone https://github.com/francescobondi02/beccaccino.git
 cd beccaccino
 
 # 1. Create local configuration once; set a private JWT_SECRET and BOT_SERVICE_TOKEN

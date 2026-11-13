@@ -202,25 +202,25 @@ CLAUDE.md     Agent-facing development context
 
 ## Subdirectories & Boundaries
 
-- becca_env: [./becca_env/README.md](./becca_env/README.md) - Pure-Python
+- becca_env: [./becca_env/](./becca_env/) - Pure-Python
   engine (deck, rules, `BeccaGame`), signal convention, 518-feature and frozen
   1888-feature observation encoders, 160-slot action mask, and the
   `BeccaEnv` Gymnasium environment with reward shaping. No I/O.
-- training: [./training/README.md](./training/README.md) - Canonical
+- training: [./training/](./training/) - Canonical
   `run_ppo` lifecycle, learner/opponent rollouts with per-`(env, seat)` GAE,
   V1–V4 networks, centralized critic, behavioral cloning, and atomic format-3
   checkpoints with SHA-256 sidecars and provenance.
-- evaluation: [./evaluation/README.md](./evaluation/README.md) - Random and
+- evaluation: [./evaluation/](./evaluation/) - Random and
   frozen heuristic baselines, seeded arena and mirrored-deal records, Elo,
   confidence intervals, persisted champion protocol, and the fail-closed
   NearPerfect-v1 gate.
-- inference: [./inference/README.md](./inference/README.md) - Public-constraint
+- inference: [./inference/](./inference/) - Public-constraint
   hand sampling, determinized game copies, and the shared PIMC search agent.
-- serving: [./serving/README.md](./serving/README.md) - FastAPI `/act`,
+- serving: [./serving/](./serving/) - FastAPI `/act`,
   `/tiers`, `/health`, `/ready`, `/version`; backend state adapter; tier
   construction; checksum-verified inference artifacts (except `facile`) and
   parity fixtures.
-- scripts: [./scripts/README.md](./scripts/README.md) - Operator CLIs for
+- scripts: [./scripts/](./scripts/) - Operator CLIs for
   training, scoring, champion selection, artifact export, fixture generation,
   Kaggle runs, benchmarks, bot audits, and annotation batches.
 

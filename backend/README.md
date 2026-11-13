@@ -26,11 +26,11 @@ Python service. Setup and operator procedures are described in
   runs `npx prisma migrate deploy && node dist/index.js` on port 8000 with a
   `/health` health check.
 - Subdirectories:
-  - [./src/README.md](./src/README.md): application source (server, routes,
+  - [./src/](./src/): application source (server, routes,
     services, game rules, runtime, sockets, annotations, scripts).
-  - [./prisma/README.md](./prisma/README.md): `schema.prisma` models, enums,
+  - [./prisma/](./prisma/): `schema.prisma` models, enums,
     and the migration history in `./prisma/migrations`.
-  - [./scripts/README.md](./scripts/README.md): operator shell wrappers for
+  - [./scripts/](./scripts/): operator shell wrappers for
     annotation database tooling.
 
 ## Invariants

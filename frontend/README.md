@@ -113,9 +113,9 @@ and ships in production builds.
 
 Subdirectory contracts:
 
-- [src](./src/README.md) — application source: entry point, route table, and links to every feature module.
-- [api](./api/README.md) — Vercel Function `api/socket-proxy.ts` (WebSocket bridge to Render).
-- [server](./server/README.md) — `createSocketProxy(target)` implementation used by the function.
+- [src](./src/) — application source: entry point, route table, and links to every feature module.
+- [api](./api/) — Vercel Function `api/socket-proxy.ts` (WebSocket bridge to Render).
+- [server](./server/) — `createSocketProxy(target)` implementation used by the function.
 - `public/` — static assets; see [Static assets (`public/`)](#static-assets-public).
 - `e2e/` (Playwright specs and helpers) and `src/__tests__/` (Vitest suites) are test-only and have no contract file.
 
@@ -161,7 +161,7 @@ Invariants:
 
 ## Side Effects
 
-- Browser REST and Socket.IO traffic to the backend through `/api` and `/socket.io/` (see [src/README.md](./src/README.md)).
+- Browser REST and Socket.IO traffic to the backend through `/api` and `/socket.io/` (see [src/](./src/)).
 - In production on Vercel: outbound WebSocket connections from the `api/socket-proxy` function to Render [api/socket-proxy.ts:default]
 - Browser Cache Storage use by `public/sw.js` [public/sw.js:install]
 - In production, `GET /version.json` (no-store) on load, every 60 s and when the page becomes visible [src/hooks/useAppUpdate.ts:useAppUpdate]
