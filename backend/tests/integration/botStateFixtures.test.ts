@@ -7,26 +7,13 @@ import { buildBotTurn, BotState } from "../../src/services/botState";
 import { ensureBotUsers } from "../../src/services/botUsers";
 import { GAME_WIN_POINTS } from "../../src/gameConfig";
 
-// Read at runtime rather than importing: the fixture is generated in the `ai`
-// sibling submodule (`python -m scripts.gen_bot_fixtures`), and importing across
-// that boundary would drag it into the backend's own build.
+// Read at runtime rather than importing: the fixture is generated in `ai/`
+// (`python -m scripts.gen_bot_fixtures`), and importing across that boundary
+// would drag it into the backend's own build. A missing file fails the suite.
 const FIXTURE_PATH = path.resolve(
   __dirname,
   "../../../ai/serving/fixtures/bot_states.json",
 );
-
-// The fixture lives in the `ai` sibling submodule and is absent on a standalone
-// backend checkout (CI clones this repo alone). Skip the whole suite with a
-// visible note rather than crash at collection time when it is missing.
-const hasFixture = fs.existsSync(FIXTURE_PATH);
-if (!hasFixture) {
-  console.warn(
-    `[skip] bot-state parity suite: ${FIXTURE_PATH} not found — requires the ` +
-      "full beccaccino monorepo (ai/ submodule; regenerate via " +
-      "`cd ai && python -m scripts.gen_bot_fixtures`).",
-  );
-}
-const describeFixtures = hasFixture ? describe : describe.skip;
 
 /**
  * Cross-language parity for the bot state serializer (BOT_PLAY_DESIGN.md §5.3b).
@@ -42,13 +29,13 @@ const describeFixtures = hasFixture ? describe : describe.skip;
  * change which cards are legal, so the runtime 409 gate cannot catch them. A
  * wrong board would just make the bot play badly, and we would blame the model.
  */
-describeFixtures("Bot state serializer matches the Python fixtures", () => {
+describe("Bot state serializer matches the Python fixtures", () => {
   const cases: {
     name: string;
     description: string;
     seat: number;
     state: BotState;
-  }[] = hasFixture ? JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8")).cases : [];
+  }[] = JSON.parse(fs.readFileSync(FIXTURE_PATH, "utf8")).cases;
 
   beforeEach(async () => {
     await clearDatabase();

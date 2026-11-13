@@ -7,7 +7,7 @@ on:
       - .github/workflows/mobile.yml
   push:
     branches:
-      - feat/native-mobile-foundation
+      - main
     paths:
       - mobile/**
       - .github/workflows/mobile.yml
