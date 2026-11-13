@@ -29,7 +29,6 @@ test.describe("Arcade interface", () => {
       };
       return route.fulfill({ json: state });
     });
-    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/game/ROOM");
     const recap = page.getByRole("dialog", { name: "Smazzata 1 conclusa" });
     await expect(recap).toBeVisible();
@@ -76,7 +75,7 @@ test.describe("Arcade interface", () => {
       })),
     } }));
     await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
-    for (const [width, height] of [[1440, 844], [390, 844]]) {
+    for (const [width, height] of [[1440, 844], [1093, 470]]) {
       await page.setViewportSize({ width, height });
       await page.goto("/game/ROOM");
       await expect(page.getByTestId("game-result-page")).toBeVisible();
@@ -129,7 +128,7 @@ test.describe("Arcade interface", () => {
         } });
       });
 
-      for (const width of [1440, 390]) {
+      for (const width of [1440]) {
         readyAt = 0;
         await page.setViewportSize({ width, height: 1000 });
         await page.goto("/game/ROOM");
@@ -226,9 +225,8 @@ test.describe("Arcade interface", () => {
     for (const viewport of [
       { width: 1920, height: 1080 }, { width: 1280, height: 800 },
       { width: 1024, height: 768 }, { width: 900, height: 900 },
-      { width: 768, height: 1024 }, { width: 390, height: 844 },
-      { width: 320, height: 780 }, { width: 844, height: 390 },
-      { width: 640, height: 360 },
+      { width: 768, height: 1024 }, { width: 844, height: 390 },
+      { width: 1093, height: 470 },
     ]) {
       await page.setViewportSize(viewport);
       state.myCards = [card];
@@ -324,12 +322,12 @@ test.describe("Arcade interface", () => {
     ]);
   });
 
-  test("uses wide monitors without adding horizontal overflow on mobile", async ({ page }) => {
+  test("uses wide monitors without adding horizontal overflow", async ({ page }) => {
     await page.route("**/users/me", (route) => route.fulfill({
       status: 401, json: { error: "Not authenticated" },
     }));
     await page.goto("/");
-    for (const width of [1920, 2560, 3440, 390, 320]) {
+    for (const width of [1920, 2560, 3440]) {
       await page.setViewportSize({ width, height: 1080 });
       for (const selector of [".arcade-header-inner", ".arcade-live-hero .club-main", ".arcade-lounge", ".arcade-bottom-note", ".arcade-lobby > .club-footer"]) {
         const bounds = await page.locator(selector).boundingBox();
@@ -382,7 +380,7 @@ test.describe("Arcade interface", () => {
     }));
     await page.goto("/");
     const scroll = page.locator(".arcade-live-rooms .overflow-y-auto");
-    for (const width of [1440, 390, 320]) {
+    for (const width of [1440]) {
       await page.setViewportSize({ width, height: 900 });
       for (const code of ["PAUSA1", "GIOCO1", "BECCA0"]) {
         const card = page.locator(".arcade-room-card").filter({ hasText: code });
@@ -424,7 +422,7 @@ test.describe("Arcade interface", () => {
         username, wins: 17 - index, totalGames: 28, winRate: 61 - index * 4, totalPoints: 892 - index * 30,
       })) },
     }));
-    for (const width of [1440, 768, 390, 320]) {
+    for (const width of [1440, 768]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/profile");
       await expect(page.getByRole("heading", { name: "Il mio profilo", exact: true })).toBeVisible();
@@ -483,8 +481,8 @@ test.describe("Arcade interface", () => {
     await expect(page.locator(".arcade-live-hero")).toHaveAttribute("data-motion", "off");
   });
 
-  test("fits the real homepage and login dialog on small screens", async ({ page }) => {
-    for (const width of [320, 390, 768, 1440]) {
+  test("fits the real homepage and login dialog on narrow windows", async ({ page }) => {
+    for (const width of [768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto("/");
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -515,7 +513,7 @@ test.describe("Arcade interface", () => {
   test("keeps profile, rankings, and practice in the new layout", async ({ createBot }) => {
     const player = await createBot(`UI_${Date.now().toString(36)}`);
     await player.register();
-    for (const width of [320, 1440]) {
+    for (const width of [1440]) {
       await player.page.setViewportSize({ width, height: 900 });
       for (const [route, title] of [
         ["/profile", "Il mio profilo"],

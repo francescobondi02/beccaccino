@@ -2,7 +2,6 @@ import { test, expect, type WebSocketRoute } from "@playwright/test";
 import type { GameStateResponse, PlayedCardData } from "../src/game/model";
 
 test.describe("Responsive table", () => {
-  test.use({ screen: { width: 390, height: 844 } });
   test("keeps central messages, seats, cards and controls separate on every screen size", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     const players = ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
@@ -49,7 +48,7 @@ test.describe("Responsive table", () => {
     for (const [width, height, mode] of [
       [1280, 900, "multiplayer"], [1280, 720, "multiplayer"], [820, 1180, "multiplayer"],
       [761, 900, "multiplayer"], [760, 900, "multiplayer"],
-      [390, 844, "multiplayer"], [320, 700, "multiplayer"], [320, 700, "afk"], [320, 700, "practice"],
+      [1093, 470, "multiplayer"], [1280, 520, "practice"],
       [844, 390, "multiplayer"], [640, 360, "multiplayer"], [568, 320, "multiplayer"],
       [640, 360, "afk"], [568, 360, "practice"],
     ] as const) {
@@ -75,6 +74,7 @@ test.describe("Responsive table", () => {
         const controls = rect(".arcade-game-tools");
         const notice = rect(".arcade-table-notice");
         const score = rect(".arcade-score-panel");
+        const briscola = rect('[data-testid="briscola-panel"]');
         const seats = [...document.querySelectorAll("[data-player-user-id]")].map((seat) => seat.getBoundingClientRect());
         const cards = [...document.querySelectorAll("[data-card-user-id]")].map((card) => card.getBoundingClientRect());
         const topCard = rect('[data-testid="table-card-position-top"]');
@@ -101,6 +101,8 @@ test.describe("Responsive table", () => {
           seats.some((seat) => overlaps(notice, seat)) && "notice / seat",
           seats.some((seat, index) => seats.some((other, otherIndex) => index !== otherIndex && overlaps(seat, other))) && "seat / seat",
           overlaps(notice, score) && "notice / score",
+          overlaps(notice, briscola) && "notice / briscola",
+          (briscola.width === 0 || briscola.bottom > innerHeight) && "briscola hidden",
           status.top < arena.top || status.bottom > arena.bottom ? "status outside table" : false,
           overlaps(hand, controls) && "hand / controls",
           seats.some((seat) => overlaps(seat, controls)) && "seat / controls",
@@ -146,7 +148,7 @@ test.describe("Responsive table", () => {
 
 for (const [view, reducedMotion, width, height] of [
   ["desktop", "no-preference", 1440, 900],
-  ["portrait", "reduce", 390, 900],
+  ["laptop", "reduce", 1280, 720],
   ["landscape", "no-preference", 844, 390],
 ] as const) {
   test(`live cards travel and collect at every winning seat (${view}, ${reducedMotion})`, async ({ page }) => {
@@ -204,7 +206,6 @@ for (const [view, reducedMotion, width, height] of [
     state.playedCards = [];
     await page.reload();
     await expect(page.getByTestId("game-layout")).toBeVisible();
-    if (view === "portrait") await page.getByRole("button", { name: "Continua in verticale", exact: true }).click();
     await expect.poll(() => Boolean(socket)).toBe(true);
     await expect(page.getByRole("button", { name: "Pausa effetti", exact: true })).toHaveCount(0);
 

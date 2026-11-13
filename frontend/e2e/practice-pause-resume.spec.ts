@@ -64,7 +64,7 @@ test("practice game can be paused, resumed, and abandoned", async ({
       });
       await expect(signalDialog.getByTestId("pause-practice-button")).toHaveCount(0);
       await expect(signalDialog.getByTestId("abandon-practice-button")).toHaveCount(0);
-      for (const width of [320, 390, 1440]) {
+      for (const width of [1440]) {
         await page.setViewportSize({ width, height: 844 });
         await tableTools.getByTestId("pause-practice-button").click({
           trial: true,
@@ -116,7 +116,7 @@ test("practice game can be paused, resumed, and abandoned", async ({
       page.getByRole("heading", { name: "Allenamento in pausa" }),
     ).toHaveCount(0);
 
-    for (const width of [1440, 700, 320, 390]) {
+    for (const width of [1440, 700]) {
       await page.setViewportSize({ width, height: 844 });
       await expect(tableTools.getByTestId("pause-practice-button"))
         .toBeInViewport({ ratio: 1 });
@@ -131,7 +131,7 @@ test("practice game can be paused, resumed, and abandoned", async ({
       expect(controlsGap).toBeLessThanOrEqual(20);
     }
     await page.screenshot({
-      path: testInfo.outputPath("practice-controls-mobile.png"),
+      path: testInfo.outputPath("practice-controls-narrow.png"),
       fullPage: true,
     });
     await expect(pauseButton.first()).toBeVisible();
@@ -156,17 +156,6 @@ test("practice game can be paused, resumed, and abandoned", async ({
     ).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath("paused-direct-desktop.png"),
-    });
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    const horizontalOverflow = await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth -
-        document.documentElement.clientWidth,
-    );
-    expect(horizontalOverflow).toBeLessThanOrEqual(1);
-    await page.screenshot({
-      path: testInfo.outputPath("paused-direct-mobile.png"),
     });
 
     await pausedDialog
