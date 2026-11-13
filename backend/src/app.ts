@@ -51,9 +51,7 @@ if (process.env.NODE_ENV === "test") {
     next();
   });
 } else {
-  // Behind Render's load balancer: trust exactly one proxy hop so req.ip is the
-  // client address (from X-Forwarded-For) and rate limiters bucket per client,
-  // not per LB. Never `true` — that trusts arbitrary spoofed forwarded chains.
+  // One hop (Render): req.ip is Vercel's egress IP for web, the device IP for native.
   app.set("trust proxy", 1);
 }
 

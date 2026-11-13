@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import {
   generalRateLimiter,
+  loginIpRateLimiter,
   loginRateLimiter,
-  registerRateLimiter,
 } from "../../src/middleware/rateLimiter";
 
 describe("rateLimiter", () => {
@@ -63,9 +63,16 @@ describe("rateLimiter", () => {
     expect(hit(loginRateLimiter, { ip: "203.0.113.4", username: "alice" })).toBe(200);
   });
 
-  it("limits registrations per IP", () => {
+  it("caps the login username key at the registration maximum", () => {
     const ip = "203.0.113.5";
-    expect(exhaust(registerRateLimiter, { ip, username: "a" }, 10)).toBe(200);
-    expect(hit(registerRateLimiter, { ip, username: "b" })).toBe(429);
+    const username = "a".repeat(20);
+    expect(exhaust(loginRateLimiter, { ip, username }, 10)).toBe(200);
+    expect(hit(loginRateLimiter, { ip, username: username + "x".repeat(1000) })).toBe(429);
+  });
+
+  it("limits logins per IP across usernames", () => {
+    const ip = "203.0.113.6";
+    expect(exhaust(loginIpRateLimiter, { ip, username: "alice" }, 60)).toBe(200);
+    expect(hit(loginIpRateLimiter, { ip, username: "bob" })).toBe(429);
   });
 });

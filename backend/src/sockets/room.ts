@@ -69,7 +69,7 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         const existingSocketIds = io.sockets.adapter.rooms.get(roomCode);
         const alreadyPresent = [...(existingSocketIds ?? [])].some(
           (socketId) =>
-            io.sockets.sockets.get(socketId)?.data.user?.userId === userId,
+            io.sockets.sockets.get(socketId)?.data.user.userId === userId,
         );
 
         const previousRoomCode = socket.data.roomCode;
@@ -108,11 +108,10 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   // Uses socket.data.roomCode (set on join_room) to prevent cross-room spoofing.
   socket.on("send_chat_message", (data: unknown) => {
     const message = field(data, "message");
-    const userId = socket.data.user?.userId;
-    const username = socket.data.user?.username;
+    const { userId, username } = socket.data.user;
     const roomCode = socket.data.roomCode;
 
-    if (!userId || !username || !roomCode) {
+    if (!roomCode) {
       return fail("Not authenticated in room");
     }
     if (typeof message !== "string") return;
@@ -148,22 +147,21 @@ export function registerRoomSocket(socket: Socket, io: Server) {
   });
 
   socket.on("disconnecting", () => {
-    const userId = socket.data.user?.userId;
-    const username = socket.data.user?.username;
+    const { userId, username } = socket.data.user;
 
-    if (userId && socket.data.roomCode) {
+    if (socket.data.roomCode) {
       const roomCode = socket.data.roomCode;
       const roomSocketIds = io.sockets.adapter.rooms.get(roomCode);
       const hasAnotherSocket = [...(roomSocketIds ?? [])].some(
         (socketId) =>
           socketId !== socket.id &&
-          io.sockets.sockets.get(socketId)?.data.user?.userId === userId,
+          io.sockets.sockets.get(socketId)?.data.user.userId === userId,
       );
       if (hasAnotherSocket) return;
 
       socket.to(roomCode).emit("player_disconnected", {
         userId,
-        username: username ?? "Unknown",
+        username,
       });
     }
   });

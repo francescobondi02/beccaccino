@@ -19,28 +19,25 @@ export const authenticateToken = async (
   next: NextFunction,
 ) => {
   const authorization = req.headers.authorization;
-  const token = authorization === undefined
-    ? req.cookies?.authToken
-    : /^Bearer +(\S+)$/i.exec(authorization)?.[1];
-
-  // Explicit credentials never fall through to a cookie.
-  if (authorization !== undefined || token !== undefined) {
-    if (typeof token !== "string" || token.length === 0) {
-      return next(unauthorized("Invalid or expired token"));
-    }
-
-    try {
-      const session = await verifyActiveSession(token);
-      if (!session) {
-        return next(unauthorized("Invalid or expired token"));
-      }
-
-      req.user = session;
-      return next();
-    } catch (error) {
-      return next(error);
-    }
+  if (authorization === undefined && req.cookies?.authToken === undefined) {
+    return next(unauthorized());
   }
 
-  return next(unauthorized());
+  // Explicit credentials never fall through to a cookie.
+  const token = authorization === undefined
+    ? req.cookies.authToken
+    : /^Bearer +(\S+)$/i.exec(authorization)?.[1];
+  if (typeof token !== "string" || token.length === 0) {
+    return next(unauthorized("Invalid or expired token"));
+  }
+
+  try {
+    const session = await verifyActiveSession(token);
+    if (!session) return next(unauthorized("Invalid or expired token"));
+
+    req.user = session;
+    next();
+  } catch (error) {
+    next(error);
+  }
 };

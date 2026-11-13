@@ -8,6 +8,7 @@
 
 import { Request, Response, NextFunction } from "express";
 import { ClientError } from "../http/errors";
+import { USERNAME_MAX_LENGTH } from "../utils/validateUsername";
 
 interface RateLimitEntry {
   count: number;
@@ -29,8 +30,13 @@ const userOrIp = (req: Request) =>
 
 // Behind the Vercel proxy many players can share an IP, so a failed login
 // burst only blocks that username from that IP.
-const usernameAndIp = (req: Request) =>
-  `${String(req.body?.username)}@${clientIp(req)}`;
+const usernameAndIp = (req: Request) => {
+  const username: unknown = req.body?.username;
+  const name = typeof username === "string"
+    ? username.trim().slice(0, USERNAME_MAX_LENGTH)
+    : "invalid";
+  return `${name}@${clientIp(req)}`;
+};
 
 export function rateLimiter(options: RateLimiterOptions) {
   const {
@@ -93,18 +99,18 @@ export function rateLimiter(options: RateLimiterOptions) {
  */
 
 // Auth endpoints: 10 attempts per minute (prevent brute-force)
-export const registerRateLimiter = rateLimiter({
+const authLimit = {
   windowMs: 60_000,
   maxRequests: 10,
   message: "Too many authentication attempts, please try again in a minute",
-});
+};
 
-export const loginRateLimiter = rateLimiter({
-  windowMs: 60_000,
-  maxRequests: 10,
-  message: "Too many authentication attempts, please try again in a minute",
-  key: usernameAndIp,
-});
+export const registerRateLimiter = rateLimiter(authLimit);
+
+// Stops one IP from cycling through many usernames.
+export const loginIpRateLimiter = rateLimiter({ ...authLimit, maxRequests: 60 });
+
+export const loginRateLimiter = rateLimiter({ ...authLimit, key: usernameAndIp });
 
 // General API: 100 requests per minute
 export const generalRateLimiter = rateLimiter({

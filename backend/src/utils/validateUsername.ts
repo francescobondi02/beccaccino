@@ -1,7 +1,7 @@
 const USERNAME_MIN_LENGTH = 3;
 // Usernames flow verbatim to broadcast surfaces (chat, leaderboard, seats);
 // the cap keeps a hostile registration from wrecking every client's layout.
-const USERNAME_MAX_LENGTH = 20;
+export const USERNAME_MAX_LENGTH = 20;
 
 type UsernameResult = { ok: true; value: string } | { ok: false; error: string };
 
