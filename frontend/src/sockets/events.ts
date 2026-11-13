@@ -175,14 +175,10 @@ export interface ServerToClientEvents {
 // --- Client -> server payloads ---
 
 export interface ClientToServerEvents {
-  join_lobby: (payload: { userId: number }) => void;
+  join_lobby: () => void;
   leave_lobby: () => void;
   join_room: (
-    payload: {
-      roomCode: string;
-      userId: number;
-      username: string;
-    },
+    payload: { roomCode: string },
     acknowledge: (result: JoinRoomResult) => void,
   ) => void;
   leave_room: (payload: { roomCode: string }) => void;

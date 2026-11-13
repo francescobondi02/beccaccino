@@ -117,7 +117,7 @@ describe("useGameTable turn synchronization", () => {
     mocks.apiGet
       .mockResolvedValueOnce(gameState({ playedCards: cards.slice(0, 3) }))
       .mockReturnValue(pending.promise);
-    const { result } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    const { result } = renderHook(() => useGameTable("ROOM", 1, []));
     await waitFor(() => expect(result.current.playedCards).toHaveLength(3));
     vi.useFakeTimers();
     emitSocket("card_played", cards[3]);
@@ -131,7 +131,7 @@ describe("useGameTable turn synchronization", () => {
 
   it("announces bot takeover immediately and restores control from an authoritative reconnect snapshot", async () => {
     mocks.apiGet.mockResolvedValue(gameState());
-    const { result } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    const { result } = renderHook(() => useGameTable("ROOM", 1, []));
     await waitFor(() => expect(result.current.gameStateStatus).toBe("ready"));
     const pending = deferred<GameStateResponse>();
     mocks.apiGet.mockReturnValue(pending.promise);
@@ -146,7 +146,7 @@ describe("useGameTable turn synchronization", () => {
     mocks.apiGet.mockResolvedValue(gameState({
       playerControls: [{ userId: 1, botModel: null, abandonedAt: null }],
     }));
-    const onJoined = mocks.registerRoomHandlers.mock.calls[0][2] as () => void;
+    const onJoined = mocks.registerRoomHandlers.mock.calls[0][1] as () => void;
     await act(async () => onJoined());
     expect(result.current.playerControls[0].botModel).toBeNull();
   });
@@ -178,14 +178,14 @@ describe("useGameTable turn synchronization", () => {
       .mockResolvedValue({ playableCards: [myCard] });
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
     );
 
     await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
-    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[2] as
+    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[1] as
       | (() => void)
       | undefined;
     expect(onJoined).toEqual(expect.any(Function));
@@ -225,14 +225,14 @@ describe("useGameTable turn synchronization", () => {
       );
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
     );
     await waitFor(() => expect(result.current.currentTurnUserId).toBe(2));
 
-    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[2] as
+    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[1] as
       | (() => void)
       | undefined;
     act(() => onJoined?.());
@@ -255,7 +255,7 @@ describe("useGameTable turn synchronization", () => {
     );
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
       ]),
     );
@@ -281,7 +281,7 @@ describe("useGameTable turn synchronization", () => {
       .mockResolvedValueOnce(gameState({ isPractice: true }));
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
       ]),
     );
@@ -310,7 +310,7 @@ describe("useGameTable turn synchronization", () => {
     });
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
@@ -341,7 +341,7 @@ describe("useGameTable turn synchronization", () => {
     mocks.apiGet
       .mockReturnValueOnce(initial.promise)
       .mockResolvedValue(gameState({ currentTurnUserId: 2 }));
-    const { result } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    const { result } = renderHook(() => useGameTable("ROOM", 1, []));
     await waitFor(() => expect(stateRequestCount()).toBe(1));
 
     emitSocket(event, payload);
@@ -358,7 +358,7 @@ describe("useGameTable turn synchronization", () => {
         : { playableCards: [myCard] }),
     );
     const playableRequests = () => mocks.apiGet.mock.calls.length - stateRequestCount();
-    const { result } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    const { result } = renderHook(() => useGameTable("ROOM", 1, []));
     await waitFor(() => expect(result.current.playableCards).toEqual([myCard]));
     expect(playableRequests()).toBe(1);
 
@@ -406,7 +406,7 @@ describe("useGameTable turn synchronization", () => {
     });
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
         { userId: 3, username: "carla" },
@@ -484,7 +484,7 @@ describe("useGameTable turn synchronization", () => {
     const final = { winnerTeam: 0, totalRounds: 1, finalScores: { team0: 7, team1: 4 }, roundsWon: { team0: 1, team1: 0 } };
     let snapshot = gameState({ playedCards: cards.slice(0, 3) });
     mocks.apiGet.mockResolvedValue(snapshot);
-    const { result, unmount } = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    const { result, unmount } = renderHook(() => useGameTable("ROOM", 1, []));
     await waitFor(() => expect(result.current.playedCards).toHaveLength(3));
     vi.useFakeTimers();
     emitSocket("card_played", cards[3]);
@@ -500,7 +500,7 @@ describe("useGameTable turn synchronization", () => {
     expect(result.current.gameFinishedData).toEqual(final);
     unmount();
     vi.useRealTimers();
-    const restored = renderHook(() => useGameTable("ROOM", 1, "alice", []));
+    const restored = renderHook(() => useGameTable("ROOM", 1, []));
     await waitFor(() => expect(restored.result.current.gameFinishedData).toEqual(final));
     expect(restored.result.current.completedTrick).toBeUndefined();
     expect(restored.result.current.animatedCard).toBeNull();
@@ -528,7 +528,7 @@ describe("useGameTable turn synchronization", () => {
       ),
     );
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", []),
+      useGameTable("ROOM", 1, []),
     );
     await waitFor(() => expect(result.current.playedCards).toHaveLength(3));
     vi.useFakeTimers();
@@ -579,7 +579,7 @@ describe("useGameTable turn synchronization", () => {
       .mockImplementationOnce(() => nextRoundState.promise);
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
@@ -615,7 +615,7 @@ describe("useGameTable turn synchronization", () => {
     });
 
     const { result, unmount } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
@@ -661,7 +661,7 @@ describe("useGameTable turn synchronization", () => {
       return pendingCards.promise;
     });
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", []),
+      useGameTable("ROOM", 1, []),
     );
     await waitFor(() => expect(result.current.currentTurnUserId).toBe(1));
     act(() => { void result.current.refetchGameState(); });
@@ -693,7 +693,7 @@ describe("useGameTable turn synchronization", () => {
   it("cancels pending reads on remote abandonment and on unmount in StrictMode", async () => {
     mocks.apiGet.mockResolvedValue(gameState());
     const { result, unmount } = renderHook(
-      () => useGameTable("ROOM", 1, "alice", []),
+      () => useGameTable("ROOM", 1, []),
       { wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode> },
     );
     await waitFor(() => expect(result.current.gameStateStatus).toBe("ready"));
@@ -724,7 +724,7 @@ describe("useGameTable turn synchronization", () => {
       .mockImplementationOnce(() => pending.promise);
 
     const { result, unmount } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
@@ -757,7 +757,7 @@ describe("useGameTable turn synchronization", () => {
     });
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
@@ -796,7 +796,7 @@ describe("useGameTable turn synchronization", () => {
       });
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
@@ -838,7 +838,7 @@ describe("useGameTable turn synchronization", () => {
       });
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
@@ -890,14 +890,14 @@ describe("useGameTable turn synchronization", () => {
       .mockRejectedValueOnce(new Error("temporary network failure"));
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),
     );
     await waitFor(() => expect(result.current.gameStateStatus).toBe("ready"));
 
-    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[2] as
+    const onJoined = mocks.registerRoomHandlers.mock.calls[0]?.[1] as
       | (() => void)
       | undefined;
     act(() => onJoined?.());
@@ -917,7 +917,7 @@ describe("useGameTable turn synchronization", () => {
       .mockResolvedValueOnce(gameState({ currentTurnUserId: 2 }));
 
     const { result } = renderHook(() =>
-      useGameTable("ROOM", 1, "alice", [
+      useGameTable("ROOM", 1, [
         { userId: 1, username: "alice" },
         { userId: 2, username: "bob" },
       ]),

@@ -52,7 +52,7 @@ export function useLobbyRooms(userId: number | null) {
   useEffect(() => {
     if (!userId) return;
 
-    const unregisterLobby = registerLobbyHandlers(userId, () => {
+    const unregisterLobby = registerLobbyHandlers(() => {
       void refreshRooms(false);
     });
     const unsubscribers = [

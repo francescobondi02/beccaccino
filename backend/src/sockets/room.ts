@@ -42,14 +42,7 @@ export function registerRoomSocket(socket: Socket, io: Server) {
     const roomCode = field(data, "roomCode");
     if (typeof roomCode !== "string") return fail("Invalid payload", acknowledge);
 
-    // Use verified identity from JWT handshake when available (production).
-    // Fall back to client-sent data only in test mode where JWT handshake is skipped.
-    const userId = socket.data.user?.userId ?? field(data, "userId");
-    const username = socket.data.user?.username ?? field(data, "username");
-
-    if (typeof userId !== "number" || typeof username !== "string" || !username) {
-      return fail("Not authenticated", acknowledge);
-    }
+    const { userId } = socket.data.user;
 
     try {
       await withRoomLock(roomCode, async () => {
@@ -86,7 +79,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
 
         socket.join(roomCode);
         socket.data.roomCode = roomCode;
-        socket.data.user = { userId, username };
 
         if (!alreadyPresent) {
           socket.to(roomCode).emit("player_joined", {

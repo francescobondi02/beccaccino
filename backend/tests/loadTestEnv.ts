@@ -29,7 +29,6 @@ process.env.DIRECT_URL = testDatabaseUrl;
 
 process.env.JWT_SECRET = "test-secret";
 process.env.NODE_ENV = "test";
-process.env.ALLOW_TEST_AUTH_BYPASS = "true";
 process.env.GAME_WIN_POINTS = "5";
 
 assertSafeTestDatabase(process.env);

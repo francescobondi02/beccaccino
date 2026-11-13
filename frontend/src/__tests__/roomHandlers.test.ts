@@ -63,11 +63,9 @@ describe("roomHandlers", () => {
   });
 
   it("joins immediately and rejoins after reconnect", () => {
-    registerRoomHandlers("ROOM", { userId: 1, username: "alice" });
+    registerRoomHandlers("ROOM");
     expect(mockSocket.emit).toHaveBeenCalledWith("join_room", {
       roomCode: "ROOM",
-      userId: 1,
-      username: "alice",
     }, expect.any(Function));
 
     mockSocket.emit.mockClear();
@@ -75,14 +73,12 @@ describe("roomHandlers", () => {
 
     expect(mockSocket.emit).toHaveBeenCalledWith("join_room", {
       roomCode: "ROOM",
-      userId: 1,
-      username: "alice",
     }, expect.any(Function));
   });
 
   it("connects before joining when needed", () => {
     mockSocket.connected = false;
-    registerRoomHandlers("ROOM", { userId: 1, username: "alice" });
+    registerRoomHandlers("ROOM");
     expect(mockSocket.connect).toHaveBeenCalledOnce();
   });
 
@@ -90,7 +86,6 @@ describe("roomHandlers", () => {
     const onJoined = vi.fn();
     registerRoomHandlers(
       "ROOM",
-      { userId: 1, username: "alice" },
       onJoined,
     );
 
@@ -107,7 +102,6 @@ describe("roomHandlers", () => {
     const onJoined = vi.fn();
     const unregister = registerRoomHandlers(
       "ROOM",
-      { userId: 1, username: "alice" },
       onJoined,
     );
     lastJoinAcknowledgement()({ ok: false, error: "Failed to join room" });
@@ -130,10 +124,7 @@ describe("roomHandlers", () => {
   it.each(["Room not found", "You are not in this room", "Not authenticated"])(
     "does not retry a rejected room join: %s",
     (error) => {
-      const unregister = registerRoomHandlers("ROOM", {
-        userId: 1,
-        username: "alice",
-      });
+      const unregister = registerRoomHandlers("ROOM");
       lastJoinAcknowledgement()({ ok: false, error });
       vi.advanceTimersByTime(10000);
       expect(mockSocket.emit).toHaveBeenCalledOnce();
@@ -145,7 +136,6 @@ describe("roomHandlers", () => {
     const onJoined = vi.fn();
     const unregister = registerRoomHandlers(
       "ROOM",
-      { userId: 1, username: "alice" },
       onJoined,
     );
     const acknowledge = lastJoinAcknowledgement();
@@ -160,10 +150,7 @@ describe("roomHandlers", () => {
   });
 
   it("waits for reconnection instead of buffering a room retry while disconnected", () => {
-    const unregister = registerRoomHandlers("ROOM", {
-      userId: 1,
-      username: "alice",
-    });
+    const unregister = registerRoomHandlers("ROOM");
     lastJoinAcknowledgement()({ ok: false, error: "Failed to join room" });
     mockSocket.connected = false;
     vi.advanceTimersByTime(5000);
@@ -178,10 +165,7 @@ describe("roomHandlers", () => {
   });
 
   it("unregisters only its own reconnect listener", () => {
-    const unregister = registerRoomHandlers("ROOM", {
-      userId: 1,
-      username: "alice",
-    });
+    const unregister = registerRoomHandlers("ROOM");
     const listener = socketListener("connect");
 
     unregister();

@@ -41,7 +41,6 @@ const GameTable = () => {
     retry: retryAuth,
   } = useAuth({ redirectOnFail: true });
   const userId = user?.id ?? null;
-  const username = user?.username ?? "";
   const [room, setRoom] = useState<Room | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const myPlayer =
@@ -73,7 +72,7 @@ const GameTable = () => {
     refetchGameState,
     setRequestsEnabled,
     applyLocalBriscola,
-  } = useGameTable(gameRoomCode, userId, username, room?.players ?? []);
+  } = useGameTable(gameRoomCode, userId, room?.players ?? []);
   const connectionStatus = useConnectionStatus();
   const countdown = useTurnCountdown(turnTimer);
   const deal = useRoundDeal(

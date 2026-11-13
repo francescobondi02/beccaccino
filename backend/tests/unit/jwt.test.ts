@@ -44,14 +44,11 @@ describe("account JWTs", () => {
       ),
     ],
   ])(
-    "returns 401 for an %s real cookie even when test bypass headers exist",
+    "returns 401 for an %s cookie",
     async (_kind, token) => {
       const req = {
         cookies: { authToken: token },
-        headers: {
-          "x-test-user-id": "42",
-          "x-test-username": "expert",
-        },
+        headers: {},
       } as unknown as Parameters<typeof authenticateToken>[0];
       const response = {
         status: jest.fn(),
@@ -66,7 +63,6 @@ describe("account JWTs", () => {
         next,
       );
 
-      expect(process.env.ALLOW_TEST_AUTH_BYPASS).toBe("true");
       expect(response.status).not.toHaveBeenCalled();
       expect(response.json).not.toHaveBeenCalled();
       expect(next).toHaveBeenCalledWith(

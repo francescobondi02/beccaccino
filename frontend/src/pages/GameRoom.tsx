@@ -26,7 +26,6 @@ const GameRoom = () => {
     retry: retryAuth,
   } = useAuth({ redirectOnFail: `/?join=${roomCode}` });
   const userId = user?.id ?? null;
-  const username = user?.username ?? "";
   const [isUpdating, setIsUpdating] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const inviteUrl = `${window.location.origin}/room/${roomCode}`;
@@ -76,7 +75,6 @@ const GameRoom = () => {
   } = useWaitingRoom({
     roomCode,
     userId,
-    username,
     onLoadError: handleLoadError,
     onLeaveError: handleLeaveError,
   });

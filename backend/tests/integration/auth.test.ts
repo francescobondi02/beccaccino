@@ -169,14 +169,13 @@ describe("Auth Lifecycle", () => {
       });
 
       it.each(["Basic invalid", "Bearer", "Bearer invalid.token.value"])(
-        "does not let invalid explicit authorization fall through to a cookie or test identity: %s",
+        "does not let invalid explicit authorization fall through to a cookie: %s",
         async (authorization) => {
           const browser = await request(getServer()).post("/api/users/login").send(credentials);
           const response = await request(getServer())
             .get("/api/users/me")
             .set("Cookie", browser.headers["set-cookie"][0].split(";")[0])
-            .set("Authorization", authorization)
-            .set("x-test-user-id", String(browser.body.id));
+            .set("Authorization", authorization);
           expect(response.statusCode).toBe(401);
         },
       );

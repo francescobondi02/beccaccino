@@ -1,8 +1,6 @@
 import { getSocket } from "./socketClient";
 import type { ServerToClientEvents } from "./events";
 
-type UserShort = { userId: number; username: string };
-
 type RoomEventName = Exclude<
   keyof ServerToClientEvents,
   "room_created" | "room_updated" | "room_full" | "room_deleted" | "error"
@@ -24,7 +22,6 @@ interface RoomEventSocket {
 
 export function registerRoomHandlers(
   roomCode: string,
-  user: UserShort,
   onJoined?: () => void,
 ): () => void {
   const socket = getSocket();
@@ -38,11 +35,7 @@ export function registerRoomHandlers(
 
     socket.emit(
       "join_room",
-      {
-        roomCode,
-        userId: user.userId,
-        username: user.username,
-      },
+      { roomCode },
       (result) => {
         if (!active || !socket.connected) return;
         if (result.ok) onJoined?.();

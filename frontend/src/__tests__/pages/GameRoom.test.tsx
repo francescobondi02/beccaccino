@@ -63,7 +63,6 @@ vi.mock("@/components/Header", () => ({
 vi.mock("@/sockets/roomHandlers", () => ({
   registerRoomHandlers: (
     _roomCode: string,
-    _user: unknown,
     onJoined?: () => void,
   ) => {
     mocks.callbacks.joined = onJoined ?? null;

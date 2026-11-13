@@ -49,25 +49,25 @@ describe("lobbyHandlers", () => {
 
   it("joins immediately and rejoins after reconnect", () => {
     const onReconnect = vi.fn();
-    registerLobbyHandlers(42, onReconnect);
-    expect(mockSocket.emit).toHaveBeenCalledWith("join_lobby", { userId: 42 });
+    registerLobbyHandlers(onReconnect);
+    expect(mockSocket.emit).toHaveBeenCalledWith("join_lobby");
     expect(onReconnect).not.toHaveBeenCalled();
 
     mockSocket.emit.mockClear();
     socketListener("connect")();
 
-    expect(mockSocket.emit).toHaveBeenCalledWith("join_lobby", { userId: 42 });
+    expect(mockSocket.emit).toHaveBeenCalledWith("join_lobby");
     expect(onReconnect).toHaveBeenCalledOnce();
   });
 
   it("connects before joining when needed", () => {
     mockSocket.connected = false;
-    registerLobbyHandlers(42);
+    registerLobbyHandlers();
     expect(mockSocket.connect).toHaveBeenCalledOnce();
   });
 
   it("unregisters only its own reconnect listener", () => {
-    const unregister = registerLobbyHandlers(42);
+    const unregister = registerLobbyHandlers();
     const listener = socketListener("connect");
 
     unregister();

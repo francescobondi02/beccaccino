@@ -32,7 +32,6 @@ import {
 export function useGameTable(
   gameRoomCode: string | undefined,
   userId: number | null,
-  username: string,
   players: { userId: number; username: string }[],
 ) {
   const [state, dispatch] = useReducer(gameTableReducer, initialGameTableState);
@@ -201,14 +200,10 @@ export function useGameTable(
 
   // Game socket events
   useEffect(() => {
-    if (!userId || !username || !gameRoomCode) return;
+    if (!userId || !gameRoomCode) return;
 
     const unregisterRoom = registerRoomHandlers(
       gameRoomCode,
-      {
-        userId,
-        username,
-      },
       () => void refetchGameState(),
     );
     const reconciliationTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -337,7 +332,7 @@ export function useGameTable(
       leaveRoom(gameRoomCode);
       cancelScheduledRefetches();
     };
-  }, [userId, username, gameRoomCode, refetchGameState, usernameOf, setRequestsEnabled]);
+  }, [userId, gameRoomCode, refetchGameState, usernameOf, setRequestsEnabled]);
 
   // Local echo of a briscola choice, so the caller's own UI updates without
   // waiting for the server's briscola_chosen event.

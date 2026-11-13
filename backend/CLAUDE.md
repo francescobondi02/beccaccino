@@ -10,7 +10,7 @@ src/
   index.ts                 Process entry, startup recovery, shutdown
   app.ts                   Express middleware, routes, probes, global errors
   server.ts                HTTP and Socket.IO factory and transport auth
-  auth/                    Active account sessions and isolated test bypass
+  auth/                    Active account sessions
   http/                    Input parsing, request identity, typed HTTP errors
   controllers/             HTTP adaptation only
   routes/                  Visible REST API map

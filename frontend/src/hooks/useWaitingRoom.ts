@@ -16,7 +16,6 @@ import {
 interface UseWaitingRoomOptions {
   roomCode: string | undefined;
   userId: number | null;
-  username: string;
   onLoadError: (error: unknown) => void;
   onLeaveError: (error: unknown) => void;
 }
@@ -24,7 +23,6 @@ interface UseWaitingRoomOptions {
 export function useWaitingRoom({
   roomCode,
   userId,
-  username,
   onLoadError,
   onLeaveError,
 }: UseWaitingRoomOptions) {
@@ -100,11 +98,10 @@ export function useWaitingRoom({
 
   const isMember = state.room !== null;
   useEffect(() => {
-    if (!isMember || !userId || !username || !roomCode) return;
+    if (!isMember || !userId || !roomCode) return;
 
     const unregisterRoom = registerRoomHandlers(
       roomCode,
-      { userId, username },
       () => void loadRoom().catch((error: unknown) => {
         console.error("Error refetching room on reconnect:", error);
       }),
@@ -149,7 +146,7 @@ export function useWaitingRoom({
         }
       }
     };
-  }, [isMember, leaveWaitingRoom, loadRoom, pathname, roomCode, userId, username]);
+  }, [isMember, leaveWaitingRoom, loadRoom, pathname, roomCode, userId]);
 
   return {
     ...state,

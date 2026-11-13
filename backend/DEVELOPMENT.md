@@ -53,7 +53,7 @@ backend/
 │   ├── app.ts              # Express app, routes, health/readiness probes
 │   ├── gameConfig.ts       # Environment-backed game rules
 │   ├── db.ts               # Prisma client singleton
-│   ├── auth/               # Shared active-session verification and isolated test bypass
+│   ├── auth/               # Shared active-session verification
 │   ├── controllers/        # HTTP adapters grouped by account, auth, stats, rooms, and games
 │   ├── domain/game/        # Pure caller, turn, card, trick, and scoring rules
 │   ├── game/
@@ -105,7 +105,7 @@ backend/
 browser login and returns `{ user, token }` with `Cache-Control: no-store`, without
 setting a browser cookie. REST endpoints accept `Authorization: Bearer <token>`
 through the same active-account verifier used by cookies. Explicit malformed or
-expired Authorization never falls back to cookies or the test bypass.
+expired Authorization never falls back to cookies.
 Browser login/registration response bodies and cookies are unchanged.
 
 The mobile app stores the token in platform-secure storage, scoped to the backend
@@ -242,7 +242,7 @@ serializer against Python-generated states.
 | `integration` | In band (serial) | Yes (`becca_test`) | `tests/integration/**/*.test.ts` |
 
 - **Unit tests** cover pure card parsing, scoring, trick rules, room-code generation, and the production chat sanitizer.
-- **Integration tests** use Supertest and real Socket.IO clients against the Express/server factory with PostgreSQL. Auth bypass is available only when explicitly enabled in test mode.
+- **Integration tests** use Supertest and real Socket.IO clients against the Express/server factory with PostgreSQL. They sign in with real tokens from `generateToken` (see `tests/helpers/serverHarness.ts`).
 - Each integration test calls the shared `tests/helpers/database.ts`
   `clearDatabase()` in `beforeEach` for isolation.
 - Shared teardown closes HTTP servers, sockets, Prisma, and all turn timers.

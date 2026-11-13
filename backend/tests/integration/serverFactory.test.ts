@@ -21,7 +21,6 @@ afterEach(async () => {
 
 async function startServer(maxSocketsPerIp = 1): Promise<string> {
   runtime = createServer({
-    allowTestAuthBypass: false,
     corsOrigin: "*",
     maxSocketsPerIp,
   });

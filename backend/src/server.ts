@@ -8,10 +8,8 @@ import {
   authTokenFromCookieHeader,
   verifyActiveSession,
 } from "./auth/activeSession";
-import { isTestAuthBypassEnabled } from "./auth/testAuthBypass";
 
 export type CreateServerOptions = {
-  allowTestAuthBypass?: boolean;
   corsOrigin?: string;
   maxSocketsPerIp?: number;
 };
@@ -24,9 +22,6 @@ export type CreatedServer = {
 
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
   const corsOrigin = options.corsOrigin ?? process.env.FRONTEND_URL;
-  const allowTestAuthBypass = isTestAuthBypassEnabled(
-    options.allowTestAuthBypass,
-  );
   const maxSocketsPerIp =
     options.maxSocketsPerIp ??
     parseInt(process.env.MAX_SOCKETS_PER_IP || "10", 10);
@@ -43,8 +38,6 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
   setSocketInstance(io);
 
   io.use(async (socket, next) => {
-    if (allowTestAuthBypass) return next();
-
     const nativeToken: unknown = socket.handshake.auth?.token;
     const token = nativeToken === undefined
       ? authTokenFromCookieHeader(socket.handshake.headers.cookie)
@@ -67,12 +60,10 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
   });
 
   // Keyed by the verified account: forwarded IPs are spoofable, and website
-  // sockets share the Vercel proxy's egress IP. The raw address is only used
-  // when the test bypass leaves the socket unauthenticated.
+  // sockets share the Vercel proxy's egress IP.
   const connectionCounts = new Map<string, number>();
   io.use((socket, next) => {
-    const userId = socket.data.user?.userId;
-    const key = userId ? `user:${userId}` : socket.handshake.address;
+    const key = `user:${socket.data.user.userId}`;
     const current = connectionCounts.get(key) ?? 0;
     if (current >= maxSocketsPerIp) {
       logger.warn({ key, current }, "socket_connection_limit_exceeded");

@@ -70,7 +70,6 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
   `*Points` silently drops each round's remainder.
 - Socket events are the source of truth for real-time state; REST is for mutations.
 - Tests: backend integration uses `becca_test` DB, loaded via `tests/loadTestEnv.ts` before Prisma imports.
-- Test auth bypass: `NODE_ENV=test` skips JWT, allows `x-test-user-id` header.
 
 ## Environment Variables
 
