@@ -1,0 +1,7 @@
+node_modules/
+.prisma/
+dist/
+tests/
+*.md
+.env*
+.git/

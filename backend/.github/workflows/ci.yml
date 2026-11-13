@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/becca_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/becca_test
+      JWT_SECRET: ci-test-secret
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: becca_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run migrate
+
+      - name: Check Prisma migrations
+        run: >-
+          npx prisma migrate diff
+          --from-url "$DATABASE_URL"
+          --to-schema-datamodel prisma/schema.prisma
+          --exit-code
+
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  container:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/becca_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/becca_test
+      JWT_SECRET: ci-test-secret
+      FRONTEND_URL: http://localhost:5173
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: becca_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build -t becca-backend .
+
+      - name: Start production image
+        run: |
+          docker run --detach --name becca-backend \
+            --network host \
+            --env DATABASE_URL \
+            --env DIRECT_URL \
+            --env JWT_SECRET \
+            --env FRONTEND_URL \
+            becca-backend
+
+      - name: Verify production image
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Print container logs
+        if: failure()
+        run: docker logs becca-backend
+
+      - name: Stop container
+        if: always()
+        run: docker rm --force becca-backend
