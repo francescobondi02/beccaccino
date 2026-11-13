@@ -95,7 +95,7 @@ const GameChat = ({ roomCode, userId }: GameChatProps) => {
 
       {/* Chat Panel */}
       {isOpen && (
-        <div className="fixed bottom-16 right-4 z-40 w-80 h-96 bg-card border-2 border-border rounded-lg shadow-2xl flex flex-col overflow-hidden animate-card-from-bottom">
+        <div className="arcade-chat-panel fixed bottom-16 right-4 z-40 w-80 h-96 bg-card border-2 border-border rounded-lg shadow-2xl flex flex-col overflow-hidden animate-card-from-bottom">
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 bg-secondary/50 border-b border-border">
             <div className="flex items-center gap-2">

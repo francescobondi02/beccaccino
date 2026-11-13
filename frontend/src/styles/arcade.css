@@ -577,6 +577,65 @@ html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
   .arcade-deal-revealed { animation: none; }
 }
 
+/* Short landscape windows: score, briscola and tools become side rails so the
+   arena and a single row of ten cards fit without scrolling. */
+@media (orientation: landscape) and (max-height: 540px) {
+  html[data-ui="arcade"] .arcade-game-page {
+    --rail-l: 136px;
+    --rail-r: 64px;
+    --hand-h: min(20dvh, calc((100vw - 2 * var(--rail-r) - 60px) / 10 / .63));
+    --hand-w: calc(var(--hand-h) * .63);
+    --table-card-w: clamp(40px, 13dvh, 56px);
+  }
+  html[data-ui="arcade"] .arcade-game-layout { min-height: 0; height: 100dvh; max-width: none; padding: 8px 12px; gap: 6px; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-game-layout { min-height: 320px; height: max(320px, 100dvh); padding: 8px 12px; }
+  html[data-ui="arcade"] .arcade-game-layout > div:first-child { padding: 0 var(--rail-r) 0 var(--rail-l); }
+  html[data-ui="arcade"] .arcade-game-page .arcade-arena { height: 100%; min-height: 0; max-height: none; max-width: none; padding: 0; translate: none; border-width: 4px; border-radius: 999px; box-shadow: inset 0 0 0 8px hsl(260 49% 19%), inset 0 0 0 9px hsl(72 100% 63% / .45), 0 0 24px hsl(260 100% 69% / .2); }
+  html[data-ui="arcade"] .arcade-arena [data-testid="player-position-top"] { top: 6px; transform: translateX(calc(-100% - 40px)); }
+  html[data-ui="arcade"] .arcade-arena [data-testid="player-position-left"] { left: 10px; }
+  html[data-ui="arcade"] .arcade-arena [data-testid="player-position-right"] { right: 10px; }
+  html[data-ui="arcade"] .arcade-game-page .circolo-seat { max-width: 104px; padding: 4px 8px; }
+  html[data-ui="arcade"] .arcade-game-page .circolo-seat p { font-size: 11px; }
+  html[data-ui="arcade"] .arcade-game-page .circolo-seat p:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-seat-bot-role { display: none; }
+  html[data-ui="arcade"] .arcade-arena .circolo-table { width: 56%; height: 100%; min-width: 0; min-height: 0; transform: none; }
+  html[data-ui="arcade"] .arcade-arena .circolo-table .circolo-card { width: var(--table-card-w); height: calc(var(--table-card-w) / .63); }
+  html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table { grid-template-rows: calc(var(--table-card-w) / .63) auto calc(var(--table-card-w) / .63); gap: 4px 20px; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-table-status { width: min(180px, calc(100vw - var(--rail-l) - var(--rail-r) - 280px)); min-height: 48px; font-size: 12px; line-height: 1.3; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-table-notice { position: fixed; top: 168px; left: 12px; width: calc(var(--rail-l) - 20px); max-height: calc(100dvh - 188px); overflow-y: auto; font-size: 11px; text-align: left; }
+  html[data-ui="arcade"] .arcade-arena [data-testid="table-card-position-top"] { top: 8px; }
+  html[data-ui="arcade"] .arcade-arena [data-testid="table-card-position-bottom"] { bottom: 8px; }
+
+  html[data-ui="arcade"] .arcade-game-page .arcade-hand-area { position: relative; gap: 0; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-player-hand { display: flex; flex-wrap: nowrap; width: auto; gap: 4px; translate: none; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-player-hand > * { width: var(--hand-w); height: var(--hand-h); }
+
+  html[data-ui="arcade"] .arcade-room-code, html[data-ui="arcade"] .arcade-team-number { display: none; }
+  html[data-ui="arcade"] .arcade-score-rail { position: fixed; inset: 8px auto auto 12px; z-index: 20; display: flex; flex-direction: column; gap: 6px; width: calc(var(--rail-l) - 20px); }
+  html[data-ui="arcade"] .arcade-score-dock { position: static; display: block; width: 100%; margin: 0; padding: 0; }
+  html[data-ui="arcade"] .arcade-briscola-panel { position: static; padding: 6px 10px; box-shadow: 3px 3px 0 hsl(260 100% 69%); }
+  html[data-ui="arcade"] .arcade-briscola-panel > div { justify-content: center; gap: 6px; }
+  html[data-ui="arcade"] .arcade-briscola-panel img { width: 20px; height: 20px; }
+  html[data-ui="arcade"] .arcade-score-dock .arcade-score-panel { width: 100%; padding: 8px 10px; box-shadow: 3px 3px 0 hsl(260 100% 69%); }
+  html[data-ui="arcade"] .arcade-score-panel .mb-2 { margin-bottom: 6px; font-size: 11px; line-height: 1.25; }
+  html[data-ui="arcade"] .arcade-score-panel > .flex { flex-direction: column; align-items: stretch; gap: 2px; }
+  html[data-ui="arcade"] .arcade-score-panel > .flex > .text-center { display: flex; align-items: baseline; justify-content: space-between; }
+  html[data-ui="arcade"] .arcade-score-panel > .flex > .text-center > :first-child { margin: 0; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+  html[data-ui="arcade"] .arcade-score-panel > .flex > .w-px { display: none; }
+  html[data-ui="arcade"] .arcade-score-panel .text-2xl { font-size: 22px; line-height: 1.1; }
+  html[data-ui="arcade"] .arcade-score-sep { display: block; height: 0; overflow: hidden; }
+  html[data-ui="arcade"] :is(.arcade-game-tools .arcade-tool-label, .arcade-trump-label) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+  html[data-ui="arcade"] .arcade-game-tools { position: fixed; inset: 8px 12px auto auto; flex-direction: column; flex-wrap: wrap-reverse; align-content: flex-start; max-width: none; max-height: calc(100dvh - 16px); gap: 4px; padding: 4px; }
+  html[data-ui="arcade"] .arcade-game-tools > div:not(.arcade-chat-panel) { display: contents; }
+  html[data-ui="arcade"] .arcade-game-tools button { width: 44px; height: 44px; padding: 0; }
+  html[data-ui="arcade"] .arcade-game-tools button svg { margin: 0; }
+  html[data-ui="arcade"] .arcade-chat-panel { inset: 8px calc(var(--rail-r) + 16px) 8px auto; width: min(320px, 50vw); height: auto; }
+
+  html[data-ui="arcade"] .signal-callout { padding: 6px 10px; border-width: 2px; font-size: 16px; box-shadow: 3px 4px 0 #17121f; }
+  html[data-ui="arcade"] .arcade-game-page .signal-callout { display: none; }
+}
+
 /* Short landscape screens: dialogs must fit without scrolling past their actions,
    and page chrome shrinks so content starts above the fold. */
 @media (orientation: landscape) and (max-height: 540px) {

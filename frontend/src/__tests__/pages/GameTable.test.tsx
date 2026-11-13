@@ -179,7 +179,7 @@ vi.mock("@/components/GameChat", () => ({
 }));
 vi.mock("@/components/TrumpSuitDialog", () => ({
   default: (props: ComponentProps<typeof TrumpSuitDialog>) =>
-    props.open ? <div data-testid="trump-suit-dialog">{props.practiceActions}</div> : null,
+    props.open ? <div data-testid="trump-suit-dialog">{props.actions}</div> : null,
 }));
 vi.mock("@/components/RoundEndDialog", () => ({
   default: () => null,
@@ -346,6 +346,25 @@ describe("GameTable page behavior", () => {
         signal: null,
       }),
     );
+  });
+
+  it("discards a pending card when the server advances the turn", async () => {
+    const view = renderGameTable();
+
+    fireEvent.click(await screen.findByTestId("hand-card-coppe-asso"));
+    expect(
+      screen.getByRole("dialog", { name: "Vuoi dichiarare qualcosa?" }),
+    ).toBeInTheDocument();
+
+    mocks.gameHook.currentTurnUserId = 2;
+    view.rerender(gameTableRoute());
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Vuoi dichiarare qualcosa?" }),
+      ).toBeNull(),
+    );
+    expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
   it("keeps card flight and trick collection animations on the board", async () => {

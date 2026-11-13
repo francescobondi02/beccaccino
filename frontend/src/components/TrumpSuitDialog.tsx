@@ -12,10 +12,9 @@ import type { PlayerCard } from "@/game/model";
 
 type TrumpSuitDialogProps = {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
   onSelectSuit: (suit: string) => void;
   myCards: PlayerCard[];
-  practiceActions?: ReactNode;
+  actions?: ReactNode;
   disabled?: boolean;
 };
 
@@ -30,9 +29,9 @@ const TrumpSuitDialog = ({
   open,
   onSelectSuit,
   myCards,
-  practiceActions,
+  actions,
   disabled = false,
-}: Omit<TrumpSuitDialogProps, "onOpenChange">) => {
+}: TrumpSuitDialogProps) => {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent
@@ -96,8 +95,8 @@ const TrumpSuitDialog = ({
           </div>
         </div>
 
-        {practiceActions && (
-          <div className="border-t border-border pt-4">{practiceActions}</div>
+        {actions && (
+          <div className="border-t border-border pt-4">{actions}</div>
         )}
       </DialogContent>
     </Dialog>

@@ -436,12 +436,12 @@ const GameTable = () => {
             onClick={() => setLastTrickDialogOpen(true)}
           >
             <History className="h-4 w-4" aria-hidden="true" />
-            Ultima presa
+            <span className="arcade-tool-label">Ultima presa</span>
           </Button>
           {myBotControlled && !gameFinishedData && (
             <Button size="sm" disabled={isResuming} onClick={() => void handleResumeControl()}>
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              Riprendi controllo
+              <span className="arcade-tool-label">Riprendi controllo</span>
             </Button>
           )}
           {!myBotControlled && currentRound?.briscola === null && callerUserId === userId && (
@@ -453,7 +453,7 @@ const GameTable = () => {
               data-testid="choose-trump-button"
             >
               <Crown className="h-4 w-4" aria-hidden="true" />
-              Scegli la briscola
+              <span className="arcade-tool-label">Scegli la briscola</span>
             </Button>
           )}
           {!trumpDialogOpen && gameActions}
@@ -474,7 +474,7 @@ const GameTable = () => {
         open={trumpDialogOpen}
         onSelectSuit={handleTrumpSelect}
         myCards={myCards}
-        practiceActions={gameActions}
+        actions={gameActions}
       />
       <PausedPracticeDialog
         open={gameStatus === "paused"}
