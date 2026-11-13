@@ -154,8 +154,7 @@ The decision on this tier is pending.
 The supported online target is a Render Free Docker service. The `Dockerfile`
 defaults to `PORT=10000` (the local example above uses 8011), verifies the
 `esperto` artifact and builds the `forte` agent at image build time, and runs
-one uvicorn worker. `render.yaml` sets `healthCheckPath: /health` and
-`autoDeployTrigger: off`. Its cold start is handled by the backend before
+one uvicorn worker. `render.yaml` sets `healthCheckPath: /health`. Its cold start is handled by the backend before
 practice-room creation. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the platform decision, deployment
 procedure, secrets, and verification gates.
@@ -238,7 +237,7 @@ CLAUDE.md     Agent-facing development context
 - Deployment: `Dockerfile` installs only the `serve` extra, listens on
   `PORT` (default `10000`) with one uvicorn worker, and fails the build if the
   `esperto` artifact or the `forte` agent cannot load. `render.yaml` deploys it
-  on Render Free with `healthCheckPath: /health`, `autoDeployTrigger: off`
+  on Render Free with `healthCheckPath: /health`
   and the `BOT_SERVICE_TOKEN` secret.
 
 ## Invariants
