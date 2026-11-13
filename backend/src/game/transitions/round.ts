@@ -28,7 +28,7 @@ import {
   TurnIdentity,
 } from "../turn";
 import { readCallerPlayerId } from "../snapshots/turnState";
-import { roundDealPresentation } from "../../gameConfig";
+import { roundDealRemainingMs } from "../../gameConfig";
 import { BotTier } from "../../services/botUsers";
 import { restoreBotSeats } from "../../runtime/botRegistry";
 
@@ -301,10 +301,10 @@ export async function startFirstRound(
         handId: null,
         playedCardCount: 0,
       },
-      roundDealPresentation({
+      roundDealRemainingMs({
         number: roundSetup.roundNumber,
         createdAt: roundSetup.createdAt,
-      }).remainingMs,
+      }),
     );
     await sendGameState(roomCode, { kind: "game_started" });
     publishRoomChanged(roomCode);

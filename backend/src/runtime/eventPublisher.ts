@@ -17,8 +17,8 @@ export function publishEvent(
   }
 }
 
-// Room pages and the lobby refetch on these.
-export function publishRoomChanged(roomCode: string): void {
+// Room pages and the lobby refetch on these. Skip the lobby for changes it does not list.
+export function publishRoomChanged(roomCode: string, { lobby = true } = {}): void {
   publishEvent(roomCode, "room_changed", { roomCode });
-  publishEvent("lobby", "lobby_changed", { roomCode });
+  if (lobby) publishEvent("lobby", "lobby_changed", { roomCode });
 }

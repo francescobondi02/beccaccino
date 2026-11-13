@@ -67,10 +67,6 @@ export async function readGameResult(
     }
   }
   const score = sumRoundScores(room.rounds);
-  const results = players.map(({ playerId, team, ...player }) => ({
-    ...player,
-    team: team as Team,
-  }));
   return {
     winnerTeam,
     totalRounds: room.rounds.length,
@@ -80,7 +76,7 @@ export async function readGameResult(
       team1: room.rounds.filter((round) => round.winnerTeam === 1).length,
     },
     statistics: {
-      players: results,
+      players: players.map(({ playerId, team, ...player }) => ({ ...player, team: team as Team })),
       rounds: room.rounds.map((round) => ({
         number: round.number,
         winnerTeam: round.winnerTeam as Team,

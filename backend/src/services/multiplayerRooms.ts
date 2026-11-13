@@ -5,7 +5,7 @@ import { withRoomLock } from "../utils/roomLock";
 import { assertNoActiveMultiplayerGame } from "./roomQueries";
 import { generateUniqueRoomCode } from "./roomCode";
 import { startFirstRound } from "../game/transitions/round";
-import { publishEvent, publishRoomChanged } from "../runtime/eventPublisher";
+import { publishRoomChanged } from "../runtime/eventPublisher";
 import { ensureBotServiceReady } from "./botClient";
 import { BotTier, ensureBotUsers, isBotTier } from "./botUsers";
 
@@ -126,7 +126,7 @@ export async function chooseMultiplayerTeam(args: {
     return { player: updatedPlayer, changed: true };
   });
   if (result.changed) {
-    publishEvent(args.roomCode, "room_changed", { roomCode: args.roomCode });
+    publishRoomChanged(args.roomCode, { lobby: false });
   }
   return { success: true, player: result.player };
 }
@@ -161,7 +161,7 @@ export async function configureMultiplayerBots(args: {
         include: { players: { select: PUBLIC_PLAYER_SELECT } },
       });
     });
-    publishEvent(args.roomCode, "room_changed", { roomCode: args.roomCode });
+    publishRoomChanged(args.roomCode, { lobby: false });
     return updatedRoom;
   });
 }
@@ -249,7 +249,7 @@ export async function setMultiplayerReady(args: {
         where: { id: player.id },
         data: { isReady: args.isReady },
       });
-      publishEvent(args.roomCode, "room_changed", { roomCode: args.roomCode });
+      publishRoomChanged(args.roomCode, { lobby: false });
     }
 
     return { player: updatedPlayer, allReady };

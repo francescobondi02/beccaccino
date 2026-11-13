@@ -9,16 +9,11 @@ export function roundDealTimes(round: { number: number; createdAt: Date }) {
   return { summaryEndsAt, animationEndsAt, reviewEndsAt: animationEndsAt + 1_600 };
 }
 
-export function roundDealPresentation(
+export function roundDealRemainingMs(
   round: { number: number; createdAt: Date },
   now = Date.now(),
 ) {
-  const { summaryEndsAt, animationEndsAt, reviewEndsAt } = roundDealTimes(round);
-  return {
-    remainingMs: Math.max(0, reviewEndsAt - now),
-    animationMs: animationEndsAt - summaryEndsAt,
-    reviewMs: reviewEndsAt - animationEndsAt,
-  };
+  return Math.max(0, roundDealTimes(round).reviewEndsAt - now);
 }
 
 export const GAME_WIN_POINTS = (() => {

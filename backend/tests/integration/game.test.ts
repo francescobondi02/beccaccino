@@ -83,6 +83,20 @@ describe("Game flow", () => {
     expect(played.body).toEqual(pushed![2]);
   });
 
+  it("returns the pushed state to the caller of briscola", async () => {
+    const { roomCode } = await setupGame();
+    const sent = jest.spyOn(events, "publishEvent");
+    const caller = await prisma.player.findFirstOrThrow({
+      where: { userId: getTurnTimerState(roomCode)!.turnUserId, gameRoom: { code: roomCode } },
+      include: { user: true },
+    });
+    const chosen = await apiAs(caller.userId, caller.user.username)
+      .post(`/api/games/${roomCode}/briscola`).send({ suit: "coppe" });
+    expect(chosen.statusCode).toBe(200);
+    const pushed = sent.mock.calls.find(([target]) => target === `user:${caller.userId}`);
+    expect(chosen.body).toEqual(pushed![2]);
+  });
+
   it("sets up a game, chooses briscola, and plays a full round", async () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);

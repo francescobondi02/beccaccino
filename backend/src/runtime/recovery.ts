@@ -8,8 +8,9 @@ import { restoreBotSeats } from "./botRegistry";
 import { startRuntimeTurn } from "./turnRuntime";
 import { clearTurnTimer, hasTurnRuntime } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
-import { roundDealPresentation } from "../gameConfig";
+import { roundDealRemainingMs } from "../gameConfig";
 import { replacementBotTier } from "../services/botUsers";
+import { markGameChanged, sendGameState } from "../services/gameState";
 
 export type RuntimeRecoverySummary = {
   activeRooms: number;
@@ -58,11 +59,14 @@ export async function recoverRoomRuntimeUnlocked(
   const overdue = room.isPractice
     ? []
     : room.players.filter((player) => player.botModel === null && player.timeoutCount >= 3);
+  const tier = overdue.length > 0 ? replacementBotTier(room) : null;
   if (overdue.length > 0) {
-    const tier = replacementBotTier(room);
-    await prisma.player.updateMany({
-      where: { id: { in: overdue.map((player) => player.id) } },
-      data: { botModel: tier },
+    await prisma.$transaction(async (tx) => {
+      await tx.player.updateMany({
+        where: { id: { in: overdue.map((player) => player.id) } },
+        data: { botModel: tier },
+      });
+      await markGameChanged(tx, room.id);
     });
     overdue.forEach((player) => { player.botModel = tier; });
     if (overdue.some((player) => player.userId === turn.userId)) clearTurnTimer(roomCode);
@@ -70,23 +74,25 @@ export async function recoverRoomRuntimeUnlocked(
   }
 
   restoreBotSeats(roomCode, room.players);
-  if (hasTurnRuntime(roomCode, turn.userId, turn.phase, room.pauseEpoch, turn.identity)) {
-    return false;
+  const recovered = !hasTurnRuntime(roomCode, turn.userId, turn.phase, room.pauseEpoch, turn.identity);
+  if (recovered) {
+    startRuntimeTurn(
+      roomCode,
+      turn.userId,
+      turn.phase,
+      room.pauseEpoch,
+      turn.identity,
+      turn.phase === "choose_briscola" ? roundDealRemainingMs(round) : 0,
+    );
+    logger.info(
+      { roomCode, userId: turn.userId, phase: turn.phase },
+      "turn_runtime_recovered",
+    );
   }
-
-  startRuntimeTurn(
-    roomCode,
-    turn.userId,
-    turn.phase,
-    room.pauseEpoch,
-    turn.identity,
-    turn.phase === "choose_briscola" ? roundDealPresentation(round).remainingMs : 0,
-  );
-  logger.info(
-    { roomCode, userId: turn.userId, phase: turn.phase },
-    "turn_runtime_recovered",
-  );
-  return true;
+  for (const player of overdue) {
+    await sendGameState(roomCode, { kind: "control_changed", userId: player.userId, botModel: tier });
+  }
+  return recovered;
 }
 
 export async function recoverRooms(

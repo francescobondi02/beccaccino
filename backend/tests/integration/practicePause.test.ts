@@ -91,6 +91,7 @@ describe("Practice pause and resume", () => {
     const roomCode = await startPractice();
     const initialTimer = getTurnTimerState(roomCode);
     expect(initialTimer).not.toBeNull();
+    expect((await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } })).version).toBe(1);
 
     const paused = await apiAs(userId, "pause-human")
       .post(`/api/rooms/${roomCode}/pause`)
@@ -109,6 +110,7 @@ describe("Practice pause and resume", () => {
     });
     expect(room.pausedAt).not.toBeNull();
     expect(room.pauseEpoch).toBe(1);
+    expect(room.version).toBe(2);
 
     clearRuntimeRoom(roomCode);
     const state = await apiAs(userId, "pause-human").get(
@@ -184,6 +186,7 @@ describe("Practice pause and resume", () => {
     });
     expect(resumedRoom.pausedAt).toBeNull();
     expect(resumedRoom.pauseEpoch).toBe(2);
+    expect(resumedRoom.version).toBe(3);
   });
 
   it("pushes practice states only to the human, with their own cards and the right room code", async () => {

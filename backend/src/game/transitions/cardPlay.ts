@@ -6,7 +6,7 @@ import { isLegalCard } from "../../domain/game/legalCards";
 import { sumRoundScores, decideGameWinner } from "../../domain/game/gameScore";
 import { resolveTurnSeat } from "../../domain/game/turnOrder";
 import { CardSignal, Suit, Value } from "../../domain/game/cards";
-import { GAME_WIN_POINTS, TRICK_DISPLAY_MS, roundDealPresentation } from "../../gameConfig";
+import { GAME_WIN_POINTS, TRICK_DISPLAY_MS, roundDealRemainingMs } from "../../gameConfig";
 import type { GameState, LastAction } from "../../contract/game";
 import { logger } from "../../logger";
 import {
@@ -419,10 +419,10 @@ async function playCardUnlocked({
         handId: null,
         playedCardCount: 0,
       },
-      roundDealPresentation({
+      roundDealRemainingMs({
         number: nextRound!.roundNumber,
         createdAt: nextRound!.createdAt,
-      }).remainingMs,
+      }),
     );
   }
   return sendGameState(roomCode, lastAction);

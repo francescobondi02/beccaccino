@@ -1,3 +1,6 @@
+import type { Team } from "../../contract/cards";
+import type { Score } from "../../contract/game";
+
 // Per-round scores are stored as real points + a figures remainder in separate
 // columns (raw = points * RAW_PER_POINT + figures). Cumulative totals therefore
 // MUST be summed on RAW and re-split, or each round's figures are silently
@@ -14,23 +17,12 @@ export interface RoundScoreRow {
   team1Figures: number;
 }
 
-export interface TeamScore {
-  points: number;
-  figures: number;
-}
-
-export interface CumulativeScore {
-  team0: TeamScore;
-  team1: TeamScore;
-}
-
-export type Team = 0 | 1;
 
 /**
  * Cumulative real points across the given rounds, computed on raw totals so a
  * round's figures remainder carries into whole points instead of being lost.
  */
-export function sumRoundScores(rounds: RoundScoreRow[]): CumulativeScore {
+export function sumRoundScores(rounds: RoundScoreRow[]): Score {
   let rawTeam0 = 0;
   let rawTeam1 = 0;
   for (const round of rounds) {
@@ -56,7 +48,7 @@ export function sumRoundScores(rounds: RoundScoreRow[]): CumulativeScore {
  * while neither team has reached winPoints.
  */
 export function decideGameWinner(
-  cumulative: CumulativeScore,
+  cumulative: Score,
   winPoints: number,
   callerTeam: Team,
 ): Team | null {
@@ -72,7 +64,7 @@ export function decideGameWinner(
 
 /** Resolve a finished game's winner; exact point ties go to the final caller. */
 export function decideScoreWinner(
-  cumulative: CumulativeScore,
+  cumulative: Score,
   callerTeam: Team,
 ): Team {
   if (cumulative.team0.points > cumulative.team1.points) return 0;
