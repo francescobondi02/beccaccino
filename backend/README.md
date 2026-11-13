@@ -27,11 +27,9 @@ Python service. Setup and operator procedures are described in
   `/health` health check.
 - Subdirectories:
   - [./src/](./src/): application source (server, routes,
-    services, game rules, runtime, sockets, annotations, scripts).
+    services, game rules, runtime, sockets, scripts).
   - [./prisma/](./prisma/): `schema.prisma` models, enums,
     and the migration history in `./prisma/migrations`.
-  - [./scripts/](./scripts/): operator shell wrappers for
-    annotation database tooling.
 
 ## Invariants
 

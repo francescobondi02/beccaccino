@@ -20,10 +20,9 @@ src/
   game/turn.ts             Shared turn phase, identity, and comparison
   runtime/                 Timers, bots, timeout policy, recovery, publication
   services/                Room operations/queries, account, stats
-  annotations/             Contracts, state/action/batch parsing, response codec
   practice/                Practice archive payload version, types, parser
   sockets/room.ts          Presence and chat handlers
-  scripts/                 Annotation operators and JSONL exports
+  scripts/                 Practice JSONL export
 ```
 
 Controllers parse input, call one operation, and return the result. Do not add
@@ -167,30 +166,6 @@ Practice retirement archives and deletes in one transaction. Runtime state is
 cleared only after successful deletion, so archive/delete failure leaves both
 the room and runtime available for retry. The versioned JSON payload contract
 is in `practice/matchPayload.ts` and is shared by archive creation and export.
-
-## Annotation Tooling
-
-Annotation contracts are split by responsibility:
-
-- `annotations/contracts.ts`: scenario and action types
-- `annotations/state.ts`: scenario state parsing and hashing
-- `annotations/action.ts`: selected-action parsing and legality
-- `annotations/batch.ts`: batch metadata and duplicate validation
-- `annotations/responseCodec.ts`: action/database-column conversion
-
-The database operator is also split:
-
-- `annotationDatabaseCli.ts`: command-line parsing
-- `annotationEnvironment.ts`: protected env-file loading and target checks
-- `annotationDatabaseStatus.ts`: read-only catalog/response status query
-- `atomicAnnotationExport.ts`: mode-600, no-overwrite atomic export
-- `annotationDatabase.ts`: import plan confirmation and orchestration
-
-Use the wrappers in `scripts/annotations/`. Imports and
-active-catalog restores are dry run by default; apply requires the exact plan
-token. Restore changes only retained rows' `active` flags and never deletes
-scenarios or responses. Do not pass database credentials on the command line or
-store them in the repository.
 
 ## Verification
 

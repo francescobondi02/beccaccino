@@ -51,7 +51,7 @@ The root folder contains local development tooling only.
   `/health`, `/version`).
 - backend: [./backend/README.md](./backend/README.md) - Node 24 TypeScript
   server with Express 5, Socket.IO and Prisma. REST routes are under
-  `/api/users`, `/api/rooms`, `/api/games` and `/api/annotations`. It owns turn
+  `/api/users`, `/api/rooms` and `/api/games`. It owns turn
   timers, bot turns, recovery and scoring.
 - frontend: [./frontend/README.md](./frontend/README.md) - React 18 and Vite
   web client, plus a Vercel function that proxies WebSockets

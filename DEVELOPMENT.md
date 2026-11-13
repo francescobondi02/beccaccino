@@ -119,9 +119,7 @@ npm run test:coverage     # with coverage report
 ### E2E Tests (Playwright)
 
 The multiplayer tests coordinate 4 independent browser contexts through the
-lobby and first trick. The annotation test uses a normal BECCA account, grants
-expert access, and verifies account-linked answer and skip submissions on
-desktop and mobile.
+lobby and first trick.
 
 #### Prerequisites
 
@@ -145,7 +143,6 @@ npm run test:e2e:ui           # Playwright interactive UI mode
 
 - **lobby-to-game.spec.ts** — 4 players register, create room, join, choose teams, ready up, game starts, verify 10 cards dealt
 - **first-trick.spec.ts** — Briscola selection → 4 players complete the first trick in correct turn order
-- **annotation.spec.ts** — Account login → expert access → answer and skip submissions with difficulty ratings
 
 #### Debugging failures
 
@@ -211,30 +208,6 @@ npx prisma migrate reset
 # Open Prisma Studio (visual DB editor) at http://localhost:5555
 npx prisma studio
 ```
-
----
-
-## Expert Annotation Production Operations
-
-Scenario generation is offline and cannot modify production. The production
-workflow has three separate gates:
-
-1. Deploy the backend revision containing the annotation migration and API.
-2. Generate and validate a deterministic batch from `ai/`.
-3. Run the backend importer against production, first without `--apply` and
-   then with `--apply` after verifying the target and summary.
-
-Configure `ANNOTATION_ACCESS_CODE` only in the backend hosting environment. It
-is a shared invitation code that permanently grants annotation access to an
-already authenticated BECCA account; it is not a generator seed or frontend
-variable.
-
-Use [`ai/docs/EXPERT_DATA_COLLECTION.md`](ai/docs/EXPERT_DATA_COLLECTION.md) as
-the authoritative operator runbook. It covers one-time seed custody, batch
-naming, generation, manifest inspection, production import, launch
-verification, replenishment, and failure recovery. Never import a batch before
-the corresponding backend migration is deployed, and never use `--apply`
-without first reviewing the dry run against the same database.
 
 ---
 

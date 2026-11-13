@@ -14,7 +14,5 @@ runs/
 .pytest_cache/
 *.log
 .env
-.private/
-out/annotations/
 .DS_Store
 wandb/

@@ -12,7 +12,7 @@ describe("account JWTs", () => {
   it("rejects signed payloads without a valid account identity", () => {
     const secret = process.env.JWT_SECRET!;
     const malformedTokens = [
-      jwt.sign({ kind: "annotation", sessionId: "session" }, secret),
+      jwt.sign({ sessionId: "session" }, secret),
       jwt.sign({ userId: "42", username: "expert" }, secret),
       jwt.sign({ userId: 42, username: "" }, secret),
     ];
