@@ -69,8 +69,8 @@ export async function autoChooseBriscola(
   });
 
   await setBriscola({
-    gameRoomId: room.id,
-    playerId: player.id,
+    roomCode,
+    userId,
     suit,
     autoChosen: true,
     expectedPauseEpoch,

@@ -42,7 +42,7 @@ async function createLobby(teams: (number | null)[], tier: string | null = "fort
     const user = users[index];
     if (index > 0) {
       const joined = await apiAs(user.id, user.username)
-        .post("/api/rooms/join").send({ roomCode: code });
+        .post(`/api/rooms/${code}/join`);
       expect(joined.statusCode).toBe(200);
     }
     if (teams[index] !== null) {
@@ -105,7 +105,7 @@ describe("Multiplayer bot filling", () => {
     const { users, code } = await createLobby([0]);
     const friend = await prisma.user.create({ data: { username: "friend" } });
     const joined = await apiAs(friend.id, friend.username)
-      .post("/api/rooms/join").send({ roomCode: code });
+      .post(`/api/rooms/${code}/join`);
     expect(joined.statusCode).toBe(200);
     expect(joined.body.players).toHaveLength(2);
     await apiAs(users[0].id, users[0].username)
@@ -133,9 +133,7 @@ describe("Multiplayer bot filling", () => {
     const changed = await client.post(`/api/rooms/${code}/bots`).send({ tier: "medio" });
     expect(changed.statusCode).toBe(200);
     expect(changed.body.players.every((player: { isReady: boolean }) => !player.isReady)).toBe(true);
-    expect(publish).toHaveBeenCalledWith(code, "room_settings_changed", {
-      room: expect.objectContaining({ botTier: "medio", players: changed.body.players }),
-    });
+    expect(publish).toHaveBeenCalledWith(code, "room_changed", { roomCode: code });
     expect((await client.get(`/api/rooms/${code}`)).body.botTier).toBe("medio");
     const disabled = await client.post(`/api/rooms/${code}/bots`).send({ tier: null });
     expect(disabled.statusCode).toBe(200);
@@ -191,7 +189,7 @@ describe("Multiplayer bot filling", () => {
     const friend = await prisma.user.create({ data: { username: "racing-friend" } });
     const [ready, joined] = await Promise.all([
       apiAs(users[0].id, users[0].username).post(`/api/rooms/${code}/ready`).send({ isReady: true }),
-      apiAs(friend.id, friend.username).post("/api/rooms/join").send({ roomCode: code }),
+      apiAs(friend.id, friend.username).post(`/api/rooms/${code}/join`),
     ]);
     expect(ready.statusCode).toBe(200);
     const room = await loadRoom(code);

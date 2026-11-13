@@ -9,10 +9,7 @@ import { sanitizeChatMessage } from "../utils/sanitizeChatMessage";
 import { changePlayerControlUnlocked } from "../services/playerControl";
 import { withRoomLock } from "../utils/roomLock";
 
-interface JoinRoomResult {
-  ok: boolean;
-  error?: string;
-}
+import type { JoinRoomResult } from "../contract/socket";
 
 type Acknowledge = (result: JoinRoomResult) => void;
 
@@ -66,12 +63,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
           await changePlayerControlUnlocked({ roomCode, userId, action: "resume" });
         }
 
-        const existingSocketIds = io.sockets.adapter.rooms.get(roomCode);
-        const alreadyPresent = [...(existingSocketIds ?? [])].some(
-          (socketId) =>
-            io.sockets.sockets.get(socketId)?.data.user.userId === userId,
-        );
-
         const previousRoomCode = socket.data.roomCode;
         if (previousRoomCode && previousRoomCode !== roomCode) {
           socket.leave(previousRoomCode);
@@ -80,18 +71,6 @@ export function registerRoomSocket(socket: Socket, io: Server) {
         socket.join(roomCode);
         socket.data.roomCode = roomCode;
 
-        if (!alreadyPresent) {
-          socket.to(roomCode).emit("player_joined", {
-            player: {
-              id: player.id,
-              userId: player.userId,
-              username: player.user.username,
-              seat: player.seat,
-              team: player.team,
-              isReady: player.isReady,
-            },
-          });
-        }
         acknowledge?.({ ok: true });
       });
     } catch (error) {

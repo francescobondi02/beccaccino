@@ -1,295 +1,261 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { GameError } from "../utils/gameError";
-import {
-  sumRoundScores,
-  decideGameWinner,
-  Team,
-} from "../domain/game/gameScore";
-import { GAME_WIN_POINTS, roundDealPresentation } from "../gameConfig";
-import {
-  readCallerPlayerId,
-  readCurrentTurnUserId,
-} from "../game/snapshots/turnState";
+import { sumRoundScores, decideGameWinner } from "../domain/game/gameScore";
+import { selectLegalCards } from "../domain/game/legalCards";
+import { GAME_WIN_POINTS, TRICK_DISPLAY_MS, roundDealTimes } from "../gameConfig";
+import { readCallerPlayerId, readCurrentTurn } from "../game/snapshots/turnState";
 import { getTurnTimerState } from "../runtime/turnTimer";
+import { publishEvent } from "../runtime/eventPublisher";
+import { logger } from "../logger";
 import { withRoomLock } from "../utils/roomLock";
 import { readGameResult } from "./gameResult";
+import type { BotTier, Signal, Team } from "../contract/cards";
+import type { GameState, LastAction, PlayedCard } from "../contract/game";
 
-async function readPlayerHands(
-  client: Prisma.TransactionClient,
-  players: { userId: number; id: number; botModel: string | null }[],
-  roundId: number,
-) {
-  const cards = await client.playerCard.findMany({
-    where: { roundId },
-    orderBy: [{ suit: "asc" }, { value: "asc" }],
+// Every writer calls this in its transaction; clients drop states with a lower version.
+export function markGameChanged(tx: Prisma.TransactionClient, gameRoomId: number) {
+  return tx.gameRoom.update({
+    where: { id: gameRoomId },
+    data: { version: { increment: 1 }, lastActivityAt: new Date() },
   });
+}
 
-  return players.map((player) => ({
-    userId: player.userId,
-    botModel: player.botModel,
-    cards: cards
-      .filter((card) => card.playerId === player.id)
-      .map(({ suit, value }) => ({ suit, value })),
+const playedCardsInclude = {
+  cards: {
+    orderBy: { position: "asc" },
+    include: { player: { select: { userId: true } } },
+  },
+} satisfies Prisma.HandInclude;
+
+type HandWithCards = Prisma.HandGetPayload<{ include: typeof playedCardsInclude }>;
+
+function toPlayedCards(hand: HandWithCards): PlayedCard[] {
+  return hand.cards.map((card) => ({
+    userId: card.player.userId,
+    suit: card.suit,
+    value: card.value,
+    signal: card.signal as Signal | null,
   }));
 }
 
-async function readGameStateSnapshot(
-  client: Prisma.TransactionClient,
-  roomCode: string,
-  userId: number,
-) {
-  const gameRoom = await client.gameRoom.findUnique({
+async function readGameSnapshot(client: Prisma.TransactionClient, roomCode: string) {
+  const room = await client.gameRoom.findUnique({
     where: { code: roomCode },
-    include: { players: true },
+    include: {
+      players: {
+        orderBy: { seat: "asc" },
+        include: { user: { select: { username: true, isBot: true } } },
+      },
+    },
   });
+  if (!room) throw new GameError("Room not found", 404);
+  if (!room.started) throw new GameError("Game has not started yet", 400);
 
-  if (!gameRoom) {
-    throw new GameError("Room not found", 404);
-  }
-  const myPlayer = gameRoom.players.find((player) => player.userId === userId);
-  if (!myPlayer) {
-    throw new GameError("You are not in this room", 403);
-  }
-  if (!gameRoom.finished && myPlayer.abandonedAt) {
-    throw new GameError("Hai abbandonato questa partita", 403);
-  }
-  if (!gameRoom.started) {
-    throw new GameError("Game has not started yet", 400);
-  }
-
-  const currentRound = await client.round.findFirst({
-    where: { gameRoomId: gameRoom.id },
+  const round = await client.round.findFirst({
+    where: { gameRoomId: room.id },
     orderBy: { number: "desc" },
   });
-  if (!currentRound) {
-    throw new GameError("No active round found", 404);
-  }
+  if (!round) throw new GameError("No active round found", 404);
 
-  const callerPlayerId = await readCallerPlayerId(
-    currentRound,
-    gameRoom.players,
-    client,
-  );
-  const callerUserId =
-    gameRoom.players.find((player) => player.id === callerPlayerId)?.userId ??
-    null;
-  const myCards = await client.playerCard.findMany({
-    where: {
-      playerId: myPlayer.id,
-      roundId: currentRound.id,
-    },
+  const callerPlayerId = await readCallerPlayerId(round, room.players, client);
+  const turn = await readCurrentTurn(round, room.players, callerPlayerId, client);
+  const handCards = await client.playerCard.findMany({
+    where: { roundId: round.id },
     orderBy: [{ suit: "asc" }, { value: "asc" }],
+    select: { playerId: true, suit: true, value: true },
   });
-  const currentTurnUserId = await readCurrentTurnUserId(
-    currentRound,
-    gameRoom.players,
-    callerPlayerId,
-    client,
-  );
-
-  const currentHand = await client.hand.findFirst({
-    where: { roundId: currentRound.id, winnerId: null },
+  const trick = await client.hand.findFirst({
+    where: { roundId: round.id, winnerId: null },
     orderBy: { number: "desc" },
-    include: {
-      cards: {
-        orderBy: { position: "asc" },
-        include: { player: { select: { userId: true } } },
-      },
-    },
+    include: playedCardsInclude,
   });
-  const lastCompletedHand = await client.hand.findFirst({
-    where: { round: { gameRoomId: gameRoom.id }, winnerId: { not: null } },
+  const lastTrick = await client.hand.findFirst({
+    where: { round: { gameRoomId: room.id }, winnerId: { not: null } },
     orderBy: [{ roundId: "desc" }, { number: "desc" }],
-    include: {
-      cards: {
-        orderBy: { position: "asc" },
-        include: { player: { select: { userId: true } } },
-      },
-    },
+    include: { ...playedCardsInclude, round: { select: { number: true } } },
   });
-  const serializePlayedCards = (hand: typeof currentHand) =>
-    hand?.cards.map((card) => ({
-      playerId: card.playerId,
-      userId: card.player.userId,
-      suit: card.suit,
-      value: card.value,
-      position: card.position,
-      signal: card.signal,
-      handNumber: hand.number,
-    })) ?? [];
-
-  const completedRounds = await client.round.findMany({
-    where: {
-      gameRoomId: gameRoom.id,
-      winnerTeam: { not: null },
-    },
-    select: {
-      number: true,
-      team0Points: true,
-      team1Points: true,
-      team0Figures: true,
-      team1Figures: true,
-      winnerTeam: true,
-    },
-  });
-  const cumulative = sumRoundScores(completedRounds);
-  const callerTeam = gameRoom.players.find(
-    (player) => player.id === callerPlayerId,
-  )?.team;
-  const winnerTeam =
-    gameRoom.finished && (callerTeam === 0 || callerTeam === 1)
-      ? decideGameWinner(cumulative, GAME_WIN_POINTS, callerTeam as Team)
-      : null;
-  const finishedGame =
-    gameRoom.finished && winnerTeam !== null
-      ? await readGameResult(client, gameRoom.id, winnerTeam)
-      : null;
-  const previousRound = completedRounds.find(
-    (round) => round.number === currentRound.number - 1,
-  );
-  const deal = roundDealPresentation(currentRound);
-  const roundSummary =
-    currentRound.briscola === null &&
-    deal.remainingMs > deal.animationMs + deal.reviewMs &&
-    previousRound
-      ? {
-          roundNumber: previousRound.number,
-          team0Points: previousRound.team0Points,
-          team1Points: previousRound.team1Points,
-          team0Figures: previousRound.team0Figures,
-          team1Figures: previousRound.team1Figures,
-          winnerTeam: previousRound.winnerTeam!,
-        }
-      : null;
-
-  const allHands = gameRoom.isPractice
-    ? await readPlayerHands(client, gameRoom.players, currentRound.id)
+  // The next trick or round is written in the transaction that ends the trick.
+  const afterLastTrick = lastTrick
+    ? (await client.hand.findFirst({
+        where: { roundId: lastTrick.roundId, number: lastTrick.number + 1 },
+        select: { createdAt: true },
+      })) ??
+      (await client.round.findFirst({
+        where: { gameRoomId: room.id, number: lastTrick.round.number + 1 },
+        select: { createdAt: true },
+      }))
     : null;
+  const completedRounds = await client.round.findMany({
+    where: { gameRoomId: room.id, winnerTeam: { not: null } },
+    orderBy: { number: "asc" },
+  });
+
+  const score = sumRoundScores(completedRounds);
+  const callerTeam = room.players.find((player) => player.id === callerPlayerId)?.team;
+  const winnerTeam =
+    room.finished && (callerTeam === 0 || callerTeam === 1)
+      ? decideGameWinner(score, GAME_WIN_POINTS, callerTeam)
+      : null;
+  const result =
+    winnerTeam === null ? null : await readGameResult(client, room.id, winnerTeam);
 
   return {
-    gameRoom,
-    currentRound,
-    currentHandNumber: currentHand?.number ?? null,
-    callerUserId,
-    myCards,
-    currentTurnUserId,
-    playedCards: serializePlayedCards(currentHand),
-    lastHandCards: lastCompletedHand?.roundId === currentRound.id
-      ? serializePlayedCards(lastCompletedHand)
-      : [],
-    lastCompletedTrick: lastCompletedHand ? {
-      roundId: lastCompletedHand.roundId,
-      handNumber: lastCompletedHand.number,
-      winnerUserId: gameRoom.players.find((player) => player.id === lastCompletedHand.winnerId)!.userId,
-      cards: serializePlayedCards(lastCompletedHand),
-    } : null,
-    cumulative,
-    finishedGame,
-    roundSummary,
-    allHands,
+    room,
+    round,
+    callerPlayerId,
+    turn,
+    handCards,
+    trick,
+    lastTrick,
+    lastTrickEndedAt: afterLastTrick?.createdAt ?? room.lastActivityAt,
+    previousRound: completedRounds.find((candidate) => candidate.number === round.number - 1),
+    score,
+    result,
   };
 }
 
-async function loadGameStateUnlocked(roomCode: string, userId: number) {
-  let snapshot: Awaited<ReturnType<typeof readGameStateSnapshot>> | null =
-    null;
+type GameSnapshot = Awaited<ReturnType<typeof readGameSnapshot>>;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    snapshot = await prisma.$transaction(
-      (client) => readGameStateSnapshot(client, roomCode, userId),
-      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
-    );
-    const latestRoomState = await prisma.gameRoom.findUnique({
-      where: { id: snapshot.gameRoom.id },
-      select: {
-        finished: true,
-        pausedAt: true,
-        pauseEpoch: true,
-        rounds: {
-          orderBy: { number: "desc" },
-          take: 1,
-          select: { id: true },
-        },
-      },
-    });
-    if (
-      latestRoomState?.finished === snapshot.gameRoom.finished &&
-      latestRoomState.pausedAt?.getTime() === snapshot.gameRoom.pausedAt?.getTime() &&
-      latestRoomState.pauseEpoch === snapshot.gameRoom.pauseEpoch &&
-      latestRoomState.rounds[0]?.id === snapshot.currentRound.id
-    ) {
-      break;
-    }
-    snapshot = null;
-  }
-
-  if (!snapshot) {
-    throw new GameError("Game state changed while loading; retry", 409);
-  }
-
-  const {
-    gameRoom,
-    currentRound,
-    currentHandNumber,
-    callerUserId,
-    myCards,
-    currentTurnUserId,
-    playedCards,
-    lastHandCards,
-    lastCompletedTrick,
-    cumulative,
-    finishedGame,
-    roundSummary,
-    allHands,
-  } = snapshot;
-
-  const timerState = gameRoom.pausedAt
-    ? null
-    : getTurnTimerState(roomCode);
+function toGameState(
+  snapshot: GameSnapshot,
+  userId: number,
+  lastAction: LastAction | null,
+): GameState {
+  const { room, round, turn, trick, lastTrick, previousRound, score } = snapshot;
+  const now = Date.now();
+  const me = room.players.find((player) => player.userId === userId)!;
+  const myHand = snapshot.handCards
+    .filter((card) => card.playerId === me.id)
+    .map(({ suit, value }) => ({ suit, value }));
+  const deal = roundDealTimes(round);
+  const timer = room.pausedAt || room.finished ? null : getTurnTimerState(room.code);
+  const timerMatches = timer?.turnUserId === turn?.userId && timer?.phase === turn?.phase;
+  const leadSuit = trick?.cards[0]?.suit ?? null;
+  const canPlay =
+    !room.finished &&
+    !room.pausedAt &&
+    turn?.userId === userId &&
+    turn.phase === "play_card" &&
+    me.botModel === null &&
+    me.abandonedAt === null;
 
   return {
-    status: gameRoom.finished
+    roomCode: room.code,
+    version: room.version,
+    serverTime: new Date(now).toISOString(),
+    status: room.finished
       ? "finished"
-      : gameRoom.pausedAt
+      : room.pausedAt
         ? "paused"
-        : currentRound.briscola === null
+        : round.briscola === null
           ? "choosing_briscola"
           : "playing",
-    round: {
-      id: currentRound.id,
-      number: currentRound.number,
-      briscola: currentRound.briscola,
-      cricca: currentRound.cricca,
-      deal: currentRound.briscola === null ? roundDealPresentation(currentRound) : null,
-    },
-    roundSummary,
-    currentHandNumber,
-    callerUserId,
-    myCards,
-    currentTurnUserId: gameRoom.finished ? null : currentTurnUserId,
-    playedCards,
-    lastHandCards,
-    lastCompletedTrick,
-    totalPoints: {
-      team0Points: cumulative.team0.points,
-      team1Points: cumulative.team1.points,
-      team0Figures: cumulative.team0.figures,
-      team1Figures: cumulative.team1.figures,
-    },
-    turnTimer: timerState ? { ...timerState, totalMs: timerState.isBot ? null : timerState.totalMs } : null,
-    playerControls: gameRoom.players.map(({ userId, botModel, abandonedAt }) => ({
-      userId, botModel, abandonedAt,
+    isPractice: room.isPractice,
+    players: room.players.map((player) => ({
+      userId: player.userId,
+      username: player.user.username,
+      isBot: player.user.isBot,
+      seat: player.seat!,
+      team: player.team as Team,
+      botModel: player.botModel as BotTier | null,
+      abandoned: player.abandonedAt !== null,
     })),
-    pausedAt: gameRoom.pausedAt,
-    finishedGame,
-    isPractice: gameRoom.isPractice,
-    allHands,
+    round: {
+      number: round.number,
+      callerUserId: room.players.find((player) => player.id === snapshot.callerPlayerId)!.userId,
+      briscola: round.briscola,
+      cricca: round.cricca,
+      deal:
+        round.briscola === null
+          ? {
+              animationEndsAt: new Date(deal.animationEndsAt).toISOString(),
+              reviewEndsAt: new Date(deal.reviewEndsAt).toISOString(),
+            }
+          : null,
+    },
+    trick: trick ? { number: trick.number, cards: toPlayedCards(trick) } : null,
+    lastTrick: lastTrick
+      ? {
+          roundNumber: lastTrick.round.number,
+          trickNumber: lastTrick.number,
+          winnerUserId: room.players.find((player) => player.id === lastTrick.winnerId)!.userId,
+          cards: toPlayedCards(lastTrick),
+          onTableUntil: new Date(
+            snapshot.lastTrickEndedAt.getTime() + TRICK_DISPLAY_MS,
+          ).toISOString(),
+        }
+      : null,
+    myHand,
+    playableCards: canPlay ? selectLegalCards(myHand, leadSuit) : [],
+    turn:
+      turn && !room.pausedAt && !room.finished
+        ? {
+            userId: turn.userId,
+            phase: turn.phase,
+            startedAt: new Date(timerMatches ? timer!.startedAt : now).toISOString(),
+            deadline:
+              timerMatches && !timer!.isBot
+                ? new Date(timer!.startedAt + timer!.totalMs).toISOString()
+                : null,
+          }
+        : null,
+    score,
+    roundSummary:
+      previousRound && now < deal.summaryEndsAt
+        ? {
+            roundNumber: previousRound.number,
+            score: {
+              team0: { points: previousRound.team0Points, figures: previousRound.team0Figures },
+              team1: { points: previousRound.team1Points, figures: previousRound.team1Figures },
+            },
+            winnerTeam: previousRound.winnerTeam as Team,
+            visibleUntil: new Date(deal.summaryEndsAt).toISOString(),
+          }
+        : null,
+    result: snapshot.result,
+    lastAction,
   };
+}
+
+function readGameSnapshotConsistently(roomCode: string) {
+  return prisma.$transaction(
+    (client) => readGameSnapshot(client, roomCode),
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
 }
 
 export function loadGameState(roomCode: string, userId: number) {
-  return withRoomLock(roomCode, () =>
-    loadGameStateUnlocked(roomCode, userId),
-  );
+  return withRoomLock(roomCode, async () => {
+    const snapshot = await readGameSnapshotConsistently(roomCode);
+    const me = snapshot.room.players.find((player) => player.userId === userId);
+    if (!me) throw new GameError("You are not in this room", 403);
+    if (!snapshot.room.finished && me.abandonedAt) {
+      throw new GameError("Hai abbandonato questa partita", 403);
+    }
+    return toGameState(snapshot, userId, null);
+  });
+}
+
+/**
+ * Sends each human still in the game their own state. Call it inside the room
+ * lock, after the writer commits and starts the next turn timer.
+ */
+export async function sendGameState(
+  roomCode: string,
+  lastAction: LastAction,
+): Promise<Map<number, GameState>> {
+  const states = new Map<number, GameState>();
+  try {
+    const snapshot = await readGameSnapshotConsistently(roomCode);
+    for (const player of snapshot.room.players) {
+      if (player.user.isBot || player.abandonedAt !== null) continue;
+      const gameState = toGameState(snapshot, player.userId, lastAction);
+      states.set(player.userId, gameState);
+      publishEvent(`user:${player.userId}`, "game_state", gameState, { roomCode });
+    }
+  } catch (error) {
+    logger.warn({ err: error, roomCode }, "game_state_send_failed");
+  }
+  return states;
 }

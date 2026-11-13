@@ -1,9 +1,6 @@
-import {
-  TurnIdentity,
-  TurnPhase,
-} from "../game/turn";
+import type { TurnPhase } from "../contract/game";
+import { TurnIdentity } from "../game/turn";
 import { logger } from "../logger";
-import { publishEvent } from "./eventPublisher";
 import {
   botTierForTurn,
   clearAllBotSeats,
@@ -79,14 +76,6 @@ export function startRuntimeTurn(
         );
       }
     },
-  });
-
-  publishEvent(roomCode, "turn_timer_started", {
-    turnUserId: userId,
-    totalMs: isBot ? null : durationMs,
-    serverTimestamp: Date.now(),
-    phase,
-    isBot,
   });
 }
 

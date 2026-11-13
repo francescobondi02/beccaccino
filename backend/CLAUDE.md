@@ -65,11 +65,12 @@ route -> game controller -> round/card-play operation
 ```
 
 Each operation owns its database writes, runtime handoff, and publication.
-Transactions commit before runtime starts or clears. Move events
-(`card_played`, `briscola_chosen`, round results) publish before the next
-turn's `turn_timer_started`, so clients reducing events in order keep the new
-timer; runtime clears precede `game_finished`. Publication failure is logged and captured but does not fail an
-already committed request.
+Every game writer calls `markGameChanged` (bumps `GameRoom.version`) inside its
+transaction. After commit and the runtime start or clear, it calls
+`sendGameState(roomCode, lastAction)`, which emits a full `game_state` (types in
+`src/contract/`) to `user:<id>` for each human still in the game. Mutation
+responses return the caller's copy of the same state. Publication failure is
+logged and captured but does not fail an already committed request.
 
 `services/gameState.ts` and `game/snapshots/` are read-only. A game-state GET
 must never start a timer, run a bot, or repair runtime.
@@ -79,9 +80,10 @@ Team selection and ready changes are REST-only:
 - `POST /api/rooms/:roomCode/choose-team`
 - `POST /api/rooms/:roomCode/ready`
 
-Socket.IO emits the resulting `team_chosen`, `ready_changed`, and
-`game_started` events. Client-to-server room sockets are limited to lobby/room
-presence, leave, and chat.
+Room changes emit `room_changed { roomCode }` to the room; changes that affect
+the lobby list also emit `lobby_changed` to `lobby`. Clients refetch over REST.
+Client-to-server room sockets are limited to lobby/room presence, leave, and
+chat.
 
 ## Runtime Recovery
 

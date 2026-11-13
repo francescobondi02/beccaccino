@@ -318,21 +318,20 @@ npm run practice:export > practice_matches.jsonl
 | POST | `/api/rooms/practice` | Yes | Start a practice game against bots |
 | GET | `/api/rooms/available` | Yes | List joinable rooms + active games |
 | GET | `/api/rooms/:roomCode` | Yes | Get room details |
-| POST | `/api/rooms/join` | Yes | Join a room by code |
+| POST | `/api/rooms/:roomCode/join` | Yes | Join a room by code |
 | POST | `/api/rooms/:roomCode/choose-team` | Yes | Choose team 0 or 1 |
 | POST | `/api/rooms/:roomCode/ready` | Yes | Toggle ready state |
 | POST | `/api/rooms/:roomCode/pause` | Yes | Pause an active practice room |
 | POST | `/api/rooms/:roomCode/resume` | Yes | Resume an active practice room and recover its turn |
 | POST | `/api/rooms/:roomCode/leave` | Yes | Leave an open lobby; practice rooms are deleted, active multiplayer returns 409, and finished multiplayer history is preserved |
-| POST | `/api/games/choose-briscola` | Yes | Choose trump suit |
-| POST | `/api/games/play-card` | Yes | Play a card |
-| GET | `/api/games/playable-cards/:roomCode` | Yes | Get legal cards for current turn |
-| GET | `/api/games/:roomCode/state` | Yes | Get full game state |
+| GET | `/api/games/:roomCode/state` | Yes | Get the caller's full game state |
+| POST | `/api/games/:roomCode/briscola` | Yes | Choose trump suit; returns the new state |
+| POST | `/api/games/:roomCode/cards` | Yes | Play a card; returns the new state |
 | GET | `/health` | No | Health check |
 | GET | `/ready` | No | Database readiness check |
 
 Team selection and ready-state changes are REST-only mutations. Socket.IO
-continues to deliver `team_chosen`, `ready_changed`, and `game_started` events,
+delivers `game_state` (full per-player state), `room_changed`, `lobby_changed`,
 plus presence and chat events.
 
 ## CI

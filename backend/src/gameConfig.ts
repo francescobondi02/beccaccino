@@ -2,20 +2,22 @@ import { logger } from "./logger";
 
 export const TRICK_DISPLAY_MS = 3_000;
 
+// Epoch milliseconds: the previous round's summary, then the deal animation, then time to read the hand.
+export function roundDealTimes(round: { number: number; createdAt: Date }) {
+  const summaryEndsAt = round.createdAt.getTime() + (round.number > 1 ? 4_000 : 0);
+  const animationEndsAt = summaryEndsAt + 2_400;
+  return { summaryEndsAt, animationEndsAt, reviewEndsAt: animationEndsAt + 1_600 };
+}
+
 export function roundDealPresentation(
   round: { number: number; createdAt: Date },
   now = Date.now(),
 ) {
-  const animationMs = 2_400;
-  const reviewMs = 1_600;
-  const summaryMs = round.number > 1 ? 4_000 : 0;
+  const { summaryEndsAt, animationEndsAt, reviewEndsAt } = roundDealTimes(round);
   return {
-    remainingMs: Math.max(
-      0,
-      round.createdAt.getTime() + summaryMs + animationMs + reviewMs - now,
-    ),
-    animationMs,
-    reviewMs,
+    remainingMs: Math.max(0, reviewEndsAt - now),
+    animationMs: animationEndsAt - summaryEndsAt,
+    reviewMs: reviewEndsAt - animationEndsAt,
   };
 }
 

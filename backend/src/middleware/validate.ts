@@ -15,17 +15,9 @@ import {
 } from "../domain/game/cards";
 import { badRequest } from "../http/errors";
 
-/**
- * Validates the body for POST /api/games/choose-briscola
- * Required: gameRoomId (number), suit (valid Suit enum).
- * playerId is derived server-side from req.user — never trust the client.
- */
+/** Validates the body for POST /api/games/:roomCode/briscola: suit (valid Suit enum). */
 export const validateChooseBriscola = (req: Request, _res: Response, next: NextFunction) => {
-  const { gameRoomId, suit } = req.body;
-
-  if (gameRoomId === undefined || typeof gameRoomId !== "number" || !Number.isInteger(gameRoomId)) {
-    return next(badRequest("gameRoomId must be a valid integer"));
-  }
+  const { suit } = req.body ?? {};
 
   if (!isSuit(suit)) {
     return next(
@@ -39,17 +31,12 @@ export const validateChooseBriscola = (req: Request, _res: Response, next: NextF
 };
 
 /**
- * Validates the body for POST /api/games/play-card
- * Required: roomCode (string), suit (valid Suit), value (valid Value)
+ * Validates the body for POST /api/games/:roomCode/cards
+ * Required: suit (valid Suit), value (valid Value)
  * Optional: signal (one of striscio/busso/volo, or null/undefined)
- * userId comes from req.user (JWT auth)
  */
 export const validatePlayCard = (req: Request, _res: Response, next: NextFunction) => {
-  const { roomCode, suit, value, signal } = req.body;
-
-  if (!roomCode || typeof roomCode !== "string") {
-    return next(badRequest("roomCode must be a non-empty string"));
-  }
+  const { suit, value, signal } = req.body ?? {};
 
   if (!isSuit(suit)) {
     return next(
@@ -77,20 +64,6 @@ export const validatePlayCard = (req: Request, _res: Response, next: NextFunctio
         `Invalid signal: "${signal}". Must be one of: ${CARD_SIGNALS.join(", ")} (or null)`,
       ),
     );
-  }
-
-  next();
-};
-
-/**
- * Validates path params for GET /api/games/playable-cards/:roomCode
- * userId comes from req.user (JWT auth)
- */
-export const validateGetPlayableCards = (req: Request, _res: Response, next: NextFunction) => {
-  const { roomCode } = req.params;
-
-  if (!roomCode || typeof roomCode !== "string") {
-    return next(badRequest("roomCode path param is required"));
   }
 
   next();

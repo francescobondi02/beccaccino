@@ -5,7 +5,7 @@ import { withRoomLock } from "../utils/roomLock";
 import { assertNoActiveMultiplayerGame } from "./roomQueries";
 import { generateUniqueRoomCode } from "./roomCode";
 import { startFirstRound } from "../game/transitions/round";
-import { publishEvent } from "../runtime/eventPublisher";
+import { publishEvent, publishRoomChanged } from "../runtime/eventPublisher";
 import { ensureBotServiceReady } from "./botClient";
 import { BotTier, ensureBotUsers, isBotTier } from "./botUsers";
 
@@ -28,19 +28,7 @@ export async function createMultiplayerRoom(userId: number) {
       },
     },
   });
-  publishEvent(
-    "lobby",
-    "room_created",
-    {
-      room: {
-        id: room.id,
-        code: room.code,
-        currentPlayers: room.players.length,
-        maxPlayers: 4,
-      },
-    },
-    { roomCode: room.code },
-  );
+  publishRoomChanged(room.code);
   return room;
 }
 
@@ -82,14 +70,7 @@ export async function joinMultiplayerRoom(args: {
       },
     });
   });
-  if (room.players.length >= 4) {
-    publishEvent("lobby", "room_full", { roomCode: args.roomCode });
-  } else {
-    publishEvent("lobby", "room_updated", {
-      roomCode: args.roomCode,
-      currentPlayers: room.players.length,
-    });
-  }
+  publishRoomChanged(args.roomCode);
   return room;
 }
 
@@ -145,16 +126,7 @@ export async function chooseMultiplayerTeam(args: {
     return { player: updatedPlayer, changed: true };
   });
   if (result.changed) {
-    publishEvent(
-      args.roomCode,
-      "team_chosen",
-      {
-        userId: args.userId,
-        playerId: result.player.id,
-        team: args.team,
-      },
-      { userId: args.userId },
-    );
+    publishEvent(args.roomCode, "room_changed", { roomCode: args.roomCode });
   }
   return { success: true, player: result.player };
 }
@@ -189,7 +161,7 @@ export async function configureMultiplayerBots(args: {
         include: { players: { select: PUBLIC_PLAYER_SELECT } },
       });
     });
-    publishEvent(args.roomCode, "room_settings_changed", { room: updatedRoom });
+    publishEvent(args.roomCode, "room_changed", { roomCode: args.roomCode });
     return updatedRoom;
   });
 }
@@ -277,11 +249,7 @@ export async function setMultiplayerReady(args: {
         where: { id: player.id },
         data: { isReady: args.isReady },
       });
-      publishEvent(args.roomCode, "ready_changed", {
-        userId: args.userId,
-        playerId: updatedPlayer.id,
-        isReady: args.isReady,
-      });
+      publishEvent(args.roomCode, "room_changed", { roomCode: args.roomCode });
     }
 
     return { player: updatedPlayer, allReady };

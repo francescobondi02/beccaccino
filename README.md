@@ -62,8 +62,9 @@ The root folder contains local development tooling only.
 ## Global Invariants
 
 - The server is authoritative. Clients send only server-legal cards
-  (`GET /api/games/playable-cards/:roomCode`) and treat socket events as
-  signals to reload state. They do not run a second rules engine.
+  (`playableCards` in the game state) and render the full `game_state` the
+  server pushes; room and lobby events are signals to reload. Clients do not
+  run a second rules engine. Shared types live in `backend/src/contract/`.
 - Game rules exist twice and must stay identical: TypeScript in
   `backend/src/domain/game/` (`computeRoundScore` in `roundScore.ts`,
   `trickWinner.ts`, `legalCards.ts`, `detectCricca.ts`, `turnOrder.ts`) and

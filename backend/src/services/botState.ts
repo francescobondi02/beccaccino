@@ -60,9 +60,6 @@ export interface BotTurn {
   state: BotState;
   seat: number;
   turnSeat: number | null;
-  /** setBriscola is keyed on playerId, unlike playCard which takes userId. */
-  playerId: number;
-  gameRoomId: number;
 }
 
 export class BotStateError extends Error {}
@@ -224,8 +221,6 @@ export async function buildBotTurn(
     state,
     seat: player.seat,
     turnSeat,
-    playerId: player.id,
-    gameRoomId: room.id,
   };
 }
 

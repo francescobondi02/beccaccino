@@ -1,5 +1,3 @@
-export type TurnPhase = "play_card" | "choose_briscola";
-
 export type TurnIdentity = {
   roundId: number;
   handId: number | null;

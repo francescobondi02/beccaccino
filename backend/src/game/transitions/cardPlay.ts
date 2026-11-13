@@ -7,16 +7,17 @@ import { sumRoundScores, decideGameWinner } from "../../domain/game/gameScore";
 import { resolveTurnSeat } from "../../domain/game/turnOrder";
 import { CardSignal, Suit, Value } from "../../domain/game/cards";
 import { GAME_WIN_POINTS, TRICK_DISPLAY_MS, roundDealPresentation } from "../../gameConfig";
+import type { GameState, LastAction } from "../../contract/game";
 import { logger } from "../../logger";
-import { GameEvent, publishEvents } from "../../runtime/eventPublisher";
 import {
   clearRuntimeRoom,
   startRuntimeTurn,
 } from "../../runtime/turnRuntime";
 import { GameError } from "../../utils/gameError";
-import { readGameResult } from "../../services/gameResult";
+import { markGameChanged, sendGameState } from "../../services/gameState";
 import { withRoomLock } from "../../utils/roomLock";
 import {
+  actionSource,
   claimPracticeTransition,
   assertPlayerControl,
   logRoundSetup,
@@ -89,7 +90,7 @@ async function playCardUnlocked({
   expectedPauseEpoch?: number;
   expectedTurn?: TurnIdentity;
   expectedBotModel?: string | null;
-}): Promise<void> {
+}): Promise<Map<number, GameState>> {
   const room = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
     include: {
@@ -189,24 +190,20 @@ async function playCardUnlocked({
     signal: validSignal,
     autoPlayed,
   };
-  const cardEvent: GameEvent = {
-    target: roomCode,
-    event: "card_played",
-    payload: {
-      userId,
-      playerId: player.id,
-      suit,
-      value,
-      position,
-      handNumber: currentHand.number,
-      signal: validSignal,
-    },
+  const lastAction: LastAction = {
+    kind: "card_played",
+    userId,
+    card: { suit, value },
+    signal: validSignal,
+    source: actionSource(expectedBotModel, autoPlayed),
+    takeover: false,
   };
 
   if (position < 3) {
     await prisma.$transaction(async (tx) => {
       await claimPracticeTransition(tx, room, expectedPauseEpoch);
       await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
+      await markGameChanged(tx, room.id);
     });
     logger.info({ roomCode, userId, suit, value, position }, "card_played");
 
@@ -222,7 +219,6 @@ async function playCardUnlocked({
     const nextPlayer = room.players.find(
       (candidate) => candidate.seat === nextTurnSeat,
     );
-    publishEvents([cardEvent]);
     if (nextPlayer) {
       startRuntimeTurn(
         roomCode,
@@ -236,7 +232,7 @@ async function playCardUnlocked({
         },
       );
     }
-    return;
+    return sendGameState(roomCode, lastAction);
   }
 
   const trickWinnerPlayerId = determineTrickWinner(
@@ -248,6 +244,7 @@ async function playCardUnlocked({
     const nextHand = await prisma.$transaction(async (tx) => {
       await claimPracticeTransition(tx, room, expectedPauseEpoch);
       await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
+      await markGameChanged(tx, room.id);
       await tx.hand.update({
         where: { id: currentHand.id },
         data: { winnerId: trickWinnerPlayerId },
@@ -265,7 +262,6 @@ async function playCardUnlocked({
     const winnerPlayer = room.players.find(
       (candidate) => candidate.id === trickWinnerPlayerId,
     );
-    publishEvents([cardEvent]);
     if (winnerPlayer) {
       startRuntimeTurn(
         roomCode,
@@ -280,7 +276,7 @@ async function playCardUnlocked({
         TRICK_DISPLAY_MS,
       );
     }
-    return;
+    return sendGameState(roomCode, lastAction);
   }
 
   const allHands = await prisma.hand.findMany({
@@ -350,9 +346,10 @@ async function playCardUnlocked({
     callerTeam,
   );
 
-  const { nextRound, finishedGame } = await prisma.$transaction(async (tx) => {
+  const nextRound = await prisma.$transaction(async (tx) => {
     await claimPracticeTransition(tx, room, expectedPauseEpoch);
     await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
+    await markGameChanged(tx, room.id);
     await tx.hand.update({
       where: { id: currentHand.id },
       data: { winnerId: trickWinnerPlayerId },
@@ -372,33 +369,13 @@ async function playCardUnlocked({
         where: { id: room.id },
         data: { finished: true },
       });
-      return {
-        nextRound: null,
-        finishedGame: await readGameResult(tx, room.id, gameWinnerTeam),
-      };
+      return null;
     }
-    return {
-      nextRound: await setupRound(room.id, currentRound.number + 1, tx),
-      finishedGame: null,
-    };
+    return setupRound(room.id, currentRound.number + 1, tx);
   });
 
   if (nextRound) logRoundSetup(nextRound);
   logger.info({ roomCode, userId, suit, value, position }, "card_played");
-  const events: GameEvent[] = [
-    cardEvent,
-    {
-      target: roomCode,
-      event: "round_ended",
-      payload: {
-        roundNumber: currentRound.number,
-        team0: roundScore.team0,
-        team1: roundScore.team1,
-        winnerTeam: roundWinnerTeam,
-        cricca: currentRound.cricca,
-      },
-    },
-  ];
   logger.info(
     {
       roomCode,
@@ -414,40 +391,23 @@ async function playCardUnlocked({
   );
 
   if (gameWinnerTeam !== null) {
-    const totalRounds = allCompletedRounds.length;
-    events.push({
-      target: roomCode,
-      event: "game_finished",
-      payload: finishedGame,
-    });
     logger.info(
       {
         roomCode,
         winnerTeam: gameWinnerTeam,
-        totalRounds,
+        totalRounds: allCompletedRounds.length,
         totalTeam0Points: gameScore.team0.points,
         totalTeam1Points: gameScore.team1.points,
       },
       "game_finished",
     );
     clearRuntimeRoom(roomCode);
-    publishEvents(events);
-    return;
+    return sendGameState(roomCode, lastAction);
   }
 
   const newCaller = room.players.find(
     (candidate) => candidate.id === nextRound!.callerPlayerId,
   );
-  events.push({
-    target: roomCode,
-    event: "new_round_started",
-    payload: {
-      roundId: nextRound!.roundId,
-      roundNumber: nextRound!.roundNumber,
-      callerUserId: newCaller?.userId ?? null,
-    },
-  });
-  publishEvents(events);
   if (newCaller) {
     startRuntimeTurn(
       roomCode,
@@ -465,4 +425,5 @@ async function playCardUnlocked({
       }).remainingMs,
     );
   }
+  return sendGameState(roomCode, lastAction);
 }

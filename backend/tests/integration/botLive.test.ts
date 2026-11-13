@@ -77,12 +77,9 @@ describeLive("Live bot service (real model)", () => {
       const timer = getTurnTimerState(roomCode);
       if (timer && !timer.isBot && timer.turnUserId === userId) {
         if (timer.phase !== "choose_briscola") return;
-        const room = await prisma.gameRoom.findUniqueOrThrow({
-          where: { code: roomCode },
-        });
         const response = await apiAs(userId, "human")
-          .post("/api/games/choose-briscola")
-          .send({ gameRoomId: room.id, suit: "denara" });
+          .post(`/api/games/${roomCode}/briscola`)
+          .send({ suit: "denara" });
         expect(response.statusCode).toBe(200);
       }
 
@@ -108,8 +105,8 @@ describeLive("Live bot service (real model)", () => {
       if (legal.length === 0) break;
 
       const res = await apiAs(userId, "human")
-        .post("/api/games/play-card")
-        .send({ roomCode, suit: legal[0].suit, value: legal[0].value });
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: legal[0].suit, value: legal[0].value });
       expect(res.statusCode).toBe(200);
     }
     await sleep(2_000);
@@ -147,8 +144,8 @@ describeLive("Live bot service (real model)", () => {
       const legal = await readPlayableCards({ roomCode, userId });
       if (legal.length === 0) break;
       await apiAs(userId, "human")
-        .post("/api/games/play-card")
-        .send({ roomCode, suit: legal[0].suit, value: legal[0].value });
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: legal[0].suit, value: legal[0].value });
     }
     await sleep(2_000);
 

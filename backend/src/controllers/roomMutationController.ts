@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import {
-  parseJoinRoom,
   parsePracticeTier,
   parseReady,
   parseRoomCode,
@@ -38,7 +37,7 @@ export const createPracticeRoom = async (req: Request, res: Response) => {
 
 export const joinRoom = async (req: Request, res: Response) => {
   const { userId } = requireUser(req);
-  const roomCode = parseJoinRoom(req.body);
+  const roomCode = parseRoomCode(req.params.roomCode);
   return res.status(200).json(
     await joinMultiplayerRoom({ roomCode, userId }),
   );

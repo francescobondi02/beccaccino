@@ -1,5 +1,6 @@
 import { prisma } from "../db";
-import { TurnIdentity, TurnPhase } from "../game/turn";
+import type { TurnPhase } from "../contract/game";
+import { TurnIdentity } from "../game/turn";
 import { logger } from "../logger";
 import { BotServiceError, requestBotMove } from "../services/botClient";
 import { BotTier } from "../services/botUsers";
@@ -49,7 +50,7 @@ export async function executeBotTurn(args: {
     if (!(await isPauseEpochCurrent(args.roomCode, args.expectedPauseEpoch))) {
       return;
     }
-    const { state, seat, turnSeat, playerId, gameRoomId } = await buildBotTurn(
+    const { state, seat, turnSeat } = await buildBotTurn(
       args.roomCode,
       args.userId,
     );
@@ -80,8 +81,8 @@ export async function executeBotTurn(args: {
 
     if (move.kind === "briscola") {
       await setBriscola({
-        gameRoomId,
-        playerId,
+        roomCode: args.roomCode,
+        userId: args.userId,
         suit: move.suit,
         expectedPauseEpoch: args.expectedPauseEpoch,
         expectedTurn: args.expectedTurn,

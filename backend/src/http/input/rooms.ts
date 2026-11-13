@@ -17,14 +17,6 @@ export function parseRoomBotTier(body: Body): BotTier | null {
   return body?.tier === null ? null : parsePracticeTier(body);
 }
 
-export function parseJoinRoom(body: Body): string {
-  const roomCode = body?.roomCode;
-  if (typeof roomCode !== "string" || roomCode.length === 0) {
-    throw badRequest("Room code is required to join a room");
-  }
-  return roomCode;
-}
-
 export function parseReady(body: Body): boolean {
   if (typeof body?.isReady !== "boolean") {
     throw badRequest("Ready status is required");

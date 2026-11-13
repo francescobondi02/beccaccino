@@ -164,9 +164,8 @@ async function createRoom(user: TestUser): Promise<string> {
 /** Join a room via REST as the given user */
 async function joinRoom(roomCode: string, user: TestUser): Promise<void> {
   const res = await request(httpServer)
-    .post("/api/rooms/join")
-    .set(authHeaders(user))
-    .send({ roomCode });
+    .post(`/api/rooms/${roomCode}/join`)
+    .set(authHeaders(user));
   expect(res.statusCode).toBe(200);
 }
 
@@ -226,73 +225,19 @@ describe("Socket.IO real WebSocket integration", () => {
       ).toBe(true);
     });
 
-    it("should notify other clients in the room when a player joins", async () => {
+    it("notifies clients in the room when a player joins over REST", async () => {
       const u1 = await createUser("Alice");
       const u2 = await createUser("Bob");
       const roomCode = await createRoom(u1);
-      await joinRoom(roomCode, u2);
 
       const client1 = createClient(u1);
       await waitForConnect(client1);
       await joinSocketRoom(client1, roomCode);
 
-      const client2 = createClient(u2);
-      await waitForConnect(client2);
+      const roomChanged = waitForEvent(client1, "room_changed");
+      await joinRoom(roomCode, u2);
 
-      const playerJoinedPromise = waitForEvent<{
-        player: {
-          id: number;
-          username: string;
-          userId: number;
-          seat: number | null;
-          team: number | null;
-          isReady: boolean;
-        };
-      }>(
-        client1,
-        "player_joined"
-      );
-
-      client2.emit("join_room", { roomCode });
-
-      const event = await playerJoinedPromise;
-      expect(event.player).toEqual({
-        id: expect.any(Number),
-        username: "Bob",
-        userId: u2.id,
-        seat: null,
-        team: null,
-        isReady: false,
-      });
-    });
-
-    it("does not rebroadcast presence for repeated joins or another tab", async () => {
-      const observer = await createUser("Alice");
-      const returningUser = await createUser("Bob");
-      const roomCode = await createRoom(observer);
-      await joinRoom(roomCode, returningUser);
-
-      const observerClient = createClient(observer);
-      const primaryClient = createClient(returningUser);
-      const secondTabClient = createClient(returningUser);
-      await Promise.all([
-        waitForConnect(observerClient),
-        waitForConnect(primaryClient),
-        waitForConnect(secondTabClient),
-      ]);
-      await joinSocketRoom(observerClient, roomCode);
-
-      let joinedEvents = 0;
-      observerClient.on("player_joined", ({ player }) => {
-        if (player.userId === returningUser.id) joinedEvents += 1;
-      });
-
-      await joinSocketRoom(primaryClient, roomCode);
-      await joinSocketRoom(primaryClient, roomCode);
-      await joinSocketRoom(secondTabClient, roomCode);
-      await delay(100);
-
-      expect(joinedEvents).toBe(1);
+      expect(await roomChanged).toEqual({ roomCode });
     });
 
     it("leaves the previous socket room before joining another one", async () => {
@@ -404,13 +349,13 @@ describe("Socket.IO real WebSocket integration", () => {
       client1.emit("leave_room", { roomCode });
       await delay(100);
 
-      // Now choose team — client1 should NOT receive team_chosen
+      // Now choose team — client1 should NOT receive room_changed
       let client1Received = false;
-      client1.once("team_chosen", () => {
+      client1.once("room_changed", () => {
         client1Received = true;
       });
 
-      const client2TeamPromise = waitForEvent(client2, "team_chosen");
+      const client2TeamPromise = waitForEvent(client2, "room_changed");
       // Set team for u2 via REST (authenticated)
       await chooseTeamRest(roomCode, u2, 0);
 
@@ -686,7 +631,7 @@ describe("Socket.IO real WebSocket integration", () => {
   // join_lobby / leave_lobby
   // =========================================================================
   describe("join_lobby / leave_lobby", () => {
-    it("should receive room_created events while in lobby", async () => {
+    it("should receive lobby_changed events while in lobby", async () => {
       const u1 = await createUser("Alice");
 
       const client1 = createClient(u1);
@@ -696,16 +641,16 @@ describe("Socket.IO real WebSocket integration", () => {
       client1.emit("join_lobby");
       await delay(100);
 
-      // Now another user creates a room — if the server emits room_created to lobby
+      // Now another user creates a room — if the server emits lobby_changed to lobby
       // we should receive it. Let's emit it manually from the server side to test.
       const roomCreatedPromise = waitForEvent<{ code: string }>(
         client1,
-        "room_created",
+        "lobby_changed",
         2000
       );
 
-      // Emit room_created to the lobby room from the server
-      ioServer.to("lobby").emit("room_created", { code: "TEST01" });
+      // Emit lobby_changed to the lobby room from the server
+      ioServer.to("lobby").emit("lobby_changed", { code: "TEST01" });
 
       const event = await roomCreatedPromise;
       expect(event.code).toBe("TEST01");
@@ -725,11 +670,11 @@ describe("Socket.IO real WebSocket integration", () => {
       await delay(100);
 
       let received = false;
-      client1.once("room_created", () => {
+      client1.once("lobby_changed", () => {
         received = true;
       });
 
-      ioServer.to("lobby").emit("room_created", { code: "TEST02" });
+      ioServer.to("lobby").emit("lobby_changed", { code: "TEST02" });
       await delay(200);
 
       expect(received).toBe(false);
@@ -747,10 +692,10 @@ describe("Socket.IO real WebSocket integration", () => {
       client2.emit("join_lobby");
       await delay(100);
 
-      const promise1 = waitForEvent<{ code: string }>(client1, "room_created");
-      const promise2 = waitForEvent<{ code: string }>(client2, "room_created");
+      const promise1 = waitForEvent<{ code: string }>(client1, "lobby_changed");
+      const promise2 = waitForEvent<{ code: string }>(client2, "lobby_changed");
 
-      ioServer.to("lobby").emit("room_created", { code: "SHARED" });
+      ioServer.to("lobby").emit("lobby_changed", { code: "SHARED" });
 
       const [ev1, ev2] = await Promise.all([promise1, promise2]);
       expect(ev1.code).toBe("SHARED");
