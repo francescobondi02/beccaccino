@@ -11,17 +11,18 @@ import ScreenHeader from '@/components/ScreenHeader';
 import { colors, fonts, shared } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
-import { botStartTimeoutMs, botTiers, readWaitingRoom, type BotTier, type WaitingPlayer, type WaitingRoom } from '@/lib/game';
+import type { BotTier } from '@contract/cards';
+import type { Room, RoomPlayer } from '@contract/rooms';
+import { botStartTimeoutMs, botTiers, displayName } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { latestOnly } from '@/lib/latest';
 import { sessionRequest, SessionHttpError, type SessionUser } from '@/lib/session';
 
-const roomEvents = ['player_joined', 'player_left', 'player_disconnected', 'team_chosen', 'ready_changed',
-  'room_settings_changed', 'game_started'] as const;
+const roomEvents = ['room_changed'] as const;
 const teamColors = [colors.primary, colors.pink];
 
 function Slot({ player, me, bot, team, onSit }: {
-  player: WaitingPlayer | undefined; me: boolean; bot: BotTier | null; team: string; onSit?: () => void;
+  player: RoomPlayer | undefined; me: boolean; bot: BotTier | null; team: string; onSit?: () => void;
 }) {
   if (!player && onSit) return (
     <Pressable accessibilityRole="button" accessibilityLabel={`Siediti nella squadra ${team}`} onPress={() => { touchFeedback(); onSit(); }}
@@ -29,12 +30,13 @@ function Slot({ player, me, bot, team, onSit }: {
       <Text style={styles.slotOpenText}>＋ SIEDITI QUI</Text>
     </Pressable>
   );
-  const label = player ? `${player.username}${me ? ' (tu)' : ''}, ${player.isReady ? 'pronto' : 'non ancora pronto'}`
+  const name = player && displayName(player.user.username);
+  const label = player ? `${name}${me ? ' (tu)' : ''}, ${player.isReady ? 'pronto' : 'non ancora pronto'}`
     : bot ? `Posto per un bot ${bot}` : 'Posto libero';
   return (
     <View accessible accessibilityLabel={label} style={[styles.slot, !player && styles.slotEmpty, me && styles.slotMe]}>
       <Text numberOfLines={1} style={[styles.slotName, !player && styles.slotNameEmpty]}>
-        {player ? player.username : bot ? `BOT ${bot.toUpperCase()}` : 'Posto libero'}
+        {player ? name : bot ? `BOT ${bot.toUpperCase()}` : 'Posto libero'}
       </Text>
       {player && <View style={[styles.badge, player.isReady && styles.badgeReady]}>
         <Text style={[styles.badgeText, player.isReady && styles.badgeTextReady]}>{player.isReady ? '✓ PRONTO' : 'ATTESA'}</Text>
@@ -45,7 +47,7 @@ function Slot({ player, me, bot, team, onSit }: {
 
 function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
   const router = useRouter();
-  const [room, setRoom] = useState<WaitingRoom | null>(null);
+  const [room, setRoom] = useState<Room | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -59,13 +61,20 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
   useEffect(() => { navigate.current = router.replace; });
   const toGame = useCallback(() => navigate.current(`/game/${code}`), [code]);
   const [begin] = useState(latestOnly);
+  // The room was on screen before the game started.
+  const shown = useRef(false);
   const load = useCallback(async () => {
     const signal = lifetime.current.signal;
     const latest = begin();
     try {
-      const next = readWaitingRoom(await sessionRequest(`/api/rooms/${code}`, signal));
+      const next = await sessionRequest(`/api/rooms/${code}`, signal) as Room;
       if (signal.aborted || !latest()) return;
-      if (next.started) { toGame(); return; }
+      if (next.started) {
+        if (shown.current) touchFeedback('success');
+        toGame();
+        return;
+      }
+      shown.current = true;
       setRoom(next);
       setError(null);
     } catch (cause) {
@@ -75,7 +84,7 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
   useEffect(() => { void load(); }, [load]);
   const { online } = useSocketRefresh(
     (socket) => socket.emit('join_room', { roomCode: code }),
-    roomEvents, () => void load(), (event) => { if (event === 'game_started') { touchFeedback('success'); toGame(); } });
+    roomEvents, () => void load());
 
   // Resolves true on success, otherwise the failure (already shown) or false when another action is running.
   const act = async (path: string, body: unknown, timeoutMs?: number): Promise<unknown> => {
@@ -152,7 +161,7 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
                 </View>
               ))}
             </View>
-            {waiting.length > 0 && <Text style={shared.note}>In attesa di squadra: {waiting.map((p) => p.username).join(', ')}</Text>}
+            {waiting.length > 0 && <Text style={shared.note}>In attesa di squadra: {waiting.map((p) => displayName(p.user.username)).join(', ')}</Text>}
             {error && <Text accessibilityRole="alert" style={shared.error}>{error}</Text>}
             <View style={styles.footer}>
               <View style={styles.status}>

@@ -11,15 +11,21 @@ import ScreenHeader from '@/components/ScreenHeader';
 import { colors, fonts, shared } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useSocketRefresh from '@/hooks/useSocketRefresh';
-import { botStartTimeoutMs, readLobby, readRoomCode, readWaitingRoom, type Lobby, type WaitingRoom } from '@/lib/game';
+import type { LobbyRooms, Room } from '@contract/rooms';
+import { botStartTimeoutMs, displayName } from '@/lib/game';
 import { latestOnly } from '@/lib/latest';
 import { sessionRequest, type SessionUser } from '@/lib/session';
 
-const lobbyEvents = ['room_created', 'room_updated', 'room_full', 'room_deleted'] as const;
+const lobbyEvents = ['lobby_changed'] as const;
+type Lobby = { practice: Room | null; games: Room[]; open: Room[] };
+// My practice table apart from my multiplayer rooms, started or not.
+const readLobby = ({ activeGames, availableRooms }: LobbyRooms): Lobby => ({
+  practice: activeGames.find((room) => room.isPractice) ?? null,
+  games: activeGames.filter((room) => !room.isPractice), open: availableRooms });
 const roomColors = [colors.primary, colors.pink, colors.purple];
 const visibleRooms = 4;
 
-function Seats({ room }: { room: WaitingRoom }) {
+function Seats({ room }: { room: Room }) {
   return (
     <View style={styles.seats}>{[0, 1, 2, 3].map((index) =>
       <View key={index} style={[styles.seat, index < room.players.length && styles.seatTaken]} />)}</View>
@@ -27,9 +33,9 @@ function Seats({ room }: { room: WaitingRoom }) {
 }
 
 function RoomCard({ room, index, label, me, disabled, onPress }: {
-  room: WaitingRoom; index: number; label: string; me: number; disabled: boolean; onPress: () => void;
+  room: Room; index: number; label: string; me: number; disabled: boolean; onPress: () => void;
 }) {
-  const names = room.players.map((p) => p.userId === me ? 'Tu' : p.username)
+  const names = room.players.map((p) => p.userId === me ? 'Tu' : displayName(p.user.username))
     .sort((a, b) => Number(b === 'Tu') - Number(a === 'Tu')).join(', ');
   return (
     <OffsetPressable radius={10} disabled={disabled} onPress={onPress}
@@ -60,7 +66,7 @@ function LobbyView({ user }: { user: SessionUser }) {
     if (!signal) return;
     const latest = begin();
     try {
-      const next = readLobby(await sessionRequest('/api/rooms/available', signal));
+      const next = readLobby(await sessionRequest('/api/rooms/available', signal) as LobbyRooms);
       if (!signal.aborted && latest()) { setLobby(next); setError(null); }
     } catch (cause) {
       if (!signal.aborted && latest()) setError(cause instanceof Error ? cause.message : 'Non riesco a caricare le stanze.');
@@ -93,11 +99,11 @@ function LobbyView({ user }: { user: SessionUser }) {
     }
   };
   const startPractice = () => act('practice', async (signal) =>
-    `/game/${readRoomCode(await sessionRequest('/api/rooms/practice', signal, { tier: 'forte' }, botStartTimeoutMs))}`);
+    `/game/${(await sessionRequest('/api/rooms/practice', signal, { tier: 'forte' }, botStartTimeoutMs) as Room).code}`);
   const create = () => act('create', async (signal) =>
-    `/room/${readWaitingRoom(await sessionRequest('/api/rooms', signal, {})).code}`);
+    `/room/${(await sessionRequest('/api/rooms', signal, {}) as Room).code}`);
   const join = (roomCode: string) => act(`join:${roomCode}`, async (signal) =>
-    `/room/${readWaitingRoom(await sessionRequest('/api/rooms/join', signal, { roomCode })).code}`);
+    `/room/${(await sessionRequest(`/api/rooms/${roomCode}/join`, signal, {}) as Room).code}`);
   const validCode = /^[A-Z0-9]{6}$/.test(code);
 
   return (

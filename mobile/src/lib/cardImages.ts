@@ -1,5 +1,5 @@
 import type { ImageSourcePropType } from 'react-native';
-import type { Card } from './game';
+import type { Card } from '@contract/cards';
 
 const images: Record<Card['suit'], Record<Card['value'], ImageSourcePropType>> = {
   denara: {

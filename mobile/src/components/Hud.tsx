@@ -3,7 +3,9 @@ import { AccessibilityInfo, Animated, Easing, Image, Pressable, StyleSheet, Text
 import { colors, hard } from '@/constants/theme';
 import { cardImage } from '@/lib/cardImages';
 import type { Announcement } from '@/hooks/useGameAnnouncements';
-import { cardKey, cardLabel, relativeSeat, signalIcons, type Room, type Suit, type Trick } from '@/lib/game';
+import type { Suit } from '@contract/cards';
+import type { GamePlayer } from '@contract/game';
+import { cardKey, cardLabel, displayName, relativeSeat, signalIcons, type Trick } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 
@@ -137,22 +139,22 @@ export function LastTrickButton({ trick, onPress }: { trick: Trick; onPress: () 
 }
 
 // The previous trick laid out like the table: you at the bottom, your partner opposite, winner highlighted.
-export function TrickReview({ trick, room, userId }: { trick: Trick; room: Room; userId: number }) {
+export function TrickReview({ trick, players, userId }: { trick: Trick; players: GamePlayer[]; userId: number }) {
   const spots = [styles.spotLeft, styles.spotTop, styles.spotRight, styles.spotBottom];
   return (
     <View style={styles.review}>
       {trick.cards.map((card) => {
-        const player = room.players.find((p) => p.userId === card.userId);
+        const name = displayName(players.find((p) => p.userId === card.userId)?.username ?? '');
         const winner = card.userId === trick.winnerUserId;
         return (
-          <View key={cardKey(card)} accessible accessibilityLabel={`${player?.username}: ${cardLabel(card)}${winner ? ', prende' : ''}`}
-            style={[styles.spot, spots[relativeSeat(room, card.userId, userId)]]}>
+          <View key={cardKey(card)} accessible accessibilityLabel={`${name}: ${cardLabel(card)}${winner ? ', prende' : ''}`}
+            style={[styles.spot, spots[relativeSeat(players, card.userId, userId)]]}>
             <View style={[styles.reviewCard, winner && styles.reviewWinner]}>
               <Image source={cardImage(card)} style={styles.cardFace} />
             </View>
             {winner && <View style={styles.crown}><Text style={styles.crownText}>PRESA!</Text></View>}
             <View style={styles.reviewPlate}><Text numberOfLines={1} style={styles.plateText}>
-              {card.userId === userId ? 'TU' : player?.username}{card.signal ? ` ${signalIcons[card.signal]}` : ''}</Text></View>
+              {card.userId === userId ? 'TU' : name}{card.signal ? ` ${signalIcons[card.signal]}` : ''}</Text></View>
           </View>
         );
       })}

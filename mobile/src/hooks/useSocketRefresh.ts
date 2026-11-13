@@ -5,11 +5,10 @@ import { authFailures, openSocket } from '@/lib/socket';
 
 // Keeps a lobby or waiting-room screen live: joins the socket room, then reloads REST state whenever one of
 // `events` arrives (coalesced). REST stays the source of truth; the socket only says "something changed".
-export default function useSocketRefresh(join: (socket: Socket) => void, events: readonly string[],
-  refresh: () => void, onEvent?: (event: string) => void) {
+export default function useSocketRefresh(join: (socket: Socket) => void, events: readonly string[], refresh: () => void) {
   const [online, setOnline] = useState(false);
-  const latest = useRef({ join, events, refresh, onEvent });
-  useEffect(() => { latest.current = { join, events, refresh, onEvent }; });
+  const latest = useRef({ join, events, refresh });
+  useEffect(() => { latest.current = { join, events, refresh }; });
   useEffect(() => {
     let socket: Socket | null = null;
     let active = true;
@@ -28,9 +27,7 @@ export default function useSocketRefresh(join: (socket: Socket) => void, events:
         else if (!created.active) { clearTimeout(retry); retry = setTimeout(() => created.connect(), 5000); }
       });
       socket.onAny((event: string) => {
-        if (!latest.current.events.includes(event)) return;
-        latest.current.onEvent?.(event);
-        reload();
+        if (latest.current.events.includes(event)) reload();
       });
       if (AppState.currentState === 'active') socket.connect();
     }).catch(() => {});
