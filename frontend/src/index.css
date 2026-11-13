@@ -85,7 +85,6 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
-    min-width: 1024px;
     font-family: Inter, ui-sans-serif, system-ui, sans-serif;
     background-image: radial-gradient(hsl(39 35% 45% / 0.08) 0.7px, transparent 0.7px);
     background-size: 7px 7px;

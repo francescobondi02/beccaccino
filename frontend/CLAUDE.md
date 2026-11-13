@@ -172,5 +172,3 @@ npx playwright show-report  # HTML report with traces after failures
   tricks capture their display winner before the next round changes trump.
   Native animations cancel on unmount or OS reduced motion; restored cards do not
   replay.
-- Cards resize based on viewport
-- The website is not installable: phones use the native app in `mobile/`.

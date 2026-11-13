@@ -74,15 +74,14 @@ test.describe("Lobby to Game Start", () => {
       players.map((player) => player.page.getByTestId("hand-card-denara-quattro").count()),
     );
     await players[callers.findIndex(Boolean)].chooseTrumpSuit("denara");
-    for (const [width, height] of [[1440, 900]]) {
-      await alice.page.setViewportSize({ width, height });
-      await expect(alice.page.getByTestId("game-table-page")).toHaveAttribute("data-briscola", "denara");
-      await expect(alice.page.getByTestId("briscola-panel")).toContainText("denari");
-      await expect(alice.page.getByTestId("briscola-panel")).toBeInViewport({ ratio: 1 });
-      await expect(alice.page.getByRole("dialog")).toHaveCount(0);
-      expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      await expect(alice.page.getByTestId("player-hand")).toBeVisible();
-      await alice.page.screenshot({ path: test.info().outputPath(`arcade-game-${width}x${height}.png`), fullPage: true });
-    }
+    const [width, height] = [1440, 900];
+    await alice.page.setViewportSize({ width, height });
+    await expect(alice.page.getByTestId("game-table-page")).toHaveAttribute("data-briscola", "denara");
+    await expect(alice.page.getByTestId("briscola-panel")).toContainText("denari");
+    await expect(alice.page.getByTestId("briscola-panel")).toBeInViewport({ ratio: 1 });
+    await expect(alice.page.getByRole("dialog")).toHaveCount(0);
+    expect(await alice.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect(alice.page.getByTestId("player-hand")).toBeVisible();
+    await alice.page.screenshot({ path: test.info().outputPath(`arcade-game-${width}x${height}.png`), fullPage: true });
   });
 });

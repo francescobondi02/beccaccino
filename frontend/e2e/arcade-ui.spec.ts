@@ -75,26 +75,25 @@ test.describe("Arcade interface", () => {
       })),
     } }));
     await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
-    for (const [width, height] of [[1440, 844]]) {
-      await page.setViewportSize({ width, height });
-      await page.goto("/game/ROOM");
-      await expect(page.getByTestId("game-result-page")).toBeVisible();
-      await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(page.getByText("Giulia, Luca", { exact: true })).toBeVisible();
-      await page.getByText("Punteggi delle smazzate", { exact: true }).click();
-      await expect(page.getByRole("cell", { name: "7 punti · 1 figure", exact: true })).toBeVisible();
-      await page.getByRole("button", { name: "Torna alla lobby" }).click({ trial: true });
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.reload();
-      await expect(page.getByTestId("game-result-page")).toBeVisible();
-      state.finishedGame!.statistics!.players.forEach((player) => {
-        player.busso = 0; player.acesCaptured = 0; player.acesLost = 0;
-      });
-      await page.reload();
-      await expect(page.getByRole("heading", { name: "Premi della partita" })).toHaveCount(0);
-      state.finishedGame!.statistics!.players[0].busso = 2;
-      state.finishedGame!.statistics!.players[1].busso = 2;
-    }
+    const [width, height] = [1440, 844];
+    await page.setViewportSize({ width, height });
+    await page.goto("/game/ROOM");
+    await expect(page.getByTestId("game-result-page")).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText("Giulia, Luca", { exact: true })).toBeVisible();
+    await page.getByText("Punteggi delle smazzate", { exact: true }).click();
+    await expect(page.getByRole("cell", { name: "7 punti · 1 figure", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Torna alla lobby" }).click({ trial: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.reload();
+    await expect(page.getByTestId("game-result-page")).toBeVisible();
+    state.finishedGame!.statistics!.players.forEach((player) => {
+      player.busso = 0; player.acesCaptured = 0; player.acesLost = 0;
+    });
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Premi della partita" })).toHaveCount(0);
+    state.finishedGame!.statistics!.players[0].busso = 2;
+    state.finishedGame!.statistics!.players[1].busso = 2;
   });
 
   for (const reducedMotion of ["no-preference", "reduce"] as const) {
@@ -128,30 +127,29 @@ test.describe("Arcade interface", () => {
         } });
       });
 
-      for (const width of [1440]) {
-        readyAt = 0;
-        await page.setViewportSize({ width, height: 1000 });
-        await page.goto("/game/ROOM");
-        const trump = page.getByRole("dialog", { name: "Scegli la briscola" });
-        await expect(page.getByTestId("card-deal")).toBeAttached();
-        await expect(trump).toBeHidden();
-        await expect(page.getByTestId("choose-trump-button")).toBeDisabled();
-        for (const position of ["bottom", "top", "left", "right"]) {
-          await expect(page.locator(`.arcade-dealt-card[data-position="${position}"]`)).toHaveCount(10);
-        }
-        if (reducedMotion === "reduce") {
-          await expect(page.locator(".arcade-dealt-card").first()).toBeHidden();
-        }
-        await page.getByTestId("pause-practice-button").click({ trial: true });
-        await expect(page.getByText("Guarda le tue carte", { exact: true })).toBeVisible();
-        await expect(page.getByTestId("player-hand").getByRole("button")).toHaveCount(10);
-        await expect(trump).toBeHidden();
-        await page.reload();
-        await expect(page.getByTestId("card-deal")).toHaveCount(0);
-        await expect(trump).toBeVisible();
-        expect(Date.now()).toBeLessThan(readyAt + 1800);
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      const width = 1440;
+      readyAt = 0;
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto("/game/ROOM");
+      const trump = page.getByRole("dialog", { name: "Scegli la briscola" });
+      await expect(page.getByTestId("card-deal")).toBeAttached();
+      await expect(trump).toBeHidden();
+      await expect(page.getByTestId("choose-trump-button")).toBeDisabled();
+      for (const position of ["bottom", "top", "left", "right"]) {
+        await expect(page.locator(`.arcade-dealt-card[data-position="${position}"]`)).toHaveCount(10);
       }
+      if (reducedMotion === "reduce") {
+        await expect(page.locator(".arcade-dealt-card").first()).toBeHidden();
+      }
+      await page.getByTestId("pause-practice-button").click({ trial: true });
+      await expect(page.getByText("Guarda le tue carte", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("player-hand").getByRole("button")).toHaveCount(10);
+      await expect(trump).toBeHidden();
+      await page.reload();
+      await expect(page.getByTestId("card-deal")).toHaveCount(0);
+      await expect(trump).toBeVisible();
+      expect(Date.now()).toBeLessThan(readyAt + 1800);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     });
   }
 
@@ -378,24 +376,23 @@ test.describe("Arcade interface", () => {
     }));
     await page.goto("/");
     const scroll = page.locator(".arcade-live-rooms .overflow-y-auto");
-    for (const width of [1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      for (const code of ["PAUSA1", "GIOCO1", "BECCA0"]) {
-        const card = page.locator(".arcade-room-card").filter({ hasText: code });
-        await card.hover();
-        await card.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
-        const area = await scroll.evaluate((element) => {
-          const bounds = element.getBoundingClientRect();
-          return { left: bounds.left, right: bounds.left + element.clientWidth };
-        });
-        const bounds = await card.boundingBox();
-        if (!bounds) throw new Error("Missing hovered room card");
-        expect(bounds.x, `Left border clipped at ${width}px`).toBeGreaterThanOrEqual(area.left);
-        expect(bounds.x + bounds.width, `Right border clipped at ${width}px`).toBeLessThanOrEqual(area.right);
-      }
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.locator(".arcade-live-rooms").screenshot({ path: test.info().outputPath(`room-hover-${width}.png`) });
+    const width = 1440;
+    await page.setViewportSize({ width, height: 900 });
+    for (const code of ["PAUSA1", "GIOCO1", "BECCA0"]) {
+      const card = page.locator(".arcade-room-card").filter({ hasText: code });
+      await card.hover();
+      await card.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+      const area = await scroll.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return { left: bounds.left, right: bounds.left + element.clientWidth };
+      });
+      const bounds = await card.boundingBox();
+      if (!bounds) throw new Error("Missing hovered room card");
+      expect(bounds.x, `Left border clipped at ${width}px`).toBeGreaterThanOrEqual(area.left);
+      expect(bounds.x + bounds.width, `Right border clipped at ${width}px`).toBeLessThanOrEqual(area.right);
     }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.locator(".arcade-live-rooms").screenshot({ path: test.info().outputPath(`room-hover-${width}.png`) });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.locator(".arcade-room-card").filter({ hasText: "BECCA0" }).hover();
     await expect(page.locator(".arcade-room-card").filter({ hasText: "BECCA0" })).toHaveCSS("transform", "none");
@@ -420,24 +417,23 @@ test.describe("Arcade interface", () => {
         username, wins: 17 - index, totalGames: 28, winRate: 61 - index * 4, totalPoints: 892 - index * 30,
       })) },
     }));
-    for (const width of [1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/profile");
-      await expect(page.getByRole("heading", { name: "Il mio profilo", exact: true })).toBeVisible();
-      await expect(page.locator(".arcade-stat")).toHaveCount(4);
-      await expect(page.locator(".arcade-match-row")).toHaveCount(2);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.screenshot({ path: test.info().outputPath(`personal-dashboard-${width}.png`), fullPage: true, animations: "disabled" });
+    const width = 1440;
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/profile");
+    await expect(page.getByRole("heading", { name: "Il mio profilo", exact: true })).toBeVisible();
+    await expect(page.locator(".arcade-stat")).toHaveCount(4);
+    await expect(page.locator(".arcade-match-row")).toHaveCount(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`personal-dashboard-${width}.png`), fullPage: true, animations: "disabled" });
 
-      await page.goto("/leaderboard");
-      const podium = page.getByRole("list", { name: "Podio", exact: true });
-      await expect(podium.getByRole("listitem")).toHaveCount(3);
-      await expect(podium.getByRole("heading")).toHaveText(names.slice(0, 3));
-      const rest = page.getByRole("list", { name: "Classifica dal quarto posto" });
-      await expect(rest.getByRole("heading")).toHaveText(names.slice(3));
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      await page.screenshot({ path: test.info().outputPath(`rankings-dashboard-${width}.png`), fullPage: true, animations: "disabled" });
-    }
+    await page.goto("/leaderboard");
+    const podium = page.getByRole("list", { name: "Podio", exact: true });
+    await expect(podium.getByRole("listitem")).toHaveCount(3);
+    await expect(podium.getByRole("heading")).toHaveText(names.slice(0, 3));
+    const rest = page.getByRole("list", { name: "Classifica dal quarto posto" });
+    await expect(rest.getByRole("heading")).toHaveText(names.slice(3));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(`rankings-dashboard-${width}.png`), fullPage: true, animations: "disabled" });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/profile");
     await expect(page.locator(".arcade-stat").first()).toHaveCSS("animation-name", "none");
@@ -480,50 +476,48 @@ test.describe("Arcade interface", () => {
   });
 
   test("fits the real homepage and login dialog", async ({ page }) => {
-    for (const width of [1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/");
-      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-      await expect(page.locator(".club-fan svg[data-landing-card]")).toHaveCount(5);
-      await expect(page.locator(".club-fan img, .club-fan image, .club-fan text")).toHaveCount(0);
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      const codeInput = await page.getByTestId("room-code-input").boundingBox();
-      const codeButton = await page.getByTestId("join-by-code-button").boundingBox();
-      expect(codeInput?.height).toBeGreaterThanOrEqual(44);
-      expect(codeInput?.height).toBe(codeButton?.height);
-      await expect(page.locator(".club-fan-card").last()).toHaveCSS("opacity", "1");
-      await page.screenshot({ path: test.info().outputPath(`arcade-home-${width}.png`), fullPage: true });
-      await page.getByTestId("open-auth-button").click();
-      const dialog = page.getByTestId("auth-dialog");
-      await expect(dialog).toBeVisible();
-      const bounds = await dialog.boundingBox();
-      expect(bounds?.x).toBeGreaterThanOrEqual(0);
-      expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(width);
-      await page.getByRole("button", { name: "Chiudi", exact: true }).click();
-      await page.getByTestId("room-code-input").fill("abc123");
-      await expect(page.getByTestId("room-code-input")).toHaveValue("ABC123");
-      await page.getByTestId("room-code-input").press("Enter");
-      await expect(dialog).toBeVisible();
-      await page.getByRole("button", { name: "Chiudi", exact: true }).click();
-    }
+    const width = 1440;
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.locator(".club-fan svg[data-landing-card]")).toHaveCount(5);
+    await expect(page.locator(".club-fan img, .club-fan image, .club-fan text")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const codeInput = await page.getByTestId("room-code-input").boundingBox();
+    const codeButton = await page.getByTestId("join-by-code-button").boundingBox();
+    expect(codeInput?.height).toBeGreaterThanOrEqual(44);
+    expect(codeInput?.height).toBe(codeButton?.height);
+    await expect(page.locator(".club-fan-card").last()).toHaveCSS("opacity", "1");
+    await page.screenshot({ path: test.info().outputPath(`arcade-home-${width}.png`), fullPage: true });
+    await page.getByTestId("open-auth-button").click();
+    const dialog = page.getByTestId("auth-dialog");
+    await expect(dialog).toBeVisible();
+    const bounds = await dialog.boundingBox();
+    expect(bounds?.x).toBeGreaterThanOrEqual(0);
+    expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(width);
+    await page.getByRole("button", { name: "Chiudi", exact: true }).click();
+    await page.getByTestId("room-code-input").fill("abc123");
+    await expect(page.getByTestId("room-code-input")).toHaveValue("ABC123");
+    await page.getByTestId("room-code-input").press("Enter");
+    await expect(dialog).toBeVisible();
+    await page.getByRole("button", { name: "Chiudi", exact: true }).click();
   });
 
   test("keeps profile, rankings, and practice in the new layout", async ({ createBot }) => {
     const player = await createBot(`UI_${Date.now().toString(36)}`);
     await player.register();
-    for (const width of [1440]) {
-      await player.page.setViewportSize({ width, height: 900 });
-      for (const [route, title] of [
-        ["/profile", "Il mio profilo"],
-        ["/leaderboard", "Classifica generale"],
-        ["/practice", "Allenati contro i bot"],
-      ]) {
-        await player.page.goto(route);
-        await expect(player.page.getByRole("heading", { name: title, exact: true })).toBeVisible();
-        await expect(player.page.locator("html")).toHaveAttribute("data-ui", "arcade");
-        expect(await player.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-        await player.page.screenshot({ path: test.info().outputPath(`arcade${route.replace("/", "-")}-${width}.png`), fullPage: true });
-      }
+    const width = 1440;
+    await player.page.setViewportSize({ width, height: 900 });
+    for (const [route, title] of [
+      ["/profile", "Il mio profilo"],
+      ["/leaderboard", "Classifica generale"],
+      ["/practice", "Allenati contro i bot"],
+    ]) {
+      await player.page.goto(route);
+      await expect(player.page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+      await expect(player.page.locator("html")).toHaveAttribute("data-ui", "arcade");
+      expect(await player.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await player.page.screenshot({ path: test.info().outputPath(`arcade${route.replace("/", "-")}-${width}.png`), fullPage: true });
     }
   });
 });

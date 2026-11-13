@@ -222,11 +222,11 @@ export default function GameBoard({
   return (
     <div
       ref={board}
-      className="arcade-game-layout container mx-auto flex h-[100dvh] flex-col items-center px-4 pb-3 pt-28"
+      className="arcade-game-layout container mx-auto flex flex-col items-center"
       data-testid="game-layout"
     >
       <div className="flex-1 min-h-0 flex items-center justify-center w-full">
-        <div className="arcade-arena relative flex h-full w-full max-h-[34rem] max-w-[50rem] items-center justify-center">
+        <div className="arcade-arena relative flex w-full items-center justify-center">
           <span className="arcade-table-mark" aria-hidden="true">BECCA!</span>
           <div
             className="absolute left-1/2 top-0 z-10 -translate-x-1/2"

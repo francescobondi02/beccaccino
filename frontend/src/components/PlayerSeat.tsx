@@ -46,11 +46,7 @@ const PlayerSeat = ({
       <p className="text-sm font-semibold leading-tight" title={player.username}>{player.username}</p>
       {(showRole || player.botModel) && (
         <p className="text-xs text-muted-foreground">
-          {showRole && (
-            <span>
-              {player.isTeammate ? "Socio" : "Avversario"}{player.botModel ? " · " : ""}
-            </span>
-          )}
+          {showRole && `${player.isTeammate ? "Socio" : "Avversario"}${player.botModel ? " · " : ""}`}
           {player.botModel && "Bot in gioco"}
         </p>
       )}

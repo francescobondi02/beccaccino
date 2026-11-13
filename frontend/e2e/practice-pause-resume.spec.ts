@@ -64,17 +64,16 @@ test("practice game can be paused, resumed, and abandoned", async ({
       });
       await expect(signalDialog.getByTestId("pause-practice-button")).toHaveCount(0);
       await expect(signalDialog.getByTestId("abandon-practice-button")).toHaveCount(0);
-      for (const width of [1440]) {
-        await page.setViewportSize({ width, height: 844 });
-        await tableTools.getByTestId("pause-practice-button").click({
-          trial: true,
-          timeout: 5_000,
-        });
-        await tableTools.getByTestId("abandon-practice-button").click({
-          trial: true,
-          timeout: 5_000,
-        });
-      }
+      const width = 1440;
+      await page.setViewportSize({ width, height: 844 });
+      await tableTools.getByTestId("pause-practice-button").click({
+        trial: true,
+        timeout: 5_000,
+      });
+      await tableTools.getByTestId("abandon-practice-button").click({
+        trial: true,
+        timeout: 5_000,
+      });
       await noSignal.click();
     }
     await expect(tableTools.getByTestId("pause-practice-button"))
@@ -116,20 +115,19 @@ test("practice game can be paused, resumed, and abandoned", async ({
       page.getByRole("heading", { name: "Allenamento in pausa" }),
     ).toHaveCount(0);
 
-    for (const width of [1440]) {
-      await page.setViewportSize({ width, height: 844 });
-      await expect(tableTools.getByTestId("pause-practice-button"))
-        .toBeInViewport({ ratio: 1 });
-      await expect(tableTools.getByTestId("abandon-practice-button"))
-        .toBeInViewport({ ratio: 1 });
-      const seatBounds = await page.getByTestId("player-seat-bottom").boundingBox();
-      const toolsBounds = await tableTools.boundingBox();
-      expect(seatBounds).not.toBeNull();
-      expect(toolsBounds).not.toBeNull();
-      const controlsGap = toolsBounds!.y - (seatBounds!.y + seatBounds!.height);
-      expect(controlsGap).toBeGreaterThanOrEqual(4);
-      expect(controlsGap).toBeLessThanOrEqual(20);
-    }
+    const width = 1440;
+    await page.setViewportSize({ width, height: 844 });
+    await expect(tableTools.getByTestId("pause-practice-button"))
+      .toBeInViewport({ ratio: 1 });
+    await expect(tableTools.getByTestId("abandon-practice-button"))
+      .toBeInViewport({ ratio: 1 });
+    const seatBounds = await page.getByTestId("player-seat-bottom").boundingBox();
+    const toolsBounds = await tableTools.boundingBox();
+    expect(seatBounds).not.toBeNull();
+    expect(toolsBounds).not.toBeNull();
+    const controlsGap = toolsBounds!.y - (seatBounds!.y + seatBounds!.height);
+    expect(controlsGap).toBeGreaterThanOrEqual(4);
+    expect(controlsGap).toBeLessThanOrEqual(20);
     await page.screenshot({
       path: testInfo.outputPath("practice-controls.png"),
       fullPage: true,
