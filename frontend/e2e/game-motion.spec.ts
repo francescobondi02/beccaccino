@@ -1,8 +1,6 @@
 import { test, expect, type WebSocketRoute } from "@playwright/test";
 import type { GameStateResponse, PlayedCardData } from "../src/game/model";
 
-test.use({ hasTouch: true });
-
 test.describe("Responsive table", () => {
   test.use({ screen: { width: 390, height: 844 } });
   test("keeps central messages, seats, cards and controls separate on every screen size", async ({ page }) => {
@@ -66,8 +64,6 @@ test.describe("Responsive table", () => {
       await page.setViewportSize({ width, height });
       await page.goto("/game/ROOM");
       await expect(page.locator("[data-card-user-id]")).toHaveCount(3);
-      const portraitPrompt = page.getByRole("button", { name: "Continua in verticale", exact: true });
-      if (await portraitPrompt.isVisible()) await portraitPrompt.click();
       await expect(page.getByTestId("table-status")).toContainText("Marta dichiara busso");
       pendingSnapshots = 0;
       holdSnapshot = true;
@@ -85,20 +81,18 @@ test.describe("Responsive table", () => {
         const bottomCard = document.querySelector('[data-testid="table-card-position-bottom"]')?.getBoundingClientRect();
         const sideCards = ["left", "right"].map((position) => rect(`[data-testid="table-card-position-${position}"]`));
         const desktop = matchMedia("(min-width: 761px) and (min-height: 541px)").matches;
-        const mobile = matchMedia("(orientation: landscape) and (max-height: 540px) and (pointer: coarse)").matches;
         const bubbles = [...document.querySelectorAll(".signal-callout")]
           .filter((bubble) => getComputedStyle(bubble).display !== "none")
           .map((bubble) => bubble.getBoundingClientRect());
         const overlaps = (a: DOMRect, b: DOMRect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         return [
-          ...sideCards.map((card, index) => desktop || mobile
+          ...sideCards.map((card, index) => desktop
             ? (card.top < topCard.bottom || (bottomCard && card.bottom > bottomCard.top)) && `side card ${index} outside middle row`
             : card.top < status.bottom && `side card ${index} above compact row`),
           ...cards.flatMap((card, index) => [
             seats.some((seat) => overlaps(card, seat)) && `card ${index} / seat`,
             overlaps(card, status) && `card ${index} / status`,
             overlaps(card, notice) && `card ${index} / notice`,
-            mobile && overlaps(card, score) && `card ${index} / score`,
             bubbles.some((bubble) => overlaps(card, bubble)) && `card ${index} / signal bubble`,
             card.top < arena.top || card.bottom > arena.bottom ? `card ${index} outside table` : false,
             cards.some((other) => other !== card && overlaps(card, other)) && `card ${index} / card`,
@@ -107,14 +101,10 @@ test.describe("Responsive table", () => {
           seats.some((seat) => overlaps(notice, seat)) && "notice / seat",
           seats.some((seat, index) => seats.some((other, otherIndex) => index !== otherIndex && overlaps(seat, other))) && "seat / seat",
           overlaps(notice, score) && "notice / score",
-          mobile && seats.some((seat) => overlaps(seat, score)) && "seat / score",
           status.top < arena.top || status.bottom > arena.bottom ? "status outside table" : false,
           overlaps(hand, controls) && "hand / controls",
           seats.some((seat) => overlaps(seat, controls)) && "seat / controls",
           innerHeight <= 540 && hand.bottom > innerHeight && "hand outside viewport",
-          mobile && score.height > 40 && "mobile score is not compact",
-          mobile && arena.width < innerWidth - 100 && "mobile score still reserves a side rail",
-          mobile && rect('[data-testid="player-hand"] button').width < 44 && "mobile hand targets narrower than 44px",
           document.documentElement.scrollWidth > innerWidth && "horizontal overflow",
         ].filter(Boolean);
       });
@@ -144,7 +134,7 @@ test.describe("Responsive table", () => {
         holdSnapshot = false;
         await page.reload();
         await expect(page.getByTestId("player-hand").getByRole("button")).toHaveCount(0);
-        expect(await page.locator(".arcade-arena").boundingBox(), `Mobile table shifted with an empty hand at ${width}x${height}`).toEqual(occupiedLayout.arena);
+        expect(await page.locator(".arcade-arena").boundingBox(), `Table shifted with an empty hand at ${width}x${height}`).toEqual(occupiedLayout.arena);
         const emptyHand = await page.getByTestId("player-hand").boundingBox();
         expect(emptyHand?.y).toEqual(occupiedLayout.hand?.y);
         expect(emptyHand?.height).toEqual(occupiedLayout.hand?.height);

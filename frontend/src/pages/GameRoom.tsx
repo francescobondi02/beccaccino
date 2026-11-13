@@ -210,9 +210,9 @@ const GameRoom = () => {
       <Header onBeforeNavigate={leaveWaitingRoom} />
 
       <div className="arcade-waiting-room container mx-auto px-4 pt-24 pb-12">
-        <div className="arcade-waiting-layout max-w-4xl mx-auto animate-fade-in">
-          <Card className="arcade-waiting-settings circolo-surface mb-8">
-            <CardHeader className="arcade-waiting-heading">
+        <div className="max-w-4xl mx-auto animate-fade-in">
+          <Card className="circolo-surface mb-8">
+            <CardHeader>
               <CardTitle className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <Users className="h-6 w-6 text-primary" />
@@ -234,14 +234,14 @@ const GameRoom = () => {
                 </Button>
               </CardTitle>
             </CardHeader>
-            <CardContent className="arcade-waiting-options">
+            <CardContent>
               <p className="text-muted-foreground text-center">
                 {room.started
                   ? "La partita è iniziata!"
                   : "In attesa che tutti i giocatori siano pronti..."}
               </p>
               {myPlayer?.team === null && (
-                <Card className="arcade-waiting-team-choice circolo-surface mt-6">
+                <Card className="circolo-surface mt-6">
                   <CardContent className="p-6 text-center">
                     <p className="text-muted-foreground mb-4">
                       Scegli una squadra prima di poterti mettere pronto
@@ -301,7 +301,7 @@ const GameRoom = () => {
 
           <WaitingRoomPlayers players={playerSlots} currentUserId={userId} />
 
-          <div className="arcade-waiting-actions grid sm:grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 gap-4">
             <Button
               variant={myPlayer?.isReady ? "secondary" : "gradient"}
               size="lg"

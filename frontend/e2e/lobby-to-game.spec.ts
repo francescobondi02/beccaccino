@@ -90,8 +90,6 @@ test.describe("Lobby to Game Start", () => {
         expect(arena?.height).toBeGreaterThanOrEqual(300);
       }
       if (width < 640) {
-        await expect(alice.page.locator(".arcade-mobile-trump")).toHaveText("Briscola: denari");
-        await expect(alice.page.locator(".arcade-mobile-trump")).toBeVisible();
         const message = await alice.page.locator('[data-testid="game-table-center"] > .text-center').boundingBox();
         const leftSeat = await alice.page.getByTestId("player-position-left").boundingBox();
         const rightSeat = await alice.page.getByTestId("player-position-right").boundingBox();

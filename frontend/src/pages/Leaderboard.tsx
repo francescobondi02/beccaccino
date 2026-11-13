@@ -52,8 +52,8 @@ const Leaderboard = () => {
     <div className="circolo-shell">
       <Header />
 
-      <main className="arcade-dashboard arcade-leaderboard">
-          <Button variant="ghost" size="sm" asChild className="arcade-page-back mb-6">
+      <main className="arcade-dashboard">
+          <Button variant="ghost" size="sm" asChild className="mb-6">
             <Link to="/"><ArrowLeft className="mr-2 h-4 w-4" />Torna alla home</Link>
           </Button>
 
@@ -73,7 +73,7 @@ const Leaderboard = () => {
             </div>
           </section>
 
-          <div className="arcade-ranking-content">
+          <div>
           {status === "loading" && (
             <Card
               className="bg-gradient-card border-border/50"

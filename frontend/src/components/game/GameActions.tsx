@@ -40,7 +40,7 @@ export default function GameActions({
         ) : (
           <Pause className="mr-2 h-4 w-4" />
         )}
-        <span className="arcade-tool-label">Pausa<span className="hidden sm:inline"> e torna alla home</span></span>
+        Pausa<span className="hidden sm:inline"> e torna alla home</span>
       </Button>}
       <AlertDialog>
         <AlertDialogTrigger asChild>
@@ -51,7 +51,7 @@ export default function GameActions({
             data-testid={onPause ? "abandon-practice-button" : "abandon-multiplayer-button"}
           >
             <LogOut className="mr-2 h-4 w-4" />
-            <span className="arcade-tool-label">Abbandona</span>
+            Abbandona
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent className="bg-card">

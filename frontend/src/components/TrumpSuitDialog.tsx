@@ -16,7 +16,6 @@ type TrumpSuitDialogProps = {
   onSelectSuit: (suit: string) => void;
   myCards: PlayerCard[];
   practiceActions?: ReactNode;
-  inline?: boolean;
   disabled?: boolean;
 };
 
@@ -32,25 +31,8 @@ const TrumpSuitDialog = ({
   onSelectSuit,
   myCards,
   practiceActions,
-  inline = false,
   disabled = false,
 }: Omit<TrumpSuitDialogProps, "onOpenChange">) => {
-  if (inline) {
-    return open ? (
-      <section className="mobile-lab-choose" aria-labelledby="mobile-trump-title">
-        <header><span>Tocca a te</span><h2 id="mobile-trump-title">Scegli la briscola.</h2></header>
-        <p>Tocca un seme per iniziare la presa.</p>
-        <div className="mobile-lab-suits" role="group" aria-label="Scegli il seme di briscola">
-          {italianSuits.map((suit) => (
-            <button key={suit.value} disabled={disabled} onClick={() => onSelectSuit(suit.value)} data-testid={`suit-button-${suit.value}`}>
-              <img src={suit.img} alt="" />{suit.name}
-            </button>
-          ))}
-        </div>
-      </section>
-    ) : null;
-  }
-
   return (
     <Dialog open={open} onOpenChange={() => {}}>
       <DialogContent

@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { apiPost } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { handleActiveRoomConflict } from "@/lib/roomRedirect";
-import { enterGameFullscreen, exitGameFullscreen } from "@/lib/fullscreen";
 
 const Practice = () => {
   const navigate = useNavigate();
@@ -23,13 +22,10 @@ const Practice = () => {
 
   const startPractice = async () => {
     setStarting(true);
-    // Fullscreen needs this click's user activation, so it starts before the request.
-    void enterGameFullscreen();
     try {
       const data = await apiPost<{ code: string }>("/rooms/practice", { tier: "forte" });
       navigate(`/game/${data.code}`);
     } catch (error) {
-      exitGameFullscreen();
       if (handleActiveRoomConflict(error, navigate)) return;
       toast.error(
         error instanceof Error ? error.message : "Impossibile iniziare la partita",
@@ -58,13 +54,13 @@ const Practice = () => {
     <div className="circolo-shell">
       <Header />
 
-      <main className="arcade-practice container max-w-3xl mx-auto p-4 pt-24">
-        <Button variant="ghost" className="arcade-page-back mb-6" onClick={() => navigate("/")}>
+      <main className="container max-w-3xl mx-auto p-4 pt-24">
+        <Button variant="ghost" className="mb-6" onClick={() => navigate("/")}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Torna alla home
         </Button>
 
-        <div className="arcade-practice-copy text-center mb-10">
+        <div className="text-center mb-10">
           <p className="circolo-kicker mb-3">Tavolo d'allenamento</p>
           <h1 className="font-display mb-3 text-4xl font-bold text-primary">
             Allenati contro i bot
@@ -74,7 +70,7 @@ const Practice = () => {
           </p>
         </div>
 
-        <div className="arcade-practice-bot max-w-md mx-auto">
+        <div className="max-w-md mx-auto">
           <Card className="circolo-surface transition-[transform,border-color,box-shadow] hover:-translate-y-1 hover:border-accent/70">
             <CardContent className="pt-6 flex flex-col h-full">
               <div className="flex items-center gap-2 mb-2">
@@ -104,7 +100,7 @@ const Practice = () => {
           </Card>
         </div>
 
-        <p className="arcade-practice-note text-xs text-muted-foreground text-center mt-8">
+        <p className="text-xs text-muted-foreground text-center mt-8">
           Gli allenamenti non contano per la classifica.
         </p>
       </main>
