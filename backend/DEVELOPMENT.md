@@ -329,7 +329,6 @@ npm run practice:export > practice_matches.jsonl
 | GET | `/api/games/playable-cards/:roomCode` | Yes | Get legal cards for current turn |
 | GET | `/api/games/:roomCode/state` | Yes | Get full game state |
 | GET | `/health` | No | Health check |
-| GET | `/version` | No | Get the deployed backend commit |
 | GET | `/ready` | No | Database readiness check |
 
 Team selection and ready-state changes are REST-only mutations. Socket.IO
