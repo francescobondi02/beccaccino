@@ -587,8 +587,7 @@ html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
     --hand-w: calc(var(--hand-h) * .63);
     --table-card-w: clamp(40px, 13dvh, 56px);
   }
-  html[data-ui="arcade"] .arcade-game-layout { min-height: 0; height: 100dvh; max-width: none; padding: 8px 12px; gap: 6px; }
-  html[data-ui="arcade"] .arcade-game-page .arcade-game-layout { min-height: 320px; height: max(320px, 100dvh); padding: 8px 12px; }
+  html[data-ui="arcade"] .arcade-game-page .arcade-game-layout { min-height: 320px; height: max(320px, 100dvh); max-width: none; padding: 8px 12px; gap: 6px; }
   html[data-ui="arcade"] .arcade-game-layout > div:first-child { padding: 0 var(--rail-r) 0 var(--rail-l); }
   html[data-ui="arcade"] .arcade-game-page .arcade-arena { height: 100%; min-height: 0; max-height: none; max-width: none; padding: 0; translate: none; border-width: 4px; border-radius: 999px; box-shadow: inset 0 0 0 8px hsl(260 49% 19%), inset 0 0 0 9px hsl(72 100% 63% / .45), 0 0 24px hsl(260 100% 69% / .2); }
   html[data-ui="arcade"] .arcade-arena [data-testid="player-position-top"] { top: 6px; transform: translateX(calc(-100% - 40px)); }
@@ -634,11 +633,8 @@ html[data-ui="arcade"] .arcade-game-page .arcade-arena .circolo-table {
 
   html[data-ui="arcade"] .signal-callout { padding: 6px 10px; border-width: 2px; font-size: 16px; box-shadow: 3px 4px 0 #17121f; }
   html[data-ui="arcade"] .arcade-game-page .signal-callout { display: none; }
-}
 
-/* Short landscape screens: dialogs must fit without scrolling past their actions,
-   and page chrome shrinks so content starts above the fold. */
-@media (orientation: landscape) and (max-height: 540px) {
+  /* Dialogs fit without scrolling past their actions; page chrome shrinks. */
   .arcade-header { min-height: 56px; padding-block: 6px; }
   .arcade-header .club-brand-symbol { width: 32px; height: 32px; }
   .arcade-header .club-brand > span:last-child { font-size: 24px; }

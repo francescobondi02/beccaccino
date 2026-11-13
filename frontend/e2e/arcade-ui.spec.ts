@@ -143,7 +143,7 @@ test.describe("Arcade interface", () => {
           await expect(page.locator(".arcade-dealt-card").first()).toBeHidden();
         }
         await page.getByTestId("pause-practice-button").click({ trial: true });
-        await expect(page.getByText("Guarda le tue carte...", { exact: true })).toBeVisible();
+        await expect(page.getByText("Guarda le tue carte", { exact: true })).toBeVisible();
         await expect(page.getByTestId("player-hand").getByRole("button")).toHaveCount(10);
         await expect(trump).toBeHidden();
         await page.reload();
