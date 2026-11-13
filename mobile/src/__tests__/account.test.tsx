@@ -57,6 +57,26 @@ it('requires credentials, conceals the password, and waits for secure storage be
   expect(screen.getByText('Sei dentro, Socio.')).toBeOnTheScreen();
 });
 
+it('switches to registration, creates the account, and switches back to login', async () => {
+  fetchMock.mockResolvedValueOnce({ ok: false, status: 409 })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ user, token: 'test-token' }) });
+  await renderAccount();
+  await fireEvent.press(screen.getByRole('button', { name: 'Non hai un account? Registrati' }));
+  expect(screen.getByLabelText('Password')).toHaveProp('autoComplete', 'new-password');
+  expect(screen.getByText('Almeno 6 caratteri')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole('button', { name: 'Hai già un account? Accedi' }));
+  expect(screen.getByLabelText('Password')).toHaveProp('autoComplete', 'current-password');
+  await fireEvent.press(screen.getByRole('button', { name: 'Non hai un account? Registrati' }));
+  await fireEvent.changeText(screen.getByLabelText('Nome utente'), 'Socio');
+  await fireEvent.changeText(screen.getByLabelText('Password'), 'password');
+  await fireEvent.press(screen.getByRole('button', { name: 'Registrati' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Questo nome utente è già in uso. Scegline un altro.');
+  await fireEvent.changeText(screen.getByLabelText('Password'), 'password');
+  await fireEvent.press(screen.getByRole('button', { name: 'Registrati' }));
+  expect(fetchMock).toHaveBeenLastCalledWith('https://becca.example/api/users/native/register', expect.anything());
+  expect(screen.getByText('Sei dentro, Socio.')).toBeOnTheScreen();
+});
+
 it('shows incorrect credentials without pretending the session is authenticated', async () => {
   fetchMock.mockResolvedValue({ ok: false, status: 401 });
   await renderAccount();

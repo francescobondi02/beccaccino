@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-import { clearSession, restoreSession, sessionRequest, signIn } from '../session';
+import { clearSession, register, restoreSession, sessionRequest, signIn } from '../session';
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(), setItemAsync: jest.fn(), deleteItemAsync: jest.fn(),
@@ -32,6 +32,24 @@ it('logs in through the native endpoint and stores only an origin-bound token se
     method: 'POST', credentials: 'omit', body: JSON.stringify({ username: 'Socio', password: 'password' }),
   }));
   expect(SecureStore.setItemAsync).toHaveBeenCalledWith('becca.session', saved, { keychainAccessible: 'device-only' });
+});
+
+it('registers through the native endpoint and stores the returned token like login', async () => {
+  fetchMock.mockResolvedValue({ ok: true, json: async () => ({ user, token: 'test-token' }) });
+  await expect(register(origin, ' Socio ', 'password', controller.signal)).resolves.toEqual(user);
+  expect(fetchMock).toHaveBeenCalledWith(`${origin}/api/users/native/register`, expect.objectContaining({
+    method: 'POST', credentials: 'omit', body: JSON.stringify({ username: 'Socio', password: 'password' }),
+  }));
+  expect(SecureStore.setItemAsync).toHaveBeenCalledWith('becca.session', saved, { keychainAccessible: 'device-only' });
+});
+
+it.each([
+  [400, 'da 3 a 20 caratteri e la password almeno 6'],
+  [409, 'già in uso'],
+])('explains rejected registration HTTP %i in Italian without persisting a session', async (status, message) => {
+  fetchMock.mockResolvedValue({ ok: false, status });
+  await expect(register(origin, 'Socio', 'password', controller.signal)).rejects.toThrow(message);
+  expect(SecureStore.setItemAsync).not.toHaveBeenCalled();
 });
 
 it('does not report a successful login when secure persistence fails', async () => {

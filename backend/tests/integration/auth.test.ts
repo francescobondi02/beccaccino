@@ -123,6 +123,42 @@ describe("Auth Lifecycle", () => {
   });
 
   describe("GET /api/users/me (session check)", () => {
+    describe("Native registration", () => {
+      it("creates the account and returns a bearer session without a cookie", async () => {
+        const registration = await request(getServer())
+          .post("/api/users/native/register")
+          .send(credentials);
+
+        expect(registration.statusCode).toBe(201);
+        expect(registration.headers["set-cookie"]).toBeUndefined();
+        expect(registration.headers["cache-control"]).toBe("no-store");
+        expect(registration.body.user.username).toBe(credentials.username);
+        expect(registration.body.user.password).toBeUndefined();
+
+        const me = await request(getServer())
+          .get("/api/users/me")
+          .set("Authorization", `Bearer ${registration.body.token}`);
+        expect(me.statusCode).toBe(200);
+        expect(me.body.id).toBe(registration.body.user.id);
+      });
+
+      it.each([
+        ["duplicate username", credentials, 409],
+        ["short username", { username: "ab", password: "secure123" }, 400],
+        ["short password", { username: "newuser", password: "abc" }, 400],
+        ["missing password", { username: "newuser" }, 400],
+      ])("rejects %s like browser registration", async (_case, body, status) => {
+        await request(getServer()).post("/api/users/register").send(credentials);
+
+        const response = await request(getServer())
+          .post("/api/users/native/register")
+          .send(body);
+        expect(response.statusCode).toBe(status);
+        expect(response.body.token).toBeUndefined();
+        expect(response.headers["set-cookie"]).toBeUndefined();
+      });
+    });
+
     describe("Native login", () => {
       beforeEach(async () => {
         await request(getServer()).post("/api/users/register").send(credentials);

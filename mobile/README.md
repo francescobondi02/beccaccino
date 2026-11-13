@@ -30,7 +30,7 @@ account. Keep Metro running; Fast Refresh updates the app after source changes.
 No USB cable, CocoaPods or custom native build is needed for this preview.
 
 The app currently provides a landscape home, a native rules guide, an offline
-guided trick, real username/password login, secure session restoration/logout,
+guided trick, real username/password login and registration, secure session restoration/logout,
 a server-backed **Gioca** hub (practice, live room list, create/join by code), a
 native waiting room and the shared live table for practice and multiplayer. Native stack navigation handles
 back gestures and platform transitions. Standard buttons are at least 50 points
@@ -185,8 +185,13 @@ deployed there. To use a local backend instead, copy `.env.example` to
 `.env.local`, set `EXPO_PUBLIC_BACKEND_URL` to its **origin** (without `/api`)
 and restart Metro. Delete `.env.local` to return to production.
 
-On a physical phone, `localhost` means the phone. For Android Emulator, the
-host machine is normally `10.0.2.2`; iOS Simulator can reach the Mac's localhost.
+The local backend listens on port 8000. On a physical phone with Expo Go,
+`EXPO_PUBLIC_BACKEND_URL` must use the laptop's LAN IP (for example
+`http://192.168.x.y:8000`), not `localhost`: on the phone, `localhost` means the
+phone. Accounts live in the backend's database, so a production-site account
+does not exist on a local backend; register a new one in the app.
+
+For Android Emulator, the host machine is normally `10.0.2.2`; iOS Simulator can reach the Mac's localhost.
 Use HTTPS on devices; native transport policies may reject local HTTP. Release
 JavaScript rejects non-HTTPS backend URLs. Do not disable transport security to
 work around deployment problems.
@@ -195,9 +200,11 @@ work around deployment problems.
 include JWT signing keys, service tokens, database URLs or account passwords.
 ### Native session
 
-The native account screen calls `POST /api/users/native/login`, which reuses
-the existing credential checks and returns `{ user, token }` without setting a
-cookie. Authenticated REST calls send `Authorization: Bearer <token>`; an explicit
+The native account screen switches between **Accedi** and **Registrati**. It calls
+`POST /api/users/native/login` or `POST /api/users/native/register`, which reuse
+the browser credential checks and validation and return `{ user, token }` without
+setting a cookie. Registration takes only a username (3 to 20 characters) and a
+password (at least 6); HTTP 400 and 409 are shown as Italian messages. Authenticated REST calls send `Authorization: Bearer <token>`; an explicit
 invalid Authorization header never falls back to a cookie or test identity.
 Existing browser login/registration cookies and response bodies are unchanged.
 Both transports reuse `verifyActiveSession`, including deleted-account checks.
@@ -214,12 +221,11 @@ cancelled on provider unmount; network calls time out after eight seconds.
 Logout deletes the device credential. It does not introduce server-side token
 revocation or refresh tokens; issued JWTs retain the existing seven-day policy.
 Socket.IO accepts native `auth.token` as well as existing browser cookies.
-Explicit invalid native tokens never fall back to cookies. Registration, profile editing and account deletion are outside
+Explicit invalid native tokens never fall back to cookies. Profile editing and account deletion are outside
 this first integration slice. Expo authentication is not game authentication.
 
-For an optional local phone preview, run a backend yourself and set
-`EXPO_PUBLIC_BACKEND_URL` in `.env.local` to its origin; no tracked
-configuration defines that backend's port or database. Use a separate
+For an optional local phone preview, run a backend yourself (port 8000) and set
+`EXPO_PUBLIC_BACKEND_URL` in `.env.local` to its LAN origin, as above. Use a separate
 development database, not the website's local DB or the public service.
 Only integration tests may reset the guarded `localhost/becca_test` database.
 Use test credentials on local HTTP. If that backend's signing key changes (for example a
@@ -325,8 +331,6 @@ No EAS account/project, cloud build or publication is required by this setup.
 - Secure-storage entries `becca.session` (origin and token) and `becca.sound`
   (sound preference) on the device.
 - Audio playback, haptics and screen-reader announcements on the device.
-- Opens the website registration page in the system browser from the account
-  screen.
 
 ## Verification
 

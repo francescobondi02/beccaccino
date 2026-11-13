@@ -103,7 +103,9 @@ backend/
 
 `POST /api/users/native/login` accepts the same username/password input as
 browser login and returns `{ user, token }` with `Cache-Control: no-store`, without
-setting a browser cookie. REST endpoints accept `Authorization: Bearer <token>`
+setting a browser cookie. `POST /api/users/native/register` does the same for
+registration: same input, validation, rate limit and error statuses as browser
+registration (400 invalid input, 409 username taken), and `201 { user, token }`. REST endpoints accept `Authorization: Bearer <token>`
 through the same active-account verifier used by cookies. Explicit malformed or
 expired Authorization never falls back to cookies.
 Browser login/registration response bodies and cookies are unchanged.
@@ -308,6 +310,8 @@ npm run practice:export > practice_matches.jsonl
 |--------|------|------|-------------|
 | POST | `/api/users/register` | No | Register with username + password |
 | POST | `/api/users/login` | No | Login, returns HTTP-only cookie |
+| POST | `/api/users/native/register` | No | Native register, returns `{ user, token }` |
+| POST | `/api/users/native/login` | No | Native login, returns `{ user, token }` |
 | POST | `/api/users/logout` | Yes | Clear auth cookie |
 | GET | `/api/users/me` | Yes | Get current user |
 | PATCH | `/api/users/me` | Yes | Update current user |
