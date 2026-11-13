@@ -1,10 +1,7 @@
 import { getSocket } from "./socketClient";
-import type { ServerToClientEvents } from "./events";
+import type { ServerToClientEvents } from "@contract/socket";
 
-type RoomEventName = Exclude<
-  keyof ServerToClientEvents,
-  "room_created" | "room_updated" | "room_full" | "room_deleted" | "error"
->;
+type RoomEventName = Exclude<keyof ServerToClientEvents, "lobby_changed" | "error">;
 
 type RoomEventListener<Event extends RoomEventName> =
   ServerToClientEvents[Event];

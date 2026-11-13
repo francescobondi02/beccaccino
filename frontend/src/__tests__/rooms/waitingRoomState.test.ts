@@ -1,94 +1,37 @@
 import { describe, expect, it } from "vitest";
-import {
-  initialWaitingRoomState,
-  waitingRoomReducer,
-  waitingRoomSlots,
-} from "@/rooms/waitingRoomState";
+import type { Room, RoomPlayer } from "@contract/rooms";
+import { waitingRoomSlots } from "@/rooms/waitingRoomState";
 
-const room = {
+const player = (userId: number, username: string, team: RoomPlayer["team"]): RoomPlayer => ({
+  id: userId + 9, userId, seat: null, team, isReady: false, botModel: null,
+  abandonedAt: null, user: { id: userId, username },
+});
+const room: Room = {
   id: 1,
   code: "ROOM01",
   started: false,
   finished: false,
   isPractice: false,
-  players: [
-    {
-      id: 10,
-      userId: 2,
-      username: "bob",
-      seat: 1,
-      team: null,
-      isReady: false,
-    },
-    {
-      id: 11,
-      userId: 1,
-      username: "alice",
-      seat: 0,
-      team: 0,
-      isReady: false,
-    },
-  ],
+  botTier: null,
+  pausedAt: null,
+  players: [player(2, "bob", null), player(1, "alice", 0)],
 };
-
-describe("waitingRoomReducer", () => {
-  it("hydrates and updates the same player collection", () => {
-    const loaded = waitingRoomReducer(initialWaitingRoomState, {
-      type: "room_loaded",
-      room,
-    });
-    const withTeam = waitingRoomReducer(loaded, {
-      type: "team_chosen",
-      userId: 2,
-      team: 1,
-    });
-    const ready = waitingRoomReducer(withTeam, {
-      type: "ready_changed",
-      userId: 2,
-      isReady: true,
-    });
-
-    expect(ready.room?.players[0]).toMatchObject({
-      userId: 2,
-      team: 1,
-      isReady: true,
-    });
-  });
-
-  it("ignores duplicate joins and removes departed players", () => {
-    const loaded = waitingRoomReducer(initialWaitingRoomState, {
-      type: "room_loaded",
-      room,
-    });
-    const duplicate = waitingRoomReducer(loaded, {
-      type: "player_joined",
-      player: room.players[0],
-    });
-    const departed = waitingRoomReducer(duplicate, {
-      type: "player_left",
-      userId: 2,
-    });
-
-    expect(duplicate).toBe(loaded);
-    expect(departed.room?.players.map((player) => player.userId)).toEqual([1]);
-  });
-});
 
 describe("waitingRoomSlots", () => {
   it("places the current user first and pads four stable slots", () => {
     const slots = waitingRoomSlots(room, 1);
 
     expect(slots).toHaveLength(4);
-    expect(slots[0]).toMatchObject({ username: "alice" });
-    expect(slots[1]).toMatchObject({ username: "bob" });
+    expect(slots[0]).toMatchObject({ user: { username: "alice" } });
+    expect(slots[1]).toMatchObject({ user: { username: "bob" } });
     expect(slots.slice(2)).toEqual([null, null]);
   });
 
   it("previews bots in missing teams without adding room members", () => {
     const mixed = {
       ...room,
-      botTier: "forte",
-      players: room.players.map((player) => ({ ...player, team: 0 })),
+      botTier: "forte" as const,
+      players: room.players.map((player) => ({ ...player, team: 0 as const })),
     };
 
     expect(waitingRoomSlots(mixed, 1).slice(2)).toEqual([

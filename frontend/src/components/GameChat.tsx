@@ -5,7 +5,7 @@ import { MessageCircle, X, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSocket } from "@/sockets/socketClient";
 import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
-import type { ChatMessagePayload } from "@/sockets/events";
+import type { ChatMessagePayload } from "@contract/socket";
 
 type ChatMessage = ChatMessagePayload;
 
@@ -51,10 +51,7 @@ const GameChat = ({ roomCode, userId }: GameChatProps) => {
     if (!inputValue.trim() || !userId || !roomCode) return;
 
     const socket = getSocket();
-    socket.emit("send_chat_message", {
-      roomCode,
-      message: inputValue.trim(),
-    });
+    socket.emit("send_chat_message", { message: inputValue.trim() });
 
     setInputValue("");
   };

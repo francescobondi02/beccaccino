@@ -1,21 +1,21 @@
 import { Bot, Hash, Loader2, Pause, Play, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { LobbyRoom } from "@/rooms/lobbyState";
+import type { Room } from "@contract/rooms";
 
-interface LobbyRoomListsProps {
-  availableRooms: LobbyRoom[];
-  ordinaryActiveGames: LobbyRoom[];
-  pausedPracticeGames: LobbyRoom[];
+interface RoomListsProps {
+  availableRooms: Room[];
+  ordinaryActiveGames: Room[];
+  pausedPracticeGames: Room[];
   isConnected: boolean;
   isLoading: boolean;
   resumingRoomCode: string | null;
   onJoin: (roomCode: string) => void;
-  onOpenGame: (game: LobbyRoom) => void;
+  onOpenGame: (game: Room) => void;
   onResumePractice: (roomCode: string) => void;
 }
 
-export default function LobbyRoomLists({
+export default function RoomLists({
   availableRooms,
   ordinaryActiveGames,
   pausedPracticeGames,
@@ -25,7 +25,7 @@ export default function LobbyRoomLists({
   onJoin,
   onOpenGame,
   onResumePractice,
-}: LobbyRoomListsProps) {
+}: RoomListsProps) {
   const hasRooms =
     availableRooms.length + ordinaryActiveGames.length + pausedPracticeGames.length >
     0;
@@ -145,7 +145,7 @@ export default function LobbyRoomLists({
                         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                           <Users className="h-3.5 w-3.5" />
                           <span>
-                            {game.currentPlayers} / {game.maxPlayers} giocatori
+                            {game.players.length} / 4 giocatori
                           </span>
                         </div>
                       </div>
@@ -160,14 +160,14 @@ export default function LobbyRoomLists({
                       </Button>
                     </div>
 
-                    {game.players && game.players.length > 0 && (
+                    {game.players.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-amber-500/20">
                         {game.players.map((player) => (
                           <span
                             key={player.id}
                             className="text-xs px-2 py-1 bg-secondary rounded-md text-muted-foreground"
                           >
-                            {player.user?.username ?? "Sconosciuto"}
+                            {player.user.username}
                           </span>
                         ))}
                       </div>
@@ -201,7 +201,7 @@ export default function LobbyRoomLists({
                         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                           <Users className="h-3.5 w-3.5" />
                           <span>
-                            {room.currentPlayers} / {room.maxPlayers} giocatori
+                            {room.players.length} / 4 giocatori
                           </span>
                         </div>
                       </div>
@@ -210,10 +210,10 @@ export default function LobbyRoomLists({
                         variant="secondary"
                         size="sm"
                         onClick={() => onJoin(room.code)}
-                        disabled={room.currentPlayers >= room.maxPlayers}
+                        disabled={room.players.length >= 4}
                         className="hover:bg-primary hover:text-primary-foreground transition-colors"
                       >
-                        {room.currentPlayers >= room.maxPlayers
+                        {room.players.length >= 4
                           ? "Piena"
                           : "Entra"}
                       </Button>

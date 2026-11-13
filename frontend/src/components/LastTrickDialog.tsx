@@ -6,14 +6,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import PlayingCard from "./PlayingCard";
-import type { PlayedCardData } from "@/game/model";
-import type { RoomPlayer } from "@/rooms/model";
+import type { GamePlayer, PlayedCard } from "@contract/game";
 
 type LastTrickDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  lastHand: PlayedCardData[];
-  players: RoomPlayer[];
+  lastHand: PlayedCard[];
+  players: GamePlayer[];
   userId: number | null;
 };
 

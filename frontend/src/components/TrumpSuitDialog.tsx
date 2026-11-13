@@ -8,12 +8,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import PlayingCard from "./PlayingCard";
-import type { PlayerCard } from "@/game/model";
+import type { Card } from "@contract/cards";
 
 type TrumpSuitDialogProps = {
   open: boolean;
   onSelectSuit: (suit: string) => void;
-  myCards: PlayerCard[];
+  myCards: Card[];
   actions?: ReactNode;
   disabled?: boolean;
 };
@@ -55,16 +55,14 @@ const TrumpSuitDialog = ({
             La tua mano
           </h3>
           <div className="flex gap-2 flex-wrap justify-center max-w-3xl mx-auto">
-            {myCards
-              .filter((c) => c.inHand)
-              .map((card) => (
-                <PlayingCard
-                  key={card.id}
-                  suit={card.suit}
-                  value={card.value}
-                  size="sm"
-                />
-              ))}
+            {myCards.map((card) => (
+              <PlayingCard
+                key={`${card.suit}-${card.value}`}
+                suit={card.suit}
+                value={card.value}
+                size="sm"
+              />
+            ))}
           </div>
         </div>
 

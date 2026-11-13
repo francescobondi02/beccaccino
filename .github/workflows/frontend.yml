@@ -5,6 +5,8 @@ on:
     branches: [main, develop]
     paths:
       - frontend/**
+      # The full-game job also tests the backend.
+      - backend/**
       - .github/workflows/frontend.yml
   pull_request:
     paths:
@@ -39,3 +41,42 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  full-game:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      JWT_SECRET: e2e-secret
+      GAME_WIN_POINTS: 5
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: becca_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci && npx prisma generate && npm run db:test:prepare
+        working-directory: backend
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: frontend
+      # Playwright starts the backend (dev:e2e) and the frontend dev server.
+      - run: npx playwright test e2e/full-game.spec.ts
+        working-directory: frontend

@@ -29,7 +29,7 @@ vi.mock("socket.io-client", () => ({
 import {
   leaveLobby,
   registerLobbyHandlers,
-  subscribeToLobbyEvent,
+  subscribeToLobbyChanges,
 } from "@/sockets/lobbyHandlers";
 
 function socketListener(event: string) {
@@ -75,33 +75,30 @@ describe("lobbyHandlers", () => {
     expect(mockSocket.off).toHaveBeenCalledWith("connect", listener);
   });
 
-  it("subscribes and unsubscribes the same event callback", () => {
+  it("subscribes and unsubscribes the same lobby_changed callback", () => {
     const callback = vi.fn();
-    const unsubscribe = subscribeToLobbyEvent("room_updated", callback);
-    const listener = socketListener("room_updated");
+    const unsubscribe = subscribeToLobbyChanges(callback);
+    const listener = socketListener("lobby_changed");
 
-    listener({ roomCode: "ROOM", currentPlayers: 3 });
-    expect(callback).toHaveBeenCalledWith({
-      roomCode: "ROOM",
-      currentPlayers: 3,
-    });
+    listener({ roomCode: "ROOM" });
+    expect(callback).toHaveBeenCalledWith({ roomCode: "ROOM" });
 
     unsubscribe();
-    expect(mockSocket.off).toHaveBeenCalledWith("room_updated", callback);
+    expect(mockSocket.off).toHaveBeenCalledWith("lobby_changed", callback);
   });
 
   it("does not remove another subscriber for the same event", () => {
     const first = vi.fn();
     const second = vi.fn();
-    const unsubscribeFirst = subscribeToLobbyEvent("room_full", first);
-    subscribeToLobbyEvent("room_full", second);
+    const unsubscribeFirst = subscribeToLobbyChanges(first);
+    subscribeToLobbyChanges(second);
 
     serverListeners
-      .get("room_full")
+      .get("lobby_changed")
       ?.forEach((listener) => listener({ roomCode: "ROOM" }));
     unsubscribeFirst();
     serverListeners
-      .get("room_full")
+      .get("lobby_changed")
       ?.forEach((listener) => listener({ roomCode: "ROOM" }));
 
     expect(first).toHaveBeenCalledOnce();

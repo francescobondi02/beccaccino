@@ -7,6 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import LobbyPage from "@/pages/LobbyPage";
@@ -27,7 +28,7 @@ const mocks = vi.hoisted(() => ({
   unregisterLobby: vi.fn(),
   leaveLobby: vi.fn(),
   reconnectLobby: null as (() => void) | null,
-  lobbySubscriptions: new Map<string, (...args: unknown[]) => void>(),
+  lobbyChanged: null as (() => void) | null,
   toast: {
     error: vi.fn(),
     success: vi.fn(),
@@ -60,11 +61,8 @@ vi.mock("@/sockets/lobbyHandlers", () => ({
     return mocks.unregisterLobby;
   },
   leaveLobby: mocks.leaveLobby,
-  subscribeToLobbyEvent: (
-    event: string,
-    listener: (...args: unknown[]) => void,
-  ) => {
-    mocks.lobbySubscriptions.set(event, listener);
+  subscribeToLobbyChanges: (listener: () => void) => {
+    mocks.lobbyChanged = listener;
     return vi.fn();
   },
 }));
@@ -83,9 +81,11 @@ vi.mock("sonner", () => ({
 
 function renderLobby(path = "/") {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <LobbyPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={[path]}>
+        <LobbyPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -105,7 +105,7 @@ describe("LobbyPage room commands", () => {
     mocks.apiGet.mockReset();
     mocks.apiPost.mockReset();
     mocks.reconnectLobby = null;
-    mocks.lobbySubscriptions.clear();
+    mocks.lobbyChanged = null;
     mocks.auth.user = { id: 1, username: "alice" };
     mocks.auth.loading = false;
     mocks.auth.error = null;
@@ -176,7 +176,7 @@ describe("LobbyPage room commands", () => {
     fireEvent.change(input, { target: { value: "abc123" } });
     expect(input).toHaveValue("ABC123");
     fireEvent.submit(input.closest("form")!);
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/join", { roomCode: "ABC123" }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ABC123/join"));
     expect(mocks.navigate).toHaveBeenCalledWith("/room/ABC123");
   });
 
@@ -190,18 +190,14 @@ describe("LobbyPage room commands", () => {
     fireEvent.click(screen.getByTestId("join-by-code-button"));
 
     await waitFor(() =>
-      expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/join", {
-        roomCode: "AB12",
-      }),
+      expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/AB12/join"),
     );
     expect(mocks.navigate).toHaveBeenCalledWith("/room/AB12");
 
     fireEvent.click(await screen.findByRole("button", { name: "Entra" }));
 
     await waitFor(() =>
-      expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/join", {
-        roomCode: "LIST01",
-      }),
+      expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/LIST01/join"),
     );
     expect(mocks.navigate).toHaveBeenCalledWith("/room/LIST01");
   });
@@ -335,207 +331,40 @@ describe("LobbyPage room commands", () => {
     );
   });
 
-  it("reconciles paused practice games from other tabs", async () => {
-    mocks.apiGet.mockResolvedValue({
-      availableRooms: [],
-      activeGames: [
-        {
-          id: 20,
-          code: "PRACT1",
-          players: [],
-          isPractice: true,
-          pausedAt: null,
-        },
-      ],
-    });
+  it("refetches rooms on lobby_changed and on reconnect", async () => {
+    mocks.apiGet.mockResolvedValue({ availableRooms: [], activeGames: [{ id: 20, code: "PRACT1", players: [], isPractice: true, pausedAt: null }] });
     renderLobby();
     await screen.findByText("PRACT1");
 
-    mocks.apiGet.mockResolvedValue({
-      availableRooms: [],
-      activeGames: [
-        {
-          id: 20,
-          code: "PRACT1",
-          players: [],
-          isPractice: true,
-          pausedAt: "2026-08-27T18:00:00.000Z",
-        },
-      ],
-    });
-    await act(async () => {
-      mocks.lobbySubscriptions.get("practice_paused")?.({
-        roomCode: "PRACT1",
-        pausedAt: "2026-08-27T18:00:00.000Z",
-      });
-    });
+    mocks.apiGet.mockResolvedValue({ availableRooms: [], activeGames: [{ id: 20, code: "PRACT1", players: [], isPractice: true, pausedAt: "2026-08-27T18:00:00.000Z" }] });
+    await act(async () => mocks.lobbyChanged?.());
     expect(
-      screen.getByRole("heading", { name: "Allenamenti in pausa" }),
+      await screen.findByRole("heading", { name: "Allenamenti in pausa" }),
     ).toBeInTheDocument();
 
-    mocks.apiGet.mockResolvedValue({
-      availableRooms: [],
-      activeGames: [
-        {
-          id: 20,
-          code: "PRACT1",
-          players: [],
-          isPractice: true,
-          pausedAt: null,
-        },
-      ],
-    });
-    await act(async () => {
-      mocks.lobbySubscriptions.get("practice_resumed")?.({
-        roomCode: "PRACT1",
-      });
-    });
-    expect(
-      screen.queryByRole("heading", { name: "Allenamenti in pausa" }),
-    ).not.toBeInTheDocument();
+    mocks.apiGet.mockResolvedValue({ availableRooms: [], activeGames: [] });
+    await act(async () => mocks.lobbyChanged?.());
+    await waitFor(() => expect(screen.queryByText("PRACT1")).not.toBeInTheDocument());
 
-    mocks.apiGet.mockResolvedValue({
-      availableRooms: [],
-      activeGames: [],
-    });
-    await act(async () => {
-      mocks.lobbySubscriptions.get("practice_abandoned")?.({
-        roomCode: "PRACT1",
-      });
-    });
-    expect(screen.queryByText("PRACT1")).not.toBeInTheDocument();
-
-    mocks.apiGet.mockResolvedValue({
-      availableRooms: [],
-      activeGames: [
-        {
-          id: 21,
-          code: "MISSED",
-          players: [],
-          isPractice: true,
-          pausedAt: "2026-08-27T19:00:00.000Z",
-        },
-      ],
-    });
+    mocks.apiGet.mockResolvedValue({ availableRooms: [], activeGames: [{ id: 20, code: "MISSED", players: [], isPractice: true, pausedAt: "2026-08-27T19:00:00.000Z" }] });
     await act(async () => mocks.reconnectLobby?.());
 
     expect(await screen.findByText("MISSED")).toBeInTheDocument();
   });
 
-  it("loads a paused practice game first seen through a lifecycle event", async () => {
-    renderLobby();
-    await screen.findByText("LIST01");
-
-    mocks.apiGet.mockResolvedValue({
-      availableRooms: [],
-      activeGames: [
-        {
-          id: 22,
-          code: "NEWTAB",
-          players: [],
-          isPractice: true,
-          pausedAt: "2026-08-27T20:00:00.000Z",
-        },
-      ],
-    });
-
-    act(() => {
-      mocks.lobbySubscriptions.get("practice_paused")?.({
-        roomCode: "NEWTAB",
-        pausedAt: "2026-08-27T20:00:00.000Z",
-      });
-    });
-
-    expect(await screen.findByText("NEWTAB")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Allenamenti in pausa" }),
-    ).toBeInTheDocument();
-  });
-
-  it("keeps rooms visible while lifecycle reconciliation is pending", async () => {
-    mocks.apiGet.mockResolvedValue({
-      availableRooms: [],
-      activeGames: [
-        {
-          id: 25,
-          code: "VISIBLE",
-          players: [],
-          isPractice: true,
-          pausedAt: null,
-        },
-      ],
-    });
+  it("keeps rooms visible while a refetch is pending", async () => {
+    mocks.apiGet.mockResolvedValue({ availableRooms: [], activeGames: [{ id: 20, code: "VISIBLE", players: [], isPractice: true, pausedAt: null }] });
     renderLobby();
     await screen.findByText("VISIBLE");
 
-    const lifecycleFetch = deferred<unknown>();
-    mocks.apiGet.mockReturnValueOnce(lifecycleFetch.promise);
-    act(() => {
-      mocks.lobbySubscriptions.get("practice_paused")?.({
-        roomCode: "VISIBLE",
-        pausedAt: "2026-08-27T22:00:00.000Z",
-      });
-    });
+    const pendingFetch = deferred<unknown>();
+    mocks.apiGet.mockReturnValueOnce(pendingFetch.promise);
+    act(() => mocks.lobbyChanged?.());
 
     expect(screen.getByText("VISIBLE")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Allenamenti in pausa" }),
-    ).toBeInTheDocument();
     expect(screen.queryByText("Caricamento stanze...")).not.toBeInTheDocument();
 
-    await act(async () => {
-      lifecycleFetch.resolve({
-        availableRooms: [],
-        activeGames: [
-          {
-            id: 25,
-            code: "VISIBLE",
-            players: [],
-            isPractice: true,
-            pausedAt: "2026-08-27T22:00:00.000Z",
-          },
-        ],
-      });
-    });
-  });
-
-  it("keeps rooms visible while reconnect reconciliation is pending", async () => {
-    mocks.apiGet.mockResolvedValue({
-      availableRooms: [],
-      activeGames: [
-        {
-          id: 26,
-          code: "RECON1",
-          players: [],
-          isPractice: true,
-          pausedAt: "2026-08-27T23:00:00.000Z",
-        },
-      ],
-    });
-    renderLobby();
-    await screen.findByText("RECON1");
-
-    const reconnectFetch = deferred<unknown>();
-    mocks.apiGet.mockReturnValueOnce(reconnectFetch.promise);
-    act(() => mocks.reconnectLobby?.());
-
-    expect(screen.getByText("RECON1")).toBeInTheDocument();
-    expect(screen.queryByText("Caricamento stanze...")).not.toBeInTheDocument();
-
-    await act(async () => {
-      reconnectFetch.resolve({
-        availableRooms: [],
-        activeGames: [
-          {
-            id: 26,
-            code: "RECON1",
-            players: [],
-            isPractice: true,
-            pausedAt: "2026-08-27T23:00:00.000Z",
-          },
-        ],
-      });
-    });
+    await act(async () => pendingFetch.resolve({ availableRooms: [], activeGames: [{ id: 20, code: "VISIBLE", players: [], isPractice: true, pausedAt: null }] }));
   });
 
   it("ignores a room fetch failure after unmount", async () => {
@@ -559,15 +388,15 @@ describe("LobbyPage room commands", () => {
   });
 
   it("ignores an older room response that finishes after a newer refresh", async () => {
-    const initialFetch = deferred<unknown>();
+    const olderFetch = deferred<unknown>();
     const reconnectFetch = deferred<unknown>();
+    renderLobby();
+    await screen.findByText("LIST01");
     mocks.apiGet
-      .mockReturnValueOnce(initialFetch.promise)
+      .mockReturnValueOnce(olderFetch.promise)
       .mockReturnValueOnce(reconnectFetch.promise);
 
-    renderLobby();
-    await waitFor(() => expect(mocks.reconnectLobby).not.toBeNull());
-
+    act(() => mocks.lobbyChanged?.());
     act(() => mocks.reconnectLobby?.());
 
     await act(async () => {
@@ -587,7 +416,7 @@ describe("LobbyPage room commands", () => {
     expect(await screen.findByText("CURRENT")).toBeInTheDocument();
 
     await act(async () => {
-      initialFetch.resolve({
+      olderFetch.resolve({
         availableRooms: [],
         activeGames: [
           {

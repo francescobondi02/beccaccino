@@ -1,12 +1,10 @@
 import { useEffect, useRef } from "react";
 import { Trophy, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { GameFinishedPayload } from "@/sockets/events";
-import type { RoomPlayer } from "@/rooms/model";
+import type { GameResult as GameResultData } from "@contract/game";
 
 interface GameResultProps {
-  result: GameFinishedPayload;
-  players: RoomPlayer[];
+  result: GameResultData;
   myTeam: number | null;
   onHome: () => Promise<void>;
   isReturningHome: boolean;
@@ -19,13 +17,12 @@ const awardTypes = [
 ] as const;
 
 export default function GameResult({
-  result, players, myTeam, onHome, isReturningHome,
+  result, myTeam, onHome, isReturningHome,
 }: GameResultProps) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => heading.current?.focus(), []);
   const statistics = result.statistics;
-  const roster = statistics?.players ?? players;
-  const awards = statistics ? awardTypes.map((award) => {
+  const awards = awardTypes.map((award) => {
     const count = Math.max(0, ...statistics.players.map((player) => player[award.key]));
     return {
       ...award,
@@ -33,7 +30,7 @@ export default function GameResult({
       names: statistics.players.filter((player) => player[award.key] === count)
         .map((player) => player.username).join(", "),
     };
-  }).filter((award) => award.count > 0) : [];
+  }).filter((award) => award.count > 0);
 
   return (
     <main className="circolo-shell min-h-screen px-8 py-10" data-testid="game-result-page" data-game-finished="true">
@@ -53,14 +50,14 @@ export default function GameResult({
               <div key={team} className={`rounded-xl border p-6 bg-card ${result.winnerTeam === team ? "border-primary" : "border-border"}`}>
                 <h2 className="text-xl font-bold">Squadra {team + 1}{myTeam === team ? " · La tua" : ""}</h2>
                 <p className="text-sm text-muted-foreground break-words">
-                  {roster.filter((player) => player.team === team).map((player) => player.username).join(" e ")}
+                  {statistics.players.filter((player) => player.team === team).map((player) => player.username).join(" e ")}
                 </p>
                 <p className="my-4 text-5xl font-bold text-primary">{result.finalScores[key]} <span className="text-sm">punti</span></p>
                 <dl className="space-y-2">
                   <div className="flex justify-between gap-4"><dt>Smazzate vinte</dt><dd>{result.roundsWon[key]}</dd></div>
-                  {statistics && <div className="flex justify-between gap-4"><dt>Prese vinte</dt><dd>
+                  <div className="flex justify-between gap-4"><dt>Prese vinte</dt><dd>
                     {statistics.players.filter((player) => player.team === team).reduce((total, player) => total + player.tricksWon, 0)}
-                  </dd></div>}
+                  </dd></div>
                 </dl>
               </div>
             );
@@ -86,22 +83,20 @@ export default function GameResult({
           </section>
         )}
 
-        {statistics && (
-          <details className="rounded-xl border border-border bg-card p-4">
-            <summary className="cursor-pointer font-bold">Punteggi delle smazzate</summary>
-            <table className="mt-4 w-full text-sm text-left">
-              <caption className="sr-only">Punti e figure per smazzata</caption>
-              <thead><tr><th scope="col">Smazzata</th><th scope="col">Squadra 1</th><th scope="col">Squadra 2</th></tr></thead>
-              <tbody>{statistics.rounds.map((round) => (
-                <tr key={round.number} className="border-t border-border">
-                  <th scope="row" className="py-3">{round.number}</th>
-                  <td>{round.team0Points} punti · {round.team0Figures} figure</td>
-                  <td>{round.team1Points} punti · {round.team1Figures} figure</td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </details>
-        )}
+        <details className="rounded-xl border border-border bg-card p-4">
+          <summary className="cursor-pointer font-bold">Punteggi delle smazzate</summary>
+          <table className="mt-4 w-full text-sm text-left">
+            <caption className="sr-only">Punti e figure per smazzata</caption>
+            <thead><tr><th scope="col">Smazzata</th><th scope="col">Squadra 1</th><th scope="col">Squadra 2</th></tr></thead>
+            <tbody>{statistics.rounds.map((round) => (
+              <tr key={round.number} className="border-t border-border">
+                <th scope="row" className="py-3">{round.number}</th>
+                <td>{round.score.team0.points} punti · {round.score.team0.figures} figure</td>
+                <td>{round.score.team1.points} punti · {round.score.team1.figures} figure</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </details>
         <Button className="w-full" variant="gradient" onClick={() => void onHome()} disabled={isReturningHome}>
           {isReturningHome ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Uscita in corso...</> : "Torna alla lobby"}
         </Button>

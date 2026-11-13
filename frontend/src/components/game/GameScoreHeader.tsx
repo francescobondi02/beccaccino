@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card";
-import type { TotalPoints } from "@/game/model";
+import type { Score } from "@contract/game";
 import { pointsForPlayerTeam } from "@/game/presentation";
 
 interface GameScoreHeaderProps {
@@ -8,7 +8,7 @@ interface GameScoreHeaderProps {
   roundNumber: number | undefined;
   handNumber: number | null;
   playerTeam: number | null;
-  totalPoints: TotalPoints;
+  totalPoints: Score;
 }
 
 export default function GameScoreHeader({

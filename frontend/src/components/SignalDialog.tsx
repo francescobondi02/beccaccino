@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import type { Signal } from "@/game/model";
+import type { Signal } from "@contract/cards";
 
 interface SignalDialogProps {
   open: boolean;

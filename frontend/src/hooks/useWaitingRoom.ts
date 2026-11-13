@@ -1,12 +1,9 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Room } from "@contract/rooms";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
-import type { RoomResponse } from "@/rooms/model";
-import {
-  initialWaitingRoomState,
-  waitingRoomReducer,
-} from "@/rooms/waitingRoomState";
 import {
   leaveRoom,
   registerRoomHandlers,
@@ -27,12 +24,10 @@ export function useWaitingRoom({
   onLeaveError,
 }: UseWaitingRoomOptions) {
   const { pathname } = useLocation();
-  const [state, dispatch] = useReducer(
-    waitingRoomReducer,
-    initialWaitingRoomState,
-  );
+  const queryClient = useQueryClient();
   const gameStarted = useRef(false);
   const loadFailed = useRef(false);
+  const mayJoin = useRef(true);
   const departure = useRef<{
     key: string;
     request: Promise<boolean>;
@@ -60,83 +55,57 @@ export function useWaitingRoom({
     return request;
   }, [onLeaveError, roomCode, userId]);
 
-  const loadRoom = useCallback(async (isActive: () => boolean = () => true) => {
-    const room = await apiGet<RoomResponse>(`/rooms/${roomCode}`);
-    if (!isActive()) return;
-    if (room.started) gameStarted.current = true;
-    dispatch({ type: "room_loaded", room });
-  }, [roomCode]);
+  useEffect(() => {
+    mayJoin.current = true;
+    gameStarted.current = false;
+    loadFailed.current = false;
+  }, [roomCode, userId]);
+
+  const query = useQuery({
+    queryKey: ["room", roomCode],
+    queryFn: async () => {
+      try {
+        return await apiGet<Room>(`/rooms/${roomCode}`);
+      } catch (error) {
+        // Invite links reach non-members: join once, as the first load.
+        if (!(mayJoin.current && error instanceof ApiError && error.status === 403)) throw error;
+        return await apiPost<Room>(`/rooms/${roomCode}/join`);
+      } finally {
+        mayJoin.current = false;
+      }
+    },
+    enabled: Boolean(userId && roomCode),
+    retry: false,
+  });
+  const room = query.data ?? null;
+  if (room?.started) gameStarted.current = true;
+
+  useEffect(() => {
+    if (!query.error) return;
+    loadFailed.current = true;
+    onLoadError(query.error);
+  }, [onLoadError, query.error]);
+
+  const refreshRoom = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ["room", roomCode] }),
+    [queryClient, roomCode],
+  );
 
   const connectionStatus = useConnectionStatus();
 
-  useEffect(() => {
-    if (!userId || !roomCode) return;
-    let active = true;
-    const isActive = () => active;
-    gameStarted.current = false;
-    loadFailed.current = false;
-
-    dispatch({ type: "loading_started" });
-    void loadRoom(isActive)
-      .catch(async (error: unknown) => {
-        // Invite links reach non-members: join first, then load as a member.
-        if (!(error instanceof ApiError && error.status === 403)) throw error;
-        await apiPost("/rooms/join", { roomCode });
-        await loadRoom(isActive);
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        loadFailed.current = true;
-        dispatch({ type: "loading_finished" });
-        onLoadError(error);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [loadRoom, onLoadError, roomCode, userId]);
-
-  const isMember = state.room !== null;
+  const isMember = room !== null;
   useEffect(() => {
     if (!isMember || !userId || !roomCode) return;
 
-    const unregisterRoom = registerRoomHandlers(
-      roomCode,
-      () => void loadRoom().catch((error: unknown) => {
-        console.error("Error refetching room on reconnect:", error);
-      }),
-    );
-    const unsubscribers = [
-      subscribeToRoomEvent("player_joined", ({ player }) => {
-        dispatch({ type: "player_joined", player });
-      }),
-      subscribeToRoomEvent("player_left", ({ userId: leftUserId }) => {
-        dispatch({ type: "player_left", userId: leftUserId });
-      }),
-      subscribeToRoomEvent("team_chosen", ({ userId: changedUserId, team }) => {
-        dispatch({ type: "team_chosen", userId: changedUserId, team });
-      }),
-      subscribeToRoomEvent(
-        "ready_changed",
-        ({ userId: changedUserId, isReady }) => {
-          dispatch({
-            type: "ready_changed",
-            userId: changedUserId,
-            isReady,
-          });
-        },
-      ),
-      subscribeToRoomEvent("room_settings_changed", ({ room }) => {
-        dispatch({ type: "room_loaded", room });
-      }),
-      subscribeToRoomEvent("game_started", () => {
-        gameStarted.current = true;
-        dispatch({ type: "game_started" });
-      }),
-    ];
+    // Joining the socket room also covers reconnects: refetch what we missed.
+    const unregisterRoom = registerRoomHandlers(roomCode, () => void refreshRoom());
+    const unsubscribe = subscribeToRoomEvent("room_changed", () => {
+      // After our own departure the room is no longer ours to load.
+      if (!departure.current) void refreshRoom();
+    });
 
     return () => {
-      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      unsubscribe();
       unregisterRoom();
       if (!gameStarted.current) {
         leaveRoom(roomCode);
@@ -146,21 +115,17 @@ export function useWaitingRoom({
         }
       }
     };
-  }, [isMember, leaveWaitingRoom, loadRoom, pathname, roomCode, userId]);
+  }, [isMember, leaveWaitingRoom, refreshRoom, pathname, roomCode, userId]);
 
   return {
-    ...state,
+    room,
+    isLoading: query.isLoading,
     connectionStatus,
     leaveWaitingRoom,
+    refreshRoom,
     configureBots: async (tier: string | null) => {
-      const room = await apiPost<RoomResponse>(`/rooms/${roomCode}/bots`, { tier });
-      dispatch({ type: "room_loaded", room });
-    },
-    setPlayerTeam: (changedUserId: number, team: number) => {
-      dispatch({ type: "team_chosen", userId: changedUserId, team });
-    },
-    setPlayerReady: (changedUserId: number, isReady: boolean) => {
-      dispatch({ type: "ready_changed", userId: changedUserId, isReady });
+      const updatedRoom = await apiPost<Room>(`/rooms/${roomCode}/bots`, { tier });
+      queryClient.setQueryData(["room", roomCode], updatedRoom);
     },
   };
 }

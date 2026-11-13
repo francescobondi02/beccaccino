@@ -132,7 +132,6 @@ describe("GameChat", () => {
     });
 
     expect(mockSocket.emit).toHaveBeenCalledWith("send_chat_message", {
-      roomCode: "ABCD",
       message: "Ciao!",
     });
   });
@@ -176,7 +175,6 @@ describe("GameChat", () => {
     });
 
     expect(mockSocket.emit).toHaveBeenCalledWith("send_chat_message", {
-      roomCode: "ABCD",
       message: "Enter test",
     });
   });

@@ -1,28 +1,5 @@
 import { getSocket } from "./socketClient";
-import type { ServerToClientEvents } from "./events";
-
-type LobbyEventName =
-  | "room_created"
-  | "room_updated"
-  | "room_full"
-  | "room_deleted"
-  | "practice_paused"
-  | "practice_resumed"
-  | "practice_abandoned";
-
-type LobbyEventListener<Event extends LobbyEventName> =
-  ServerToClientEvents[Event];
-
-interface LobbyEventSocket {
-  on<Event extends LobbyEventName>(
-    event: Event,
-    listener: LobbyEventListener<Event>,
-  ): void;
-  off<Event extends LobbyEventName>(
-    event: Event,
-    listener: LobbyEventListener<Event>,
-  ): void;
-}
+import type { ServerToClientEvents } from "@contract/socket";
 
 export function registerLobbyHandlers(onReconnect?: () => void): () => void {
   const socket = getSocket();
@@ -48,11 +25,12 @@ export function leaveLobby() {
   getSocket().emit("leave_lobby");
 }
 
-export function subscribeToLobbyEvent<Event extends LobbyEventName>(
-  event: Event,
-  listener: LobbyEventListener<Event>,
+export function subscribeToLobbyChanges(
+  listener: ServerToClientEvents["lobby_changed"],
 ): () => void {
-  const socket = getSocket() as unknown as LobbyEventSocket;
-  socket.on(event, listener);
-  return () => socket.off(event, listener);
+  const socket = getSocket();
+  socket.on("lobby_changed", listener);
+  return () => {
+    socket.off("lobby_changed", listener);
+  };
 }

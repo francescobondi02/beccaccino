@@ -1,7 +1,7 @@
 // src/sockets/socketClient.ts
 import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
-import type { ServerToClientEvents, ClientToServerEvents } from "./events";
+import type { ServerToClientEvents, ClientToServerEvents } from "@contract/socket";
 
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 

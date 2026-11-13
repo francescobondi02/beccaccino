@@ -1,16 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import GameRoom from "@/pages/GameRoom";
 import { ApiError } from "@/lib/api";
-import type { RoomResponse } from "@/rooms/model";
-import type {
-  PlayerJoinedPayload,
-  PlayerLeftPayload,
-  ReadyChangedPayload,
-  TeamChosenPayload,
-} from "@/sockets/events";
 
 const mocks = vi.hoisted(() => {
   type ConnectionStatus = "connected" | "disconnected" | "reconnecting";
@@ -19,12 +13,7 @@ const mocks = vi.hoisted(() => {
     apiGet: vi.fn<(path: string) => Promise<unknown>>(),
     apiPost: vi.fn(),
     callbacks: {
-      playerJoined: null as ((payload: PlayerJoinedPayload) => void) | null,
-      playerLeft: null as ((payload: PlayerLeftPayload) => void) | null,
-      teamChosen: null as ((payload: TeamChosenPayload) => void) | null,
-      readyChanged: null as ((payload: ReadyChangedPayload) => void) | null,
-      settingsChanged: null as ((payload: { room: RoomResponse }) => void) | null,
-      gameStarted: null as (() => void) | null,
+      roomChanged: null as (() => void) | null,
       joined: null as (() => void) | null,
     },
     statusListeners: new Set<(status: ConnectionStatus) => void>(),
@@ -73,14 +62,7 @@ vi.mock("@/sockets/roomHandlers", () => ({
     event: string,
     callback: (...args: never[]) => void,
   ) => {
-    const key = {
-      player_joined: "playerJoined",
-      player_left: "playerLeft",
-      team_chosen: "teamChosen",
-      ready_changed: "readyChanged",
-      room_settings_changed: "settingsChanged",
-      game_started: "gameStarted",
-    }[event] as keyof typeof mocks.callbacks;
+    const key = { room_changed: "roomChanged" }[event] as keyof typeof mocks.callbacks;
     mocks.callbacks[key] = callback;
     return () => {
       mocks.callbacks[key] = null;
@@ -111,7 +93,7 @@ const alice = {
   seat: 0,
   team: 0,
   isReady: false,
-  user: { username: "alice" },
+  user: { id: 1, username: "alice" },
 };
 
 const bob = {
@@ -120,8 +102,10 @@ const bob = {
   seat: 1,
   team: null,
   isReady: false,
-  user: { username: "bob" },
+  user: { id: 2, username: "bob" },
 };
+
+const carla = { ...bob, id: 12, userId: 3, user: { id: 3, username: "carla" } };
 
 function room(players: unknown[]) {
   return {
@@ -129,19 +113,29 @@ function room(players: unknown[]) {
     code: "ROOM",
     started: false,
     finished: false,
+    isPractice: false,
+    botTier: null,
+    pausedAt: null,
     players,
   };
 }
 
+async function changeRoom(nextRoom: unknown) {
+  mocks.apiGet.mockResolvedValue(nextRoom);
+  await act(async () => mocks.callbacks.roomChanged?.());
+}
+
 function renderGameRoom() {
   return render(
+    <QueryClientProvider client={new QueryClient()}>
     <BrowserRouter>
       <Routes>
         <Route path="/room/:roomCode" element={<GameRoom />} />
         <Route path="/" element={<p>Lobby</p>} />
         <Route path="/game/:roomCode" element={<p>Tavolo</p>} />
       </Routes>
-    </BrowserRouter>,
+    </BrowserRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -158,86 +152,31 @@ describe("GameRoom state synchronization", () => {
     });
   });
 
-  it("normalizes room players and applies membership, team, and ready events", async () => {
-    mocks.apiGet.mockResolvedValue(room([alice, bob]));
+  it("refetches the room on room_changed", async () => {
+    mocks.apiGet.mockResolvedValue(room([{ ...alice, team: null }, bob]));
 
     renderGameRoom();
 
     expect(await screen.findByText("Giocatori: 2 / 4")).toBeInTheDocument();
     expect(screen.getByText("alice")).toBeInTheDocument();
     expect(screen.getByText("bob")).toBeInTheDocument();
-    expect(screen.getByTestId("ready-button")).toBeEnabled();
-
-    act(() => {
-      mocks.callbacks.teamChosen?.({ userId: 2, playerId: 11, team: 1 });
-      mocks.callbacks.readyChanged?.({
-        userId: 2,
-        playerId: 11,
-        isReady: true,
-      });
-    });
-
-    expect(screen.getByText("Squadra 2")).toBeInTheDocument();
-    expect(screen.getByText("Pronto")).toBeInTheDocument();
-
-    act(() => {
-      mocks.callbacks.playerJoined?.({
-        player: {
-          id: 12,
-          userId: 3,
-          username: "carla",
-          seat: 2,
-          team: null,
-          isReady: false,
-        },
-      });
-    });
-    expect(screen.getByText("carla")).toBeInTheDocument();
-
-    act(() => {
-      mocks.callbacks.playerLeft?.({ userId: 2 });
-    });
-    expect(screen.queryByText("bob")).not.toBeInTheDocument();
-    expect(screen.getByText("Giocatori: 2 / 4")).toBeInTheDocument();
-
-    act(() => {
-      mocks.callbacks.playerLeft?.({ userId: 1 });
-    });
-    expect(screen.queryByText("Tu")).not.toBeInTheDocument();
-    expect(screen.getByText("Giocatori: 1 / 4")).toBeInTheDocument();
-    expect(screen.getByTestId("ready-button")).toBeDisabled();
-  });
-
-  it("derives current-player controls from room events", async () => {
-    mocks.apiGet.mockResolvedValue(
-      room([{ ...alice, team: null, isReady: false }, bob]),
-    );
-
-    renderGameRoom();
-
-    expect(await screen.findByTestId("team-0-button")).toBeInTheDocument();
     expect(screen.getByTestId("ready-button")).toBeDisabled();
 
-    act(() => {
-      mocks.callbacks.teamChosen?.({ userId: 1, playerId: 10, team: 1 });
-    });
+    await changeRoom(room([
+      { ...alice, team: 1, isReady: true },
+      { ...bob, team: 1, isReady: true },
+      carla,
+    ]));
 
+    expect(await screen.findByText("carla")).toBeInTheDocument();
+    expect(screen.getByText("Giocatori: 3 / 4")).toBeInTheDocument();
     expect(screen.queryByTestId("team-0-button")).not.toBeInTheDocument();
-    expect(screen.getByTestId("ready-button")).toBeEnabled();
-
-    act(() => {
-      mocks.callbacks.readyChanged?.({
-        userId: 1,
-        playerId: 10,
-        isReady: true,
-      });
-    });
-
     expect(screen.getByTestId("ready-button")).toHaveTextContent("Non pronto");
   });
 
   it("chooses a team and enables readiness", async () => {
-    mocks.apiGet.mockResolvedValue(room([{ ...alice, team: null }, bob]));
+    mocks.apiGet.mockResolvedValueOnce(room([{ ...alice, team: null }, bob]));
+    mocks.apiGet.mockResolvedValue(room([{ ...alice, team: 1 }, bob]));
     renderGameRoom();
 
     fireEvent.click(await screen.findByTestId("team-1-button"));
@@ -267,21 +206,10 @@ describe("GameRoom state synchronization", () => {
     expect(screen.getByTestId("ready-button")).toHaveTextContent("Sono pronto!");
     expect(screen.getByText("Giocatori: 1 / 4")).toBeInTheDocument();
 
-    act(() => {
-      mocks.callbacks.playerJoined?.({
-        player: {
-          id: bob.id,
-          userId: bob.userId,
-          username: "bob",
-          seat: null,
-          team: null,
-          isReady: false,
-        },
-      });
-    });
+    await changeRoom({ ...room([alice, bob]), botTier: "forte" });
 
+    expect(await screen.findByText("bob")).toBeInTheDocument();
     expect(screen.getAllByText("Bot alla partenza")).toHaveLength(2);
-    expect(screen.getByText("bob")).toBeInTheDocument();
     expect(screen.getByText("Giocatori: 2 / 4")).toBeInTheDocument();
   });
 
@@ -290,18 +218,10 @@ describe("GameRoom state synchronization", () => {
     renderGameRoom();
     await screen.findByText("Giocatori: 1 / 4");
 
-    act(() => {
-      mocks.callbacks.settingsChanged?.({
-        room: {
-          ...room([alice]),
-          isPractice: false,
-          botTier: "medio",
-          players: [alice],
-        },
-      });
-    });
+    await changeRoom({ ...room([alice]), botTier: "medio" });
 
-    expect(screen.getByLabelText("Completa i posti liberi con bot")).toHaveValue("medio");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Completa i posti liberi con bot")).toHaveValue("medio"));
     expect(screen.getAllByText("Bot alla partenza")).toHaveLength(3);
     expect(screen.getByTestId("ready-button")).toHaveTextContent("Sono pronto!");
   });
@@ -434,9 +354,9 @@ describe("GameRoom state synchronization", () => {
     mocks.apiPost.mockReturnValueOnce(new Promise((resolve) => { finishJoin = resolve; }));
     renderGameRoom();
 
-    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/join", { roomCode: "ROOM" }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith("/rooms/ROOM/join"));
     expect(mocks.callbacks.joined).toBeNull();
-    await act(async () => finishJoin({ success: true }));
+    await act(async () => finishJoin(room([alice, bob])));
 
     expect(await screen.findByText("Giocatori: 2 / 4")).toBeInTheDocument();
     expect(mocks.callbacks.joined).toEqual(expect.any(Function));
@@ -462,18 +382,15 @@ describe("GameRoom state synchronization", () => {
     expect(mocks.apiPost).not.toHaveBeenCalled();
   });
 
-  it("keeps socket room membership during the game transition", async () => {
+  it("goes to the table when room_changed reports the start, keeping socket membership", async () => {
     mocks.apiGet.mockResolvedValue(room([alice]));
 
-    const { unmount } = renderGameRoom();
+    renderGameRoom();
     await screen.findByText("Giocatori: 1 / 4");
 
-    act(() => {
-      mocks.callbacks.gameStarted?.();
-    });
-    window.history.pushState({}, "", "/game/ROOM");
-    unmount();
+    await changeRoom({ ...room([alice]), started: true });
 
+    expect(await screen.findByText("Tavolo")).toBeInTheDocument();
     expect(mocks.unregisterRoom).toHaveBeenCalledOnce();
     expect(mocks.leaveRoom).not.toHaveBeenCalled();
     expect(mocks.apiPost).not.toHaveBeenCalled();

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { JoinRoomResult } from "@/sockets/events";
+import type { JoinRoomResult } from "@contract/socket";
 
 type Listener = (...args: unknown[]) => void;
 const serverListeners = new Map<string, Set<Listener>>();
@@ -175,29 +175,29 @@ describe("roomHandlers", () => {
 
   it("subscribes and unsubscribes the same event callback", () => {
     const callback = vi.fn();
-    const unsubscribe = subscribeToRoomEvent("player_left", callback);
-    const listener = socketListener("player_left");
+    const unsubscribe = subscribeToRoomEvent("room_changed", callback);
+    const listener = socketListener("room_changed");
 
-    listener({ userId: 42 });
-    expect(callback).toHaveBeenCalledWith({ userId: 42 });
+    listener({ roomCode: "ROOM" });
+    expect(callback).toHaveBeenCalledWith({ roomCode: "ROOM" });
 
     unsubscribe();
-    expect(mockSocket.off).toHaveBeenCalledWith("player_left", callback);
+    expect(mockSocket.off).toHaveBeenCalledWith("room_changed", callback);
   });
 
   it("does not remove another subscriber for the same event", () => {
     const first = vi.fn();
     const second = vi.fn();
-    const unsubscribeFirst = subscribeToRoomEvent("ready_changed", first);
-    subscribeToRoomEvent("ready_changed", second);
+    const unsubscribeFirst = subscribeToRoomEvent("room_changed", first);
+    subscribeToRoomEvent("room_changed", second);
 
     serverListeners
-      .get("ready_changed")
-      ?.forEach((listener) => listener({ userId: 1, isReady: true }));
+      .get("room_changed")
+      ?.forEach((listener) => listener({ roomCode: "ROOM" }));
     unsubscribeFirst();
     serverListeners
-      .get("ready_changed")
-      ?.forEach((listener) => listener({ userId: 1, isReady: false }));
+      .get("room_changed")
+      ?.forEach((listener) => listener({ roomCode: "ROOM" }));
 
     expect(first).toHaveBeenCalledOnce();
     expect(second).toHaveBeenCalledTimes(2);
