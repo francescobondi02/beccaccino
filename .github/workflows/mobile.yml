@@ -1,4 +1,4 @@
-name: Mobile checks
+name: Mobile
 
 on:
   pull_request:

@@ -9,7 +9,7 @@ import { GAME_WIN_POINTS } from "../../src/gameConfig";
 
 // Read at runtime rather than importing: the fixture is generated in `ai/`
 // (`python -m scripts.gen_bot_fixtures`), and importing across that boundary
-// would drag it into the backend's own build. A missing file fails the suite.
+// would drag it into the backend's own build.
 const FIXTURE_PATH = path.resolve(
   __dirname,
   "../../../ai/serving/fixtures/bot_states.json",

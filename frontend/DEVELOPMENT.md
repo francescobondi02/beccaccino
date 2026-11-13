@@ -337,14 +337,7 @@ POST /annotations/responses
 
 ## Deployment
 
-- `.github/workflows/ci.yml` runs on pushes to `main` and `develop` and on pull
-  requests: Node 24, `npm ci`, `npm run typecheck`, `npm run lint`, `npm test`,
-  `npm run build`.
-- `.github/workflows/deploy.yml` runs after a successful CI run for a push to
-  `main`. It checks out that exact commit, runs `npm ci`, installs
-  `vercel@59.7.0`, then runs `vercel pull --environment=production`,
-  `vercel build --prod` and `vercel deploy --prebuilt --prod`. There is no
-  post-deploy check. Direct Vercel Git deployments are disabled in `vercel.json`.
+- CI: `.github/workflows/frontend.yml` (path-filtered). Production deploys are not automated yet.
 - Every Vite build generates a random UUID, bakes it into the bundle as
   `import.meta.env.VITE_APP_VERSION`, and emits `dist/version.json` with
   `{ "version": "<uuid>" }`. The id is not a commit SHA, so any rebuild counts

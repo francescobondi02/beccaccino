@@ -43,18 +43,7 @@ page origin. No Sentry or other error-reporting integration exists.
 
 ## Deployment
 
-`.github/workflows/ci.yml` (CI) runs on pushes to `main` and `develop` and on
-pull requests: Node 24, `npm ci`, `npm run typecheck`, `npm run lint`,
-`npm test`, `npm run build`.
-
-`.github/workflows/deploy.yml` runs when CI completes for a push to `main` and
-only if CI succeeded. It checks out the exact CI commit (`head_sha`), runs
-`npm ci`, installs the pinned Vercel CLI (`vercel@59.7.0`), then runs
-`vercel pull --environment=production`, `vercel build --prod` and
-`vercel deploy --prebuilt --prod`. It reads the repository secrets
-`VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` directly. There is no
-post-deploy verification step. Direct Vercel Git deployments are disabled in
-`vercel.json`.
+CI: `.github/workflows/frontend.yml` (path-filtered). Production deploys are not automated yet.
 
 Each build emits `dist/version.json` with a random build UUID (not a commit
 SHA) through the `app-version` plugin in `vite.config.ts`. Open production tabs
@@ -128,7 +117,6 @@ Root configuration files:
 - `vercel.json` — rewrites `/socket.io/?transport=websocket` to `/api/socket-proxy`, `/api/*` and other `/socket.io/` traffic to `https://beccaccino-server.onrender.com`, everything except `/assets/` and `/version.json` to `/index.html`; Git deployments disabled; `Cache-Control: no-store` for `/version.json`, security headers, and immutable caching for `/assets/` [vercel.json:rewrites], [vercel.json:git.deploymentEnabled]
 - `components.json` — shadcn/ui configuration (aliases `@/components`, `@/lib/utils`, `@/components/ui`) [components.json:aliases]
 - `eslint.config.js`, `tsconfig*.json`, `tailwind.config.ts`, `postcss.config.js` — lint, type-check and styling configuration.
-- `.github/workflows/ci.yml`, `.github/workflows/deploy.yml` — CI and production deployment (see [Deployment](#deployment)).
 
 ### Static assets (`public/`)
 

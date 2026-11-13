@@ -98,7 +98,7 @@ The root folder contains local development tooling only.
 - Production: backend on Render (`https://beccaccino-server.onrender.com`, the
   default origin of `mobile/src/lib/backend.ts`), web frontend on Vercel.
 - `cleanup.sh` deletes the local database volume (`docker compose down -v`).
-- Mobile CI runs from `.github/workflows/mobile.yml`.
+- CI: `.github/workflows/<module>.yml`, path-filtered.
 
 ## Operator Documents
 

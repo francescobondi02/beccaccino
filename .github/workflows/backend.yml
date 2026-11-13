@@ -2,13 +2,12 @@ name: Backend
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - backend/**
       - ai/serving/fixtures/**
       - .github/workflows/backend.yml
   pull_request:
-    branches: [main, develop]
     paths:
       - backend/**
       - ai/serving/fixtures/**

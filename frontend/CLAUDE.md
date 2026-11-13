@@ -149,12 +149,8 @@ npm run build       # vite build -> dist/ (static files)
 npm run dev         # vite dev server on :8081
 ```
 
-CI (`.github/workflows/ci.yml`) runs `npm ci`, typecheck, lint, `npm test` and
-`npm run build` on pushes to `main`/`develop` and on pull requests.
-`.github/workflows/deploy.yml` deploys the exact commit of a successful `main`
-push CI run with the pinned Vercel CLI (`vercel pull`, `vercel build --prod`,
-`vercel deploy --prebuilt --prod`); it does not verify the deployment afterwards.
-Direct Vercel Git deployments are disabled. SPA routing is handled by `vercel.json`.
+CI: `.github/workflows/frontend.yml` (path-filtered). Production deploys are not automated yet.
+SPA routing is handled by `vercel.json`.
 
 Each build generates a random UUID: Vite bakes it in as
 `import.meta.env.VITE_APP_VERSION`, and the `app-version` plugin in

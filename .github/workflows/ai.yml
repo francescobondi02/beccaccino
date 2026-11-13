@@ -2,7 +2,7 @@ name: AI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - ai/**
       - .github/workflows/ai.yml

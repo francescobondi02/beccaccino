@@ -146,7 +146,7 @@ through shared rule vectors, the Python-generated bot fixture consumed by the
 backend integration suite, and the runtime legal-card agreement check.
 
 The cross-language fixture test reads the fixture from the sibling `ai/`
-folder and fails when the file is missing.
+folder.
 
 ## Database Operations
 

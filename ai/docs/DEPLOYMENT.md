@@ -89,22 +89,11 @@ Review and commit both the artifact and its `.sha256` sidecar together.
    wakes a sleeping service and verifies the requested tier plus shared secret
    before any room or bot rows are created.
 
-### CI-gated deployment
+### CI
 
-GitHub Actions tests on Python 3.12, builds the production Dockerfile, starts
-the image, and verifies its model and tier endpoints. A second workflow runs
-only after the complete `CI` workflow succeeds on `main`.
-
-Create a Render deploy hook for the AI service and store it in the repository
-secret `RENDER_DEPLOY_HOOK_URL`, then disable Render's direct auto-deploy for
-the service. `render.yaml` declares `autoDeployTrigger: off`; verify that the
-existing service has synchronized that setting before merging this change. A
-missing secret fails the deployment workflow.
-
-The deployment workflow passes the tested GitHub commit as the deploy hook's
-`ref`, waits for the public `/version` endpoint to report that exact commit,
-and then checks `/health` and the deployed tier catalog. Render supplies
-`RENDER_GIT_COMMIT`; deployments outside Render can set `GIT_COMMIT_SHA`.
+GitHub Actions (`.github/workflows/ai.yml`) tests on Python 3.12, builds the
+production Dockerfile, starts the image, and verifies its model and tier
+endpoints. Production deploys are not automated yet.
 
 The container uses the PyTorch CPU wheel, one Uvicorn worker, and one BLAS
 thread. Startup fails if the promoted artifact is missing, corrupt, or

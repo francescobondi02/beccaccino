@@ -53,17 +53,15 @@ that rewrites local secrets into production secrets.
 | Component | Production command | Configuration |
 | --- | --- | --- |
 | Backend on Render | Existing `backend/Dockerfile`: build with `npm run build`; start with `npx prisma migrate deploy && node dist/index.js` | `NODE_ENV=production` is set by the image; Render supplies database URLs, JWT secret, frontend origin and bot URL/token |
-| Frontend on Vercel | Existing deploy workflow: `vercel pull --environment=production`, `vercel build --prod`, `vercel deploy --prebuilt --prod` | Vercel Production variables provide `VITE_API_URL` and `VITE_SOCKET_URL`; never frontend secrets |
+| Frontend on Vercel | `vercel build` of `frontend/` (deploy not automated yet) | Vercel Production variables provide `VITE_API_URL` and `VITE_SOCKET_URL`; never frontend secrets |
 | Bot on Render | `ai/Dockerfile`: `uvicorn serving.app:app --host 0.0.0.0 --port "$PORT"` | Private `BOT_SERVICE_TOKEN`, matching the backend; Render supplies `PORT` |
 | Neon | No application process; backend startup runs `prisma migrate deploy` | `DATABASE_URL` is the pooled Neon URL; `DIRECT_URL` is the direct URL for the **same production database** |
 
 The bot image uses the same committed PyTorch artifact locally and in production.
 `forte` selects `ai/serving/models/kaggle_2026_10_25.pt`, with its frozen
 1888-feature observation encoder. ONNX is not required. CI verifies model loading,
-legal actions, and the production container before invoking the Render deploy hook.
+legal actions, and the production container.
 
-The current Vercel workflow already selects Production configuration. The backend
-workflow calls the existing Render hook only after successful CI on a push to main.
 Changing these files does not deploy anything: no cloud upload, migration or
 paid service is started by local development.
 
