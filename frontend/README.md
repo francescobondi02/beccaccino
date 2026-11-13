@@ -122,4 +122,4 @@ Invariants:
 - Run: `cd frontend && npm run typecheck`
 - Run: `cd frontend && npm run lint`
 - Run: `cd frontend && npm run build`
-- End-to-end: `cd frontend && npx playwright test` (uses `playwright.config.ts`).
+- End-to-end: `cd frontend && npx playwright test` (uses `playwright.config.ts`). The started backend needs `JWT_SECRET` (env or `backend/.env`; it exits silently without it), and the practice spec needs a running bot service via `BOT_SERVICE_URL` and `BOT_SERVICE_TOKEN`.
