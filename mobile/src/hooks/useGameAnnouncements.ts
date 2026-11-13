@@ -1,13 +1,12 @@
 import { useCallback, useState } from 'react';
-import type { GameState } from '@contract/game';
-import { displayName, signalIcons, type Trick } from '@/lib/game';
+import type { GameState, LastTrick } from '@contract/game';
+import { nameOf, signalIcons } from '@/lib/game';
 
 export type Tone = 'hot' | 'info' | 'signal';
 export type Announcement = { id: number; text: string; tone: Tone };
 
-function events(game: GameState, completedTrick: Trick | null, userId: number): [string, string, Tone][] {
+function events(game: GameState, completedTrick: LastTrick | null, userId: number): [string, string, Tone][] {
   const { round, trick, players } = game;
-  const name = (id: number | undefined) => displayName(players.find((p) => p.userId === id)?.username ?? '').toUpperCase();
   const myTeam = players.find((p) => p.userId === userId)?.team;
   const mine = !players.some((p) => p.userId === userId && p.botModel !== null);
   const leader = trick?.cards[0];
@@ -16,12 +15,12 @@ function events(game: GameState, completedTrick: Trick | null, userId: number): 
   if (completedTrick) {
     const winner = players.find((p) => p.userId === completedTrick.winnerUserId);
     list.push([`trick:${completedTrick.roundNumber}:${completedTrick.trickNumber}`,
-      winner?.userId === userId ? 'PRESA TUA!' : winner?.team === myTeam ? 'PRESA DEL SOCIO!' : `PRESA A ${name(winner?.userId)}`,
+      winner?.userId === userId ? 'PRESA TUA!' : winner?.team === myTeam ? 'PRESA DEL SOCIO!' : `PRESA A ${nameOf(players, winner?.userId).toUpperCase()}`,
       winner?.team === myTeam ? 'hot' : 'info']);
   }
   if (leader?.signal) {
     list.push([`signal:${round.number}:${trick?.number}`,
-      `${signalIcons[leader.signal]} ${leader.userId === userId ? 'TU' : name(leader.userId)}: ${leader.signal.toUpperCase()}!`, 'signal']);
+      `${signalIcons[leader.signal]} ${leader.userId === userId ? 'TU' : nameOf(players, leader.userId).toUpperCase()}: ${leader.signal.toUpperCase()}!`, 'signal']);
   }
   if (mine && !completedTrick && game.status === 'choosing_briscola' && round.callerUserId === userId) {
     list.push([`choose:${round.number}`, 'SCEGLI LA BRISCOLA', 'hot']);
@@ -33,9 +32,9 @@ function events(game: GameState, completedTrick: Trick | null, userId: number): 
 }
 
 // Turns authoritative state changes into short centre-screen announcements, each shown once.
-export default function useGameAnnouncements(game: GameState | null, completedTrick: Trick | null, userId: number) {
+export default function useGameAnnouncements(game: GameState | null, completedTrick: LastTrick | null, userId: number) {
   const [state, setState] = useState({
-    game: null as GameState | null, trick: null as Trick | null, seen: null as Set<string> | null,
+    game: null as GameState | null, trick: null as LastTrick | null, seen: null as Set<string> | null,
     queue: [] as Announcement[], nextId: 0,
   });
   if (game && (game !== state.game || completedTrick !== state.trick)) {

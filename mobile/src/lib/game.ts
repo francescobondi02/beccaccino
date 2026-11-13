@@ -1,20 +1,21 @@
 import type { Card, Suit } from '@contract/cards';
-import type { GamePlayer, GameState } from '@contract/game';
+import type { GamePlayer } from '@contract/game';
 
 export const suits = ['denara', 'coppe', 'spade', 'bastoni'] as const satisfies readonly Suit[];
 export const signals = ['striscio', 'busso', 'volo'] as const;
 export const signalIcons = { striscio: '⚡', busso: '✊', volo: '🕊️' } as const;
-export type Trick = NonNullable<GameState['lastTrick']>;
 
 // Bot accounts carry a " (bot)" suffix; the app shows a BOT tag instead.
 export const displayName = (username: string) => username.replace(/\s*\(bot\)$/i, '');
-export function cardKey(card: Card): string { return `${card.value}_${card.suit}`; }
+export function cardKey(card: Card): string { return `${card.suit}-${card.value}`; }
 export function cardLabel(card: Card): string { return `${card.value} di ${card.suit}`; }
 const seatOf = (players: GamePlayer[], userId: number) => players.find((p) => p.userId === userId)?.seat ?? 0;
 // Where a player sits as seen by the viewer: 0 left, 1 partner opposite, 2 right, 3 the viewer.
 export function relativeSeat(players: GamePlayer[], userId: number, viewerId: number): number {
   return ((seatOf(players, userId) - seatOf(players, viewerId) + 4) % 4 + 3) % 4;
 }
+export const nameOf = (players: GamePlayer[], userId: number | undefined) =>
+  displayName(players.find((p) => p.userId === userId)?.username ?? '');
 export function teamOf(players: GamePlayer[], userId: number): number {
   return players.find((p) => p.userId === userId)?.team ?? 0;
 }

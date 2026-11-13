@@ -1,12 +1,12 @@
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import type { GameState, Score } from "@contract/game";
+import type { RoundSummary, Score } from "@contract/game";
 import type { ReactNode } from "react";
 
 interface RoundEndDialogProps {
   open: boolean;
-  result: NonNullable<GameState["roundSummary"]>;
+  result: RoundSummary;
   totalPoints: Score;
   myTeam: number | null;
   callerName: string;

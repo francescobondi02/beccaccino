@@ -16,7 +16,6 @@ import { botStartTimeoutMs, displayName } from '@/lib/game';
 import { latestOnly } from '@/lib/latest';
 import { sessionRequest, type SessionUser } from '@/lib/session';
 
-const lobbyEvents = ['lobby_changed'] as const;
 type Lobby = { practice: Room | null; games: Room[]; open: Room[] };
 // My practice table apart from my multiplayer rooms, started or not.
 const readLobby = ({ activeGames, availableRooms }: LobbyRooms): Lobby => ({
@@ -79,7 +78,7 @@ function LobbyView({ user }: { user: SessionUser }) {
     void load();
     return () => { controller.abort(); request.current = null; };
   }, [load]));
-  const { online } = useSocketRefresh((socket) => socket.emit('join_lobby'), lobbyEvents, () => void load());
+  const { online } = useSocketRefresh((socket) => socket.emit('join_lobby'), 'lobby_changed', () => void load());
 
   // Every action that creates or joins a room goes through here: one at a time, errors shown inline.
   const act = async (key: string, action: (signal: AbortSignal) => Promise<string>) => {

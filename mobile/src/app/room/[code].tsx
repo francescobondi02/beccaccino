@@ -18,7 +18,6 @@ import { touchFeedback } from '@/lib/haptics';
 import { latestOnly } from '@/lib/latest';
 import { sessionRequest, SessionHttpError, type SessionUser } from '@/lib/session';
 
-const roomEvents = ['room_changed'] as const;
 const teamColors = [colors.primary, colors.pink];
 
 function Slot({ player, me, bot, team, onSit }: {
@@ -84,7 +83,7 @@ function WaitingRoomView({ code, user }: { code: string; user: SessionUser }) {
   useEffect(() => { void load(); }, [load]);
   const { online } = useSocketRefresh(
     (socket) => socket.emit('join_room', { roomCode: code }),
-    roomEvents, () => void load());
+    'room_changed', () => void load());
 
   // Resolves true on success, otherwise the failure (already shown) or false when another action is running.
   const act = async (path: string, body: unknown, timeoutMs?: number): Promise<unknown> => {

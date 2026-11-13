@@ -52,9 +52,8 @@ const push = (changes: Partial<GameState>) => {
   return act(() => handlers.game_state(structuredClone(game) as never));
 };
 let handlers: Record<string, (...args: never[]) => void>;
-let notify: (event: string) => void;
 let appState: (state: AppStateStatus) => void;
-let socket: { connected: boolean; active: boolean; on: jest.Mock; onAny: jest.Mock; timeout: jest.Mock;
+let socket: { connected: boolean; active: boolean; on: jest.Mock; timeout: jest.Mock;
   emit: jest.Mock; connect: jest.Mock; disconnect: jest.Mock; removeAllListeners: jest.Mock };
 const fetchMock = jest.fn();
 const originalAppState = AppState.currentState;
@@ -77,7 +76,6 @@ beforeEach(() => {
   socket = {
     connected: false, active: true,
     on: jest.fn((event, callback) => { handlers[event] = callback; }),
-    onAny: jest.fn((callback) => { notify = callback; }),
     timeout: jest.fn(() => socket),
     emit: jest.fn((_event, _payload, callback) => callback?.(null, { ok: true })),
     connect: jest.fn(() => { socket.connected = true; handlers.connect?.(); }),
@@ -357,7 +355,7 @@ it('seats the player, marks ready and opens the table when the game starts', asy
   await waitFor(() => expect(screen.getByRole('button', { name: 'Non sono pronto' })).toBeOnTheScreen());
   expect(socket.emit).toHaveBeenCalledWith('join_room', { roomCode: 'ABC123' });
   waiting.started = true;
-  await act(() => notify('room_changed'));
+  await act(() => handlers.room_changed());
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/game/ABC123'));
   expect(touchFeedback).toHaveBeenCalledWith('success');
 });

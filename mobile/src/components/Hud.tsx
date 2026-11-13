@@ -4,8 +4,8 @@ import { colors, hard } from '@/constants/theme';
 import { cardImage } from '@/lib/cardImages';
 import type { Announcement } from '@/hooks/useGameAnnouncements';
 import type { Suit } from '@contract/cards';
-import type { GamePlayer } from '@contract/game';
-import { cardKey, cardLabel, displayName, relativeSeat, signalIcons, type Trick } from '@/lib/game';
+import type { GamePlayer, LastTrick } from '@contract/game';
+import { cardKey, cardLabel, nameOf, relativeSeat, signalIcons } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 
@@ -125,7 +125,7 @@ export function CenterToast({ message, sticky, onDone, reduced }: {
   );
 }
 
-export function LastTrickButton({ trick, onPress }: { trick: Trick; onPress: () => void }) {
+export function LastTrickButton({ trick, onPress }: { trick: LastTrick; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel="Ultima presa" onPress={() => { touchFeedback(); onPress(); }}
       style={({ pressed }) => [styles.lastTrick, pressed && styles.lastTrickPressed]}>
@@ -139,12 +139,12 @@ export function LastTrickButton({ trick, onPress }: { trick: Trick; onPress: () 
 }
 
 // The previous trick laid out like the table: you at the bottom, your partner opposite, winner highlighted.
-export function TrickReview({ trick, players, userId }: { trick: Trick; players: GamePlayer[]; userId: number }) {
+export function TrickReview({ trick, players, userId }: { trick: LastTrick; players: GamePlayer[]; userId: number }) {
   const spots = [styles.spotLeft, styles.spotTop, styles.spotRight, styles.spotBottom];
   return (
     <View style={styles.review}>
       {trick.cards.map((card) => {
-        const name = displayName(players.find((p) => p.userId === card.userId)?.username ?? '');
+        const name = nameOf(players, card.userId);
         const winner = card.userId === trick.winnerUserId;
         return (
           <View key={cardKey(card)} accessible accessibilityLabel={`${name}: ${cardLabel(card)}${winner ? ', prende' : ''}`}

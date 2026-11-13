@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import type { Socket } from 'socket.io-client';
 
-import type { GameState } from '@contract/game';
-import type { Trick } from '@/lib/game';
+import type { GameState, LastTrick } from '@contract/game';
 import { sessionRequest, SessionHttpError } from '@/lib/session';
 import { authFailures, openSocket } from '@/lib/socket';
 
@@ -23,7 +22,7 @@ export default function useLiveGame(code: string) {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(true);
   const [attempt, setAttempt] = useState(0);
-  const [completedTrick, setCompletedTrick] = useState<Trick | null>(null);
+  const [completedTrick, setCompletedTrick] = useState<LastTrick | null>(null);
   const finishCollection = useCallback(() => setCompletedTrick(null), []);
   const controls = useRef<Controls | null>(null);
 

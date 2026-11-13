@@ -12,8 +12,8 @@ import useCardDrag from '@/hooks/useCardDrag';
 import useReducedMotion from '@/hooks/useReducedMotion';
 import { cardImage } from '@/lib/cardImages';
 import type { Card } from '@contract/cards';
-import type { GameState } from '@contract/game';
-import { cardKey, cardLabel, displayName, ourSide, relativeSeat, type Trick } from '@/lib/game';
+import type { GameState, LastTrick } from '@contract/game';
+import { cardKey, cardLabel, displayName, nameOf, ourSide, relativeSeat } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 import { tableLayout } from '@/lib/tableLayout';
@@ -67,7 +67,7 @@ export default function LiveTable({ game, userId, selected, disabled, onSelect,
   onPlay, onMenu, onHistory, controls, prompt, completedTrick, onCollected, hidden }: {
   game: GameState; userId: number; selected: Card | null; disabled: boolean;
   onSelect: (card: Card) => void; onPlay: (card: Card) => Promise<boolean>; onMenu: () => void; onHistory: () => void; controls: ReactNode; prompt: ReactNode;
-  completedTrick: Trick | null; onCollected: () => void; hidden: boolean;
+  completedTrick: LastTrick | null; onCollected: () => void; hidden: boolean;
 }) {
   const { width, height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -82,7 +82,6 @@ export default function LiveTable({ game, userId, selected, disabled, onSelect,
   const [motion] = useState(() => ({ collect: new Animated.Value(0), glow: new Animated.Value(0) }));
   const { players, playableCards: playable, score } = game;
   const position = (playerId: number) => relativeSeat(players, playerId, userId);
-  const nameOf = (playerId: number) => displayName(players.find((p) => p.userId === playerId)?.username ?? '');
   const [us, them] = ourSide<[number, number]>(players, userId, [score.team0.points, score.team0.figures], [score.team1.points, score.team1.figures]);
   const winner = completedTrick ? players.find((p) => p.userId === completedTrick.winnerUserId) : null;
   const winnerName = winner ? displayName(winner.username) : 'un giocatore';
@@ -128,9 +127,9 @@ export default function LiveTable({ game, userId, selected, disabled, onSelect,
         const active = game.turn?.userId === player.userId;
         const signal = cards.find((card) => card.userId === player.userId)?.signal;
         return (
-          <View key={player.userId} accessible accessibilityLabel={`${index === 1 ? 'Socio' : 'Avversario'} ${nameOf(player.userId)}${active ? ', sta giocando' : ''}${signal ? `, ${signal}` : ''}`}
+          <View key={player.userId} accessible accessibilityLabel={`${index === 1 ? 'Socio' : 'Avversario'} ${nameOf(players, player.userId)}${active ? ', sta giocando' : ''}${signal ? `, ${signal}` : ''}`}
             style={[styles.seat, { left: layout.seats[index].x, top: layout.seats[index].y, width: layout.seatWidth }]}>
-            <PlayerBadge name={nameOf(player.userId)} partner={index === 1} active={active} highlighted={winner?.userId === player.userId}
+            <PlayerBadge name={nameOf(players, player.userId)} partner={index === 1} active={active} highlighted={winner?.userId === player.userId}
               signal={signal} bot={player.botModel !== null}
               reduced={reduced} />
           </View>
@@ -140,7 +139,7 @@ export default function LiveTable({ game, userId, selected, disabled, onSelect,
         const index = position(card.userId);
         const seat = layout.seats[index];
         return <TableCard key={`${completedTrick?.roundNumber ?? game.round.number}:${completedTrick?.trickNumber ?? game.trick?.number}:${cardKey(card)}`}
-          image={cardImage(card)} label={`${nameOf(card.userId)}: ${cardLabel(card)}${card.signal ? `, ${card.signal}` : ''}`}
+          image={cardImage(card)} label={`${nameOf(players, card.userId)}: ${cardLabel(card)}${card.signal ? `, ${card.signal}` : ''}`}
           index={index} layout={layout} origin={{ x: seat.x + layout.seatWidth / 2, y: seat.y + 20 }} reduceMotion={motionPreference}
           destination={{ x: winnerSeat.x + layout.seatWidth / 2, y: winnerSeat.y + 20 }}
           collect={motion.collect} glow={motion.glow} winner={card.userId === winner?.userId} />;

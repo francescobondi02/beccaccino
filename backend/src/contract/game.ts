@@ -52,6 +52,16 @@ export type GameResult = {
   };
 };
 
+export type LastTrick = {
+  roundNumber: number;
+  trickNumber: number;
+  winnerUserId: number;
+  cards: PlayedCard[];
+  onTableUntil: string;
+};
+
+export type RoundSummary = { roundNumber: number; score: Score; winnerTeam: Team; visibleUntil: string };
+
 // Times are ISO strings.
 export type GameState = {
   roomCode: string;
@@ -72,13 +82,7 @@ export type GameState = {
   };
   trick: { number: number; cards: PlayedCard[] } | null;
   // Shown on the table until onTableUntil, then in "Ultima presa".
-  lastTrick: {
-    roundNumber: number;
-    trickNumber: number;
-    winnerUserId: number;
-    cards: PlayedCard[];
-    onTableUntil: string;
-  } | null;
+  lastTrick: LastTrick | null;
   myHand: Card[];
   // Empty when it is not my turn.
   playableCards: Card[];
@@ -86,7 +90,7 @@ export type GameState = {
   turn: { userId: number; phase: TurnPhase; startedAt: string; deadline: string | null } | null;
   // Cumulative.
   score: Score;
-  roundSummary: { roundNumber: number; score: Score; winnerTeam: Team; visibleUntil: string } | null;
+  roundSummary: RoundSummary | null;
   // Set when the game finished with a winner.
   result: GameResult | null;
   // Set in pushes and mutation responses; null from GET /state.
