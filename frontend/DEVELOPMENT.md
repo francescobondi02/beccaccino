@@ -7,9 +7,7 @@
 
 ## Backend Origin
 
-The browser always calls `/api` and `/socket.io/` on its own origin. In
-development Vite proxies both to `BACKEND_URL` (default `http://localhost:8000`).
-In production Vercel proxies them to Render. No `.env` file is needed.
+See [README.md](./README.md#environment-variables) for the same-origin `/api` proxy and `BACKEND_URL`.
 
 ## Starting the Frontend
 
@@ -89,7 +87,7 @@ frontend/
 ## Key Architecture Decisions
 
 - **Single socket connection**: `socketClient.ts` provides a singleton. All pages use it via `lobbyHandlers.ts` and `roomHandlers.ts`.
-- **Auth via HTTP-only cookies**: The backend sets a `authToken` cookie. All `fetch()` calls use `credentials: "include"`.
+- **Auth via HTTP-only cookies**: The backend sets a `authToken` cookie. Same-origin requests send it by default.
 - **State management**: Local React state + React Query. No global store.
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
 - **Page ownership**: Pages own route adaptation, user feedback, commands, and view composition. Hooks own asynchronous coordination. Reducers and selectors remain pure.
@@ -254,7 +252,7 @@ Without an npm script: `npx vitest` (watch mode), `npx vitest run --coverage`,
 
 - **Tailwind CSS** with custom theme (HSL CSS variables for colors)
 - **shadcn/ui** components in `src/components/ui/` — regenerate via CLI, don't edit manually
-- **Theme**: `index.html` sets `html[data-ui="arcade"]`; there is no theme switch. `tailwind.config.ts` still sets `darkMode: ["class"]`.
+- **Theme**: `index.html` sets `html[data-ui="arcade"]`; there is no theme switch.
 - Custom animations: `fade-in`, `glow`, `scroll-up`, `scroll-down`
 
 ## Routes
@@ -290,7 +288,6 @@ Images are at `/images/cards/{value}_{suit}.png`:
 
 **Blank page / API calls failing:**
 - Verify the backend is running at the proxy target (`BACKEND_URL`, default `http://localhost:8000`)
-- All `fetch()` must include `credentials: "include"`
 
 **Socket not connecting:**
 - The client always connects to the page origin at `/socket.io/`; in development check the proxy target above

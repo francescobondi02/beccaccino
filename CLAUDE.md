@@ -62,7 +62,7 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 - Code language: English. UI text: Italian.
 - Prisma enums are lowercase strings: `denara`, `asso`, etc.
 - Auth: JWT in httpOnly cookie `authToken`. Socket.IO extracts it from handshake cookie header.
-- Cookie config: `sameSite: lax`, `secure` in production. The browser reaches the backend only through the same-origin `/api` proxy.
+- Cookie config: `sameSite: lax`, `secure` in production.
 - Turn timer: 60s for card play, 90s for briscola choice. Auto-play on timeout. Kick after 3 timeouts.
 - Points stored per round as real points + figures remainder in SEPARATE columns
   (`Round.team0Points`/`team0Figures`, `schema.prisma:112-115`) — `computeRoundScore` returns
@@ -92,7 +92,7 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 Target stack: Render (backend Docker) + Neon (PostgreSQL, Frankfurt) + Vercel (frontend static).
 All auto-deploy from GitHub on push to main.
 Backend Dockerfile runs `prisma migrate deploy` on startup (idempotent).
-Vercel proxies `/api` and `/socket.io` to Render, so the browser sees one origin.
+Same-origin `/api` proxy: see [frontend/README.md](frontend/README.md#environment-variables).
 
 ## Module Boundaries
 

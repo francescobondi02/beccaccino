@@ -3,8 +3,6 @@ import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
 import type { ServerToClientEvents, ClientToServerEvents } from "./events";
 
-const SOCKET_URL = window.location.origin;
-
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 let socket: AppSocket | null = null;
@@ -28,11 +26,9 @@ function setStatus(status: ConnectionStatus) {
 
 export function getSocket(): AppSocket {
   if (!socket) {
-    socket = io(SOCKET_URL, {
+    socket = io({
       transports: ["websocket", "polling"],
       tryAllTransports: true,
-      path: "/socket.io/",
-      withCredentials: true,
       // Reconnection configuration
       reconnection: true,
       reconnectionAttempts: Infinity,

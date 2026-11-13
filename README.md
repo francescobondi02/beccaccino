@@ -81,7 +81,7 @@ The root folder contains local development tooling only.
   refuses `/act` and `/ready` without the same token
   (`ai/serving/app.py:_require_bot_token`).
 - Web authentication uses the `authToken` httpOnly cookie
-  (`frontend/src/lib/api.ts` sends `credentials: "include"`). Native
+  (same-origin requests from `frontend/src/lib/api.ts` send it). Native
   authentication uses `POST /api/users/native/login` and a bearer token
   (`mobile/src/lib/session.ts` sends `credentials: 'omit'`;
   `mobile/src/lib/socket.ts` sends `auth.token`). Both paths are checked by

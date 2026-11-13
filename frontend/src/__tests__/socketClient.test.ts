@@ -56,7 +56,7 @@ describe("socketClient", () => {
   describe("getSocket", () => {
     it("creates a socket on the page origin on first call", () => {
       expect(getSocket()).toBeDefined();
-      expect(io).toHaveBeenCalledWith(window.location.origin, expect.any(Object));
+      expect(io).toHaveBeenCalledWith(expect.objectContaining({ reconnection: true }));
     });
 
     it("returns the same socket on subsequent calls (singleton)", () => {

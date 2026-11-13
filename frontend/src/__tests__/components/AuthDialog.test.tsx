@@ -125,7 +125,6 @@ describe("AuthDialog", () => {
         expect.stringContaining("/users/login"),
         expect.objectContaining({
           method: "POST",
-          credentials: "include",
           body: JSON.stringify({ username: "TestUser", password: "password123" }),
         })
       );

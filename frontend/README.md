@@ -29,8 +29,10 @@ npm run dev            # http://localhost:8081, proxies /api and /socket.io to B
 |---|---|
 | `BACKEND_URL` | Vite dev proxy target for `/api` and `/socket.io` (default `http://localhost:8000`) |
 
-Application code reads no backend URL: REST uses `/api` and Socket.IO uses the
-page origin. No Sentry or other error-reporting integration exists.
+Application code reads no backend URL: the browser always calls `/api` and
+`/socket.io/` on its own origin. In development Vite proxies both to
+`BACKEND_URL`; in production Vercel proxies them to Render. No `.env` file is
+needed. No Sentry or other error-reporting integration exists.
 
 ## Deployment
 
@@ -107,9 +109,9 @@ Invariants:
 
 ## Invariants
 
-- The REST base is always `/api` [src/lib/api.ts:API_URL]
-- The Socket.IO client always connects to `window.location.origin` with path `/socket.io/` [src/sockets/socketClient.ts:SOCKET_URL]
-- All REST calls send cookies (`credentials: "include"`); the socket uses `withCredentials: true` [src/lib/api.ts:request], [src/sockets/socketClient.ts:getSocket]
+- The REST base is always `/api` [src/lib/api.ts:request]
+- The Socket.IO client always connects to the page origin at the default path `/socket.io/` [src/sockets/socketClient.ts:getSocket]
+- REST and Socket.IO are same-origin, so the browser sends the `authToken` cookie by default [src/lib/api.ts:request], [src/sockets/socketClient.ts:getSocket]
 - The WebSocket bridge accepts only same-origin HTTPS upgrades and forwards only the `authToken` cookie [server/socketProxy.ts:createSocketProxy]
 - The service worker is registered only in production and never caches the app itself [src/main.tsx:createRoot], [public/sw.js:fetch]
 - Production clients compare `/version.json` with the build id baked into their bundle and offer a reload toast when they differ; the id is a random UUID per build, not a commit SHA, so every rebuild counts as an update [src/hooks/useAppUpdate.ts:useAppUpdate], [vite.config.ts:randomUUID]

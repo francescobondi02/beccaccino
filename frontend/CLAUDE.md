@@ -95,7 +95,7 @@ public/
 
 ### Auth Flow
 - AuthDialog handles register + login
-- Cookie set by backend, sent automatically via `credentials: 'include'` on fetch and Socket.IO
+- Cookie set by backend, sent automatically because fetch and Socket.IO are same-origin
 - `GET /api/users/me` to check auth state on page load
 - Redirect to home if not authenticated on protected pages (`GameRoom` redirects to `/?join=CODE`)
 - Invite links (`/room/:code`) join non-members via `POST /rooms/join`; signed-out
@@ -103,9 +103,7 @@ public/
 - The singleton socket is dropped whenever the signed-in user changes
 
 ### Environment
-- The browser always calls `/api` and `/socket.io` on its own origin. In
-  development Vite proxies both to `BACKEND_URL` (default `http://localhost:8000`);
-  in production Vercel proxies them to Render.
+- Backend origin and `BACKEND_URL`: see [README.md](./README.md#environment-variables)
 
 ## Build
 

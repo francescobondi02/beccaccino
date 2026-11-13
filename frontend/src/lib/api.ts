@@ -1,7 +1,5 @@
-// Shared REST client. Centralizes the API base URL, cookie credentials, and
-// error handling so pages don't repeat the fetch + res.ok + res.json dance.
-
-const API_URL = "/api";
+// Shared REST client. Centralizes the API base URL and error handling so
+// pages don't repeat the fetch + res.ok + res.json dance.
 
 // Error payloads the backend sends alongside non-2xx statuses.
 interface ApiErrorBody {
@@ -40,9 +38,8 @@ async function request<T>(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`/api${path}`, {
     method,
-    credentials: "include",
     signal,
     headers:
       body !== undefined ? { "Content-Type": "application/json" } : undefined,
