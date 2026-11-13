@@ -1,7 +1,7 @@
 // Shared REST client. Centralizes the API base URL, cookie credentials, and
 // error handling so pages don't repeat the fetch + res.ok + res.json dance.
 
-const API_URL = import.meta.env.DEV ? "/api" : import.meta.env.VITE_API_URL || "/api";
+const API_URL = "/api";
 
 // Error payloads the backend sends alongside non-2xx statuses.
 interface ApiErrorBody {

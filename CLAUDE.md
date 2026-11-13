@@ -62,7 +62,7 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 - Code language: English. UI text: Italian.
 - Prisma enums are lowercase strings: `denara`, `asso`, etc.
 - Auth: JWT in httpOnly cookie `authToken`. Socket.IO extracts it from handshake cookie header.
-- Cookie config: `secure` in production, `sameSite: strict` (same-origin) or `none` (cross-origin deploy).
+- Cookie config: `sameSite: lax`, `secure` in production. The browser reaches the backend only through the same-origin `/api` proxy.
 - Turn timer: 60s for card play, 90s for briscola choice. Auto-play on timeout. Kick after 3 timeouts.
 - Points stored per round as real points + figures remainder in SEPARATE columns
   (`Round.team0Points`/`team0Figures`, `schema.prisma:112-115`) — `computeRoundScore` returns
@@ -80,21 +80,19 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs 
 | backend | JWT_SECRET | Token signing key |
 | backend | PORT | Server port (default 8000) |
 | backend | NODE_ENV | `development` / `production` / `test` |
-| backend | FRONTEND_URL | CORS origin (Vercel URL in prod) |
 | backend | GAME_WIN_POINTS | Points to win (default 41, lower for testing) |
 | backend | TURN_TIMEOUT_SECONDS | Card play timeout (default 60) |
 | backend | BRISCOLA_TIMEOUT_SECONDS | Briscola choice timeout (default 90) |
 | backend | BOT_SERVICE_URL | Python bot inference service (unset = bots disabled) |
 | backend | BOT_THINK_DELAY_MS | Pause before a bot plays (default 1000) |
-| frontend | VITE_API_URL | Backend REST base URL (`/api`) |
-| frontend | VITE_SOCKET_URL | Backend WebSocket URL |
+| frontend | BACKEND_URL | Vite dev proxy target (default `http://localhost:8000`) |
 
 ## Deployment
 
 Target stack: Render (backend Docker) + Neon (PostgreSQL, Frankfurt) + Vercel (frontend static).
 All auto-deploy from GitHub on push to main.
 Backend Dockerfile runs `prisma migrate deploy` on startup (idempotent).
-Cross-origin deploy requires cookie `sameSite: 'none'` + `secure: true`.
+Vercel proxies `/api` and `/socket.io` to Render, so the browser sees one origin.
 
 ## Module Boundaries
 

@@ -10,7 +10,6 @@ import {
 } from "./auth/activeSession";
 
 export type CreateServerOptions = {
-  corsOrigin?: string;
   maxSocketsPerIp?: number;
 };
 
@@ -21,17 +20,12 @@ export type CreatedServer = {
 };
 
 export function createServer(options: CreateServerOptions = {}): CreatedServer {
-  const corsOrigin = options.corsOrigin ?? process.env.FRONTEND_URL;
   const maxSocketsPerIp =
     options.maxSocketsPerIp ??
     parseInt(process.env.MAX_SOCKETS_PER_IP || "10", 10);
 
   const httpServer = http.createServer(app);
   const io = new Server(httpServer, {
-    cors: {
-      origin: corsOrigin,
-      credentials: true,
-    },
     path: "/socket.io/",
     maxHttpBufferSize: 10_240,
   });

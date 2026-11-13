@@ -1,14 +1,12 @@
 import { defineConfig } from "vitest/config";
-import { loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { randomUUID } from "node:crypto";
 
 const version = randomUUID();
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "VITE_");
-  const backend = new URL(env.VITE_SOCKET_URL || env.VITE_API_URL || "/", "http://localhost:8000").origin;
+export default defineConfig(() => {
+  const backend = process.env.BACKEND_URL ?? "http://localhost:8000";
   return {
     define: {
       "import.meta.env.VITE_APP_VERSION": JSON.stringify(version),

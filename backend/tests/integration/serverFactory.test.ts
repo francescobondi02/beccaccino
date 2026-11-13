@@ -20,10 +20,7 @@ afterEach(async () => {
 });
 
 async function startServer(maxSocketsPerIp = 1): Promise<string> {
-  runtime = createServer({
-    corsOrigin: "*",
-    maxSocketsPerIp,
-  });
+  runtime = createServer({ maxSocketsPerIp });
   await new Promise<void>((resolve) => runtime!.httpServer.listen(0, resolve));
   const address = runtime.httpServer.address() as AddressInfo;
   return `http://127.0.0.1:${address.port}`;

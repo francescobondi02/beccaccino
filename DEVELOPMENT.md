@@ -20,8 +20,8 @@ make dev
 - Bot: `http://localhost:8011/health` (inference requires the shared token)
 
 `make dev` uses Docker Compose for PostgreSQL, backend, frontend and the trained
-bot. It explicitly sets development mode, local database URLs and local browser
-URLs. Inherited production database or frontend URLs cannot redirect this stack.
+bot. It explicitly sets development mode, local database URLs and the Vite proxy
+target. Inherited production database URLs cannot redirect this stack.
 The bot token comes from the ignored `backend/.env`; Python and Node share it.
 Container dependencies stay in named volumes, separate from host `node_modules`.
 The trained, hash-verified weights are committed in `ai/serving/models/`.
@@ -52,8 +52,8 @@ that rewrites local secrets into production secrets.
 
 | Component | Production command | Configuration |
 | --- | --- | --- |
-| Backend on Render | Existing `backend/Dockerfile`: build with `npm run build`; start with `npx prisma migrate deploy && node dist/index.js` | `NODE_ENV=production` is set by the image; Render supplies database URLs, JWT secret, frontend origin and bot URL/token |
-| Frontend on Vercel | `vercel build` of `frontend/` (deploy not automated yet) | Vercel Production variables provide `VITE_API_URL` and `VITE_SOCKET_URL`; never frontend secrets |
+| Backend on Render | Existing `backend/Dockerfile`: build with `npm run build`; start with `npx prisma migrate deploy && node dist/index.js` | `NODE_ENV=production` is set by the image; Render supplies database URLs, JWT secret and bot URL/token |
+| Frontend on Vercel | `vercel build` of `frontend/` (deploy not automated yet) | No API origin variables: the browser calls `/api` and Vercel proxies it to Render; never frontend secrets |
 | Bot on Render | `ai/Dockerfile`: `uvicorn serving.app:app --host 0.0.0.0 --port "$PORT"` | Private `BOT_SERVICE_TOKEN`, matching the backend; Render supplies `PORT` |
 | Neon | No application process; backend startup runs `prisma migrate deploy` | `DATABASE_URL` is the pooled Neon URL; `DIRECT_URL` is the direct URL for the **same production database** |
 
@@ -219,7 +219,6 @@ npx prisma studio
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca"
 JWT_SECRET="your_secret_key"
 PORT=8000
-FRONTEND_URL="http://localhost:8081"
 ```
 
 **`backend/.env.test`** (integration tests — used for reference, actual injection is via `loadTestEnv.ts`):
@@ -229,7 +228,6 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
 JWT_SECRET="test-secret"
 NODE_ENV="test"
 PORT=8000
-FRONTEND_URL="http://localhost:8081"
 ```
 
 ---

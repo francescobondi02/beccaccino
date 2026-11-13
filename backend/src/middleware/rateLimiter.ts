@@ -1,8 +1,8 @@
 // src/middleware/rateLimiter.ts
 /**
  * Simple in-memory rate limiter middleware.
- * Tracks requests by IP (or by authenticated user with keyByUser) and rejects
- * with 429 when limit is exceeded.
+ * Tracks requests by a key (client IP by default) and rejects with 429 when
+ * the limit is exceeded.
  * Not suitable for multi-instance deployments (use Redis-backed solution instead).
  */
 
@@ -18,15 +18,26 @@ interface RateLimiterOptions {
   windowMs: number; // Time window in milliseconds
   maxRequests: number; // Max requests per window
   message?: string; // Custom error message
-  keyByUser?: boolean; // Players sharing one Wi-Fi get separate budgets
+  key?: (req: Request) => string;
 }
+
+const clientIp = (req: Request) => req.ip || req.socket.remoteAddress || "unknown";
+
+// Players sharing one Wi-Fi get separate budgets.
+const userOrIp = (req: Request) =>
+  req.user ? `user:${req.user.userId}` : clientIp(req);
+
+// Behind the Vercel proxy many players can share an IP, so a failed login
+// burst only blocks that username from that IP.
+const usernameAndIp = (req: Request) =>
+  `${String(req.body?.username)}@${clientIp(req)}`;
 
 export function rateLimiter(options: RateLimiterOptions) {
   const {
     windowMs,
     maxRequests,
     message = "Too many requests, please try again later",
-    keyByUser = false,
+    key = clientIp,
   } = options;
 
   // Each rateLimiter call gets its own store so different routes can have different limits
@@ -51,17 +62,15 @@ export function rateLimiter(options: RateLimiterOptions) {
       return next();
     }
 
-    const key = keyByUser && req.user
-      ? `user:${req.user.userId}`
-      : req.ip || req.socket.remoteAddress || "unknown";
     const now = Date.now();
+    const requestKey = key(req);
 
-    let entry = store.get(key);
+    let entry = store.get(requestKey);
 
     if (!entry || now > entry.resetTime) {
       // First request or window expired — reset
       entry = { count: 1, resetTime: now + windowMs };
-      store.set(key, entry);
+      store.set(requestKey, entry);
     } else {
       entry.count++;
     }
@@ -84,10 +93,17 @@ export function rateLimiter(options: RateLimiterOptions) {
  */
 
 // Auth endpoints: 10 attempts per minute (prevent brute-force)
-export const authRateLimiter = rateLimiter({
+export const registerRateLimiter = rateLimiter({
   windowMs: 60_000,
   maxRequests: 10,
   message: "Too many authentication attempts, please try again in a minute",
+});
+
+export const loginRateLimiter = rateLimiter({
+  windowMs: 60_000,
+  maxRequests: 10,
+  message: "Too many authentication attempts, please try again in a minute",
+  key: usernameAndIp,
 });
 
 // General API: 100 requests per minute
@@ -95,7 +111,7 @@ export const generalRateLimiter = rateLimiter({
   windowMs: 60_000,
   maxRequests: 100,
   message: "Too many requests, please slow down",
-  keyByUser: true,
+  key: userOrIp,
 });
 
 // Game actions: 60 requests per minute (one action per second average)
@@ -103,5 +119,5 @@ export const gameRateLimiter = rateLimiter({
   windowMs: 60_000,
   maxRequests: 60,
   message: "Too many game actions, please slow down",
-  keyByUser: true,
+  key: userOrIp,
 });

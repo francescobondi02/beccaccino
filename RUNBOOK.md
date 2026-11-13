@@ -63,32 +63,7 @@ If a Sentry event is missing `user`, the user wasn't logged in or the page hadn'
 
 1. Sentry → look for `login_failed` or `register_user_failed`.
 2. Render logs → look for that user's `req.id`.
-3. Common causes: wrong cookie domain (cross-origin deploy needs `sameSite:'none'` + `secure:true`), DB unreachable.
-
-### Annotation page is unavailable or has no scenarios
-
-1. `GET https://beccaccino-server.onrender.com/api/annotations/status`:
-   - `401` means the annotation API is deployed and requires normal login.
-   - `404` means the annotation backend revision is not deployed.
-2. If entering the shared code returns `503`, configure the backend-only
-   `ANNOTATION_ACCESS_CODE` on Render and redeploy. Never expose it as a
-   `VITE_` frontend variable.
-3. If `/annotations/next` returns `scenario: null`, the account has answered
-   every active scenario or the production pool is empty.
-4. Confirm the annotation migration completed in the first Render startup logs.
-   Before the first release, check Neon for any pre-existing
-   `AnnotationScenario` or `ExpertAnnotation` prototype table; the migration
-   expects to create both and must not be forced past a conflict.
-5. Generate and retain a new offline batch, then run the backend importer
-   against Neon without `--apply`. Verify the production host and summary
-   before repeating the exact command with `--apply`.
-6. Smoke-test `/annotate` with a real account and confirm one saved response
-   increments the contribution count and loads another scenario.
-
-The authoritative generation, import, replenishment, and recovery procedure is
-[`ai/docs/EXPERT_DATA_COLLECTION.md`](ai/docs/EXPERT_DATA_COLLECTION.md).
-Generation alone never modifies production; only an importer connected to Neon
-with `--apply` writes scenario rows.
+3. Common causes: the browser is not on the Vercel origin (the `SameSite=Lax` cookie only works through the `/api` proxy), DB unreachable.
 
 ### Backend down / health check failing
 

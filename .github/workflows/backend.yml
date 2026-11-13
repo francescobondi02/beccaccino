@@ -79,7 +79,6 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/becca_test
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/becca_test
       JWT_SECRET: ci-test-secret
-      FRONTEND_URL: http://localhost:5173
 
     services:
       postgres:
@@ -108,7 +107,6 @@ jobs:
             --env DATABASE_URL \
             --env DIRECT_URL \
             --env JWT_SECRET \
-            --env FRONTEND_URL \
             becca-backend
 
       - name: Verify production image

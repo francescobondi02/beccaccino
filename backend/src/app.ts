@@ -1,6 +1,5 @@
 // src/app.ts
 import express from "express";
-import cors from "cors";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
@@ -37,14 +36,6 @@ app.use(
       if (res.statusCode === 200 && _req.url === "/health") return "debug";
       return "info";
     },
-  }),
-);
-
-// CORS configuration per permettere cookies
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL,
-    credentials: true,
   }),
 );
 

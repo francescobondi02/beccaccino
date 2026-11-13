@@ -1,13 +1,10 @@
 import { Response } from "express";
 import { generateToken } from "../utils/jwt";
 
-// La ENV VAR specifica se siamo in production. Il Dockerfile del backend la specifica, mentre in locale non è definita.
-const isProduction = process.env.NODE_ENV === "production";
-
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: isProduction,
-  sameSite: (isProduction ? "none" : "strict") as "none" | "strict",
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
   maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
