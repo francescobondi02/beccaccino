@@ -6,7 +6,7 @@ React 18, Vite, TypeScript, Tailwind CSS, shadcn/ui components. Single-page appl
 
 ```
 src/
-  main.tsx              Entry: renders App in ErrorBoundary, registers /sw.js in production
+  main.tsx              Entry: renders App in ErrorBoundary
   App.tsx               Providers, useAppUpdate, routes
   pages/
     LobbyPage.tsx       Home/lobby: auth dialog, create/join room, animated card background
@@ -183,8 +183,4 @@ npx playwright show-report  # HTML report with traces after failures
   Short live landscape screens use persistent signal badges and notices instead of
   comic callouts, which would cover the partner's played card: `arcade.css` hides
   `.signal-callout` there.
-- `public/manifest.webmanifest` makes the app installable (fullscreen display, landscape orientation,
-  separate maskable icon, wide/narrow screenshots for the richer Android install sheet).
-  `public/sw.js`, registered in production only, never caches the app: it passes navigations
-  to the network and shows the cached `offline.html` when that fails. Its fetch handler is
-  what lets Chrome show its own install prompt. Offline play is deliberately out of scope.
+- The website is not installable: phones use the native app in `mobile/`.

@@ -26,7 +26,7 @@ frontend/
 ├── api/socket-proxy.ts         # Vercel Function: WebSocket bridge to Render
 ├── server/socketProxy.ts       # createSocketProxy() used by the function
 ├── src/
-│   ├── main.tsx                # React entry point; registers /sw.js in production
+│   ├── main.tsx                # React entry point
 │   ├── App.tsx                 # Providers, app-update check, routes
 │   ├── pages/
 │   │   ├── LobbyPage.tsx       # Home/lobby page (login, room list, create/join, ?join= prefill)
@@ -74,8 +74,7 @@ frontend/
 ├── public/
 │   ├── images/cards/           # Italian card images ({value}_{suit}.png)
 │   ├── images/semi/            # Suit icons
-│   ├── manifest.webmanifest    # Installable app manifest
-│   └── sw.js, offline.html     # Service worker and offline page
+│   └── icons/icon.svg          # Favicon (SVG)
 ├── index.html                  # HTML entry
 ├── vite.config.ts              # Port 8081, /api and /socket.io proxy, @ alias, app-version plugin
 ├── vercel.json                 # Rewrites, headers, Function settings
