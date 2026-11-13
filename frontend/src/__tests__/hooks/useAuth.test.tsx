@@ -34,7 +34,7 @@ function Probe({
   protectedPage = false,
 }: {
   id: string;
-  protectedPage?: boolean;
+  protectedPage?: boolean | string;
 }) {
   const auth = useAuth({ redirectOnFail: protectedPage });
 
@@ -175,6 +175,19 @@ describe("useAuth", () => {
     });
     expect(mocks.apiPost).toHaveBeenCalledWith("/users/logout");
     expect(mocks.navigate).toHaveBeenCalledWith("/", { replace: true });
+  });
+
+  it("sends invite pages to the invite only before a sign-in", async () => {
+    mocks.apiPost.mockResolvedValue(undefined);
+    const { unmount } = renderWithAuth(<Probe id="room" protectedPage="/?join=ROOM" />, null);
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/?join=ROOM", { replace: true }));
+    unmount();
+    mocks.navigate.mockClear();
+
+    renderWithAuth(<Probe id="room" protectedPage="/?join=ROOM" />, alice);
+    fireEvent.click(screen.getByRole("button", { name: "Logout room" }));
+    await waitFor(() => expect(screen.getByTestId("user-room")).toHaveTextContent("anonymous"));
+    expect(mocks.navigate).not.toHaveBeenCalledWith("/?join=ROOM", expect.anything());
   });
 
   it("drops the previous user's socket when the signed-in identity changes", async () => {

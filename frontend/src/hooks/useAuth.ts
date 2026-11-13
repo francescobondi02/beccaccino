@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { apiGet, apiPost, ApiError } from "@/lib/api";
@@ -11,7 +11,7 @@ export interface AuthUser {
 }
 
 interface UseAuthOptions {
-  /** Redirect signed-out users home, or to the given path. */
+  /** Redirect signed-out users home, or to the given path if they were never signed in here. */
   redirectOnFail?: boolean | string;
 }
 
@@ -54,11 +54,16 @@ export function useAuth({ redirectOnFail = false }: UseAuthOptions = {}) {
     socketUserId = currentUserId;
   }, [currentUserId]);
 
+  const wasSignedIn = useRef(false);
   useEffect(() => {
-    if (!query.isSuccess || query.data) return;
+    if (!query.isSuccess) return;
+    if (query.data) {
+      wasSignedIn.current = true;
+      return;
+    }
 
     if (redirectOnFail) {
-      navigate(redirectOnFail === true ? "/" : redirectOnFail, { replace: true });
+      navigate(redirectOnFail === true || wasSignedIn.current ? "/" : redirectOnFail, { replace: true });
     }
   }, [navigate, query.data, query.isSuccess, redirectOnFail]);
 
