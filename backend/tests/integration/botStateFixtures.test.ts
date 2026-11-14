@@ -6,6 +6,7 @@ import { clearDatabase } from "../helpers/database";
 import { buildBotTurn, BotState } from "../../src/services/botState";
 import { ensureBotUsers } from "../../src/services/botUsers";
 import { GAME_WIN_POINTS } from "../../src/gameConfig";
+import { loadLiveGame } from "../../src/game/liveGame";
 
 // Read at runtime rather than importing: the fixture is generated in `ai/`
 // (`python -m scripts.gen_bot_fixtures`), and importing across that boundary
@@ -45,7 +46,7 @@ describe("Bot state serializer matches the Python fixtures", () => {
     "reproduces %s",
     async (_name, fixture) => {
       const { roomCode, userId } = await seedFromFixture(fixture.state, fixture.seat);
-      const { state, seat } = await buildBotTurn(roomCode, userId);
+      const { state, seat } = buildBotTurn(await loadLiveGame(prisma, roomCode), userId);
 
       expect(seat).toBe(fixture.seat);
       expect(normalize(state)).toEqual(normalize(fixture.state));

@@ -11,3 +11,8 @@ export function turnDurationMs(phase: TurnPhase): number {
 export function botThinkDelayMs(): number {
   return parseInt(process.env.BOT_THINK_DELAY_MS || "1000", 10);
 }
+
+// Epoch milliseconds when a human turn times out.
+export function turnDeadlineMs(turnStartedAt: Date | null, phase: TurnPhase, now = Date.now()): number {
+  return (turnStartedAt?.getTime() ?? now) + turnDurationMs(phase);
+}

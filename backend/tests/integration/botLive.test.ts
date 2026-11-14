@@ -1,8 +1,7 @@
 import { prisma } from "../../src/db";
 import { clearDatabase } from "../helpers/database";
 import { api, apiAs } from "../helpers/serverHarness";
-import { getTurnTimerState } from "../../src/runtime/turnTimer";
-import { readPlayableCards } from "../../src/services/playableCards";
+import { playableOf, turnOf } from "../helpers/turn";
 import { ensureBotServiceReady } from "../../src/services/botClient";
 import { isBotTier } from "../../src/services/botUsers";
 import { logger } from "../../src/logger";
@@ -74,9 +73,9 @@ describeLive("Live bot service (real model)", () => {
   async function waitForHumanTurn(roomCode: string): Promise<void> {
     const deadline = Date.now() + SETTLE_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const timer = getTurnTimerState(roomCode);
-      if (timer && !timer.isBot && timer.turnUserId === userId) {
-        if (timer.phase !== "choose_briscola") return;
+      const turn = await turnOf(roomCode);
+      if (turn && turn.userId === userId) {
+        if (turn.phase !== "choose_briscola") return;
         const response = await apiAs(userId, "human")
           .post(`/api/games/${roomCode}/briscola`)
           .send({ suit: "denara" });
@@ -101,7 +100,7 @@ describeLive("Live bot service (real model)", () => {
     for (let trick = 0; trick < TRICKS_PER_ROUND; trick++) {
       await waitForHumanTurn(roomCode);
 
-      const legal = await readPlayableCards({ roomCode, userId });
+      const legal = await playableOf(roomCode, userId);
       if (legal.length === 0) break;
 
       const res = await apiAs(userId, "human")
@@ -137,7 +136,7 @@ describeLive("Live bot service (real model)", () => {
 
     for (let trick = 0; trick < TRICKS_PER_ROUND; trick++) {
       await waitForHumanTurn(roomCode);
-      const legal = await readPlayableCards({ roomCode, userId });
+      const legal = await playableOf(roomCode, userId);
       if (legal.length === 0) break;
       await apiAs(userId, "human")
         .post(`/api/games/${roomCode}/cards`)

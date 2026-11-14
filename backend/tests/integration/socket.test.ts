@@ -16,7 +16,8 @@ import {
 import { clearDatabase } from "../helpers/database";
 import { authCookie } from "../helpers/serverHarness";
 import { getTurnTimerState } from "../../src/runtime/turnTimer";
-import { changePlayerControl } from "../../src/services/playerControl";
+import { setBriscola } from "../../src/game/transitions/round";
+import { turnOf } from "../helpers/turn";
 
 // ---------------------------------------------------------------------------
 // Test server setup
@@ -499,23 +500,31 @@ describe("Socket.IO real WebSocket integration", () => {
       expect(getTurnTimerState(roomCode)!.remainingMs).toBeLessThanOrEqual(timer.remainingMs);
     });
 
-    it("reclaims an AFK seat on socket rejoin but never a permanently abandoned seat", async () => {
+    it("keeps a taken-over seat on socket rejoin until the player resumes control", async () => {
       const originalDelay = process.env.BOT_THINK_DELAY_MS;
       process.env.BOT_THINK_DELAY_MS = "60000";
       try {
         const { roomCode, users } = await createStartedGame();
-        const user = users.find((candidate) => candidate.id === getTurnTimerState(roomCode)!.turnUserId)!;
+        const turn = (await turnOf(roomCode))!;
+        const user = users.find((candidate) => candidate.id === turn.userId)!;
         const player = await prisma.player.findFirstOrThrow({ where: { userId: user.id, gameRoom: { code: roomCode } } });
-        await prisma.player.update({ where: { id: player.id }, data: { timeoutCount: 3 } });
-        await changePlayerControl({ roomCode, userId: user.id, action: "timeout" });
-        expect(getTurnTimerState(roomCode)?.isBot).toBe(true);
+        await prisma.player.update({ where: { id: player.id }, data: { timeoutCount: 2 } });
+        await setBriscola({ roomCode, userId: user.id, source: "timeout", expectedVersion: turn.version });
+        expect((await turnOf(roomCode))?.isBot).toBe(true);
         const client = createClient(user);
         await waitForConnect(client);
         expect(await joinSocketRoom(client, roomCode)).toEqual({ ok: true });
         expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
+          botModel: "forte", abandonedAt: null,
+        });
+        expect((await turnOf(roomCode))?.isBot).toBe(true);
+
+        const resumed = await request(httpServer).post(`/api/rooms/${roomCode}/resume-control`).set(authHeaders(user)).send({});
+        expect(resumed.statusCode).toBe(200);
+        expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
           botModel: null, abandonedAt: null, timeoutCount: 0,
         });
-        expect(getTurnTimerState(roomCode)?.isBot).toBe(false);
+        expect((await turnOf(roomCode))?.isBot).toBe(false);
 
         const left = await request(httpServer).post(`/api/rooms/${roomCode}/leave`).set(authHeaders(user)).send({});
         expect(left.statusCode).toBe(200);

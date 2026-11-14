@@ -1,5 +1,4 @@
 import { prisma } from "../../src/db";
-import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 import { clearDatabase } from "../helpers/database";
 import {
   chooseBriscola,
@@ -7,15 +6,12 @@ import {
   setupGame,
 } from "../helpers/gameDriver";
 import { api, apiAs } from "../helpers/serverHarness";
-import { executeTimedOutTurn } from "../../src/runtime/timeoutExecutor";
 import { clearTurnTimer, getTurnTimerState } from "../../src/runtime/turnTimer";
 import { recoverRoomRuntime } from "../../src/runtime/recovery";
-import { readPlayableCards } from "../../src/services/playableCards";
 import { playCard } from "../../src/game/transitions/cardPlay";
 import { RuntimeTurnCancelledError, setBriscola } from "../../src/game/transitions/round";
-import { botTierForTurn } from "../../src/runtime/botRegistry";
 import { executeBotTurn } from "../../src/runtime/botExecutor";
-import { changePlayerControl } from "../../src/services/playerControl";
+import { playableOf, turnOf } from "../helpers/turn";
 import { startBotServiceStub } from "../helpers/botServiceStub";
 import * as events from "../../src/runtime/eventPublisher";
 
@@ -33,8 +29,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   jest.restoreAllMocks();
-  const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-  for (const room of rooms) clearRuntimeRoom(room.code);
   if (originalThinkDelay === undefined) delete process.env.BOT_THINK_DELAY_MS;
   else process.env.BOT_THINK_DELAY_MS = originalThinkDelay;
 });
@@ -52,7 +46,7 @@ async function expectStartedBotReplacement(roomCode: string) {
 
   expect(response.statusCode).toBe(200);
   expect(await version()).toBe(before + 1);
-  expect(response.body).toMatchObject({ preservedHistory: true, abandoned: true });
+  expect(response.body).toEqual({ deletedRoom: false });
   expect(
     await prisma.player.count({
       where: { userId: user.id, gameRoom: { code: roomCode } },
@@ -72,31 +66,13 @@ async function expectStartedBotReplacement(roomCode: string) {
 }
 
 describe("Started multiplayer leave rule", () => {
-  it("completes an AFK takeover interrupted after the third timeout was committed", async () => {
-    const { roomCode } = await setupGame();
-    const userId = getTurnTimerState(roomCode)!.turnUserId;
-    const player = await prisma.player.findFirstOrThrow({ where: { userId, gameRoom: { code: roomCode } } });
-    await prisma.player.update({ where: { id: player.id }, data: { timeoutCount: 3 } });
-    const { version } = await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } });
-    const publish = jest.spyOn(events, "publishEvent");
-    clearRuntimeRoom(roomCode);
-    await recoverRoomRuntime(roomCode);
-    expect((await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).botModel).toBe("forte");
-    expect(getTurnTimerState(roomCode)).toMatchObject({ turnUserId: userId, isBot: true });
-    expect((await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } })).version).toBe(version + 1);
-    expect(pushedActions(publish, userId)).toEqual([
-      { kind: "control_changed", userId, botModel: "forte" },
-    ]);
-  });
-
-  it("cancels a real bot response already in flight when its human reclaims the seat", async () => {
+  it("ignores a bot reply that lands after its human resumed control", async () => {
     const { roomCode, round } = await setupGame();
-    const userId = getTurnTimerState(roomCode)!.turnUserId;
+    const { userId, version } = (await turnOf(roomCode))!;
     const player = await prisma.player.findFirstOrThrow({
       where: { userId, gameRoom: { code: roomCode } }, include: { user: true },
     });
-    await prisma.player.update({ where: { id: player.id }, data: { timeoutCount: 3 } });
-    await changePlayerControl({ roomCode, userId, action: "timeout" });
+    await prisma.player.update({ where: { id: player.id }, data: { botModel: "forte" } });
     clearTurnTimer(roomCode);
 
     let markRequested!: () => void;
@@ -113,8 +89,7 @@ describe("Started multiplayer leave rule", () => {
     process.env.BOT_SERVICE_URL = stub.url;
     process.env.BOT_SERVICE_TOKEN = "player-control-test";
     const executing = executeBotTurn({
-      roomCode, userId, tier: "forte", phase: "choose_briscola", expectedPauseEpoch: 0,
-      expectedTurn: { roundId: round.id, trickId: null, playedCardCount: 0 },
+      roomCode, userId, tier: "forte", phase: "choose_briscola", expectedVersion: version,
     });
     try {
       await requested;
@@ -126,7 +101,9 @@ describe("Started multiplayer leave rule", () => {
       expect(stub.requests).toHaveLength(1);
       expect((await prisma.round.findUniqueOrThrow({ where: { id: round.id } })).briscola).toBeNull();
       expect(await prisma.trick.count({ where: { roundId: round.id } })).toBe(0);
-      expect(getTurnTimerState(roomCode)).toMatchObject({ turnUserId: userId, isBot: false });
+      const turn = (await turnOf(roomCode))!;
+      expect(turn).toMatchObject({ userId, isBot: false, version: version + 1 });
+      expect(getTurnTimerState(roomCode)?.version).toBe(turn.version);
     } finally {
       release();
       await executing;
@@ -139,12 +116,11 @@ describe("Started multiplayer leave rule", () => {
   });
 
   it("still sends the human a state after a bot plays their taken-over seat", async () => {
-    const { roomCode, round } = await setupGame();
-    const userId = getTurnTimerState(roomCode)!.turnUserId;
+    const { roomCode } = await setupGame();
+    const { userId, version } = (await turnOf(roomCode))!;
     await prisma.player.updateMany({
-      where: { userId, gameRoom: { code: roomCode } }, data: { timeoutCount: 3 },
+      where: { userId, gameRoom: { code: roomCode } }, data: { botModel: "forte" },
     });
-    await changePlayerControl({ roomCode, userId, action: "timeout" });
     clearTurnTimer(roomCode);
     const stub = await startBotServiceStub(() => ({ kind: "briscola", suit: "denara" }));
     const oldUrl = process.env.BOT_SERVICE_URL;
@@ -154,8 +130,7 @@ describe("Started multiplayer leave rule", () => {
     const publish = jest.spyOn(events, "publishEvent");
     try {
       await executeBotTurn({
-        roomCode, userId, tier: "forte", phase: "choose_briscola", expectedPauseEpoch: 0,
-        expectedTurn: { roundId: round.id, trickId: null, playedCardCount: 0 },
+        roomCode, userId, tier: "forte", phase: "choose_briscola", expectedVersion: version,
       });
       expect(pushedActions(publish, userId)).toEqual([
         expect.objectContaining({ kind: "briscola_chosen", userId, source: "bot" }),
@@ -171,7 +146,7 @@ describe("Started multiplayer leave rule", () => {
 
   it("uses legal autoplay if the real bot service fails for an abandoned human seat", async () => {
     const { roomCode, round } = await setupGame();
-    const userId = getTurnTimerState(roomCode)!.turnUserId;
+    const { userId } = (await turnOf(roomCode))!;
     const player = await prisma.player.findFirstOrThrow({
       where: { userId, gameRoom: { code: roomCode } }, include: { user: true },
     });
@@ -185,8 +160,8 @@ describe("Started multiplayer leave rule", () => {
     const publish = jest.spyOn(events, "publishEvent");
     try {
       await executeBotTurn({
-        roomCode, userId, tier: "forte", phase: "choose_briscola", expectedPauseEpoch: 0,
-        expectedTurn: { roundId: round.id, trickId: null, playedCardCount: 0 },
+        roomCode, userId, tier: "forte", phase: "choose_briscola",
+        expectedVersion: (await turnOf(roomCode))!.version,
       });
       expect(stub.requests).toHaveLength(1);
       expect((await prisma.round.findUniqueOrThrow({ where: { id: round.id } })).briscola).not.toBeNull();
@@ -200,10 +175,10 @@ describe("Started multiplayer leave rule", () => {
       expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
         botModel: "forte", timeoutCount: 0,
       });
-      const trick = await prisma.trick.findFirstOrThrow({ where: { roundId: round.id } });
+      clearTurnTimer(roomCode);
       await executeBotTurn({
-        roomCode, userId, tier: "forte", phase: "play_card", expectedPauseEpoch: 0,
-        expectedTurn: { roundId: round.id, trickId: trick.id, playedCardCount: 0 },
+        roomCode, userId, tier: "forte", phase: "play_card",
+        expectedVersion: (await turnOf(roomCode))!.version,
       });
       expect(pushedActions(publish, partner.userId)[1]).toMatchObject({
         kind: "card_played", userId, source: "bot_fallback",
@@ -217,72 +192,66 @@ describe("Started multiplayer leave rule", () => {
     }
   });
 
-  it("persists the third timeout as a real bot seat, restores it, and lets the human reclaim control", async () => {
-    const { roomCode, round } = await setupGame();
-    const timer = getTurnTimerState(roomCode)!;
+  it("hands the seat to a bot in the same transaction as the third timeout", async () => {
+    const { roomCode } = await setupGame();
+    const turn = (await turnOf(roomCode))!;
     const player = await prisma.player.findFirstOrThrow({
-      where: { userId: timer.turnUserId, gameRoom: { code: roomCode } },
+      where: { userId: turn.userId, gameRoom: { code: roomCode } },
       include: { user: true },
     });
     await prisma.player.update({ where: { id: player.id }, data: { timeoutCount: 2 } });
     const publish = jest.spyOn(events, "publishEvent");
-    await executeTimedOutTurn({
-      roomCode, userId: player.userId, phase: "choose_briscola", expectedPauseEpoch: 0,
-      expectedTurn: { roundId: round.id, trickId: null, playedCardCount: 0 },
+    await setBriscola({
+      roomCode, userId: player.userId, source: "timeout", expectedVersion: turn.version,
     });
     expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
       botModel: "forte", timeoutCount: 3, abandonedAt: null, seat: player.seat, team: player.team,
     });
     expect(pushedActions(publish, player.userId)).toEqual([
-      expect.objectContaining({ kind: "briscola_chosen", userId: player.userId, source: "timeout" }),
-      { kind: "control_changed", userId: player.userId, botModel: "forte" },
+      expect.objectContaining({
+        kind: "briscola_chosen", userId: player.userId, source: "timeout", takeover: true,
+      }),
     ]);
-    expect(getTurnTimerState(roomCode)).toMatchObject({ turnUserId: player.userId, isBot: true });
-    clearRuntimeRoom(roomCode);
+    const botTurn = (await turnOf(roomCode))!;
+    expect(botTurn).toMatchObject({ userId: player.userId, isBot: true, version: turn.version + 1 });
+    clearTurnTimer(roomCode);
     await recoverRoomRuntime(roomCode);
-    expect(botTierForTurn(roomCode, player.userId)).toBe("forte");
-    expect(getTurnTimerState(roomCode)?.isBot).toBe(true);
-    const cards = await readPlayableCards({ roomCode, userId: player.userId });
-    const trick = await prisma.trick.findFirstOrThrow({ where: { roundId: round.id } });
+    expect(getTurnTimerState(roomCode)?.version).toBe(botTurn.version);
+    // The caller leads, so any card in hand is legal.
+    const cards = await prisma.handCard.findMany({ where: { playerId: player.id }, select: { suit: true, value: true } });
     const denied = await apiAs(player.userId, player.user.username)
       .post(`/api/games/${roomCode}/cards`).send({ suit: cards[0].suit, value: cards[0].value });
     expect(denied.statusCode).toBe(409);
 
-    const { version } = await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } });
     const resumed = await apiAs(player.userId, player.user.username)
       .post(`/api/rooms/${roomCode}/resume-control`).send({});
     expect(resumed.statusCode).toBe(200);
-    expect((await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } })).version).toBe(version + 1);
     expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
       botModel: null, timeoutCount: 0, abandonedAt: null,
     });
-    expect(botTierForTurn(roomCode, player.userId)).toBeNull();
-    expect(getTurnTimerState(roomCode)).toMatchObject({ turnUserId: player.userId, isBot: false });
+    const humanTurn = (await turnOf(roomCode))!;
+    expect(humanTurn).toMatchObject({ userId: player.userId, isBot: false, version: botTurn.version + 1 });
+    expect(getTurnTimerState(roomCode)?.version).toBe(humanTurn.version);
     await expect(playCard({
-      roomCode, userId: player.userId, suit: cards[0].suit, value: cards[0].value,
-      expectedBotModel: "forte",
-      expectedTurn: { roundId: round.id, trickId: trick.id, playedCardCount: 0 },
-    })).rejects.toBeInstanceOf(RuntimeTurnCancelledError);
+      roomCode, userId: player.userId, source: "bot", card: cards[0], expectedVersion: botTurn.version,
+    })).resolves.toBeNull();
     const accepted = await apiAs(player.userId, player.user.username)
       .post(`/api/games/${roomCode}/cards`).send({ suit: cards[0].suit, value: cards[0].value });
     expect(accepted.statusCode).toBe(200);
   });
 
   it("persists human timeouts across runtime restoration and clears them only on a successful manual move", async () => {
-    const { roomCode, round } = await setupGame();
-    const userId = getTurnTimerState(roomCode)!.turnUserId;
-    await executeTimedOutTurn({
-      roomCode, userId, phase: "choose_briscola", expectedPauseEpoch: 0,
-      expectedTurn: { roundId: round.id, trickId: null, playedCardCount: 0 },
-    });
-    clearRuntimeRoom(roomCode);
+    const { roomCode } = await setupGame();
+    const { userId, version } = (await turnOf(roomCode))!;
+    await setBriscola({ roomCode, userId, source: "timeout", expectedVersion: version });
+    clearTurnTimer(roomCode);
     await recoverRoomRuntime(roomCode);
     const player = await prisma.player.findFirstOrThrow({
       where: { userId, gameRoom: { code: roomCode } }, include: { user: true },
     });
     expect(player.timeoutCount).toBe(1);
     expect(player.botModel).toBeNull();
-    const [card] = await readPlayableCards({ roomCode, userId });
+    const [card] = await playableOf(roomCode, userId);
     const invalid = await apiAs(userId, player.user.username)
       .post(`/api/games/${roomCode}/cards`).send({ suit: "invalid", value: card.value });
     expect(invalid.statusCode).toBe(400);
@@ -296,23 +265,20 @@ describe("Started multiplayer leave rule", () => {
   it("marks a timed-out card as a timeout", async () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);
-    const userId = getTurnTimerState(roomCode)!.turnUserId;
-    const trick = await prisma.trick.findFirstOrThrow({ where: { roundId: round.id } });
+    const { userId, version } = (await turnOf(roomCode))!;
     const publish = jest.spyOn(events, "publishEvent");
-    await executeTimedOutTurn({
-      roomCode, userId, phase: "play_card", expectedPauseEpoch: 0,
-      expectedTurn: { roundId: round.id, trickId: trick.id, playedCardCount: 0 },
-    });
+    await playCard({ roomCode, userId, source: "timeout", expectedVersion: version });
     expect(pushedActions(publish, userId)).toEqual([
       expect.objectContaining({ kind: "card_played", userId, source: "timeout", takeover: false }),
     ]);
   });
 
   it("keeps another player's deadline and rejects stale human runtime after permanent abandonment", async () => {
-    const { roomCode, round } = await setupGame();
+    const { roomCode } = await setupGame();
     const timer = getTurnTimerState(roomCode)!;
+    const turn = (await turnOf(roomCode))!;
     const other = await prisma.player.findFirstOrThrow({
-      where: { gameRoom: { code: roomCode }, userId: { not: timer.turnUserId } },
+      where: { gameRoom: { code: roomCode }, userId: { not: turn.userId } },
       include: { user: true },
     });
     const left = await apiAs(other.userId, other.user.username)
@@ -320,16 +286,15 @@ describe("Started multiplayer leave rule", () => {
     expect(left.statusCode).toBe(200);
     expect(getTurnTimerState(roomCode)!.remainingMs).toBeLessThanOrEqual(timer.remainingMs);
     const caller = await prisma.player.findFirstOrThrow({
-      where: { userId: timer.turnUserId, gameRoom: { code: roomCode } }, include: { user: true },
+      where: { userId: turn.userId, gameRoom: { code: roomCode } }, include: { user: true },
     });
     const callerLeft = await apiAs(caller.userId, caller.user.username)
       .post(`/api/rooms/${roomCode}/leave`).send({});
     expect(callerLeft.statusCode).toBe(200);
-    expect(getTurnTimerState(roomCode)?.isBot).toBe(true);
+    expect((await turnOf(roomCode))?.isBot).toBe(true);
     await expect(setBriscola({
-      roomCode, userId: caller.userId, suit: "denara",
-      expectedBotModel: null,
-      expectedTurn: { roundId: round.id, trickId: null, playedCardCount: 0 },
+      roomCode, userId: caller.userId, source: "timeout",
+      expectedVersion: (await turnOf(roomCode))!.version,
     })).rejects.toBeInstanceOf(RuntimeTurnCancelledError);
     expect((await apiAs(caller.userId, caller.user.username).get(`/api/games/${roomCode}/state`)).statusCode).toBe(403);
     expect((await apiAs(caller.userId, caller.user.username).get(`/api/games/${roomCode}/state`)).statusCode).toBe(403);
@@ -361,10 +326,7 @@ describe("Started multiplayer leave rule", () => {
         .post(`/api/rooms/${roomCode}/leave`)
         .send({});
       expect(response.statusCode).toBe(200);
-      expect(response.body).toMatchObject({
-        deletedRoom: false,
-        preservedHistory: true,
-      });
+      expect(response.body).toEqual({ deletedRoom: false });
     }
 
     expect(

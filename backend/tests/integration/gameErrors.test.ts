@@ -2,7 +2,6 @@ import { prisma } from "../../src/db";
 import {
   getTurnTimerState,
 } from "../../src/runtime/turnTimer";
-import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 import { clearDatabase } from "../helpers/database";
 import { chooseBriscola, setupGame } from "../helpers/gameDriver";
 import { api, apiAs } from "../helpers/serverHarness";
@@ -11,22 +10,12 @@ beforeEach(async () => {
   await clearDatabase();
 });
 
-afterEach(async () => {
-  const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-  for (const room of rooms) clearRuntimeRoom(room.code);
-});
-
 type TurnTimerState = NonNullable<ReturnType<typeof getTurnTimerState>>;
 
 function expectTimerUnchanged(roomCode: string, before: TurnTimerState) {
   const after = getTurnTimerState(roomCode);
   expect(after).not.toBeNull();
-  expect(after).toMatchObject({
-    turnUserId: before.turnUserId,
-    phase: before.phase,
-    totalMs: before.totalMs,
-    isBot: before.isBot,
-  });
+  expect(after!.version).toBe(before.version);
   expect(after!.remainingMs).toBeLessThanOrEqual(before.remainingMs);
 }
 

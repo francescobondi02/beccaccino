@@ -6,8 +6,6 @@ import { prisma } from "../db";
 import { logger } from "../logger";
 import { PUBLIC_PLAYER_SELECT } from "../domain/publicPlayer";
 import { sanitizeChatMessage } from "../utils/sanitizeChatMessage";
-import { changePlayerControlUnlocked } from "../services/playerControl";
-import { withRoomLock } from "../utils/roomLock";
 
 import type { JoinRoomResult } from "../contract/socket";
 
@@ -42,37 +40,27 @@ export function registerRoomSocket(socket: Socket, io: Server) {
     const { userId } = socket.data.user;
 
     try {
-      await withRoomLock(roomCode, async () => {
-        const room = await prisma.gameRoom.findUnique({
-          where: { code: roomCode },
-          include: {
-            players: {
-              select: PUBLIC_PLAYER_SELECT,
-            },
-          },
-        });
-
-        if (!room) return fail("Room not found", acknowledge);
-
-        const player = room.players.find((p) => p.userId === userId);
-        if (!player) return fail("You are not in this room", acknowledge);
-        if (player.abandonedAt && !room.finished) {
-          return fail("Hai abbandonato questa partita", acknowledge);
-        }
-        if (room.started && !room.finished && player.botModel !== null) {
-          await changePlayerControlUnlocked({ roomCode, userId, action: "resume" });
-        }
-
-        const previousRoomCode = socket.data.roomCode;
-        if (previousRoomCode && previousRoomCode !== roomCode) {
-          socket.leave(previousRoomCode);
-        }
-
-        socket.join(roomCode);
-        socket.data.roomCode = roomCode;
-
-        acknowledge?.({ ok: true });
+      const room = await prisma.gameRoom.findUnique({
+        where: { code: roomCode },
+        include: { players: { select: PUBLIC_PLAYER_SELECT } },
       });
+      if (!room) return fail("Room not found", acknowledge);
+
+      const player = room.players.find((p) => p.userId === userId);
+      if (!player) return fail("You are not in this room", acknowledge);
+      if (player.abandonedAt && !room.finished) {
+        return fail("Hai abbandonato questa partita", acknowledge);
+      }
+
+      const previousRoomCode = socket.data.roomCode;
+      if (previousRoomCode && previousRoomCode !== roomCode) {
+        socket.leave(previousRoomCode);
+      }
+
+      socket.join(roomCode);
+      socket.data.roomCode = roomCode;
+
+      acknowledge?.({ ok: true });
     } catch (error) {
       logger.error({ err: error, roomCode, userId }, "join_room_failed");
       fail("Failed to join room", acknowledge);

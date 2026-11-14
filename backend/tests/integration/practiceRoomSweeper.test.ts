@@ -50,116 +50,114 @@ async function createUsers(
   return users;
 }
 
-describe("practice room sweeper", () => {
-  it("deletes a finished practice game graph but retains its bot users", async () => {
-    const users = await createUsers([
-      { username: "sweep-human" },
-      { username: "sweep-bot-1", isBot: true },
-      { username: "sweep-bot-2", isBot: true },
-      { username: "sweep-bot-3", isBot: true },
-    ]);
-    const room = await prisma.gameRoom.create({
-      data: {
-        code: "SWP001",
-        started: true,
-        finished: true,
-        isPractice: true,
-        players: {
-          create: users.map((user, seat) => ({
-            userId: user.id,
-            seat,
-            team: seat % 2,
-            botModel: user.isBot ? "medio" : null,
-          })),
-        },
-      },
-      include: { players: { orderBy: { seat: "asc" } } },
-    });
-    const round = await prisma.round.create({
-      data: {
-        gameRoomId: room.id,
-        callerId: room.players[0].id,
-        number: 1,
-        briscola: "coppe",
-        briscolaAutoChosen: true,
-        winnerTeam: 0,
-      },
-    });
-    const trick = await prisma.trick.create({
-      data: {
-        roundId: round.id,
-        number: 1,
-        starterId: room.players[0].id,
-        winnerId: room.players[0].id,
-      },
-    });
-    await prisma.handCard.createMany({
-      data: room.players.flatMap((player, seat) =>
-        VALUES.slice(1).map((value) => ({
-          playerId: player.id,
-          roundId: round.id,
-          suit: SUITS[seat],
-          value,
+const DAY_MS = 24 * HOUR_MS;
+
+// A started practice game with one finished trick, a human and three bots.
+async function createPracticeGame(
+  code: string,
+  data: { lastActivityAt: Date; pausedAt?: Date; finished?: boolean; winnerTeam?: number },
+) {
+  const users = await createUsers([
+    { username: `${code}-human` },
+    { username: `${code}-bot-1`, isBot: true },
+    { username: `${code}-bot-2`, isBot: true },
+    { username: `${code}-bot-3`, isBot: true },
+  ]);
+  const room = await prisma.gameRoom.create({
+    data: {
+      code,
+      started: true,
+      isPractice: true,
+      ...data,
+      players: {
+        create: users.map((user, seat) => ({
+          userId: user.id,
+          seat,
+          team: seat % 2,
+          botModel: user.isBot ? "medio" : null,
         })),
-      ),
-    });
-    await prisma.playedCard.createMany({
-      data: room.players.map((player, seat) => ({
-        playerId: player.id,
-        trickId: trick.id,
-        suit: SUITS[seat],
-        value: VALUES[0],
-        position: seat,
-        autoPlayed: true,
-      })),
-    });
-    const playedCard = await prisma.playedCard.findFirstOrThrow({
-      where: { trickId: trick.id },
-    });
-    scheduleTurnTimer({
-      roomCode: room.code,
-      userId: users[0].id,
-      phase: "play_card",
-      pauseEpoch: 0,
-      identity: {
-        roundId: round.id,
-        trickId: trick.id,
-        playedCardCount: 4,
       },
-      durationMs: 100_000,
-      isBot: false,
-      onElapsed: jest.fn(),
+    },
+    include: { players: { orderBy: { seat: "asc" } } },
+  });
+  const round = await prisma.round.create({
+    data: {
+      gameRoomId: room.id,
+      callerId: room.players[0].id,
+      number: 1,
+      briscola: "coppe",
+      briscolaAutoChosen: true,
+    },
+  });
+  const trick = await prisma.trick.create({
+    data: {
+      roundId: round.id,
+      number: 1,
+      starterId: room.players[0].id,
+      winnerId: room.players[0].id,
+      completedAt: data.lastActivityAt,
+    },
+  });
+  await prisma.trick.create({
+    data: { roundId: round.id, number: 2, starterId: room.players[0].id },
+  });
+  await prisma.handCard.createMany({
+    data: room.players.flatMap((player, seat) =>
+      VALUES.slice(1).map((value) => ({
+        playerId: player.id,
+        roundId: round.id,
+        suit: SUITS[seat],
+        value,
+      })),
+    ),
+  });
+  await prisma.playedCard.createMany({
+    data: room.players.map((player, seat) => ({
+      playerId: player.id,
+      trickId: trick.id,
+      suit: SUITS[seat],
+      value: VALUES[0],
+      position: seat,
+      autoPlayed: true,
+    })),
+  });
+  return { room, users, round };
+}
+
+describe("practice room sweeper", () => {
+  it.each([
+    ["an active", undefined],
+    ["a paused", new Date(NOW.getTime() - 40 * DAY_MS)],
+  ])("closes %s practice game idle for 30 days and keeps its history", async (_name, pausedAt) => {
+    const { room, users, round } = await createPracticeGame("SWP001", {
+      lastActivityAt: new Date(NOW.getTime() - 30 * DAY_MS),
+      pausedAt,
     });
+    scheduleTurnTimer(room.code, room.version, 100_000, async () => undefined);
 
     await expect(sweepPracticeRooms(NOW)).resolves.toBe(1);
 
-    expect(
-      await prisma.gameRoom.findUnique({ where: { id: room.id } }),
-    ).toBeNull();
-    expect(await prisma.player.count({ where: { gameRoomId: room.id } })).toBe(0);
-    expect(await prisma.round.count({ where: { gameRoomId: room.id } })).toBe(0);
-    expect(await prisma.trick.findUnique({ where: { id: trick.id } })).toBeNull();
-    expect(await prisma.handCard.count({ where: { roundId: round.id } })).toBe(0);
-    expect(
-      await prisma.playedCard.findUnique({ where: { id: playedCard.id } }),
-    ).toBeNull();
+    expect(await prisma.gameRoom.findUniqueOrThrow({ where: { id: room.id } }))
+      .toMatchObject({ finished: true, winnerTeam: null, version: room.version + 1 });
+    expect(await prisma.player.count({ where: { gameRoomId: room.id } })).toBe(4);
+    expect(await prisma.round.count({ where: { gameRoomId: room.id } })).toBe(1);
+    expect(await prisma.handCard.count({ where: { roundId: round.id } })).toBe(36);
+    expect(await prisma.playedCard.count()).toBe(4);
     expect(getTurnTimerState(room.code)).toBeNull();
-
-    const botIds = users.filter((user) => user.isBot).map((user) => user.id);
     expect(
       await prisma.user.count({
-        where: { id: { in: botIds }, isBot: true },
+        where: { id: { in: users.map((user) => user.id) } },
       }),
-    ).toBe(3);
+    ).toBe(4);
   });
 
-  it("deletes an unfinished practice room at the 24-hour boundary", async () => {
+  it("deletes an unstarted practice room idle for 30 days", async () => {
     const [user] = await createUsers([{ username: "stale-human" }]);
     const room = await prisma.gameRoom.create({
       data: {
         code: "SWP002",
         isPractice: true,
-        lastActivityAt: new Date(NOW.getTime() - 24 * HOUR_MS),
+        lastActivityAt: new Date(NOW.getTime() - 30 * DAY_MS),
         players: { create: { userId: user.id, seat: 0 } },
       },
     });
@@ -172,14 +170,27 @@ describe("practice room sweeper", () => {
     expect(await prisma.user.findUnique({ where: { id: user.id } })).not.toBeNull();
   });
 
+  it("keeps a finished practice game and its winner", async () => {
+    const { room } = await createPracticeGame("SWP005", {
+      lastActivityAt: new Date(NOW.getTime() - 60 * DAY_MS),
+      finished: true,
+      winnerTeam: 0,
+    });
+
+    await expect(sweepPracticeRooms(NOW)).resolves.toBe(0);
+
+    expect(await prisma.gameRoom.findUniqueOrThrow({ where: { id: room.id } }))
+      .toMatchObject({ finished: true, winnerTeam: 0, version: room.version });
+  });
+
   it("preserves an old active practice room and every multiplayer room", async () => {
     const preservedRooms = [
       {
         code: "SWP003",
         isPractice: true,
         finished: false,
-        createdAt: new Date(NOW.getTime() - 72 * HOUR_MS),
-        lastActivityAt: new Date(NOW.getTime() - 23 * HOUR_MS),
+        createdAt: new Date(NOW.getTime() - 72 * DAY_MS),
+        lastActivityAt: new Date(NOW.getTime() - 29 * DAY_MS),
       },
       {
         code: "MULT01",
@@ -191,7 +202,7 @@ describe("practice room sweeper", () => {
         code: "MULT02",
         isPractice: false,
         finished: false,
-        lastActivityAt: new Date(NOW.getTime() - 48 * HOUR_MS),
+        lastActivityAt: new Date(NOW.getTime() - 48 * DAY_MS),
       },
       {
         code: "MULT03",
@@ -203,7 +214,7 @@ describe("practice room sweeper", () => {
         code: "MULT04",
         isPractice: false,
         finished: true,
-        lastActivityAt: new Date(NOW.getTime() - 48 * HOUR_MS),
+        lastActivityAt: new Date(NOW.getTime() - 48 * DAY_MS),
       },
     ];
     await prisma.gameRoom.createMany({ data: preservedRooms });
@@ -226,7 +237,7 @@ describe("practice room sweeper", () => {
       data: {
         code: "SWP004",
         isPractice: true,
-        lastActivityAt: new Date(NOW.getTime() - 48 * HOUR_MS),
+        lastActivityAt: new Date(NOW.getTime() - 31 * DAY_MS),
       },
     });
     let releaseLock!: () => void;

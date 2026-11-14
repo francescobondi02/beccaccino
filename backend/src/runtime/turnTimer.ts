@@ -1,134 +1,44 @@
-import type { TurnPhase } from "../contract/game";
-import { isSameTurn, TurnIdentity } from "../game/turn";
+import { logger } from "../logger";
 
-type TimerState = {
-  timeout: NodeJS.Timeout;
-  currentTurnUserId: number;
-  phase: TurnPhase;
-  startedAt: number;
-  durationMs: number;
-  isBot: boolean;
-  pauseEpoch: number;
-  identity: TurnIdentity;
-};
+// One timer per room, armed for one game version.
+const timers = new Map<string, { timeout: NodeJS.Timeout; version: number; firesAt: number }>();
 
-const activeTimers = new Map<string, TimerState>();
-
-export function scheduleTurnTimer(args: {
-  roomCode: string;
-  userId: number;
-  phase: TurnPhase;
-  pauseEpoch: number;
-  identity: TurnIdentity;
-  durationMs: number;
-  isBot: boolean;
-  onElapsed: () => void | Promise<void>;
-  onFailed?: (error: unknown) => void | Promise<void>;
-}): void {
-  clearTurnTimer(args.roomCode);
-  const startedAt = Date.now();
-  const timeout = setTimeout(() => {
-    void executeTurn(args.roomCode, timeout, args.onElapsed, args.onFailed);
-  }, args.durationMs);
-  timeout.unref();
-  activeTimers.set(args.roomCode, {
-    timeout,
-    currentTurnUserId: args.userId,
-    phase: args.phase,
-    startedAt,
-    durationMs: args.durationMs,
-    isBot: args.isBot,
-    pauseEpoch: args.pauseEpoch,
-    identity: args.identity,
-  });
-}
-
-async function executeTurn(
+export function scheduleTurnTimer(
   roomCode: string,
-  timeout: NodeJS.Timeout,
-  onElapsed: () => void | Promise<void>,
-  onFailed?: (error: unknown) => void | Promise<void>,
-): Promise<void> {
-  const current = activeTimers.get(roomCode);
-  if (current?.timeout !== timeout) return;
-
-  let failed = false;
-  let failure: unknown;
-  try {
-    await onElapsed();
-  } catch (error) {
-    failed = true;
-    failure = error;
-  } finally {
-    if (activeTimers.get(roomCode)?.timeout === timeout) {
-      activeTimers.delete(roomCode);
-    }
-  }
-
-  if (failed && onFailed) {
+  version: number,
+  delayMs: number,
+  run: () => Promise<unknown>,
+): void {
+  clearTurnTimer(roomCode);
+  const timeout = setTimeout(async () => {
+    if (timers.get(roomCode)?.timeout !== timeout) return;
+    timers.delete(roomCode);
     try {
-      await onFailed(failure);
-    } catch {
-      // The periodic runtime reconciler remains the retry backstop.
+      await run();
+    } catch (error) {
+      // The reconciler re-arms the room.
+      logger.warn({ err: error, roomCode, version }, "turn_execution_failed");
     }
-  }
+  }, Math.max(0, delayMs));
+  timeout.unref();
+  timers.set(roomCode, { timeout, version, firesAt: Date.now() + Math.max(0, delayMs) });
 }
 
 export function clearTurnTimer(roomCode: string): void {
-  const timer = activeTimers.get(roomCode);
-  if (!timer) return;
-  clearTimeout(timer.timeout);
-  activeTimers.delete(roomCode);
+  const timer = timers.get(roomCode);
+  if (timer) clearTimeout(timer.timeout);
+  timers.delete(roomCode);
 }
 
-export function getTurnTimerState(roomCode: string): {
-  remainingMs: number;
-  totalMs: number;
-  startedAt: number;
-  turnUserId: number;
-  phase: TurnPhase;
-  isBot: boolean;
-} | null {
-  const timer = activeTimers.get(roomCode);
-  if (!timer) return null;
-  return {
-    remainingMs: Math.max(0, timer.durationMs - (Date.now() - timer.startedAt)),
-    totalMs: timer.durationMs,
-    startedAt: timer.startedAt,
-    turnUserId: timer.currentTurnUserId,
-    phase: timer.phase,
-    isBot: timer.isBot,
-  };
+export function hasTurnRuntime(roomCode: string, version: number): boolean {
+  return timers.get(roomCode)?.version === version;
 }
 
-export function hasTurnRuntime(
-  roomCode: string,
-  userId: number,
-  phase: TurnPhase,
-  pauseEpoch: number,
-  identity: TurnIdentity,
-): boolean {
-  const timer = activeTimers.get(roomCode);
-  return Boolean(
-    timer &&
-      timer.currentTurnUserId === userId &&
-      timer.phase === phase &&
-      timer.pauseEpoch === pauseEpoch &&
-      isSameTurn(timer.identity, identity),
-  );
+export function getTurnTimerState(roomCode: string): { version: number; remainingMs: number } | null {
+  const timer = timers.get(roomCode);
+  return timer ? { version: timer.version, remainingMs: Math.max(0, timer.firesAt - Date.now()) } : null;
 }
 
 export function clearAllTurnTimers(): void {
-  for (const roomCode of activeTimers.keys()) clearTurnTimer(roomCode);
+  for (const roomCode of [...timers.keys()]) clearTurnTimer(roomCode);
 }
-
-const STALE_TIMER_THRESHOLD_MS = 2 * 60 * 60 * 1000;
-const cleanupStaleTimers = setInterval(() => {
-  const now = Date.now();
-  for (const [roomCode, timer] of activeTimers.entries()) {
-    if (now - timer.startedAt > STALE_TIMER_THRESHOLD_MS) {
-      clearTurnTimer(roomCode);
-    }
-  }
-}, 10 * 60 * 1000);
-cleanupStaleTimers.unref();

@@ -14,6 +14,7 @@ import {
   startRuntimeReconciler,
   stopRuntimeReconciler,
 } from "./runtime/reconciler";
+import { clearAllTurnTimers } from "./runtime/turnTimer";
 
 const REQUIRED_ENV = ["DATABASE_URL", "JWT_SECRET"] as const;
 for (const key of REQUIRED_ENV) {
@@ -61,6 +62,7 @@ const shutdown = async (signal: string) => {
   isShuttingDown = true;
   logger.info({ signal }, "shutdown_initiated");
 
+  clearAllTurnTimers();
   stopMetrics();
   await stopRuntimeReconciler();
   await stopPracticeRoomSweeper();

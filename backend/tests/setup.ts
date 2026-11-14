@@ -2,7 +2,7 @@ import { setSocketInstance } from "../src/socketInstance";
 import { prisma } from "../src/db";
 import { setRng, createSeededRng } from "../src/utils/random";
 import { closeServer } from "./helpers/serverHarness";
-import { clearAllRuntime } from "../src/runtime/turnRuntime";
+import { clearAllTurnTimers } from "../src/runtime/turnTimer";
 
 // Create a mock Socket.io instance
 const mockIo: any = {
@@ -31,11 +31,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  clearAllRuntime();
+  clearAllTurnTimers();
 });
 
 afterAll(async () => {
-  clearAllRuntime();
+  clearAllTurnTimers();
   if (restoreRng) restoreRng();
   await closeServer();
   await prisma.$disconnect();
