@@ -247,7 +247,7 @@ def test_bot_completes_a_full_round_legally(client, tier):
             signals_declared.append(move["signal"])
         _apply(game, move)
 
-    assert len(game.round.hands_played) == 10 or game.round.number > 1
+    assert len(game.round.tricks_played) == 10 or game.round.number > 1
     # Not asserted: that signals ARE used. Whether the policy signals at all is
     # the open question this feature exists to answer, not a precondition.
     assert all(s in {sig.value for sig in Signal} for s in signals_declared)

@@ -14,7 +14,7 @@ from becca_env.deck import DECK, Card, Suit, Value
 from becca_env.rules import (
     compute_round_scores,
     detect_cricca,
-    determine_hand_winner,
+    determine_trick_winner,
     follow_suit_filter,
 )
 
@@ -51,7 +51,7 @@ class RoundState:
     briscola: Suit | None = None
     cricca: bool = False
     caller_seat: int = 0
-    hands_played: list[TrickRecord] = field(default_factory=list)
+    tricks_played: list[TrickRecord] = field(default_factory=list)
     current_trick: list[tuple[int, Card]] = field(default_factory=list)
     trick_starter: int = 0
     trick_signals: list[tuple[int, Signal | None]] = field(default_factory=list)
@@ -165,12 +165,12 @@ class BeccaGame:
             "my_hand": list(r.player_hands.get(seat, [])),
             "briscola": r.briscola,
             "round_number": r.number,
-            "hand_number": len(r.hands_played) + 1,
+            "trick_number": len(r.tricks_played) + 1,
             "current_trick": list(r.current_trick),
             "trick_starter": r.trick_starter,
             "trick_signals": list(r.trick_signals),
-            "hands_played": [(tr.winner, tr.cards) for tr in r.hands_played],
-            "signals_history": [(tr.signal_seat, tr.signal) for tr in r.hands_played],
+            "tricks_played": [(tr.winner, tr.cards) for tr in r.tricks_played],
+            "signals_history": [(tr.signal_seat, tr.signal) for tr in r.tricks_played],
             "total_scores": dict(self.total_scores),
             "rounds_won": dict(self.rounds_won),
             "caller_seat": r.caller_seat,
@@ -269,7 +269,7 @@ class BeccaGame:
 
         # Check if trick is complete
         if len(self.round.current_trick) == 4:
-            winner_seat = determine_hand_winner(self.round.current_trick, self.round.briscola)
+            winner_seat = determine_trick_winner(self.round.current_trick, self.round.briscola)
 
             # Extract leader's signal from this trick
             leader_signal = None
@@ -278,7 +278,7 @@ class BeccaGame:
                 leader_seat, leader_signal = self.round.trick_signals[0]
 
             trick_cards = list(self.round.current_trick)
-            self.round.hands_played.append(
+            self.round.tricks_played.append(
                 TrickRecord(
                     winner=winner_seat,
                     cards=trick_cards,
@@ -297,14 +297,14 @@ class BeccaGame:
             self.round.trick_starter = winner_seat
 
             # Check if round is complete (10 hands)
-            if len(self.round.hands_played) == 10:
+            if len(self.round.tricks_played) == 10:
                 return self._end_round(info)
 
         return info
 
     def _end_round(self, info: dict) -> dict:
-        hands_for_scoring = [(tr.winner, tr.cards) for tr in self.round.hands_played]
-        scores = compute_round_scores(hands_for_scoring, TEAM_OF_SEAT)
+        tricks_for_scoring = [(tr.winner, tr.cards) for tr in self.round.tricks_played]
+        scores = compute_round_scores(tricks_for_scoring, TEAM_OF_SEAT)
 
         # Apply Cricca bonus: +3 points (= +9 raw) to the caller's team
         if self.round.cricca:

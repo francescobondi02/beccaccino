@@ -143,7 +143,7 @@ def _signal_consistency_weight(game: BeccaGame, sampled: SampledHands) -> float:
     has no calibrated model of the other players' policies.
     """
     weight = 1.0
-    completed = game.round.hands_played
+    completed = game.round.tricks_played
     for index, trick in enumerate(completed):
         if trick.signal is None or trick.signal_seat is None or not trick.cards:
             continue

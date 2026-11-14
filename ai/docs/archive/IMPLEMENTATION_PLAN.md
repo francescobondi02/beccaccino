@@ -543,7 +543,7 @@ of scope — the point is observability.)
 **Change (mirror the `_compute_void_mask` exemplar):**
 - `observation.py`: add `SIGNAL_INDEX = {s: i for i, s in enumerate(Signal)}` (striscio=0, busso=1,
   volo=2); `OBS_SIZE = 462`. New `_compute_signal_mask(game, viewer_seat) -> (4, 3)` multi-hot over
-  the round: `[relative_declarer_seat, signal_type]`, populated from `hands_played[*].signal/signal_seat`
+  the round: `[relative_declarer_seat, signal_type]`, populated from `tricks_played[*].signal/signal_seat`
   and the in-progress `trick_signals[0]`. Rows relative to viewer (0=me, 1=left, 2=partner, 3=right);
   **row 0 IS populated** (own past signals aren't otherwise observable — unlike the void mask). In
   `encode_observation`, append the 12 floats after the void mask (indices 450..462), before the final

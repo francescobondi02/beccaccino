@@ -42,7 +42,7 @@ def test_kaggle_observation_preserves_history_without_exposing_other_hands():
     hands = other.round.player_hands
     hands[left], hands[right] = hands[right], hands[left]
     np.testing.assert_array_equal(original, encode_observation(other, seat, obs_size=OBS_SIZE))
-    other.round.hands_played.reverse()
+    other.round.tricks_played.reverse()
     assert not np.array_equal(original, encode_observation(other, seat, obs_size=OBS_SIZE))
 
 

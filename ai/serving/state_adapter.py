@@ -22,7 +22,7 @@ from typing import Any
 
 from becca_env.deck import Card, Suit, Value
 from becca_env.game import BeccaGame, GamePhase, RoundState, Signal, TrickRecord
-from becca_env.rules import determine_hand_winner
+from becca_env.rules import determine_trick_winner
 
 NUM_SEATS = 4
 TRICKS_PER_ROUND = 10
@@ -108,7 +108,7 @@ def state_dict_to_game(state: dict[str, Any]) -> BeccaGame:
         briscola=Suit(briscola) if briscola else None,
         cricca=state.get("cricca", False),
         caller_seat=int(state["caller_seat"]),
-        hands_played=completed,
+        tricks_played=completed,
         current_trick=current,
         trick_starter=int(state["trick_starter"]),
         trick_signals=_trick_signals(current, state.get("current_signal")),
@@ -137,7 +137,7 @@ def _trick_record(trick: dict[str, Any], briscola: str | None) -> TrickRecord:
 
     signal_seat = trick.get("signal_seat")
     return TrickRecord(
-        winner=determine_hand_winner(cards, Suit(briscola)),
+        winner=determine_trick_winner(cards, Suit(briscola)),
         cards=cards,
         signal=_signal(trick.get("signal")),
         signal_seat=None if signal_seat is None else int(signal_seat),
@@ -184,7 +184,7 @@ def game_to_state_dict(game: BeccaGame, seat: int) -> dict[str, Any]:
                 "signal": tr.signal.value if tr.signal else None,
                 "signal_seat": tr.signal_seat,
             }
-            for tr in r.hands_played
+            for tr in r.tricks_played
         ],
         "current_trick": [_seated_card_dto(s, c) for s, c in r.current_trick],
         "current_signal": leader_signal.value if leader_signal else None,

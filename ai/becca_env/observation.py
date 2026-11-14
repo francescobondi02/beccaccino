@@ -15,7 +15,7 @@ v4 layout (518 features):
   briscola:         4    one-hot suit (zeros until briscola is chosen)
   my_seat:          4    one-hot
   trick_starter:    4    one-hot
-  hand_number:      10   one-hot, hand index 0..9 in this round
+  trick_number:     10   one-hot, trick index 0..9 in this round
   round_number:     10   one-hot, capped at 10
   scores:           2    team0_norm, team1_norm in [0, 1]
   void_mask:        4 * 4 = 16   1 if seat S is *known* void in suit V
@@ -115,7 +115,7 @@ def _compute_void_mask(game: BeccaGame, viewer_seat: int) -> np.ndarray:
     mask = np.zeros((4, 4), dtype=np.float32)
     r = game.round
     # Walk through completed tricks
-    for tr in r.hands_played:
+    for tr in r.tricks_played:
         if not tr.cards:
             continue
         lead_suit = tr.cards[0][1].suit
@@ -148,7 +148,7 @@ def _compute_signal_mask(game: BeccaGame, viewer_seat: int) -> np.ndarray:
     mask = np.zeros((4, NUM_SIGNALS), dtype=np.float32)
     r = game.round
     # Completed tricks: each carries the leader's declared signal (if any).
-    for tr in r.hands_played:
+    for tr in r.tricks_played:
         if tr.signal is not None and tr.signal_seat is not None:
             rel = (tr.signal_seat - viewer_seat) % 4
             mask[rel, SIGNAL_INDEX[tr.signal]] = 1.0
@@ -165,13 +165,13 @@ def _compute_signal_history(game: BeccaGame, viewer_seat: int) -> np.ndarray:
     """Encode the four most recent suit-qualified declarations, newest first."""
     records: list[tuple[int, int, Signal, Suit]] = []
     r = game.round
-    for trick_index, trick in enumerate(r.hands_played):
+    for trick_index, trick in enumerate(r.tricks_played):
         if trick.signal is not None and trick.signal_seat is not None and trick.cards:
             records.append((trick_index, trick.signal_seat, trick.signal, trick.cards[0][1].suit))
     if r.trick_signals and r.current_trick:
         signal_seat, signal = r.trick_signals[0]
         if signal is not None:
-            records.append((len(r.hands_played), signal_seat, signal, r.current_trick[0][1].suit))
+            records.append((len(r.tricks_played), signal_seat, signal, r.current_trick[0][1].suit))
 
     history = np.zeros(
         (RECENT_SIGNAL_COUNT, SIGNAL_HISTORY_RECORD_SIZE),
@@ -217,7 +217,7 @@ def encode_observation(game: BeccaGame, seat: int, obs_size: int = OBS_SIZE) -> 
         status_block[base + STATUS_UNSEEN] = 0.0
         status_block[base + STATUS_MINE] = 1.0
     # Cards from completed tricks
-    for tr in r.hands_played:
+    for tr in r.tricks_played:
         for player_seat, card in tr.cards:
             ci = CARD_INDEX[card]
             base = ci * CARD_STATUS_CLASSES
@@ -258,8 +258,8 @@ def encode_observation(game: BeccaGame, seat: int, obs_size: int = OBS_SIZE) -> 
     offset += 4
 
     # Hand number (10) — 0-indexed
-    hand_num = min(len(r.hands_played), 9)
-    obs[offset + hand_num] = 1.0
+    trick_num = min(len(r.tricks_played), 9)
+    obs[offset + trick_num] = 1.0
     offset += 10
 
     # Round number (10) — 0-indexed, capped
@@ -288,7 +288,7 @@ def encode_observation(game: BeccaGame, seat: int, obs_size: int = OBS_SIZE) -> 
     # from the legacy prefix.
     captured_raw = np.zeros(2, dtype=np.float32)
     tricks_won = np.zeros(2, dtype=np.float32)
-    for trick in r.hands_played:
+    for trick in r.tricks_played:
         team = TEAM_OF_SEAT[trick.winner]
         captured_raw[team] += sum(card_points[card.value] for _, card in trick.cards)
         tricks_won[team] += 1.0

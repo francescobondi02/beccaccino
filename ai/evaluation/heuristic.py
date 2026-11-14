@@ -38,7 +38,7 @@ import random
 
 from becca_env.deck import Card, Suit, card_points, card_strength
 from becca_env.game import TEAM_OF_SEAT, BeccaGame, GamePhase, Signal
-from becca_env.rules import determine_hand_winner, follow_suit_filter
+from becca_env.rules import determine_trick_winner, follow_suit_filter
 from becca_env.signals import honest_signal_for
 
 
@@ -69,7 +69,7 @@ def _current_trick_winner(game: BeccaGame) -> tuple[int, Card] | None:
     trick = game.round.current_trick
     if not trick:
         return None
-    winner_seat = determine_hand_winner(trick, game.round.briscola)
+    winner_seat = determine_trick_winner(trick, game.round.briscola)
     winner_card = next(c for s, c in trick if s == winner_seat)
     return winner_seat, winner_card
 

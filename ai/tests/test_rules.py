@@ -6,7 +6,7 @@ from becca_env.deck import Card, Suit, Value
 from becca_env.rules import (
     compute_round_scores,
     detect_cricca,
-    determine_hand_winner,
+    determine_trick_winner,
     follow_suit_filter,
 )
 
@@ -41,7 +41,7 @@ class TestFollowSuit:
         assert playable == [Card(Suit.DENARA, Value.QUATTRO)]
 
 
-class TestDetermineHandWinner:
+class TestDetermineTrickWinner:
     def test_highest_lead_suit_wins(self):
         """Tre (strength 10) beats Asso (strength 8) in lead suit."""
         played = [
@@ -50,7 +50,7 @@ class TestDetermineHandWinner:
             (2, Card(Suit.DENARA, Value.QUATTRO)),  # strength 1
             (3, Card(Suit.SPADE, Value.TRE)),  # off-suit, ignored
         ]
-        winner = determine_hand_winner(played, Suit.COPPE)  # briscola is coppe
+        winner = determine_trick_winner(played, Suit.COPPE)  # briscola is coppe
         assert winner == 1
 
     def test_briscola_beats_lead_suit(self):
@@ -61,7 +61,7 @@ class TestDetermineHandWinner:
             (2, Card(Suit.DENARA, Value.ASSO)),  # lead suit, strength 8
             (3, Card(Suit.SPADE, Value.RE)),  # off-suit
         ]
-        winner = determine_hand_winner(played, Suit.COPPE)
+        winner = determine_trick_winner(played, Suit.COPPE)
         assert winner == 1
 
     def test_highest_briscola_wins(self):
@@ -72,7 +72,7 @@ class TestDetermineHandWinner:
             (2, Card(Suit.COPPE, Value.DUE)),  # briscola, strength 9
             (3, Card(Suit.COPPE, Value.FANTE)),  # briscola, strength 5
         ]
-        winner = determine_hand_winner(played, Suit.COPPE)
+        winner = determine_trick_winner(played, Suit.COPPE)
         assert winner == 2
 
     def test_off_suit_loses_when_no_briscola_played(self):
@@ -84,7 +84,7 @@ class TestDetermineHandWinner:
             (3, Card(Suit.COPPE, Value.TRE)),  # off-suit, strength 10 but irrelevant
         ]
         # Briscola is a suit not present in any played card
-        winner = determine_hand_winner(played, Suit.COPPE)
+        winner = determine_trick_winner(played, Suit.COPPE)
         # Only seat 0 follows lead suit (denara), so seat 0 wins despite lowest strength
         # Wait — coppe IS played by seat 3. Use a briscola not in trick.
         # Actually coppe is played. Let's set briscola to something not in trick.
@@ -96,18 +96,18 @@ class TestDetermineHandWinner:
             (2, Card(Suit.SPADE, Value.DUE)),  # off-suit, strength 9
             (3, Card(Suit.SPADE, Value.ASSO)),  # off-suit, strength 8
         ]
-        winner = determine_hand_winner(played2, Suit.COPPE)  # briscola not in trick
+        winner = determine_trick_winner(played2, Suit.COPPE)  # briscola not in trick
         assert winner == 0  # weakest lead card still wins when others don't follow
 
     def test_no_cards_raises(self):
         with pytest.raises(ValueError):
-            determine_hand_winner([], Suit.DENARA)
+            determine_trick_winner([], Suit.DENARA)
 
 
 class TestComputeRoundScores:
     def test_total_points_sum_correctly(self):
-        """All 40 cards played across 10 hands.
-        Total raw = 32 (card points) + 3 (last hand bonus) = 35.
+        """All 40 cards played across 10 tricks.
+        Total raw = 32 (card points) + 3 (last trick bonus) = 35.
         35 // 3 = 11 points, 35 % 3 = 2 figures.
         Both teams combined must equal this.
         """
@@ -120,34 +120,34 @@ class TestComputeRoundScores:
         rng.shuffle(deck)
 
         team_of_seat = {0: 0, 1: 1, 2: 0, 3: 1}
-        hands = []
+        tricks = []
         for i in range(10):
             trick = [(seat, deck[i * 4 + seat]) for seat in range(4)]
-            winner = determine_hand_winner(trick, Suit.DENARA)
-            hands.append((winner, trick))
+            winner = determine_trick_winner(trick, Suit.DENARA)
+            tricks.append((winner, trick))
 
-        scores = compute_round_scores(hands, team_of_seat)
+        scores = compute_round_scores(tricks, team_of_seat)
         total_raw = scores["team0"]["raw"] + scores["team1"]["raw"]
-        # 32 card points + 3 last-hand bonus = 35
+        # 32 card points + 3 last-trick bonus = 35
         assert total_raw == 35
 
-    def test_last_hand_bonus(self):
-        """Team that wins last hand gets +1 point (raw +3)."""
+    def test_last_trick_bonus(self):
+        """Team that wins last trick gets +1 point (raw +3)."""
         from becca_env.deck import DECK
 
         team_of_seat = {0: 0, 1: 1, 2: 0, 3: 1}
-        # Create 10 hands where all cards are zero-point cards except last hand
+        # Create 10 tricks where all cards are zero-point cards except last trick
         zero_values = (Value.QUATTRO, Value.CINQUE, Value.SEI, Value.SETTE)
         zero_cards = [c for c in DECK if c.value in zero_values]
 
-        hands = []
+        tricks = []
         for i in range(10):
             trick = [(j, zero_cards[(i * 4 + j) % len(zero_cards)]) for j in range(4)]
             # Seat 0 (team 0) always wins
-            hands.append((0, trick))
+            tricks.append((0, trick))
 
-        scores = compute_round_scores(hands, team_of_seat)
-        # Only points come from last-hand bonus = 3 raw = 1 point
+        scores = compute_round_scores(tricks, team_of_seat)
+        # Only points come from last-trick bonus = 3 raw = 1 point
         assert scores["team0"]["points"] == 1
         assert scores["team1"]["points"] == 0
 

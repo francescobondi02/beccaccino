@@ -225,7 +225,7 @@ def test_sampler_handles_double_void():
     """Two different seats void in two different suits → sampler honors both.
 
     We craft hands so seat 1 lacks spades and seat 3 lacks coppe, then play
-    one trick of each lead so both voids surface in `hands_played`.
+    one trick of each lead so both voids surface in `tricks_played`.
     """
     g = BeccaGame(seed=5)
     _play_through_briscola(g, briscola=Suit.DENARA)

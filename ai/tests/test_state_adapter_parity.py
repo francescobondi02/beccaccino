@@ -217,7 +217,7 @@ def test_completed_trick_winner_is_recomputed_not_trusted():
     assert "winner" not in state["completed_tricks"][0]
 
     rebuilt = state_dict_to_game(state)
-    assert rebuilt.round.hands_played[0].winner == game.round.hands_played[0].winner
+    assert rebuilt.round.tricks_played[0].winner == game.round.tricks_played[0].winner
 
 
 def test_unfinished_trick_cannot_be_sent_as_completed():

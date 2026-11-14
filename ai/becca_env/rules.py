@@ -23,7 +23,7 @@ def follow_suit_filter(hand: list[Card], lead_suit: Suit) -> list[Card]:
     return matching if matching else hand
 
 
-def determine_hand_winner(played_cards: list[tuple[int, Card]], briscola: Suit | None) -> int:
+def determine_trick_winner(played_cards: list[tuple[int, Card]], briscola: Suit | None) -> int:
     """Determine which player (seat index) wins the trick.
 
     Args:
@@ -62,13 +62,13 @@ def determine_hand_winner(played_cards: list[tuple[int, Card]], briscola: Suit |
 
 
 def compute_round_scores(
-    hands: list[tuple[int, list[tuple[int, Card]]]],
+    tricks: list[tuple[int, list[tuple[int, Card]]]],
     team_of_seat: dict[int, int],
 ) -> dict[str, dict[str, int]]:
-    """Compute scores for a completed round (10 hands).
+    """Compute scores for a completed round (10 tricks).
 
     Args:
-        hands: list of (winner_seat, played_cards) for each hand
+        tricks: list of (winner_seat, played_cards) for each trick
         team_of_seat: mapping seat -> team (0 or 1)
 
     Returns:
@@ -77,13 +77,13 @@ def compute_round_scores(
     """
     raw_scores = {0: 0, 1: 0}
 
-    for i, (winner_seat, cards) in enumerate(hands):
+    for i, (winner_seat, cards) in enumerate(tricks):
         team = team_of_seat[winner_seat]
         for _, card in cards:
             raw_scores[team] += card_points[card.value]
 
-        # Last hand bonus: +3 raw (= +1 real point)
-        if i == len(hands) - 1:
+        # Last trick bonus: +3 raw (= +1 real point)
+        if i == len(tricks) - 1:
             raw_scores[team] += 3
 
     def fmt(raw: int) -> dict[str, int]:
