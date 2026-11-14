@@ -100,6 +100,8 @@ describe("Leaderboard API", () => {
       const { roomCode, round, cards } = await setupGame();
       await chooseBriscola(roomCode, round, cards);
       await oneRound(roomCode, round);
+      const counted = await request(getServer()).get("/api/users/leaderboard");
+      expect(counted.body.leaderboard.length).toBeGreaterThan(0);
       const room = await prisma.gameRoom.update({
         where: { code: roomCode },
         data: { winnerTeam: null },

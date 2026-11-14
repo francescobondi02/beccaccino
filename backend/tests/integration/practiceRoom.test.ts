@@ -253,6 +253,48 @@ describe("Practice room creation", () => {
     clearRuntimeRoom(first.body.code);
   });
 
+  it("keeps the room and its turn timer when retiring fails on leave", async () => {
+    const practice = await createPractice("medio");
+    const timer = getTurnTimerState(practice.body.code);
+    expect(timer).not.toBeNull();
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION practice_fail_round_delete() RETURNS trigger AS $$
+      BEGIN
+        RAISE EXCEPTION 'injected practice retire failure';
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER practice_fail_round_delete
+      BEFORE DELETE ON "Round"
+      FOR EACH ROW EXECUTE FUNCTION practice_fail_round_delete()
+    `);
+
+    let res;
+    try {
+      res = await apiAs(userId, "human")
+        .post(`/api/rooms/${practice.body.code}/leave`)
+        .send({});
+    } finally {
+      await prisma.$executeRawUnsafe(
+        'DROP TRIGGER practice_fail_round_delete ON "Round"',
+      );
+      await prisma.$executeRawUnsafe("DROP FUNCTION practice_fail_round_delete()");
+    }
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ error: "Internal server error" });
+    expect(
+      await prisma.gameRoom.findUnique({ where: { code: practice.body.code } }),
+    ).not.toBeNull();
+    expect(await prisma.round.count()).toBe(1);
+    expect(getTurnTimerState(practice.body.code)).toMatchObject({
+      turnUserId: timer!.turnUserId,
+      phase: timer!.phase,
+    });
+    clearRuntimeRoom(practice.body.code);
+  });
+
   it("serializes concurrent practice creation for one user", async () => {
     await stub.close();
     stub = await startBotServiceStub(

@@ -2,7 +2,7 @@ import {
   isLegalCard,
   selectLegalCards,
 } from "../../src/domain/game/legalCards";
-import { resolveTurnSeat } from "../../src/domain/game/turnOrder";
+import { nextCallerPlayerId, resolveTurnSeat } from "../../src/domain/game/turnOrder";
 
 describe("shared game rules", () => {
   it.each([
@@ -40,6 +40,19 @@ describe("shared game rules", () => {
     },
   ])("resolves the current turn for $name", ({ input, expected }) => {
     expect(resolveTurnSeat(input)).toBe(expected);
+  });
+
+  it.each([
+    { previousCallerId: 13, expected: 10 },
+    { previousCallerId: 10, expected: 11 },
+  ])("passes the call from $previousCallerId to $expected", ({ previousCallerId, expected }) => {
+    const players = [
+      { id: 12, seat: 2 },
+      { id: 10, seat: 0 },
+      { id: 13, seat: 3 },
+      { id: 11, seat: 1 },
+    ];
+    expect(nextCallerPlayerId(players, previousCallerId)).toBe(expected);
   });
 
   it.each([
