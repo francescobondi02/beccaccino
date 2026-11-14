@@ -7,7 +7,6 @@ import {
 import {
   getTurnTimerState,
 } from "../../src/runtime/turnTimer";
-import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 import { setRng } from "../../src/utils/random";
 import { clearDatabase } from "../helpers/database";
 import {
@@ -44,19 +43,12 @@ afterEach(async () => {
     'ALTER TABLE "GameRoom" DROP CONSTRAINT IF EXISTS atomic_reject_finished',
   );
 
-  const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-  for (const room of rooms) clearRuntimeRoom(room.code);
   setSocketInstance(originalIo);
   jest.restoreAllMocks();
 });
 
 function expectTimerUnchanged(roomCode: string, before: TimerState) {
-  expect(getTurnTimerState(roomCode)).toMatchObject({
-    turnUserId: before.turnUserId,
-    phase: before.phase,
-    totalMs: before.totalMs,
-    isBot: before.isBot,
-  });
+  expect(getTurnTimerState(roomCode)?.version).toBe(before.version);
 }
 
 async function nextMove(roomCode: string) {
@@ -140,7 +132,7 @@ describe("Atomic game transitions", () => {
       await prisma.round.findUniqueOrThrow({ where: { id: round.id } }),
     ).toMatchObject({ briscola: null, cricca: false });
     expect(await prisma.trick.count({ where: { roundId: round.id } })).toBe(1);
-    expect(events).not.toContain("briscola_chosen");
+    expect(events).not.toContain("game_state");
     expectTimerUnchanged(roomCode, timerBefore);
 
     await prisma.trick.delete({ where: { id: sentinel.id } });
@@ -202,7 +194,7 @@ describe("Atomic game transitions", () => {
         },
       }),
     ).toBe(1);
-    expect(events).not.toContain("card_played");
+    expect(events).not.toContain("game_state");
     expectTimerUnchanged(roomCode, timerBefore);
 
     await prisma.$executeRawUnsafe(
@@ -254,9 +246,7 @@ describe("Atomic game transitions", () => {
       await prisma.trick.findUniqueOrThrow({ where: { id: move.trick.id } }),
     ).toMatchObject({ winnerId: null });
     expect(await prisma.playedCard.count({ where: { trickId: move.trick.id } })).toBe(3);
-    expect(events).not.toContain("card_played");
-    expect(events).not.toContain("round_ended");
-    expect(events).not.toContain("game_finished");
+    expect(events).not.toContain("game_state");
     expectTimerUnchanged(roomCode, timerBefore);
 
     await prisma.$executeRawUnsafe(
@@ -306,9 +296,7 @@ describe("Atomic game transitions", () => {
       await prisma.trick.findUniqueOrThrow({ where: { id: move.trick.id } }),
     ).toMatchObject({ winnerId: null });
     expect(await prisma.playedCard.count({ where: { trickId: move.trick.id } })).toBe(3);
-    expect(events).not.toContain("card_played");
-    expect(events).not.toContain("round_ended");
-    expect(events).not.toContain("new_round_started");
+    expect(events).not.toContain("game_state");
     expectTimerUnchanged(roomCode, timerBefore);
 
     const retry = await apiAs(move.player.userId, move.player.user.username)

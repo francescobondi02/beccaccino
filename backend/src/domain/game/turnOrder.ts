@@ -1,4 +1,7 @@
-export const TABLE_SEATS = 4;
+import type { LiveGame, LivePlayer } from "../../game/liveGame";
+import type { TurnPhase } from "../../contract/game";
+
+const TABLE_SEATS = 4;
 
 function seatAfter(seat: number, offset = 1): number {
   return (seat + offset) % TABLE_SEATS;
@@ -14,22 +17,19 @@ export function nextCallerPlayerId(
   return players.find((player) => player.seat === nextSeat)?.id ?? null;
 }
 
-export function resolveTurnSeat({
-  briscolaChosen,
-  callerSeat,
-  trick,
-}: {
-  briscolaChosen: boolean;
-  callerSeat: number | null;
-  trick?: {
-    starterSeat: number;
-    playedCardCount: number;
-    winnerSeat: number | null;
-  } | null;
-}): number | null {
-  if (!briscolaChosen || !trick) return callerSeat;
-  if (trick.playedCardCount < TABLE_SEATS) {
-    return seatAfter(trick.starterSeat, trick.playedCardCount);
-  }
-  return trick.winnerSeat;
+// Who acts next and how; null when the game is not live.
+export function currentTurn(
+  game: Pick<LiveGame, "room" | "players" | "round" | "trick">,
+): { player: LivePlayer; phase: TurnPhase } | null {
+  const { round, trick, players } = game;
+  if (!game.room.started || game.room.finished || game.room.pausedAt || !round) return null;
+  const seatOf = (playerId: number) =>
+    players.find((player) => player.id === playerId)!.seat!;
+  const seat =
+    round.briscola === null || !trick
+      ? seatOf(round.callerId)
+      : seatAfter(seatOf(trick.starterId), trick.cards.length);
+  const player = players.find((candidate) => candidate.seat === seat);
+  if (!player) return null;
+  return { player, phase: round.briscola === null ? "choose_briscola" : "play_card" };
 }

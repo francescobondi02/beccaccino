@@ -1,4 +1,3 @@
-// src/services/botState.ts
 /**
  * Serialize a game into the wire format the Python bot service consumes.
  *
@@ -17,12 +16,8 @@
  * hands — but this is why the service must stay internal.
  */
 
-import { prisma } from "../db";
-import { resolveTurnSeat } from "../domain/game/turnOrder";
 import { GAME_WIN_POINTS } from "../gameConfig";
-
-const SEATS = [0, 1, 2, 3];
-const TRICK_SIZE = 4;
+import type { LiveGame, LiveTrick } from "../game/liveGame";
 
 type CardDto = { suit: string; value: string };
 type SeatedCardDto = CardDto & { seat: number };
@@ -47,108 +42,22 @@ export interface BotState {
   win_points: number;
 }
 
-export interface BotTurn {
-  state: BotState;
-  seat: number;
-  turnSeat: number | null;
-}
-
-export class BotStateError extends Error {}
-
-/**
- * Build the state the bot at `userId` needs to choose its move.
- *
- * Kept separate from `getGameState` rather than extracted out of it: the two
- * consumers need genuinely different payloads (a bot needs every hand and raw
- * cumulative scores; a browser needs only its own cards and display points), and
- * refactoring the endpoint every live game depends on buys nothing here.
- */
-export async function buildBotTurn(
-  roomCode: string,
-  userId: number,
-): Promise<BotTurn> {
-  const room = await prisma.gameRoom.findUnique({
-    where: { code: roomCode },
-    include: {
-      players: true,
-      rounds: {
-        orderBy: { number: "desc" },
-        take: 1,
-        include: {
-          tricks: {
-            orderBy: { number: "asc" },
-            include: { cards: { orderBy: { position: "asc" } } },
-          },
-        },
-      },
-    },
-  });
-
-  if (!room) throw new BotStateError(`room ${roomCode} not found`);
-  if (room.finished) throw new BotStateError(`game ${roomCode} is finished`);
-
-  const player = room.players.find((p) => p.userId === userId);
-  if (!player || player.seat === null) {
-    throw new BotStateError(`user ${userId} is not seated in room ${roomCode}`);
-  }
-
-  const round = room.rounds[0];
-  if (!round) throw new BotStateError(`room ${roomCode} has no round in progress`);
-
-  const seatOf = new Map(room.players.map((p) => [p.id, p.seat!]));
-  const requireSeat = (playerId: number): number => {
-    const seat = seatOf.get(playerId);
-    if (seat === undefined) {
-      throw new BotStateError(`player ${playerId} has no seat in room ${roomCode}`);
-    }
-    return seat;
-  };
-
-  // Tricks in play order. The in-progress one is the only trick without a winner;
-  // a completed round leaves all ten resolved.
-  const tricks = round.tricks;
-  const openTrick = tricks.find((trick) => trick.winnerId === null);
-  const completedTricks = tricks.filter((trick) => trick.winnerId !== null);
-
-  const heldCards = await prisma.handCard.findMany({
-    where: { roundId: round.id },
-    orderBy: [{ suit: "asc" }, { value: "asc" }],
-  });
-
+// The state the bot at `userId` needs to choose its move.
+export function toBotState(game: LiveGame, userId: number): BotState {
+  const round = game.round!;
+  const seatOf = new Map(game.players.map((player) => [player.id, player.seat!]));
+  const seated = (cards: LiveTrick["cards"]) =>
+    cards.map((card) => ({ seat: seatOf.get(card.playerId)!, suit: card.suit, value: card.value }));
   const hands: Record<string, CardDto[]> = {};
-  for (const seat of SEATS) hands[String(seat)] = [];
-  for (const card of heldCards) {
-    hands[String(requireSeat(card.playerId))].push({
-      suit: card.suit,
-      value: card.value,
-    });
-  }
+  for (const player of game.players) hands[String(player.seat)] = game.hands.get(player.id) ?? [];
+  const callerSeat = seatOf.get(round.callerId)!;
+  const trick = game.trick;
+  const raw = game.roundScores.reduce(
+    (sum, score) => ({ team0: sum.team0 + score.team0Raw, team1: sum.team1 + score.team1Raw }),
+    { team0: 0, team1: 0 },
+  );
 
-  const callerSeat = requireSeat(round.callerId);
-
-  const turnSeat = resolveTurnSeat({
-    briscolaChosen: round.briscola !== null,
-    callerSeat,
-    trick: openTrick
-      ? {
-          starterSeat: requireSeat(openTrick.starterId),
-          playedCardCount: openTrick.cards.length,
-          winnerSeat: null,
-        }
-      : null,
-  });
-  const currentTrick = (openTrick?.cards ?? []).map((c) => ({
-    seat: requireSeat(c.playerId),
-    suit: c.suit,
-    value: c.value,
-  }));
-  if (currentTrick.length >= TRICK_SIZE) {
-    throw new BotStateError(
-      `trick ${openTrick!.number} in ${roomCode} is full but unresolved`,
-    );
-  }
-
-  const state: BotState = {
+  return {
     phase: round.briscola === null ? "choose_briscola" : "play_card",
     briscola: round.briscola,
     cricca: round.cricca,
@@ -156,41 +65,19 @@ export async function buildBotTurn(
     caller_seat: callerSeat,
     // Before briscola is chosen nobody has led yet; the Python engine seeds
     // trick_starter with the caller in that phase, so mirror it.
-    trick_starter: openTrick ? requireSeat(openTrick.starterId) : callerSeat,
-    acting_seat: player.seat,
+    trick_starter: trick ? seatOf.get(trick.starterId)! : callerSeat,
+    acting_seat: game.players.find((player) => player.userId === userId)!.seat!,
     hands,
-    completed_tricks: completedTricks.map((trick) => {
-      const leader = trick.cards.find((c) => c.position === 0);
-      return {
-        cards: trick.cards.map((c) => ({
-          seat: requireSeat(c.playerId),
-          suit: c.suit,
-          value: c.value,
-        })),
-        signal: leader?.signal ?? null,
-        signal_seat: leader ? requireSeat(leader.playerId) : null,
-      };
-    }),
-    current_trick: currentTrick,
-    current_signal: openTrick?.cards.find((c) => c.position === 0)?.signal ?? null,
-    total_scores: await cumulativeRawScores(room.id),
+    completed_tricks: round.tricks
+      .filter((candidate) => candidate.winnerId !== null)
+      .map((completed) => ({
+        cards: seated(completed.cards),
+        signal: completed.cards[0]?.signal ?? null,
+        signal_seat: completed.cards[0] ? seatOf.get(completed.cards[0].playerId)! : null,
+      })),
+    current_trick: seated(trick?.cards ?? []),
+    current_signal: trick?.cards[0]?.signal ?? null,
+    total_scores: { "0": raw.team0, "1": raw.team1 },
     win_points: GAME_WIN_POINTS,
   };
-
-  return {
-    state,
-    seat: player.seat,
-    turnSeat,
-  };
-}
-
-/** Cumulative raw points per team over finished rounds, current round excluded. */
-async function cumulativeRawScores(
-  gameRoomId: number,
-): Promise<Record<string, number>> {
-  const { _sum } = await prisma.round.aggregate({
-    where: { gameRoomId, winnerTeam: { not: null } },
-    _sum: { team0Raw: true, team1Raw: true },
-  });
-  return { "0": _sum.team0Raw ?? 0, "1": _sum.team1Raw ?? 0 };
 }

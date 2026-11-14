@@ -23,9 +23,10 @@ backend/
 │   ├── controllers/        # HTTP adapters grouped by account, auth, stats, rooms, and games
 │   ├── domain/game/        # Pure caller, turn, card, trick, and scoring rules
 │   ├── game/
-│   │   ├── snapshots/      # Side-effect-free persisted turn reads
-│   │   ├── transitions/    # Atomic round and card-play database mutations
-│   │   └── turn.ts         # Shared turn phase, persisted identity and comparison
+│   │   ├── liveGame.ts     # One-query load of a started game
+│   │   ├── gameState.ts    # Side-effect-free per-viewer game state
+│   │   ├── runGameAction.ts # Locked, versioned game mutations and publication
+│   │   └── transitions/    # Round setup, briscola and card-play changes
 │   ├── http/               # Input parsers, typed errors, and global error mapping
 │   ├── practice/           # Versioned practice-match payload contract and parser
 │   ├── routes/             # Visible REST API map
@@ -53,13 +54,17 @@ backend/
 - Routes are the API map. Controllers parse request data, call one operation,
   and return its result. `src/http/errorHandler.ts` is the only HTTP error
   mapping and sanitization boundary.
-- Room operations and `game/transitions/` own writes, runtime changes, and
-  best-effort event publication. Game transactions commit before starting or
-  clearing runtime; there is no intermediate coordinator or directive layer.
+- Every game write goes through `game/runGameAction.ts`. Under the room lock it
+  loads the game once (`game/liveGame.ts`), applies the change, bumps
+  `GameRoom.version` with a compare-and-set, writes `lastActivityAt` (and
+  `turnStartedAt` when the turn moves or the game resumes), commits, re-arms the
+  turn runtime for the new version and publishes `game_state`. A human move that
+  loses a version race gets 409 with the current `state`; a timer or bot reply
+  armed for an older version is dropped.
 - `domain/game/` owns pure caller, seat, turn, legality, trick, and scoring
   rules. Snapshots, transitions, and bots consume those
   rules instead of reimplementing them.
-- `game/snapshots/` and `services/gameState.ts` are reads. Loading
+- `game/gameState.ts` (`toGameState`) is a pure read. Loading
   `GET /api/games/:roomCode/state` never schedules a timer or starts a bot.
 - Runtime changes finish before game events are published. Publication
   failures are logged and reported to Sentry but do not turn a committed
@@ -162,31 +167,32 @@ service can take about one minute to wake; this readiness path has a separate
 75-second allowance. Once ready, every `/act` call retains the 5-second move
 timeout.
 
-Outside test mode, the process immediately sweeps disposable practice rooms and
-repeats every 10 minutes. The sweep removes only practice rooms that are
-finished or inactive for at least 24 hours. Successful briscola choices and card
-plays refresh the activity timestamp transactionally. The sweep serializes with
-live room activity, revalidates eligibility under the room lock, and deletes
-game rows while retaining the reusable bot `User` accounts.
+Outside test mode, the process immediately sweeps practice rooms and repeats
+every 10 minutes. A practice room with no activity for 30 days is retired:
+an unstarted room is deleted, and a started game (paused or not) is marked
+`finished` with no winner, so its history stays. Every game action refreshes
+`lastActivityAt`. The sweep revalidates eligibility under the room lock.
 
 Active practice games can be paused with `POST /api/rooms/:roomCode/pause` and
 resumed with `POST /api/rooms/:roomCode/resume`. Only the human participant can
-use these endpoints. Pause state survives process restarts, suppresses timer
-recovery, and fences bot responses that started before a pause/resume cycle.
-Resuming starts a fresh full turn timer. Paused rooms remain subject to the same
-24-hour inactivity cleanup.
+use these endpoints. Pause state survives process restarts and suppresses timer
+recovery. Pause and resume each bump `version`, so a timer or bot response from
+before them is dropped. Resuming starts a fresh full turn timer. Paused games
+are subject to the same 30-day inactivity rule.
 
 ### Runtime Recovery
 
 Before the HTTP server listens, `reconcileActiveRuntime()` scans started,
-unfinished, unpaused rooms. Each room is locked, its persisted caller and exact
-turn identity are read, bot seats are restored, and turn runtime starts only
-when that turn has no scheduled or executing owner. Failures are
-isolated per room, keep `/ready` unavailable, and are retried by a
-non-overlapping periodic reconciler. Practice resume commits the unpause first
-and returns success only after the same recovery path confirms current runtime.
-Game-state reads never recover runtime, so repeated snapshots cannot create
-timers or bot moves.
+unfinished, unpaused rooms. Each room is locked and re-armed when it has no
+timer for its current `version`. A human deadline is `turnStartedAt` plus the
+turn timeout, so a restart keeps the same deadline. Failures are isolated per
+room, keep `/ready` unavailable, and are retried by a non-overlapping
+reconciler every 30 seconds. Game-state reads never recover runtime.
+
+The third timeout in a row hands a multiplayer seat to a bot in the same
+transaction (`takeover: true` in `lastAction`). Reconnecting does not return the
+seat; the player uses `POST /api/rooms/:roomCode/resume-control`. Practice games
+count timeouts but never take the seat.
 
 ### Backend and AI Contract
 
@@ -235,8 +241,9 @@ Training reads the game tables directly. `PlayedCard.autoPlayed` and
 `Round.briscolaAutoChosen` mark moves the server chose after a timeout or a bot
 service failure; exclude them from training labels.
 
-Until Phase 3b, practice game rows are still deleted when the player leaves or
-the stale practice room sweeper runs.
+Practice games are kept. Leaving a started practice game, starting a new one,
+or the 30-day sweep marks it `finished` with `winnerTeam = null`. Only unstarted
+rooms and rooms whose creation failed are deleted.
 
 ## API Endpoints
 

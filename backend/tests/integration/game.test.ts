@@ -10,7 +10,7 @@ import { apiAs } from "../helpers/serverHarness";
 import * as events from "../../src/runtime/eventPublisher";
 import * as score from "../../src/domain/game/gameScore";
 import { getSocketInstance, setSocketInstance } from "../../src/socketInstance";
-import { getTurnTimerState } from "../../src/runtime/turnTimer";
+import { turnOf } from "../helpers/turn";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -69,7 +69,7 @@ describe("Game flow", () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);
     const sent = jest.spyOn(events, "publishEvent");
-    const turnUserId = getTurnTimerState(roomCode)!.turnUserId;
+    const turnUserId = (await turnOf(roomCode))!.userId;
     const player = await prisma.player.findFirstOrThrow({
       where: { userId: turnUserId, gameRoom: { code: roomCode } }, include: { user: true },
     });
@@ -87,7 +87,7 @@ describe("Game flow", () => {
     const { roomCode } = await setupGame();
     const sent = jest.spyOn(events, "publishEvent");
     const caller = await prisma.player.findFirstOrThrow({
-      where: { userId: getTurnTimerState(roomCode)!.turnUserId, gameRoom: { code: roomCode } },
+      where: { userId: (await turnOf(roomCode))!.userId, gameRoom: { code: roomCode } },
       include: { user: true },
     });
     const chosen = await apiAs(caller.userId, caller.user.username)

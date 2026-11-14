@@ -7,7 +7,7 @@ import {
   BotServiceStub,
 } from "../helpers/botServiceStub";
 import { getTurnTimerState } from "../../src/runtime/turnTimer";
-import { readPlayableCards } from "../../src/services/playableCards";
+import { playableOf, turnOf } from "../helpers/turn";
 import { logger } from "../../src/logger";
 import { expectStoredResult } from "../helpers/gameDriver";
 
@@ -21,7 +21,7 @@ import { expectStoredResult } from "../helpers/gameDriver";
  *    the game and we would attribute its play to the model;
  *  - when the bot service is unreachable the seat falls back and logs loudly
  *    rather than hanging;
- *  - abandoning a practice game tears it down instead of leaving a zombie room.
+ *  - leaving a practice game closes it, so no bot keeps playing in it.
  */
 describe("Bot turn driver", () => {
   const TOKEN = "bot-turn-test-token";
@@ -59,8 +59,8 @@ describe("Bot turn driver", () => {
     const deadline = Date.now() + SETTLE_TIMEOUT_MS;
 
     while (Date.now() < deadline) {
-      const timer = getTurnTimerState(roomCode);
-      if (timer && !timer.isBot && timer.turnUserId === userId) return;
+      const turn = await turnOf(roomCode);
+      if (turn?.userId === userId && getTurnTimerState(roomCode)?.version === turn.version) return;
       await sleep(POLL_INTERVAL_MS);
     }
     throw new Error(
@@ -161,9 +161,7 @@ describe("Bot turn driver", () => {
     // settle() already waited for the turn to reach the human — reaching here
     // without throwing IS the chain working. What is left to check is that the
     // human's turn is a real countdown, not a bot think-delay slot.
-    const timer = getTurnTimerState(roomCode)!;
-    expect(timer.isBot).toBe(false);
-    expect(timer.totalMs).toBeGreaterThan(THINK_DELAY_MS);
+    expect(getTurnTimerState(roomCode)!.remainingMs).toBeGreaterThan(THINK_DELAY_MS);
 
     // Every bot seat acted exactly once before the human: briscola + 3 cards.
     expect(stub.requests).toHaveLength(4);
@@ -177,7 +175,7 @@ describe("Bot turn driver", () => {
     for (let turn = 0; turn < HUMAN_TURNS; turn++) {
       await settle(roomCode);
 
-      const legal = await readPlayableCards({ roomCode, userId });
+      const legal = await playableOf(roomCode, userId);
       const res = await apiAs(userId, "human")
         .post(`/api/games/${roomCode}/cards`)
         .send({ suit: legal[0].suit, value: legal[0].value });
@@ -207,14 +205,14 @@ describe("Bot turn driver", () => {
       const room = await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } });
       if (room.finished) break;
       if (Date.now() > deadline) throw new Error("practice game never finished");
-      const timer = getTurnTimerState(roomCode);
-      if (timer && !timer.isBot && timer.turnUserId === userId) {
+      const turn = await turnOf(roomCode);
+      if (turn?.userId === userId) {
         const human = apiAs(userId, "human");
-        if (timer.phase === "choose_briscola") {
+        if (turn.phase === "choose_briscola") {
           const res = await human.post(`/api/games/${roomCode}/briscola`).send({ suit: "denara" });
           expect(res.statusCode).toBe(200);
         } else {
-          const [card] = await readPlayableCards({ roomCode, userId });
+          const [card] = await playableOf(roomCode, userId);
           const res = await human
             .post(`/api/games/${roomCode}/cards`)
             .send({ suit: card.suit, value: card.value });
@@ -257,14 +255,15 @@ describe("Bot turn driver", () => {
     process.env.BOT_THINK_DELAY_MS = String(SETTLE_TIMEOUT_MS);
     const roomCode = await startPractice();
 
-    const timer = getTurnTimerState(roomCode)!;
-    expect(timer.isBot).toBe(true);
-    expect(timer.turnUserId).not.toBe(userId);
+    const turn = (await turnOf(roomCode))!;
+    expect(turn.isBot).toBe(true);
+    expect(turn.userId).not.toBe(userId);
     // Presentation plus think time, never the human briscola timeout.
-    expect(timer.totalMs).toBeGreaterThan(SETTLE_TIMEOUT_MS);
-    expect(timer.totalMs).toBeLessThanOrEqual(SETTLE_TIMEOUT_MS + 4000);
+    const timer = getTurnTimerState(roomCode)!;
+    expect(timer.remainingMs).toBeGreaterThan(SETTLE_TIMEOUT_MS);
+    expect(timer.remainingMs).toBeLessThanOrEqual(SETTLE_TIMEOUT_MS + 4000);
     const bot = await prisma.player.findFirstOrThrow({
-      where: { userId: timer.turnUserId, gameRoom: { code: roomCode } },
+      where: { userId: turn.userId, gameRoom: { code: roomCode } },
     });
     expect(bot.timeoutCount).toBe(0);
   });
@@ -340,7 +339,8 @@ describe("Bot turn driver", () => {
     releaseHeldRequest();
     await sleep(THINK_DELAY_MS * 10);
 
-    expect(await prisma.gameRoom.count()).toBe(0);
+    expect(await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } }))
+      .toMatchObject({ finished: true, winnerTeam: null });
     const reportedFallback = fallbackLogs.mock.calls.some(
       (call) => call[1] === "bot_fallback_to_autoplay",
     );
@@ -348,22 +348,21 @@ describe("Bot turn driver", () => {
     fallbackLogs.mockRestore();
   });
 
-  it("tears the room down when the human abandons a practice game", async () => {
+  it("closes the practice game when the human leaves it", async () => {
     const roomCode = await startPractice();
     await settle(roomCode);
 
     const res = await apiAs(userId, "human").post(`/api/rooms/${roomCode}/leave`).send({});
     expect(res.statusCode).toBe(200);
-    expect(res.body.deletedRoom).toBe(true);
+    expect(res.body).toEqual({ deletedRoom: false });
 
-    // Room and every trace of play are gone...
-    expect(await prisma.gameRoom.count({ where: { code: roomCode } })).toBe(0);
-    expect(await prisma.player.count()).toBe(0);
-    expect(await prisma.round.count()).toBe(0);
-    expect(await prisma.playedCard.count()).toBe(0);
-    expect(await prisma.handCard.count()).toBe(0);
+    // The game is kept as abandoned, with its history...
+    expect(await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } }))
+      .toMatchObject({ finished: true, winnerTeam: null });
+    expect(await prisma.player.count()).toBe(4);
+    expect(await prisma.playedCard.count()).toBeGreaterThan(0);
 
-    // ...but the reusable bot users survive, and the bot chain is stopped.
+    // ...the reusable bot users survive, and the bot chain is stopped.
     expect(await prisma.user.count({ where: { isBot: true } })).toBe(3);
     expect(getTurnTimerState(roomCode)).toBeNull();
 
@@ -387,7 +386,7 @@ describe("Bot turn driver", () => {
     // A game with no bot seats must never call the service, and its timer is a
     // normal human countdown.
     expect(stub.requests).toHaveLength(0);
-    const timer = getTurnTimerState(roomCode);
-    expect(timer!.isBot).toBe(false);
+    expect((await turnOf(roomCode))!.isBot).toBe(false);
+    expect(getTurnTimerState(roomCode)).not.toBeNull();
   });
 });

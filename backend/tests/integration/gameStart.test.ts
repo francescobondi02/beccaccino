@@ -3,7 +3,6 @@ import { startFirstRound } from "../../src/game/transitions/round";
 import {
   getTurnTimerState,
 } from "../../src/runtime/turnTimer";
-import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 import * as turnRuntime from "../../src/runtime/turnRuntime";
 import {
   getSocketInstance,
@@ -12,16 +11,10 @@ import {
 import { setRng } from "../../src/utils/random";
 import { clearDatabase } from "../helpers/database";
 import { apiAs } from "../helpers/serverHarness";
-
-const roomCodes = new Set<string>();
+import { turnOf } from "../helpers/turn";
 
 beforeEach(async () => {
   await clearDatabase();
-});
-
-afterEach(() => {
-  for (const roomCode of roomCodes) clearRuntimeRoom(roomCode);
-  roomCodes.clear();
 });
 
 async function createReadyRoom(
@@ -51,7 +44,6 @@ async function createReadyRoom(
       },
     },
   });
-  roomCodes.add(code);
   return { room, users };
 }
 
@@ -67,7 +59,7 @@ describe("first-round startup", () => {
     const code = "START1";
     const { room } = await createReadyRoom(teams, code);
 
-    await startFirstRound(room.id, code);
+    await startFirstRound(code);
 
     const startedRoom = await prisma.gameRoom.findUnique({
       where: { id: room.id },
@@ -94,10 +86,11 @@ describe("first-round startup", () => {
       startedRoom!.players.filter((player) => player.team === 1).map((p) => p.seat),
     ).toEqual([1, 3]);
 
-    const timer = getTurnTimerState(code);
-    expect(timer).toMatchObject({ phase: "choose_briscola", isBot: false });
+    const turn = await turnOf(code);
+    expect(turn).toMatchObject({ phase: "choose_briscola", isBot: false });
+    expect(getTurnTimerState(code)?.version).toBe(turn!.version);
     expect(startedRoom!.players.map((player) => player.userId)).toContain(
-      timer!.turnUserId,
+      turn!.userId,
     );
   });
 
@@ -162,7 +155,7 @@ describe("first-round startup", () => {
     } as any);
 
     try {
-      await expect(startFirstRound(room.id, code)).resolves.toBeUndefined();
+      await expect(startFirstRound(code)).resolves.toBeUndefined();
     } finally {
       setSocketInstance(originalIo);
     }
@@ -170,14 +163,12 @@ describe("first-round startup", () => {
     expect(
       await prisma.gameRoom.findUniqueOrThrow({ where: { id: room.id } }),
     ).toMatchObject({ started: true });
-    expect(getTurnTimerState(code)).toMatchObject({
-      phase: "choose_briscola",
-    });
+    expect(getTurnTimerState(code)?.version).toBe((await turnOf(code))!.version);
   });
 
   it("arms the briscola timer before publishing game start", async () => {
     const code = "START4";
-    const { room } = await createReadyRoom([0, 1, 0, 1], code);
+    await createReadyRoom([0, 1, 0, 1], code);
     const originalIo = getSocketInstance();
     const events: string[] = [];
     let runtimeAtStart: ReturnType<typeof getTurnTimerState> = null;
@@ -193,7 +184,7 @@ describe("first-round startup", () => {
     } as any);
 
     try {
-      await startFirstRound(room.id, code);
+      await startFirstRound(code);
     } finally {
       setSocketInstance(originalIo);
     }
@@ -201,14 +192,12 @@ describe("first-round startup", () => {
     expect(events).toEqual([
       ...Array(4).fill("game_state"), "room_changed", "lobby_changed",
     ]);
-    expect(runtimeAtStart).toMatchObject({
-      phase: "choose_briscola",
-    });
-    expect(runtimeAtStart!.totalMs).toBeGreaterThan(90_000);
-    expect(runtimeAtStart!.totalMs).toBeLessThanOrEqual(94_000);
+    // The 90 s briscola turn starts after the 4 s first-round deal presentation.
+    expect(runtimeAtStart!.remainingMs).toBeGreaterThan(90_000);
+    expect(runtimeAtStart!.remainingMs).toBeLessThanOrEqual(94_000);
   });
 
-  it("clears failed runtime startup without undoing the committed deal", async () => {
+  it("keeps the committed deal when arming the runtime fails", async () => {
     const code = "START5";
     const { room } = await createReadyRoom([0, 1, 0, 1], code);
     const originalIo = getSocketInstance();
@@ -218,18 +207,14 @@ describe("first-round startup", () => {
         emit: (event: string) => events.push(event),
       }),
     } as any);
-    const startRuntimeTurn = turnRuntime.startRuntimeTurn;
     const start = jest
-      .spyOn(turnRuntime, "startRuntimeTurn")
-      .mockImplementationOnce((...args) => {
-        startRuntimeTurn(...args);
+      .spyOn(turnRuntime, "armTurn")
+      .mockImplementationOnce(() => {
         throw new Error("runtime startup failed");
       });
 
     try {
-      await expect(startFirstRound(room.id, code)).rejects.toThrow(
-        "runtime startup failed",
-      );
+      await expect(startFirstRound(code)).resolves.toBeUndefined();
     } finally {
       start.mockRestore();
       setSocketInstance(originalIo);
@@ -243,7 +228,7 @@ describe("first-round startup", () => {
         where: { round: { gameRoomId: room.id } },
       }),
     ).toBe(40);
-    expect(events).not.toContain("game_started");
+    expect(events).not.toContain("game_state");
     expect(getTurnTimerState(code)).toBeNull();
   });
 });

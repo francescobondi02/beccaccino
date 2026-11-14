@@ -2,7 +2,7 @@ import { prisma } from "../db";
 import { logger } from "../logger";
 import { retirePracticeRoom } from "./practiceRooms";
 
-const PRACTICE_ROOM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const PRACTICE_ROOM_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
 let interval: NodeJS.Timeout | null = null;
@@ -13,39 +13,27 @@ async function runPracticeRoomSweep(now: Date): Promise<number> {
   const candidates = await prisma.gameRoom.findMany({
     where: {
       isPractice: true,
-      OR: [
-        { finished: true },
-        { lastActivityAt: { lte: staleBefore } },
-      ],
+      finished: false,
+      lastActivityAt: { lte: staleBefore },
     },
-    select: { id: true, code: true },
+    select: { code: true },
     orderBy: [{ lastActivityAt: "asc" }, { id: "asc" }],
   });
-  let deletedRooms = 0;
+  let retiredRooms = 0;
 
   for (const candidate of candidates) {
     try {
-      const retired = await retirePracticeRoom({
-        roomCode: candidate.code,
-        reason: { kind: "stale", staleBefore },
-      });
-      if (retired) deletedRooms += 1;
+      const retired = await retirePracticeRoom(candidate.code, staleBefore);
+      if (retired) retiredRooms += 1;
     } catch (error) {
-      logger.error(
-        {
-          err: error,
-          roomCode: candidate.code,
-          gameRoomId: candidate.id,
-        },
-        "practice_room_sweep_room_failed",
-      );
+      logger.error({ err: error, roomCode: candidate.code }, "practice_room_sweep_room_failed");
     }
   }
 
-  if (deletedRooms > 0) {
-    logger.info({ deletedRooms }, "practice_rooms_swept");
+  if (retiredRooms > 0) {
+    logger.info({ retiredRooms }, "practice_rooms_swept");
   }
-  return deletedRooms;
+  return retiredRooms;
 }
 
 export function sweepPracticeRooms(now: Date = new Date()): Promise<number> {

@@ -39,8 +39,8 @@ describe("Full Beccaccino game", () => {
       where: { code: roomCode },
       include: { players: true },
     });
-    const { roundId } = await prisma.$transaction((tx) => setupRound(room.id, 2, tx));
-    const second = await prisma.round.findUniqueOrThrow({ where: { id: roundId } });
+    await prisma.$transaction((tx) => setupRound(room.id, 2, tx));
+    const second = await prisma.round.findFirstOrThrow({ where: { gameRoomId: room.id, number: 2 } });
     const seatOf = (playerId: number) =>
       room.players.find((player) => player.id === playerId)!.seat!;
     expect(seatOf(second.callerId)).toBe((seatOf(round.callerId) + 1) % 4);

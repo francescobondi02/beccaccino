@@ -237,7 +237,7 @@ export async function setMultiplayerReady(args: {
           }
         }
       }
-      await startFirstRound(room.id, args.roomCode, {
+      await startFirstRound(args.roomCode, {
         readyPlayerId: player.id,
         bots,
       });

@@ -94,7 +94,7 @@ model GameRoom {
   isPractice     Boolean   @default(false)  // Human vs bots: excluded from all aggregates
   botTier        String?   // Fill empty multiplayer seats at startup; null = humans only
   pausedAt       DateTime?
-  pauseEpoch     Int       @default(0)
+  turnStartedAt  DateTime? // Set when the turn player or phase changes, and on resume
   version        Int       @default(0)  // Grows by one with every game state change
   createdAt      DateTime  @default(now())
   lastActivityAt DateTime  @default(now())

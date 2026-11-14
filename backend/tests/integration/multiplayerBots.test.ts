@@ -2,9 +2,8 @@ import { prisma } from "../../src/db";
 import { clearDatabase } from "../helpers/database";
 import { apiAs } from "../helpers/serverHarness";
 import { BotServiceStub, startBotServiceStub } from "../helpers/botServiceStub";
-import { botTierForTurn } from "../../src/runtime/botRegistry";
-import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
-import { getTurnTimerState } from "../../src/runtime/turnTimer";
+import { clearTurnTimer, getTurnTimerState } from "../../src/runtime/turnTimer";
+import { turnOf } from "../helpers/turn";
 import { recoverRoomRuntime } from "../../src/runtime/recovery";
 import { executeBotTurn } from "../../src/runtime/botExecutor";
 import { setRng } from "../../src/utils/random";
@@ -92,13 +91,13 @@ describe("Multiplayer bot filling", () => {
     expect(bots).toHaveLength(4 - users.length);
     for (const bot of bots) {
       expect(bot.botModel).toBe("forte");
-      expect(botTierForTurn(code, bot.userId)).toBe("forte");
     }
     expect(room.rounds).toHaveLength(1);
     expect(await prisma.handCard.count({ where: { roundId: room.rounds[0].id } })).toBe(40);
     expect(stub.readyTiers).toEqual(users.length < 4 ? ["forte"] : []);
-    const timer = getTurnTimerState(code)!;
-    expect(timer.isBot).toBe(bots.some((bot) => bot.userId === timer.turnUserId));
+    const turn = (await turnOf(code))!;
+    expect(turn.isBot).toBe(bots.some((bot) => bot.userId === turn.userId));
+    expect(getTurnTimerState(code)?.version).toBe(turn.version);
   });
 
   it("lets a friend join instead of a virtual bot and waits for their team and readiness", async () => {
@@ -203,21 +202,17 @@ describe("Multiplayer bot filling", () => {
     const publish = jest.spyOn(eventPublisher, "publishEvent");
     await apiAs(users[0].id, users[0].username)
       .post(`/api/rooms/${code}/ready`).send({ isReady: true });
-    const room = await loadRoom(code);
-    const initialTimer = getTurnTimerState(code)!;
-    expect(initialTimer.isBot).toBe(true);
-    clearRuntimeRoom(code);
+    const turn = (await turnOf(code))!;
+    expect(turn.isBot).toBe(true);
+    clearTurnTimer(code);
     expect(await recoverRoomRuntime(code)).toBe(true);
-    expect(getTurnTimerState(code)).toMatchObject({
-      isBot: true, turnUserId: initialTimer.turnUserId,
-    });
+    expect(getTurnTimerState(code)?.version).toBe(turn.version);
     await executeBotTurn({
       roomCode: code,
-      userId: initialTimer.turnUserId,
+      userId: turn.userId,
       tier: "forte",
       phase: "choose_briscola",
-      expectedPauseEpoch: room.pauseEpoch,
-      expectedTurn: { roundId: room.rounds[0].id, trickId: null, playedCardCount: 0 },
+      expectedVersion: turn.version,
     });
     expect(stub.requests).toHaveLength(1);
     expect((await loadRoom(code)).rounds[0].briscola).toBe("coppe");
@@ -231,7 +226,7 @@ describe("Multiplayer bot filling", () => {
     const { users, code } = await createLobby([0]);
     const client = apiAs(users[0].id, users[0].username);
     await client.post(`/api/rooms/${code}/ready`).send({ isReady: true });
-    clearRuntimeRoom(code);
+    clearTurnTimer(code);
     const room = await loadRoom(code);
     await prisma.gameRoom.update({ where: { id: room.id }, data: { finished: true, winnerTeam: 0 } });
     await prisma.round.update({

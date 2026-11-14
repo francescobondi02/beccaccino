@@ -10,7 +10,6 @@ import * as gameRound from "../../src/game/transitions/round";
 import {
   getTurnTimerState,
 } from "../../src/runtime/turnTimer";
-import { clearRuntimeRoom } from "../../src/runtime/turnRuntime";
 
 /**
  * POST /api/rooms/practice must hand back a game that is ready to play: started,
@@ -101,7 +100,7 @@ describe("Practice room creation", () => {
     expect(stub.readyTiers).toHaveLength(0);
   });
 
-  it("abandons previous practice games after creating a playable replacement", async () => {
+  it("closes previous practice games after creating a playable replacement", async () => {
     const first = await createPractice("medio");
     expect(first.statusCode).toBe(201);
     await prisma.gameRoom.create({
@@ -117,8 +116,27 @@ describe("Practice room creation", () => {
     expect(second.body.code).not.toBe(first.body.code);
     expect(stub.readyTiers).toEqual(["medio", "medio"]);
 
-    const rooms = await prisma.gameRoom.findMany({ select: { code: true } });
-    expect(rooms.map((room) => room.code)).toEqual([second.body.code]);
+    const rooms = await prisma.gameRoom.findMany({
+      select: { code: true, finished: true, winnerTeam: true },
+      orderBy: { id: "asc" },
+    });
+    expect(rooms).toEqual([
+      { code: first.body.code, finished: true, winnerTeam: null },
+      { code: second.body.code, finished: false, winnerTeam: null },
+    ]);
+  });
+
+  it("keeps the winner of a finished practice game when creating the next one", async () => {
+    const first = await createPractice("medio");
+    await prisma.gameRoom.update({
+      where: { code: first.body.code },
+      data: { finished: true, winnerTeam: 1 },
+    });
+
+    expect((await createPractice("medio")).statusCode).toBe(201);
+    expect(
+      await prisma.gameRoom.findUnique({ where: { code: first.body.code } }),
+    ).toMatchObject({ finished: true, winnerTeam: 1 });
   });
 
   it("does not block creating a multiplayer room", async () => {
@@ -211,24 +229,23 @@ describe("Practice room creation", () => {
     ).toEqual([{ code: first.body.code }]);
   });
 
-  it("removes the replacement when a previous room cannot be deleted", async () => {
+  it("removes the replacement when a previous game cannot be closed", async () => {
     const first = await createPractice("forte");
-    const firstRoom = await loadRoom(first.body.code);
     const firstTimer = getTurnTimerState(first.body.code);
     expect(firstTimer).not.toBeNull();
     await prisma.$executeRawUnsafe(`
       CREATE FUNCTION practice_fail_room_delete() RETURNS trigger AS $$
       BEGIN
-        IF OLD."id" = ${firstRoom!.id} THEN
+        IF NEW."finished" THEN
           RAISE EXCEPTION 'injected practice cleanup failure';
         END IF;
-        RETURN OLD;
+        RETURN NEW;
       END;
       $$ LANGUAGE plpgsql
     `);
     await prisma.$executeRawUnsafe(`
       CREATE TRIGGER practice_fail_room_delete
-      BEFORE DELETE ON "GameRoom"
+      BEFORE UPDATE ON "GameRoom"
       FOR EACH ROW EXECUTE FUNCTION practice_fail_room_delete()
     `);
 
@@ -246,11 +263,7 @@ describe("Practice room creation", () => {
     expect(
       await prisma.gameRoom.findMany({ select: { code: true } }),
     ).toEqual([{ code: first.body.code }]);
-    expect(getTurnTimerState(first.body.code)).toMatchObject({
-      turnUserId: firstTimer!.turnUserId,
-      phase: firstTimer!.phase,
-    });
-    clearRuntimeRoom(first.body.code);
+    expect(getTurnTimerState(first.body.code)?.version).toBe(firstTimer!.version);
   });
 
   it("keeps the room and its turn timer when retiring fails on leave", async () => {
@@ -266,7 +279,7 @@ describe("Practice room creation", () => {
     `);
     await prisma.$executeRawUnsafe(`
       CREATE TRIGGER practice_fail_round_delete
-      BEFORE DELETE ON "Round"
+      BEFORE UPDATE ON "GameRoom"
       FOR EACH ROW EXECUTE FUNCTION practice_fail_round_delete()
     `);
 
@@ -277,7 +290,7 @@ describe("Practice room creation", () => {
         .send({});
     } finally {
       await prisma.$executeRawUnsafe(
-        'DROP TRIGGER practice_fail_round_delete ON "Round"',
+        'DROP TRIGGER practice_fail_round_delete ON "GameRoom"',
       );
       await prisma.$executeRawUnsafe("DROP FUNCTION practice_fail_round_delete()");
     }
@@ -286,13 +299,8 @@ describe("Practice room creation", () => {
     expect(res.body).toEqual({ error: "Internal server error" });
     expect(
       await prisma.gameRoom.findUnique({ where: { code: practice.body.code } }),
-    ).not.toBeNull();
-    expect(await prisma.round.count()).toBe(1);
-    expect(getTurnTimerState(practice.body.code)).toMatchObject({
-      turnUserId: timer!.turnUserId,
-      phase: timer!.phase,
-    });
-    clearRuntimeRoom(practice.body.code);
+    ).toMatchObject({ finished: false });
+    expect(getTurnTimerState(practice.body.code)?.version).toBe(timer!.version);
   });
 
   it("serializes concurrent practice creation for one user", async () => {
@@ -311,7 +319,7 @@ describe("Practice room creation", () => {
     ]);
 
     expect(responses.map((response) => response.statusCode)).toEqual([201, 201]);
-    expect(await prisma.gameRoom.count()).toBe(1);
+    expect(await prisma.gameRoom.count({ where: { finished: false } })).toBe(1);
     expect(stub.readyTiers).toEqual(["forte", "forte"]);
   });
 

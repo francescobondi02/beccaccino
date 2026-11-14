@@ -57,7 +57,7 @@ cd frontend && npm run test:e2e         # Playwright 4-browser full game (see DE
 - Prisma enums are lowercase strings: `denara`, `asso`, etc.
 - Auth: JWT in httpOnly cookie `authToken`. Socket.IO extracts it from handshake cookie header.
 - Cookie config: `sameSite: lax`, `secure` in production.
-- Turn timer: 60s for card play, 90s for briscola choice. Auto-play on timeout. Kick after 3 timeouts.
+- Turn timer: 60s for card play, 90s for briscola choice. Auto-play on timeout. After 3 timeouts in a row a bot takes the multiplayer seat until `resume-control`.
 - Round scores are stored as raw points (`Round.team0Raw`/`team1Raw`, cricca included).
   Sum raw values first, then convert with `toTeamScore` (`domain/game/gameScore.ts`) to real
   points (`raw // 3`) and figures (`raw % 3`). The round caller (`Round.callerId`) and the game
@@ -92,11 +92,11 @@ Same-origin `/api` proxy: see [frontend/README.md](frontend/README.md#environmen
 
 - `backend/src/game/transitions/round.ts` — round setup, game start and briscola choice
 - `backend/src/game/transitions/cardPlay.ts` — card play, round completion and game completion
-- `backend/src/game/turn.ts` — shared turn phase and persisted turn identity
+- `backend/src/game/runGameAction.ts` — the one game write path (lock, version compare-and-set, re-arm, publish)
+- `backend/src/game/liveGame.ts` and `gameState.ts` — load one game; pure per-player state
 - `backend/src/domain/game/roundScore.ts` and `gameScore.ts` — pure round and cumulative scoring
 - `backend/src/services/multiplayerRooms.ts` and `practiceRooms.ts` — room operations
 - `backend/src/services/leaveRoom.ts` — participant departure and preserved game history
-- `backend/src/services/playableCards.ts` — read-only query for legal moves
 - `backend/src/runtime/` — timers, timeout penalties, bot turns and recovery
 - `backend/src/services/botUsers.ts` — bot accounts (fixed pool of 3 users) and difficulty tiers
 - `backend/src/services/botState.ts` — serializes a game into the bot service's wire format

@@ -2,44 +2,27 @@ import {
   isLegalCard,
   selectLegalCards,
 } from "../../src/domain/game/legalCards";
-import { nextCallerPlayerId, resolveTurnSeat } from "../../src/domain/game/turnOrder";
+import { currentTurn, nextCallerPlayerId } from "../../src/domain/game/turnOrder";
 
 describe("shared game rules", () => {
   it.each([
-    {
-      name: "briscola choice",
-      input: { briscolaChosen: false, callerSeat: 2, trick: null },
-      expected: 2,
-    },
-    {
-      name: "first card",
-      input: {
-        briscolaChosen: true,
-        callerSeat: 2,
-        trick: { starterSeat: 2, playedCardCount: 0, winnerSeat: null },
-      },
-      expected: 2,
-    },
+    { name: "briscola choice", briscola: null, trick: null, expected: 2 },
+    { name: "first card", briscola: "coppe", trick: { starterId: 12, cards: [] }, expected: 2 },
     {
       name: "wrapped fourth card",
-      input: {
-        briscolaChosen: true,
-        callerSeat: 2,
-        trick: { starterSeat: 2, playedCardCount: 3, winnerSeat: null },
-      },
+      briscola: "coppe",
+      trick: { starterId: 12, cards: [{}, {}, {}] },
       expected: 1,
     },
-    {
-      name: "completed trick winner",
-      input: {
-        briscolaChosen: true,
-        callerSeat: 2,
-        trick: { starterSeat: 2, playedCardCount: 4, winnerSeat: 3 },
-      },
-      expected: 3,
-    },
-  ])("resolves the current turn for $name", ({ input, expected }) => {
-    expect(resolveTurnSeat(input)).toBe(expected);
+  ])("resolves the current turn for $name", ({ briscola, trick, expected }) => {
+    const players = [10, 11, 12, 13].map((id, seat) => ({ id, seat }));
+    const game = {
+      room: { started: true, finished: false },
+      players,
+      round: { callerId: 12, briscola },
+      trick,
+    } as unknown as Parameters<typeof currentTurn>[0];
+    expect(currentTurn(game)?.player.seat).toBe(expected);
   });
 
   it.each([
