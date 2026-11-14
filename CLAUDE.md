@@ -38,23 +38,17 @@ screens with web components or change server rules for presentation concerns.
 ## Running Locally
 
 ```bash
-docker compose up -d              # Postgres on :5432, Adminer on :8080, Backend on :8000
-cd frontend && npm install && npm run dev   # :8081
+make dev    # everything in Docker: web :8081, API :8000, Metro :8082, bot :8011, Adminer :8080, Postgres :5432
+make stop   # make reset wipes the DB and dependency volumes
 ```
 
-Alternatively, run backend outside Docker for hot-reload:
-```bash
-docker compose up -d db adminer   # Postgres + Adminer only
-cd backend && npm install && npm run dev    # :8000 (auto-runs prisma generate + migrate)
-```
+Seeded users `alice`, `bob`, `carol`, `dave` (password `password`). Details: README.md "Develop locally".
 
 ## Testing
 
 ```bash
-cd backend && npm run test:unit         # Pure logic, no DB
-cd backend && npm run test:integration  # Needs docker postgres + becca_test DB
-cd frontend && npm test                 # Vitest unit tests
-cd frontend && npm run test:e2e         # Playwright 4-browser full game (needs backend+frontend running)
+make test                               # backend unit + integration (becca_test), frontend Vitest, mobile check
+cd frontend && npm run test:e2e         # Playwright 4-browser full game (see DEVELOPMENT.md)
 ```
 
 ## Key Conventions

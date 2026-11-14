@@ -1,47 +1,13 @@
 # Backend — Development Guide
 
-## Prerequisites
+## Starting the Backend
 
-- **Node.js** 24+ (matches Dockerfile)
-- **Finch** (for the local PostgreSQL database)
-- The database runs via Finch Compose from the project root
-
-## Environment Setup
-
-```sh
-cp .env.example .env
-# Edit .env to set a real JWT_SECRET
-```
-
-The database defaults work with Finch Compose out of the box. Replace
-`JWT_SECRET` before sharing the server.
+Run `make dev` from the project root; see [Develop locally](../README.md#develop-locally).
+An optional `backend/.env` can add variables (see `.env.example`).
 
 Tests do not load `.env.test`. Jest runs `tests/loadTestEnv.ts` before Prisma
 imports; it uses `TEST_DATABASE_URL` when supplied and otherwise selects the
-guarded local `becca_test` database. Initialize that database with
-`npm run db:test:prepare` before running integration tests.
-
-## Starting the Backend
-
-### Option A: With Finch Compose (recommended for development)
-
-From the **project root**:
-
-```sh
-finch compose up
-```
-
-This starts PostgreSQL + Adminer + the backend with hot-reload. The backend runs at `http://localhost:8000`.
-
-### Option B: Standalone (DB must be running)
-
-```sh
-cd backend
-npm ci
-npx prisma generate
-npx prisma migrate deploy
-npm run dev
-```
+guarded local `becca_test` database.
 
 ## Project Structure
 
@@ -154,13 +120,10 @@ Tests are split into two Jest projects: **unit** (no DB) and **integration** (re
 
 ### Setup (one-time)
 
-The integration tests require a dedicated `becca_test` database:
+The integration tests require a dedicated `becca_test` database. `make test`
+runs this for you inside a container:
 
 ```sh
-# Make sure Finch Compose is running the PostgreSQL service
-finch compose up -d db
-
-cd backend
 npm run db:test:prepare
 ```
 
@@ -358,9 +321,9 @@ kill -9 <PID>
 
 **Cannot connect to database:**
 ```sh
-finch compose ps              # verify DB container is running
-finch compose logs db         # check DB logs
-finch compose restart db
+docker compose ps              # verify DB container is running
+docker compose logs db         # check DB logs
+docker compose restart db
 ```
 
 **Prisma Client not generated:**

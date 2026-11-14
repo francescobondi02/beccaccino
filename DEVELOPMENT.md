@@ -2,47 +2,7 @@
 
 ## Quick Start
 
-```sh
-# 0. Clone
-git clone https://github.com/francescobondi02/beccaccino.git
-cd beccaccino
-
-# 1. Create local configuration once; set a private JWT_SECRET and BOT_SERVICE_TOKEN
-cp backend/.env.example backend/.env
-
-# 2. Start the complete local app, with hot reload
-make dev
-```
-
-- Backend: `http://localhost:8000`
-- Frontend: `http://localhost:8081`
-- Adminer (DB UI): `http://localhost:8080`
-- Bot: `http://localhost:8011/health` (inference requires the shared token)
-
-`make dev` uses Docker Compose for PostgreSQL, backend, frontend and the trained
-bot. It explicitly sets development mode, local database URLs and the Vite proxy
-target. Inherited production database URLs cannot redirect this stack.
-The bot token comes from the ignored `backend/.env`; Python and Node share it.
-Container dependencies stay in named volumes, separate from host `node_modules`.
-The trained, hash-verified weights are committed in `ai/serving/models/`.
-No local Node/Python installation or separate model download is needed.
-The backend waits for PostgreSQL and the model to become healthy.
-There is no random-model fallback during startup.
-Restricted networks can set a public `PIP_INDEX_URL` mirror in `backend/.env`
-for the bot image build; CPU PyTorch also requires `download.pytorch.org`.
-Do not put credentials in build arguments.
-For corporate npm access, set `NPM_CONFIG_REGISTRY` in that same file to the
-registry already approved and configured on the host. Containers do not inherit
-the host's npm configuration. Do not disable Defender or TLS verification.
-
-Stop without deleting the database:
-
-```sh
-make stop
-```
-
-`make dev` stays in the foreground; Ctrl+C stops the app. `make stop` also removes
-its containers, but retains the database and dependency volumes.
+See [Develop locally](./README.md#develop-locally).
 
 ## Production commands and environment
 
@@ -75,26 +35,20 @@ Tests are split into two Jest projects: **unit** (no DB) and **integration** (re
 
 #### Prerequisites
 
-The integration tests require a dedicated `becca_test` database. Create it once:
+`make test` runs both projects inside the containers. It migrates the
+`becca_test` database first (`npm run db:test:prepare`), so no manual setup is
+needed. To run a single file:
 
 ```sh
-cd backend
-DB="postgresql://postgres:postgres@localhost:5432/becca_test"
-DATABASE_URL="$DB" DIRECT_URL="$DB" npx prisma db push
+docker run --rm --network container:becca-db --volumes-from becca-backend \
+  --volume "$PWD/ai:/ai:ro" --workdir /app node:24-alpine3.21 \
+  npx jest --runInBand tests/integration/botTurns.test.ts
 ```
-
-Make sure `docker compose up` is running before running integration tests.
-
-`becca_test` is built with `db push`, not `migrate deploy`, so it deliberately has
-**no migration history** — `migrate deploy` against it fails with P3005, which is
-expected, not a problem. Verify new migrations against the dev `becca` database
-instead (`npm run migrate`).
 
 > **`DIRECT_URL` is required, even locally.** Prisma validates that every `env()`
 > in the datasource block resolves, so an unset `DIRECT_URL` fails schema
-> validation for *every* prisma command — including `npm run dev` and `npm test`.
-> It does not fall back to `DATABASE_URL`. Copy `.env.example` (which sets it) and
-> mirror `DATABASE_URL` locally; only Neon needs the two to differ.
+> validation for *every* prisma command. It does not fall back to
+> `DATABASE_URL`; only Neon needs the two to differ.
 
 #### Commands
 
@@ -123,11 +77,9 @@ lobby and first trick.
 
 #### Prerequisites
 
-```sh
-docker compose up -d          # Start DB
-cd backend && npm run dev     # Start backend (port 8000)
-cd frontend && npm run dev    # Start frontend (port 8081)
-```
+`make dev` running (API on 8000, web on 8081). Playwright itself runs on the
+host and needs Node and its browsers; see `frontend/README.md` for its
+environment.
 
 #### Commands
 
@@ -179,18 +131,9 @@ Each integration test suite calls `clearDatabase()` in `beforeEach` to ensure is
 
 ---
 
-## Stopping the Project
-
-```sh
-docker compose down           # stop containers
-docker compose down -v        # stop and delete database volume (destructive)
-```
-
----
-
 ## Database Management (Prisma)
 
-All commands should be run from the `backend/` directory.
+Run these inside the backend container: `docker compose exec backend sh`.
 
 ```sh
 # Apply pending migrations
@@ -211,55 +154,6 @@ npx prisma studio
 
 ---
 
-## Environment Variables
-
-**`backend/.env`** (development):
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca"
-JWT_SECRET="your_secret_key"
-PORT=8000
-```
-
-**`backend/.env.test`** (integration tests — used for reference, actual injection is via `loadTestEnv.ts`):
-
-```env
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/becca_test"
-JWT_SECRET="test-secret"
-NODE_ENV="test"
-PORT=8000
-```
-
----
-
-## Typical Workflows
-
-### Daily Development
-
-```sh
-docker compose up -d
-cd frontend && npm run dev   # separate terminal
-cd backend && npm run test:unit  # fast feedback loop, no DB needed
-docker compose down
-```
-
-### After Editing `schema.prisma`
-
-```sh
-npx prisma migrate dev --name <description>
-# npx prisma generate is usually run automatically
-docker compose restart backend
-```
-
-### Running Integration Tests
-
-```sh
-docker compose up -d
-cd backend && npm run test:integration
-```
-
----
-
 ## Docker Reference
 
 ```sh
@@ -272,9 +166,6 @@ docker compose logs -f backend  # backend only
 
 # Restart a service
 docker compose restart backend
-
-# Rebuild after Dockerfile changes
-docker compose up --build
 
 # Enter a container
 docker exec -it becca-backend sh
@@ -303,7 +194,7 @@ docker compose restart db
 **Prisma Client not generated:**
 
 ```sh
-cd backend && npx prisma generate
+docker compose restart backend   # runs prisma generate on start
 ```
 
 **Integration tests hitting dev database instead of test database:**
@@ -311,13 +202,6 @@ cd backend && npx prisma generate
 The `tests/loadTestEnv.ts` file must override `DATABASE_URL` before any module loads.
 It is registered under `setupFiles` (not `setupFilesAfterEnv`) in `jest.config.js` for this reason.
 If tests are writing to `becca` instead of `becca_test`, check that the integration project config still has `setupFiles: ["<rootDir>/tests/loadTestEnv.ts"]`.
-
-**Database in inconsistent state:**
-
-```sh
-docker compose down -v
-docker compose up
-```
 
 ---
 

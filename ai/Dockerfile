@@ -11,18 +11,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Dependencies first, so code edits reuse these cached layers.
+RUN python -m pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --extra-index-url "${PIP_INDEX_URL}" \
+        "torch==${TORCH_VERSION}+cpu"
+
 COPY pyproject.toml README.md ./
+RUN python -m pip install --no-cache-dir ".[serve]"
+
 COPY becca_env ./becca_env
 COPY evaluation ./evaluation
 COPY inference ./inference
 COPY serving ./serving
 COPY training ./training
 
-RUN python -m pip install --no-cache-dir \
-        --index-url https://download.pytorch.org/whl/cpu \
-        "torch==${TORCH_VERSION}" \
-    && python -m pip install --no-cache-dir ".[serve]" \
-    && python -c "from pathlib import Path; import torch; from serving.artifact import load_inference_artifact; from training.checkpoint import build_net; artifact = load_inference_artifact(Path('serving/models/run_d2_champion.pt')); build_net(artifact, torch.device('cpu'))" \
+RUN python -c "from pathlib import Path; import torch; from serving.artifact import load_inference_artifact; from training.checkpoint import build_net; artifact = load_inference_artifact(Path('serving/models/run_d2_champion.pt')); build_net(artifact, torch.device('cpu'))" \
     && python -c "from serving.tiers import get_agent; get_agent('forte')" \
     && useradd --create-home --uid 10001 app
 

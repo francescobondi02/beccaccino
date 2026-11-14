@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Node.js** 24+ (matches CI)
-- Backend running at `http://localhost:8000` (`docker compose up -d` from the project root, or `docker compose up -d db adminer` plus `cd backend && npm run dev`)
+- Backend running at `http://localhost:8000` (`make dev` from the project root)
 
 ## Backend Origin
 
