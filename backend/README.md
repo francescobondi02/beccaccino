@@ -16,8 +16,7 @@ Python service. Setup and operator procedures are described in
   `db:test:prepare` (`prisma migrate deploy` with `NODE_ENV=test` against the
   local `becca_test` database), `build` (`prisma generate && tsc`),
   `start` (`node dist/index.js`), `typecheck`, `migrate`
-  (`prisma migrate deploy`), `test`, `test:unit`, `test:integration`,
-  `practice:export`.
+  (`prisma migrate deploy`), `test`, `test:unit`, `test:integration`.
 - `jest.config.js`: two Jest projects, `unit` (`tests/unit/**/*.test.ts`) and
   `integration` (`tests/integration/**/*.test.ts`), both with setup file
   `tests/loadTestEnv.ts` and `tests/setup.ts`, plus global teardown

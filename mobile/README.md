@@ -149,7 +149,7 @@ is enabled only after the server confirms it. Backgrounding disconnects the
 socket and attempts a pause, but mobile suspension or missing connectivity can
 prevent that request: use explicit pause before leaving when it must be guaranteed.
 An interrupted app restores from the server rather than assuming it was paused.
-Abandoning requires confirmation and uses the existing archive-and-retire path.
+Abandoning requires confirmation and uses the existing retire path.
 
 The app and backend share the contract types in `backend/src/contract/`, so
 both must be deployed from the same commit. Local play

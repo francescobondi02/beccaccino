@@ -6,7 +6,6 @@ import { GameError } from "../utils/gameError";
 import { withRoomLock } from "../utils/roomLock";
 import { ensureBotServiceReady } from "./botClient";
 import { BotTier, ensureBotUsers } from "./botUsers";
-import { archivePracticeMatch } from "./practiceArchive";
 import { generateUniqueRoomCode } from "./roomCode";
 import { assertNoActiveMultiplayerGame } from "./roomQueries";
 import { startFirstRound } from "../game/transitions/round";
@@ -87,7 +86,6 @@ export async function retirePracticeRoom(args: {
       });
       const roundIds = rounds.map((round) => round.id);
 
-      await archivePracticeMatch(tx, room.id);
       await tx.playedCard.deleteMany({
         where: { hand: { roundId: { in: roundIds } } },
       });
