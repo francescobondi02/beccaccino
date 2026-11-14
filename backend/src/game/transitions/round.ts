@@ -5,18 +5,11 @@ import { getRng } from "../../utils/random";
 import { logger } from "../../logger";
 import { publishRoomChanged } from "../../runtime/eventPublisher";
 import { Card, Suit, SUITS, Value, VALUES } from "../../domain/game/cards";
-import { nextCallerPlayerId } from "../../domain/game/turnOrder";
+import { currentTurn, nextCallerPlayerId } from "../../domain/game/turnOrder";
 import { BotTier, replacementBotTier } from "../../services/botUsers";
 import { runGameAction, runGameActionUnlocked } from "../runGameAction";
 import type { LiveGame, LivePlayer } from "../liveGame";
 import type { ActionSource } from "../../contract/game";
-
-export class RuntimeTurnCancelledError extends GameError {
-  constructor() {
-    super("Runtime turn is no longer current", 409);
-    this.name = "RuntimeTurnCancelledError";
-  }
-}
 
 // Timers and bot replies pass the version they were armed for.
 export type TurnAction = {
@@ -30,22 +23,15 @@ export function isStale(game: LiveGame, action: TurnAction): boolean {
   return action.expectedVersion !== undefined && action.expectedVersion !== game.room.version;
 }
 
-// The seat owner plays a human seat; timers play only human seats, bots only bot seats.
-export function assertPlayerControl(
-  player: { botModel: string | null; abandonedAt: Date | null },
-  source: ActionSource,
-): void {
-  if (source === "human") {
-    if (player.botModel !== null || player.abandonedAt) {
-      throw new GameError("Un bot sta giocando al tuo posto. Riprendi prima il controllo.", 409);
-    }
-  } else if ((source === "timeout") !== (player.botModel === null)) {
-    throw new RuntimeTurnCancelledError();
+// A person cannot play a seat a bot has taken.
+export function assertPlayerControl(player: LivePlayer, source: ActionSource): void {
+  if (source === "human" && player.botModel !== null) {
+    throw new GameError("Un bot sta giocando al tuo posto. Riprendi prima il controllo.", 409);
   }
 }
 
 // Counts timeouts in a row. Returns true when this one hands the seat to a bot.
-export async function recordTurn(
+export async function updateTimeoutCount(
   tx: Prisma.TransactionClient,
   game: LiveGame,
   player: LivePlayer,
@@ -66,14 +52,7 @@ export async function recordTurn(
 }
 
 function generateDeck(): Card[] {
-  const deck: Card[] = [];
-
-  for (const suit of SUITS) {
-    for (const value of VALUES) {
-      deck.push({ suit, value });
-    }
-  }
-  return deck;
+  return SUITS.flatMap((suit) => VALUES.map((value) => ({ suit, value })));
 }
 
 function shuffleDeck<T>(deck: T[]): T[] {
@@ -214,18 +193,16 @@ export function setBriscola(action: TurnAction & { suit?: Suit }) {
       if (!player) throw new GameError("Player not in this game room", 403);
       assertPlayerControl(player, action.source);
       if (game.room.pausedAt) throw new GameError("Practice game is paused", 409);
-      const round = game.round;
-      if (!round || round.briscola !== null || game.room.finished) {
-        throw new GameError("Briscola already set for this round", 400);
-      }
-      if (player.id !== round.callerId) {
+      const turn = currentTurn(game);
+      if (turn?.player.id !== player.id || turn.phase !== "choose_briscola") {
         throw new GameError("It's not your turn to choose briscola", 403);
       }
+      const round = game.round!;
 
       const hand = game.hands.get(player.id) ?? [];
       const suit = action.suit ?? autoBriscola(hand);
       const cricca = detectCricca(hand, suit);
-      const takeover = await recordTurn(tx, game, player, action.source);
+      const takeover = await updateTimeoutCount(tx, game, player, action.source);
       await tx.round.update({
         where: { id: round.id },
         data: { briscola: suit, cricca, briscolaAutoChosen: action.suit === undefined },

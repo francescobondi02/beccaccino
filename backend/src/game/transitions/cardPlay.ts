@@ -5,7 +5,7 @@ import { currentTurn } from "../../domain/game/turnOrder";
 import { CardSignal, Suit, Value } from "../../domain/game/cards";
 import { logger } from "../../logger";
 import { runGameAction } from "../runGameAction";
-import { assertPlayerControl, isStale, recordTurn, setupRound, TurnAction } from "./round";
+import { assertPlayerControl, isStale, setupRound, TurnAction, updateTimeoutCount } from "./round";
 
 // Without a card the server plays the first legal one (timeout, bot fallback).
 export function playCard(
@@ -15,17 +15,17 @@ export function playCard(
     action.roomCode,
     async (game, tx) => {
       if (isStale(game, action)) return null;
-      const { room, round, trick } = game;
-      if (!room.started) throw new GameError("Room not found or game not started", 404);
-      if (room.finished) throw new GameError("Game is already finished", 400);
+      const { room } = game;
       const player = game.players.find((candidate) => candidate.userId === action.userId);
       if (!player) throw new GameError("It's not this player's turn", 403);
       assertPlayerControl(player, action.source);
       if (room.pausedAt) throw new GameError("Practice game is paused", 409);
-      if (!round || !trick) throw new GameError("No active round or trick found", 400);
-      if (currentTurn(game)?.player.id !== player.id) {
+      const turn = currentTurn(game);
+      if (turn?.player.id !== player.id || turn.phase !== "play_card") {
         throw new GameError("It's not this player's turn", 403);
       }
+      const round = game.round!;
+      const trick = game.trick!;
 
       const card =
         action.card ??
@@ -33,7 +33,7 @@ export function playCard(
       const result = resolvePlay(game, player.id, card);
       const position = trick.cards.length;
       const signal = position === 0 ? action.signal ?? null : null;
-      const takeover = await recordTurn(tx, game, player, action.source);
+      const takeover = await updateTimeoutCount(tx, game, player, action.source);
       await tx.handCard.deleteMany({
         where: { playerId: player.id, roundId: round.id, suit: card.suit, value: card.value },
       });

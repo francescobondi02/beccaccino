@@ -126,6 +126,19 @@ describe("Practice room creation", () => {
     ]);
   });
 
+  it("keeps the winner of a finished practice game when creating the next one", async () => {
+    const first = await createPractice("medio");
+    await prisma.gameRoom.update({
+      where: { code: first.body.code },
+      data: { finished: true, winnerTeam: 1 },
+    });
+
+    expect((await createPractice("medio")).statusCode).toBe(201);
+    expect(
+      await prisma.gameRoom.findUnique({ where: { code: first.body.code } }),
+    ).toMatchObject({ finished: true, winnerTeam: 1 });
+  });
+
   it("does not block creating a multiplayer room", async () => {
     const practice = await createPractice("medio");
     expect(practice.statusCode).toBe(201);

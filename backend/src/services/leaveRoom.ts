@@ -1,10 +1,11 @@
 import { prisma } from "../db";
 import { GameError } from "../utils/gameError";
-import { retirePracticeRoomUnlocked } from "./practiceRooms";
+import { deleteRoom } from "./practiceRooms";
+import { replacementBotTier } from "./botUsers";
 import { logger } from "../logger";
 import { publishRoomChanged } from "../runtime/eventPublisher";
+import { runGameActionUnlocked } from "../game/runGameAction";
 import { withRoomLock } from "../utils/roomLock";
-import { changePlayerControlUnlocked } from "./playerControl";
 
 // Started games are kept: a practice game closes, a multiplayer seat goes to a bot.
 export async function leaveRoom(args: {
@@ -24,21 +25,32 @@ export async function leaveRoom(args: {
       throw new GameError("La partita è già iniziata", 409);
     }
 
-    if (room.isPractice) {
-      await retirePracticeRoomUnlocked(room.code);
-      logger.info(args, "practice_game_abandoned");
-      return { deletedRoom: !room.started };
-    }
-    if (room.started && !room.finished) {
-      await changePlayerControlUnlocked({ ...args, action: "abandon" });
+    if (room.started) {
+      if (!room.finished) {
+        await runGameActionUnlocked(args.roomCode, async (game, tx) => {
+          if (game.room.isPractice) {
+            await tx.gameRoom.update({
+              where: { id: game.room.id },
+              data: { finished: true, winnerTeam: null },
+            });
+          } else {
+            if (player.abandonedAt) return null;
+            await tx.player.update({
+              where: { id: player.id },
+              data: {
+                botModel: replacementBotTier({ botTier: game.room.botTier, players: game.players }),
+                abandonedAt: new Date(),
+              },
+            });
+          }
+          logger.info(args, "player_abandoned_game");
+          return { kind: "abandoned", userId: args.userId };
+        }, args.userId);
+      }
       return { deletedRoom: false };
     }
-    if (room.finished) return { deletedRoom: false };
-    if (room.players.length === 1) {
-      await prisma.$transaction([
-        prisma.player.deleteMany({ where: { gameRoomId: room.id } }),
-        prisma.gameRoom.delete({ where: { id: room.id } }),
-      ]);
+    if (room.isPractice || room.players.length === 1) {
+      await deleteRoom(room.id);
       return { deletedRoom: true };
     }
 

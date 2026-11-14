@@ -3,7 +3,7 @@ import path from "path";
 import { prisma } from "../../src/db";
 import { Suit, Value } from "@prisma/client";
 import { clearDatabase } from "../helpers/database";
-import { buildBotTurn, BotState } from "../../src/services/botState";
+import { toBotState, BotState } from "../../src/services/botState";
 import { ensureBotUsers } from "../../src/services/botUsers";
 import { GAME_WIN_POINTS } from "../../src/gameConfig";
 import { loadLiveGame } from "../../src/game/liveGame";
@@ -46,9 +46,9 @@ describe("Bot state serializer matches the Python fixtures", () => {
     "reproduces %s",
     async (_name, fixture) => {
       const { roomCode, userId } = await seedFromFixture(fixture.state, fixture.seat);
-      const { state, seat } = buildBotTurn(await loadLiveGame(prisma, roomCode), userId);
+      const state = toBotState(await loadLiveGame(prisma, roomCode), userId);
 
-      expect(seat).toBe(fixture.seat);
+      expect(state.acting_seat).toBe(fixture.seat);
       expect(normalize(state)).toEqual(normalize(fixture.state));
       // Asserted separately: the fixtures were generated with the default 41,
       // while the test env sets GAME_WIN_POINTS=5 to keep games short. What

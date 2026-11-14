@@ -7,7 +7,7 @@ import { isBotTier } from "../../src/services/botUsers";
 // The persisted turn of a live game, or null when nobody has to act.
 export async function turnOf(roomCode: string) {
   const game = await loadLiveGame(prisma, roomCode);
-  const turn = game.room.pausedAt || game.room.finished ? null : currentTurn(game);
+  const turn = currentTurn(game);
   return turn && {
     userId: turn.player.userId,
     phase: turn.phase,

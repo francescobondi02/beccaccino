@@ -7,14 +7,13 @@ import { toGameState } from "./gameState";
 import type { Card, Signal, Suit } from "../contract/cards";
 import type { GameResult, GameState } from "../contract/game";
 
-export type LivePlayedCard = Card & { playerId: number; signal: Signal | null };
 export type LiveTrick = {
   id: number;
   number: number;
   starterId: number;
   winnerId: number | null;
   completedAt: Date | null;
-  cards: LivePlayedCard[];
+  cards: (Card & { playerId: number; signal: Signal | null })[];
 };
 export type LivePlayer = {
   id: number;
@@ -40,7 +39,6 @@ export type LiveGame = {
     winnerTeam: number | null;
     version: number;
     turnStartedAt: Date | null;
-    lastActivityAt: Date;
     botTier: string | null;
   };
   // Seat order.
@@ -138,7 +136,6 @@ export async function loadLiveGame(
       winnerTeam: room.winnerTeam,
       version: room.version,
       turnStartedAt: room.turnStartedAt,
-      lastActivityAt: room.lastActivityAt,
       botTier: room.botTier,
     },
     players: room.players.map((player) => ({

@@ -192,8 +192,9 @@ describe("first-round startup", () => {
     expect(events).toEqual([
       ...Array(4).fill("game_state"), "room_changed", "lobby_changed",
     ]);
-    expect(runtimeAtStart!.remainingMs).toBeGreaterThan(85_000);
-    expect(runtimeAtStart!.remainingMs).toBeLessThanOrEqual(90_000);
+    // The 90 s briscola turn starts after the 4 s first-round deal presentation.
+    expect(runtimeAtStart!.remainingMs).toBeGreaterThan(90_000);
+    expect(runtimeAtStart!.remainingMs).toBeLessThanOrEqual(94_000);
   });
 
   it("keeps the committed deal when arming the runtime fails", async () => {

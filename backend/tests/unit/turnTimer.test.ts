@@ -1,10 +1,12 @@
 import {
   clearTurnTimer,
   getTurnTimerState,
-  hasTurnRuntime,
+  isTimerArmed,
   scheduleTurnTimer,
 } from "../../src/runtime/turnTimer";
 import { armTurn } from "../../src/runtime/turnRuntime";
+import { toGameState } from "../../src/game/gameState";
+import { roundDealTimes } from "../../src/gameConfig";
 import type { LiveGame } from "../../src/game/liveGame";
 
 function liveGame(botModel: string | null, trickCards: number, lastTrickAt: Date | null): LiveGame {
@@ -27,7 +29,7 @@ function liveGame(botModel: string | null, trickCards: number, lastTrickAt: Date
     room: {
       id: 1, code: "ROOM01", isPractice: false, started: true, pausedAt: null, finished: false,
       winnerTeam: null, version: 7, turnStartedAt: new Date(Date.now() - 10_000),
-      lastActivityAt: new Date(), botTier: null,
+      botTier: null,
     },
     players,
     round: { id: 1, number: 1, callerId: 1, briscola: "coppe", cricca: false, createdAt: new Date(0), tricks: [] },
@@ -64,6 +66,21 @@ describe("turn timer storage", () => {
     expect(getTurnTimerState("ROOM01")!.remainingMs).toBe(1_000);
   });
 
+  it("starts the briscola turn when the deal presentation ends", () => {
+    const game = liveGame(null, 0, null);
+    game.round = { ...game.round!, briscola: null, createdAt: new Date() };
+    const { reviewEndsAt } = roundDealTimes(game.round);
+    expect(reviewEndsAt).toBeGreaterThan(game.room.turnStartedAt!.getTime());
+
+    armTurn(game);
+    expect(getTurnTimerState("ROOM01")!.remainingMs).toBe(reviewEndsAt + 90_000 - Date.now());
+    expect(toGameState(game, 1, Date.now(), null).turn).toMatchObject({
+      phase: "choose_briscola",
+      startedAt: new Date(reviewEndsAt).toISOString(),
+      deadline: new Date(reviewEndsAt + 90_000).toISOString(),
+    });
+  });
+
   it("replaces a room timer and runs only the latest callback", async () => {
     const first = jest.fn(async () => undefined);
     const second = jest.fn(async () => undefined);
@@ -79,8 +96,8 @@ describe("turn timer storage", () => {
 
   it("matches the armed version", () => {
     scheduleTurnTimer("ROOM01", 4, 100, async () => undefined);
-    expect(hasTurnRuntime("ROOM01", 4)).toBe(true);
-    expect(hasTurnRuntime("ROOM01", 5)).toBe(false);
+    expect(isTimerArmed("ROOM01", 4)).toBe(true);
+    expect(isTimerArmed("ROOM01", 5)).toBe(false);
   });
 
   it("drops a failed timer so the reconciler re-arms the room", async () => {
@@ -90,6 +107,6 @@ describe("turn timer storage", () => {
 
     await jest.advanceTimersByTimeAsync(100);
 
-    expect(hasTurnRuntime("ROOM01", 4)).toBe(false);
+    expect(isTimerArmed("ROOM01", 4)).toBe(false);
   });
 });

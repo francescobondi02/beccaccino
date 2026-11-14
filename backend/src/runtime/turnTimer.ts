@@ -11,7 +11,6 @@ export function scheduleTurnTimer(
 ): void {
   clearTurnTimer(roomCode);
   const timeout = setTimeout(async () => {
-    if (timers.get(roomCode)?.timeout !== timeout) return;
     timers.delete(roomCode);
     try {
       await run();
@@ -30,7 +29,7 @@ export function clearTurnTimer(roomCode: string): void {
   timers.delete(roomCode);
 }
 
-export function hasTurnRuntime(roomCode: string, version: number): boolean {
+export function isTimerArmed(roomCode: string, version: number): boolean {
   return timers.get(roomCode)?.version === version;
 }
 

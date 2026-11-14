@@ -16,11 +16,10 @@ import {
 } from "../services/multiplayerRooms";
 import {
   createPracticeRoom as createPracticeRoomOperation,
-  pausePracticeRoom as pausePracticeRoomOperation,
-  resumePracticeRoom as resumePracticeRoomOperation,
+  setPracticePaused,
 } from "../services/practiceRooms";
 import { leaveRoom as leaveRoomOperation } from "../services/leaveRoom";
-import { changePlayerControl } from "../services/playerControl";
+import { resumePlayerControl as resumePlayerControlOperation } from "../services/playerControl";
 
 export const createRoom = async (req: Request, res: Response) => {
   const { userId } = requireUser(req);
@@ -82,7 +81,7 @@ export const leaveRoom = async (req: Request, res: Response) => {
 export const resumePlayerControl = async (req: Request, res: Response) => {
   const { userId } = requireUser(req);
   const roomCode = parseRoomCode(req.params.roomCode);
-  return res.status(200).json(await changePlayerControl({ roomCode, userId, action: "resume" }));
+  return res.status(200).json(await resumePlayerControlOperation(roomCode, userId));
 };
 
 export const pausePracticeRoom = async (req: Request, res: Response) => {
@@ -90,7 +89,7 @@ export const pausePracticeRoom = async (req: Request, res: Response) => {
   const roomCode = parseRoomCode(req.params.roomCode);
   return res
     .status(200)
-    .json(await pausePracticeRoomOperation({ roomCode, userId }));
+    .json(await setPracticePaused({ roomCode, userId }, true));
 };
 
 export const resumePracticeRoom = async (req: Request, res: Response) => {
@@ -98,5 +97,5 @@ export const resumePracticeRoom = async (req: Request, res: Response) => {
   const roomCode = parseRoomCode(req.params.roomCode);
   return res
     .status(200)
-    .json(await resumePracticeRoomOperation({ roomCode, userId }));
+    .json(await setPracticePaused({ roomCode, userId }, false));
 };

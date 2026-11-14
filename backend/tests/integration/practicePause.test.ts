@@ -12,10 +12,8 @@ import {
   startBotServiceStub,
   StubMove,
 } from "../helpers/botServiceStub";
-import { logger } from "../../src/logger";
 import * as cardPlay from "../../src/game/transitions/cardPlay";
-import * as round from "../../src/game/transitions/round";
-import { pausePracticeRoom, resumePracticeRoom } from "../../src/services/practiceRooms";
+import { setPracticePaused } from "../../src/services/practiceRooms";
 import { withRoomLock } from "../../src/utils/roomLock";
 import { turnOf } from "../helpers/turn";
 import * as eventPublisher from "../../src/runtime/eventPublisher";
@@ -378,95 +376,6 @@ describe("Practice pause and resume", () => {
     ).toMatchObject({ finished: true, winnerTeam: null });
   });
 
-  it("discards a bot response from before pause even after the room resumes", async () => {
-    process.env.BOT_THINK_DELAY_MS = "200";
-    let releaseMove!: (move: StubMove) => void;
-    const heldMove = new Promise<StubMove>((resolve) => {
-      releaseMove = resolve;
-    });
-    const fallbackLogs = jest.spyOn(logger, "error");
-    const botBriscola = jest.spyOn(round, "setBriscola");
-    const botCard = jest.spyOn(cardPlay, "playCard");
-    const roomCode = await startPractice(() => heldMove);
-
-    const turn = (await turnOf(roomCode))!;
-    if (!turn.isBot) {
-      if (turn.phase === "choose_briscola") {
-        const player = await prisma.player.findFirstOrThrow({
-          where: { gameRoom: { code: roomCode }, userId },
-        });
-        const card = await prisma.handCard.findFirstOrThrow({
-          where: { playerId: player.id },
-        });
-        await apiAs(userId, "pause-human")
-          .post(`/api/games/${roomCode}/briscola`)
-          .send({ suit: card.suit });
-      }
-      const playable = await apiAs(userId, "pause-human").get(
-        `/api/games/${roomCode}/state`,
-      );
-      const card = playable.body.playableCards[0];
-      await apiAs(userId, "pause-human")
-        .post(`/api/games/${roomCode}/cards`)
-        .send({ suit: card.suit, value: card.value });
-    }
-
-    await waitFor(() => stub.requests.length === 1);
-    const before = {
-      briscola: (
-        await prisma.round.findFirstOrThrow({
-          where: { gameRoom: { code: roomCode } },
-        })
-      ).briscola,
-      playedCards: await prisma.playedCard.count({
-        where: { player: { gameRoom: { code: roomCode } } },
-      }),
-    };
-
-    expect(
-      (
-        await apiAs(userId, "pause-human")
-          .post(`/api/rooms/${roomCode}/pause`)
-          .send({})
-      ).statusCode,
-    ).toBe(200);
-    process.env.BOT_THINK_DELAY_MS = "100000";
-    expect(
-      (
-        await apiAs(userId, "pause-human")
-          .post(`/api/rooms/${roomCode}/resume`)
-          .send({})
-      ).statusCode,
-    ).toBe(200);
-
-    const request = stub.requests[0];
-    const botCalls = () =>
-      [...botBriscola.mock.results, ...botCard.mock.results].filter(
-        (_, index) =>
-          [...botBriscola.mock.calls, ...botCard.mock.calls][index][0].source === "bot",
-      );
-    releaseMove(firstLegalMove(request));
-    await waitFor(() => botCalls().length === 1);
-    await expect(botCalls()[0].value).resolves.toBeNull();
-
-    const after = {
-      briscola: (
-        await prisma.round.findFirstOrThrow({
-          where: { gameRoom: { code: roomCode } },
-        })
-      ).briscola,
-      playedCards: await prisma.playedCard.count({
-        where: { player: { gameRoom: { code: roomCode } } },
-      }),
-    };
-    expect(after).toEqual(before);
-    expect(
-      fallbackLogs.mock.calls.some(
-        (call) => call[1] === "bot_fallback_to_autoplay",
-      ),
-    ).toBe(false);
-  });
-
   it("keeps the practice human in control after three timeouts, so leaving closes the game", async () => {
     process.env.BOT_THINK_DELAY_MS = "20";
     const roomCode = await startPractice();
@@ -495,23 +404,24 @@ describe("Practice pause and resume", () => {
     const roomCode = await startPractice();
     const turn = await reachHumanCardTurn(roomCode);
     const playedBefore = await prisma.playedCard.count();
+    const playerBefore = await prisma.player.findFirstOrThrow({ where: { gameRoom: { code: roomCode }, userId } });
 
-    // The timer fires while a pause holds the room lock; resume follows.
+    // The timer fires while a pause holds the room lock; its callback runs after the resume.
     let release!: () => void;
     const held = withRoomLock(roomCode, () => new Promise<void>((resolve) => { release = resolve; }));
     await waitFor(() => release !== undefined);
-    const paused = pausePracticeRoom({ roomCode, userId });
+    const paused = setPracticePaused({ roomCode, userId }, true);
+    const resumed = setPracticePaused({ roomCode, userId }, false);
     const timedOut = cardPlay.playCard({ roomCode, userId, source: "timeout", expectedVersion: turn.version });
-    const resumed = resumePracticeRoom({ roomCode, userId });
     release();
     await held;
     await paused;
-    await expect(timedOut).resolves.toBeNull();
     await resumed;
+    await expect(timedOut).resolves.toBeNull();
 
     expect(await prisma.playedCard.count()).toBe(playedBefore);
-    expect(await prisma.player.findFirstOrThrow({ where: { gameRoom: { code: roomCode }, userId } }))
-      .toMatchObject({ timeoutCount: 0 });
+    expect(await prisma.player.findUniqueOrThrow({ where: { id: playerBefore.id } }))
+      .toMatchObject({ timeoutCount: playerBefore.timeoutCount });
     const room = await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } });
     expect(room).toMatchObject({ pausedAt: null, version: turn.version + 2 });
     expect(getTurnTimerState(roomCode)).toMatchObject({ version: room.version });

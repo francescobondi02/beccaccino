@@ -9,7 +9,7 @@ import { api, apiAs } from "../helpers/serverHarness";
 import { clearTurnTimer, getTurnTimerState } from "../../src/runtime/turnTimer";
 import { recoverRoomRuntime } from "../../src/runtime/recovery";
 import { playCard } from "../../src/game/transitions/cardPlay";
-import { RuntimeTurnCancelledError, setBriscola } from "../../src/game/transitions/round";
+import { setBriscola } from "../../src/game/transitions/round";
 import { executeBotTurn } from "../../src/runtime/botExecutor";
 import { playableOf, turnOf } from "../helpers/turn";
 import { startBotServiceStub } from "../helpers/botServiceStub";
@@ -292,11 +292,10 @@ describe("Started multiplayer leave rule", () => {
       .post(`/api/rooms/${roomCode}/leave`).send({});
     expect(callerLeft.statusCode).toBe(200);
     expect((await turnOf(roomCode))?.isBot).toBe(true);
+    // The caller's own timer was armed before anyone left.
     await expect(setBriscola({
-      roomCode, userId: caller.userId, source: "timeout",
-      expectedVersion: (await turnOf(roomCode))!.version,
-    })).rejects.toBeInstanceOf(RuntimeTurnCancelledError);
-    expect((await apiAs(caller.userId, caller.user.username).get(`/api/games/${roomCode}/state`)).statusCode).toBe(403);
+      roomCode, userId: caller.userId, source: "timeout", expectedVersion: turn.version,
+    })).resolves.toBeNull();
     expect((await apiAs(caller.userId, caller.user.username).get(`/api/games/${roomCode}/state`)).statusCode).toBe(403);
     const rooms = await apiAs(caller.userId, caller.user.username).get("/api/rooms/available");
     expect(rooms.body.activeGames).toEqual([]);

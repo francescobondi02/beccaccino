@@ -2,7 +2,7 @@ import { prisma } from "../db";
 import { logger } from "../logger";
 import { loadLiveGame } from "../game/liveGame";
 import { armTurn } from "./turnRuntime";
-import { hasTurnRuntime } from "./turnTimer";
+import { isTimerArmed } from "./turnTimer";
 import { withRoomLock } from "../utils/roomLock";
 
 export type RuntimeRecoverySummary = {
@@ -27,7 +27,7 @@ export function recoverRoomRuntime(roomCode: string): Promise<boolean> {
     const game = await loadLiveGame(prisma, roomCode);
     const { room } = game;
     if (!room.started || room.finished || room.pausedAt) return false;
-    if (hasTurnRuntime(roomCode, room.version)) return false;
+    if (isTimerArmed(roomCode, room.version)) return false;
     armTurn(game);
     logger.info({ roomCode, version: room.version }, "turn_runtime_recovered");
     return true;

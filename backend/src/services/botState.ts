@@ -1,4 +1,3 @@
-// src/services/botState.ts
 /**
  * Serialize a game into the wire format the Python bot service consumes.
  *
@@ -44,10 +43,9 @@ export interface BotState {
 }
 
 // The state the bot at `userId` needs to choose its move.
-export function buildBotTurn(game: LiveGame, userId: number): { state: BotState; seat: number } {
+export function toBotState(game: LiveGame, userId: number): BotState {
   const round = game.round!;
   const seatOf = new Map(game.players.map((player) => [player.id, player.seat!]));
-  const seat = game.players.find((player) => player.userId === userId)!.seat!;
   const seated = (cards: LiveTrick["cards"]) =>
     cards.map((card) => ({ seat: seatOf.get(card.playerId)!, suit: card.suit, value: card.value }));
   const hands: Record<string, CardDto[]> = {};
@@ -59,7 +57,7 @@ export function buildBotTurn(game: LiveGame, userId: number): { state: BotState;
     { team0: 0, team1: 0 },
   );
 
-  const state: BotState = {
+  return {
     phase: round.briscola === null ? "choose_briscola" : "play_card",
     briscola: round.briscola,
     cricca: round.cricca,
@@ -68,7 +66,7 @@ export function buildBotTurn(game: LiveGame, userId: number): { state: BotState;
     // Before briscola is chosen nobody has led yet; the Python engine seeds
     // trick_starter with the caller in that phase, so mirror it.
     trick_starter: trick ? seatOf.get(trick.starterId)! : callerSeat,
-    acting_seat: seat,
+    acting_seat: game.players.find((player) => player.userId === userId)!.seat!,
     hands,
     completed_tricks: round.tricks
       .filter((candidate) => candidate.winnerId !== null)
@@ -82,5 +80,4 @@ export function buildBotTurn(game: LiveGame, userId: number): { state: BotState;
     total_scores: { "0": raw.team0, "1": raw.team1 },
     win_points: GAME_WIN_POINTS,
   };
-  return { state, seat };
 }

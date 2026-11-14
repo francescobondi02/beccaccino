@@ -1,7 +1,7 @@
 import type { LiveGame, LivePlayer } from "../../game/liveGame";
 import type { TurnPhase } from "../../contract/game";
 
-export const TABLE_SEATS = 4;
+const TABLE_SEATS = 4;
 
 function seatAfter(seat: number, offset = 1): number {
   return (seat + offset) % TABLE_SEATS;
@@ -22,7 +22,7 @@ export function currentTurn(
   game: Pick<LiveGame, "room" | "players" | "round" | "trick">,
 ): { player: LivePlayer; phase: TurnPhase } | null {
   const { round, trick, players } = game;
-  if (!game.room.started || game.room.finished || !round) return null;
+  if (!game.room.started || game.room.finished || game.room.pausedAt || !round) return null;
   const seatOf = (playerId: number) =>
     players.find((player) => player.id === playerId)!.seat!;
   const seat =

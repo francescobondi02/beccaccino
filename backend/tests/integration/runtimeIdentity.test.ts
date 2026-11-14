@@ -53,10 +53,10 @@ describe("runtime turn identity", () => {
     const turn = (await turnOf(roomCode))!;
     expect(turn.phase).toBe("choose_briscola");
 
-    // The deadline has passed: the armed timer fires at once.
-    await prisma.gameRoom.update({
-      where: { code: roomCode }, data: { turnStartedAt: new Date(Date.now() - 91_000) },
-    });
+    // The deal and the deadline have passed: the armed timer fires at once.
+    const longAgo = new Date(Date.now() - 100_000);
+    await prisma.round.update({ where: { id: round.id }, data: { createdAt: longAgo } });
+    await prisma.gameRoom.update({ where: { code: roomCode }, data: { turnStartedAt: longAgo } });
     clearAllTurnTimers();
     await reconcileActiveRuntime();
     const deadline = Date.now() + 5_000;
@@ -100,6 +100,38 @@ describe("runtime turn identity", () => {
     });
     expect(response.body.state.myHand).toHaveLength(10);
     expect(await prisma.playedCard.count()).toBe(0);
+  });
+
+  it("answers resume-control and leave that lose a version race with 409 and the current state", async () => {
+    const { roomCode } = await setupGame();
+    const turn = (await turnOf(roomCode))!;
+    const user = await userOf(turn.userId);
+    await prisma.player.updateMany({ where: { userId: user.id }, data: { botModel: "medio" } });
+
+    // Another writer commits right after each action reads the game.
+    const load = liveGame.loadLiveGame;
+    const raceOnce = () => jest.spyOn(liveGame, "loadLiveGame").mockImplementationOnce(async (client, code) => {
+      const game = await load(client, code);
+      await prisma.gameRoom.update({ where: { code }, data: { version: { increment: 1 } } });
+      return game;
+    });
+
+    raceOnce();
+    const resumed = await apiAs(user.id, user.username)
+      .post(`/api/rooms/${roomCode}/resume-control`).send({});
+    raceOnce();
+    const left = await apiAs(user.id, user.username)
+      .post(`/api/rooms/${roomCode}/leave`).send({});
+
+    for (const [response, version] of [[resumed, turn.version + 1], [left, turn.version + 2]] as const) {
+      expect(response.statusCode).toBe(409);
+      expect(response.body).toMatchObject({
+        error: "La partita è cambiata. Riprova.",
+        state: { roomCode, version },
+      });
+    }
+    expect(await prisma.player.findFirstOrThrow({ where: { userId: user.id } }))
+      .toMatchObject({ botModel: "medio", abandonedAt: null });
   });
 
   it("keeps the same deadline after a restart during a turn", async () => {

@@ -10,51 +10,33 @@ import { startFirstRound } from "../game/transitions/round";
 import { runGameAction, runGameActionUnlocked } from "../game/runGameAction";
 import { logger } from "../logger";
 import { publishRoomChanged } from "../runtime/eventPublisher";
-import type { LiveGame } from "../game/liveGame";
 
-class PracticeRoomCleanupError extends Error {
-  constructor(
-    readonly creationError: unknown,
-    readonly cleanupError: unknown,
-  ) {
-    super("Practice room creation failed and cleanup was unsuccessful");
-    this.name = "PracticeRoomCleanupError";
-  }
-}
-
-// Deletes an unstarted room; closes a started game with no winner. Callers hold the room lock.
-export async function retirePracticeRoomUnlocked(
-  roomCode: string,
-  staleBefore?: Date,
-): Promise<boolean> {
-  const room = await prisma.gameRoom.findUnique({ where: { code: roomCode } });
-  if (!room || room.finished) return false;
-  if (!room.isPractice) throw new GameError("Only practice rooms can be retired", 409);
-  if (staleBefore && room.lastActivityAt > staleBefore) return false;
-
-  if (!room.started) {
-    await deleteRoom(room.id);
-    clearTurnTimer(roomCode);
-  } else {
-    await runGameActionUnlocked(roomCode, async (game, tx) => {
-      await tx.gameRoom.update({
-        where: { id: game.room.id },
-        data: { finished: true, winnerTeam: null },
-      });
-      const human = game.players.find((player) => !player.isBot)!;
-      return { kind: "abandoned", userId: human.userId };
-    });
-  }
-  publishRoomChanged(roomCode);
-  return true;
-}
-
+// Deletes an unstarted room; closes a started game with no winner.
 export function retirePracticeRoom(roomCode: string, staleBefore?: Date): Promise<boolean> {
-  return withRoomLock(roomCode, () => retirePracticeRoomUnlocked(roomCode, staleBefore));
+  return withRoomLock(roomCode, async () => {
+    const room = await prisma.gameRoom.findUnique({ where: { code: roomCode } });
+    if (!room || room.finished) return false;
+    if (staleBefore && room.lastActivityAt > staleBefore) return false;
+
+    if (!room.started) {
+      await deleteRoom(room.id);
+    } else {
+      await runGameActionUnlocked(roomCode, async (game, tx) => {
+        await tx.gameRoom.update({
+          where: { id: game.room.id },
+          data: { finished: true, winnerTeam: null },
+        });
+        const human = game.players.find((player) => !player.isBot)!;
+        return { kind: "abandoned", userId: human.userId };
+      });
+    }
+    publishRoomChanged(roomCode);
+    return true;
+  });
 }
 
 // Removes every row of a room, including a partly created game.
-async function deleteRoom(gameRoomId: number): Promise<void> {
+export async function deleteRoom(gameRoomId: number): Promise<void> {
   await prisma.$transaction([
     prisma.playedCard.deleteMany({ where: { trick: { round: { gameRoomId } } } }),
     prisma.handCard.deleteMany({ where: { round: { gameRoomId } } }),
@@ -96,30 +78,13 @@ export async function createPracticeRoom(args: {
         code,
         isPractice: true,
         players: {
-          create: [
-            { userId: args.userId, seat: 0, team: 0, isReady: true },
-            {
-              userId: botUserIds[0],
-              seat: 1,
-              team: 1,
-              isReady: true,
-              botModel: args.tier,
-            },
-            {
-              userId: botUserIds[1],
-              seat: 2,
-              team: 0,
-              isReady: true,
-              botModel: args.tier,
-            },
-            {
-              userId: botUserIds[2],
-              seat: 3,
-              team: 1,
-              isReady: true,
-              botModel: args.tier,
-            },
-          ],
+          create: [args.userId, ...botUserIds].map((userId, seat) => ({
+            userId,
+            seat,
+            team: seat % 2,
+            isReady: true,
+            botModel: seat === 0 ? null : args.tier,
+          })),
         },
       },
       select: { id: true, code: true },
@@ -136,7 +101,7 @@ export async function createPracticeRoom(args: {
           clearTurnTimer(room.code);
         });
       } catch (cleanupError) {
-        throw new PracticeRoomCleanupError(creationError, cleanupError);
+        logger.error({ err: cleanupError, roomCode: room.code }, "practice_room_cleanup_failed");
       }
       throw creationError;
     }
@@ -148,42 +113,26 @@ export async function createPracticeRoom(args: {
   return { code: room.code, tier: args.tier };
 }
 
-function assertPausable(game: LiveGame, userId: number): void {
-  const player = game.players.find((candidate) => candidate.userId === userId);
-  if (!player || player.botModel !== null) {
-    throw new GameError("You are not the human player in this room", 403);
-  }
-  if (!game.room.isPractice) {
-    throw new GameError("Only practice games can be paused", 409);
-  }
-  if (!game.room.started || game.room.finished) {
-    throw new GameError("Only active practice games can be paused", 409);
-  }
-}
-
-export async function pausePracticeRoom(args: { roomCode: string; userId: number }) {
-  let pausedAt: Date | null = null;
+export async function setPracticePaused(args: { roomCode: string; userId: number }, paused: boolean) {
   const state = await runGameAction(args.roomCode, async (game, tx) => {
-    assertPausable(game, args.userId);
-    pausedAt = game.room.pausedAt;
-    if (pausedAt) return null;
-    pausedAt = new Date();
-    await tx.gameRoom.update({ where: { id: game.room.id }, data: { pausedAt } });
-    return { kind: "paused" };
+    const player = game.players.find((candidate) => candidate.userId === args.userId);
+    if (!player || player.botModel !== null) {
+      throw new GameError("You are not the human player in this room", 403);
+    }
+    if (!game.room.isPractice) {
+      throw new GameError("Only practice games can be paused", 409);
+    }
+    if (!game.room.started || game.room.finished) {
+      throw new GameError("Only active practice games can be paused", 409);
+    }
+    if ((game.room.pausedAt !== null) === paused) return null;
+    await tx.gameRoom.update({
+      where: { id: game.room.id },
+      data: { pausedAt: paused ? new Date() : null },
+    });
+    return { kind: paused ? "paused" : "resumed" };
   }, args.userId);
   if (state !== null) publishRoomChanged(args.roomCode);
-  logger.info(args, "practice_game_paused");
-  return { success: true, paused: true, pausedAt };
-}
-
-export async function resumePracticeRoom(args: { roomCode: string; userId: number }) {
-  const state = await runGameAction(args.roomCode, async (game, tx) => {
-    assertPausable(game, args.userId);
-    if (!game.room.pausedAt) return null;
-    await tx.gameRoom.update({ where: { id: game.room.id }, data: { pausedAt: null } });
-    return { kind: "resumed" };
-  }, args.userId);
-  if (state !== null) publishRoomChanged(args.roomCode);
-  logger.info(args, "practice_game_resumed");
-  return { success: true, paused: false };
+  logger.info(args, paused ? "practice_game_paused" : "practice_game_resumed");
+  return { success: true, paused };
 }

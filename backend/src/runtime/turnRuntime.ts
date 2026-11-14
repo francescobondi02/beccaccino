@@ -5,14 +5,14 @@ import { setBriscola } from "../game/transitions/round";
 import { playCard } from "../game/transitions/cardPlay";
 import type { LiveGame } from "../game/liveGame";
 import { executeBotTurn } from "./botExecutor";
-import { botThinkDelayMs, turnDeadlineMs } from "./timeoutPolicy";
+import { botThinkDelayMs, turnTimes } from "./timeoutPolicy";
 import { clearTurnTimer, scheduleTurnTimer } from "./turnTimer";
 
 // Arms the current turn for this version: a bot move or the human deadline.
 export function armTurn(game: LiveGame): void {
   const { room } = game;
   clearTurnTimer(room.code);
-  const turn = room.pausedAt ? null : currentTurn(game);
+  const turn = currentTurn(game);
   if (!turn) return;
   const action = {
     roomCode: room.code,
@@ -36,7 +36,7 @@ export function armTurn(game: LiveGame): void {
     return;
   }
 
-  scheduleTurnTimer(room.code, room.version, turnDeadlineMs(room.turnStartedAt, turn.phase, now) - now, () =>
+  scheduleTurnTimer(room.code, room.version, turnTimes(game, turn.phase, now).deadline - now, () =>
     turn.phase === "choose_briscola"
       ? setBriscola({ ...action, source: "timeout" })
       : playCard({ ...action, source: "timeout" }),

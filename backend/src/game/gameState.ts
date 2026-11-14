@@ -2,7 +2,7 @@ import { toTeamScore, sumRoundScores } from "../domain/game/gameScore";
 import { selectLegalCards } from "../domain/game/legalCards";
 import { currentTurn } from "../domain/game/turnOrder";
 import { TRICK_DISPLAY_MS, roundDealTimes } from "../gameConfig";
-import { turnDeadlineMs } from "../runtime/timeoutPolicy";
+import { turnTimes } from "../runtime/timeoutPolicy";
 import type { LiveGame, LiveTrick } from "./liveGame";
 import type { BotTier, Team } from "../contract/cards";
 import type { GameState, LastAction, PlayedCard } from "../contract/game";
@@ -24,15 +24,10 @@ export function toGameState(
   const me = players.find((player) => player.userId === userId)!;
   const myHand = game.hands.get(me.id) ?? [];
   const deal = roundDealTimes(round);
-  const live = !room.finished && !room.pausedAt;
-  const turn = live ? currentTurn(game) : null;
-  const canPlay =
-    turn?.player.id === me.id &&
-    turn.phase === "play_card" &&
-    me.botModel === null &&
-    me.abandonedAt === null;
+  const turn = currentTurn(game);
+  const times = turn && turnTimes(game, turn.phase, now);
+  const canPlay = turn?.player.id === me.id && turn.phase === "play_card" && me.botModel === null;
   const previousRound = game.roundScores.find((score) => score.number === round.number - 1);
-  const startedAt = room.turnStartedAt?.getTime() ?? now;
 
   return {
     roomCode: room.code,
@@ -84,11 +79,8 @@ export function toGameState(
       ? {
           userId: turn.player.userId,
           phase: turn.phase,
-          startedAt: new Date(startedAt).toISOString(),
-          deadline:
-            turn.player.botModel === null
-              ? new Date(turnDeadlineMs(room.turnStartedAt, turn.phase, now)).toISOString()
-              : null,
+          startedAt: new Date(times!.startedAt).toISOString(),
+          deadline: turn.player.botModel === null ? new Date(times!.deadline).toISOString() : null,
         }
       : null,
     score: sumRoundScores(game.roundScores),

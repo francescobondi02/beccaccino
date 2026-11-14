@@ -38,8 +38,8 @@ describe("Game Error Cases", () => {
         .post(`/api/games/${roomCode}/briscola`)
         .send({ suit: "coppe" });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.body.error).toMatch(/already/i);
+      expect(res.statusCode).toBe(403);
+      expect(res.body.error).toMatch(/turn/i);
       expectTimerUnchanged(roomCode, timerBefore);
     });
 

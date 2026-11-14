@@ -10,7 +10,7 @@ import { toGameState } from "./gameState";
 import type { GameState, LastAction } from "../contract/game";
 
 // Checks its own rules and writes its rows; null means nothing to do.
-export type GameChange = (
+type GameChange = (
   game: LiveGame,
   tx: Prisma.TransactionClient,
 ) => Promise<LastAction | null>;

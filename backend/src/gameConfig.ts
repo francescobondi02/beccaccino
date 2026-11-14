@@ -9,13 +9,6 @@ export function roundDealTimes(round: { number: number; createdAt: Date }) {
   return { summaryEndsAt, animationEndsAt, reviewEndsAt: animationEndsAt + 1_600 };
 }
 
-export function roundDealRemainingMs(
-  round: { number: number; createdAt: Date },
-  now = Date.now(),
-) {
-  return Math.max(0, roundDealTimes(round).reviewEndsAt - now);
-}
-
 export const GAME_WIN_POINTS = (() => {
   const parsed = parseInt(process.env.GAME_WIN_POINTS || "41", 10);
   if (isNaN(parsed) || parsed < 1) {

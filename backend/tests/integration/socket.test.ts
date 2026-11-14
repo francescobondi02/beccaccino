@@ -492,8 +492,11 @@ describe("Socket.IO real WebSocket integration", () => {
       await waitForConnect(returning);
       expect(await joinSocketRoom(returning, roomCode)).toEqual({ ok: true });
       const after = await request(httpServer).get(`/api/games/${roomCode}/state`).set(authHeaders(user));
-      expect(after.body.myCards).toEqual(before.body.myCards);
-      expect(after.body.round.id).toBe(before.body.round.id);
+      expect(before.body.myHand).toHaveLength(10);
+      expect(after.body.myHand).toEqual(before.body.myHand);
+      expect(after.body.round.number).toBe(before.body.round.number);
+      expect(before.body.turn.deadline).not.toBeNull();
+      expect(after.body.turn.deadline).toBe(before.body.turn.deadline);
       expect(await prisma.player.findUniqueOrThrow({ where: { id: player.id } })).toMatchObject({
         seat: player.seat, team: player.team, botModel: null, abandonedAt: null,
       });
