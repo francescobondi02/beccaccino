@@ -138,10 +138,10 @@ def test_status_classifies_partner_left_right_correctly():
     p3 = Card(Suit.BASTONI, Value.SETTE)
 
     # We don't actually need to fully validate hands; just inject the trick
-    # into hands_played so encode_observation reads it as completed history.
+    # into tricks_played so encode_observation reads it as completed history.
     from becca_env.game import TrickRecord
 
-    g.round.hands_played.append(
+    g.round.tricks_played.append(
         TrickRecord(
             winner=0,
             cards=[(0, led), (1, p1), (2, p2), (3, p3)],
@@ -177,7 +177,7 @@ def test_status_relativity_to_seat_3():
     p3 = Card(Suit.BASTONI, Value.SETTE)
     from becca_env.game import TrickRecord
 
-    g.round.hands_played.append(
+    g.round.tricks_played.append(
         TrickRecord(
             winner=0,
             cards=[(0, led), (1, p1), (2, p2), (3, p3)],
@@ -212,7 +212,7 @@ def test_void_mask_set_when_seat_fails_to_follow_suit():
     on2 = Card(Suit.DENARA, Value.SETTE)
     from becca_env.game import TrickRecord
 
-    g.round.hands_played.append(
+    g.round.tricks_played.append(
         TrickRecord(
             winner=0,
             cards=[(0, led), (1, off), (2, on), (3, on2)],
@@ -302,7 +302,7 @@ def test_signal_mask_set_from_completed_trick():
 
     g = _make_game_in_play(briscola=Suit.DENARA)
     led = Card(Suit.DENARA, Value.QUATTRO)
-    g.round.hands_played.append(
+    g.round.tricks_played.append(
         TrickRecord(
             winner=2,
             cards=[
@@ -343,7 +343,7 @@ def test_signal_mask_is_viewer_relative():
     from becca_env.game import Signal, TrickRecord
 
     g = _make_game_in_play(briscola=Suit.DENARA)
-    g.round.hands_played.append(
+    g.round.tricks_played.append(
         TrickRecord(
             winner=0,
             cards=[
@@ -374,7 +374,7 @@ def test_recent_signal_history_preserves_suit_order_multiplicity_and_timing():
         (0, Signal.BUSSO, Suit.DENARA),
     ]
     for trick_index, (seat, signal, suit) in enumerate(declarations):
-        g.round.hands_played.append(
+        g.round.tricks_played.append(
             TrickRecord(
                 winner=seat,
                 cards=[(seat, Card(suit, Value.QUATTRO))],
@@ -400,7 +400,7 @@ def test_partner_response_state_distinguishes_signal_suit():
     from becca_env.game import Signal, TrickRecord
 
     denara = _make_game_in_play(briscola=Suit.BASTONI)
-    denara.round.hands_played = [
+    denara.round.tricks_played = [
         TrickRecord(
             winner=2,
             cards=[(2, Card(Suit.DENARA, Value.QUATTRO))],
@@ -413,10 +413,10 @@ def test_partner_response_state_distinguishes_signal_suit():
         ),
     ]
     spade = copy.deepcopy(denara)
-    spade.round.hands_played[0].signal = None
-    spade.round.hands_played[0].signal_seat = None
-    spade.round.hands_played[1].signal = Signal.BUSSO
-    spade.round.hands_played[1].signal_seat = 2
+    spade.round.tricks_played[0].signal = None
+    spade.round.tricks_played[0].signal_seat = None
+    spade.round.tricks_played[1].signal = Signal.BUSSO
+    spade.round.tricks_played[1].signal_seat = 2
 
     denara_obs = encode_observation(denara, seat=0)
     spade_obs = encode_observation(spade, seat=0)
@@ -439,9 +439,9 @@ def test_current_round_capture_ownership_breaks_legacy_state_collision():
         (3, Card(Suit.DENARA, Value.SEI)),
     ]
     team0_game = _make_game_in_play(briscola=Suit.DENARA)
-    team0_game.round.hands_played = [TrickRecord(winner=0, cards=cards)]
+    team0_game.round.tricks_played = [TrickRecord(winner=0, cards=cards)]
     team1_game = copy.deepcopy(team0_game)
-    team1_game.round.hands_played[0].winner = 1
+    team1_game.round.tricks_played[0].winner = 1
 
     team0_obs = encode_observation(team0_game, seat=0)
     team1_obs = encode_observation(team1_game, seat=0)

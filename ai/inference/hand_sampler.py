@@ -62,7 +62,7 @@ class InfeasibleHandConstraintsError(ValueError):
 def _public_cards(game: BeccaGame) -> set[Card]:
     """Cards visible to everyone: completed tricks + in-progress trick."""
     seen: set[Card] = set()
-    for tr in game.round.hands_played:
+    for tr in game.round.tricks_played:
         for _, c in tr.cards:
             seen.add(c)
     for _, c in game.round.current_trick:
@@ -89,7 +89,7 @@ def _void_suits_per_seat(game: BeccaGame) -> dict[int, set[Suit]]:
     """
     voids: dict[int, set[Suit]] = {s: set() for s in range(4)}
     r = game.round
-    for tr in r.hands_played:
+    for tr in r.tricks_played:
         if not tr.cards:
             continue
         lead_suit = tr.cards[0][1].suit

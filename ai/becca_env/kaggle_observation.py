@@ -26,7 +26,7 @@ def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
     for card in round_state.player_hands.get(seat, []):
         obs[CARD_INDEX[card]] = 1.0
 
-    tricks = [(tr.cards, tr.signal, tr.winner) for tr in round_state.hands_played]
+    tricks = [(tr.cards, tr.signal, tr.winner) for tr in round_state.tricks_played]
     if round_state.current_trick:
         signal = round_state.trick_signals[0][1] if round_state.trick_signals else None
         tricks.append((round_state.current_trick, signal, None))
@@ -52,12 +52,12 @@ def encode_observation(game: BeccaGame, seat: int) -> np.ndarray:
     offset += 1
 
     round_scores = [0, 0]
-    for trick in round_state.hands_played:
+    for trick in round_state.tricks_played:
         round_scores[TEAM_OF_SEAT[trick.winner]] += sum(
             card_points[card.value] for _, card in trick.cards
         )
-    if len(round_state.hands_played) == 10:
-        round_scores[TEAM_OF_SEAT[round_state.hands_played[-1].winner]] += 3
+    if len(round_state.tricks_played) == 10:
+        round_scores[TEAM_OF_SEAT[round_state.tricks_played[-1].winner]] += 3
     if round_state.cricca:
         round_scores[TEAM_OF_SEAT[round_state.caller_seat]] += 9
     own_team = TEAM_OF_SEAT[seat]

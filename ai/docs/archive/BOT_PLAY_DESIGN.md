@@ -103,7 +103,7 @@ diagnostic** and defers everything the teaching product needs but the diagnostic
 
 - **`ai/becca_env/game.py`** — `BeccaGame`, a complete, self-sufficient Beccaccino engine
   (deal → briscola → follow-suit → trick → score → game-over). `RoundState` (`game.py:49-58`) holds
-  `caller_seat`, `hands_played` (a list of `TrickRecord`s, each with `winner`, `cards` as an ordered
+  `caller_seat`, `tricks_played` (a list of `TrickRecord`s, each with `winner`, `cards` as an ordered
   `list[(seat, Card)]`, `signal`, `signal_seat`), `current_trick`, `trick_starter`, `trick_signals`,
   `player_hands`, and `number`. `total_scores` is **cumulative RAW points per team** (`game.py:82`,
   accumulated at `:317-318`).
@@ -554,7 +554,7 @@ the unchanged legacy prefix; offsets 462:470 are the A2 public features:
 | 400 | 4 | briscola one-hot | `SUIT_INDEX` (Python suit order) |
 | 404 | 4 | my_seat one-hot | **absolute** seat |
 | 408 | 4 | trick_starter one-hot | **absolute** seat |
-| 412 | 10 | hand_number one-hot | `min(len(hands_played), 9)`, **0-indexed** (backend `Hand.number − 1`) |
+| 412 | 10 | trick_number one-hot | `min(len(tricks_played), 9)`, **0-indexed** (backend `Trick.number − 1`) |
 | 422 | 10 | round_number one-hot | `min(round.number − 1, 9)`, **0-indexed** |
 | 432 | 2 | scores (team0, team1) | cumulative **raw** / `(win_points*3)`, clipped to 1 |
 | 434 | 16 | void_mask 4×4 | rows **relative**: row0=me(zero), row1=left, row2=partner, row3=right |

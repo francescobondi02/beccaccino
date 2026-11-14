@@ -247,7 +247,7 @@ def test_signal_weight_prefers_world_consistent_with_current_claim():
 def test_signal_weight_reconstructs_completed_declaration_history():
     g = BeccaGame(seed=0)
     lead = Card(Suit.DENARA, Value.QUATTRO)
-    g.round.hands_played = [
+    g.round.tricks_played = [
         TrickRecord(
             winner=0,
             cards=[
@@ -275,7 +275,7 @@ def test_signal_weight_reconstructs_completed_declaration_history():
 
 def test_card_history_without_signals_has_neutral_weight():
     g = BeccaGame(seed=0)
-    g.round.hands_played = [
+    g.round.tricks_played = [
         TrickRecord(
             winner=0,
             cards=[

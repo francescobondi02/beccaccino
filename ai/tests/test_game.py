@@ -114,12 +114,12 @@ class TestPlayCard:
         game = BeccaGame(seed=1)
         game.step(Suit.DENARA)
         _play_one_trick(game)
-        # After 4 cards, hands_played should have 1 entry
-        assert len(game.round.hands_played) == 1
+        # After 4 cards, tricks_played should have 1 entry
+        assert len(game.round.tricks_played) == 1
 
 
 class TestFullRound:
-    def test_round_ends_after_10_hands(self):
+    def test_round_ends_after_10_tricks(self):
         game = BeccaGame(seed=1, win_points=999)  # high threshold to avoid game ending
         game.step(Suit.DENARA)
 
@@ -325,8 +325,8 @@ class TestObservation:
             game.step(actions[0])
 
         # Trick is complete; should be recorded with the signal
-        assert len(game.round.hands_played) == 1
-        rec = game.round.hands_played[0]
+        assert len(game.round.tricks_played) == 1
+        rec = game.round.tricks_played[0]
         assert rec.signal == Signal.BUSSO
         assert rec.signal_seat == leader
 
