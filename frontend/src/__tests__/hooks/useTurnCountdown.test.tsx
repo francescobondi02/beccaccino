@@ -1,17 +1,15 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useTurnCountdown } from "@/hooks/useTurnCountdown";
-import type { TurnTimer } from "@/game/model";
 
 describe("useTurnCountdown", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("counts down from the anchored start, stops at zero and clears without a limit", () => {
+  it("counts down to the deadline, stops at zero and clears without a deadline", () => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);
-    const timer: TurnTimer = { turnUserId: 1, totalMs: 60_000, startedAt: 90_000, phase: "play_card" };
-    const { result, rerender } = renderHook(({ turnTimer }) => useTurnCountdown(turnTimer), {
-      initialProps: { turnTimer: timer as TurnTimer | null },
+    const { result, rerender } = renderHook(({ deadline }) => useTurnCountdown(deadline), {
+      initialProps: { deadline: 150_000 as number | null },
     });
 
     expect(result.current).toBe(50);
@@ -20,7 +18,7 @@ describe("useTurnCountdown", () => {
     act(() => vi.advanceTimersByTime(60_000));
     expect(result.current).toBe(0);
 
-    rerender({ turnTimer: { ...timer, totalMs: null } });
+    rerender({ deadline: null });
     expect(result.current).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   });

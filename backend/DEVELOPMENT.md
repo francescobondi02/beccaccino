@@ -103,7 +103,9 @@ backend/
 
 `POST /api/users/native/login` accepts the same username/password input as
 browser login and returns `{ user, token }` with `Cache-Control: no-store`, without
-setting a browser cookie. REST endpoints accept `Authorization: Bearer <token>`
+setting a browser cookie. `POST /api/users/native/register` does the same for
+registration: same input, validation, rate limit and error statuses as browser
+registration (400 invalid input, 409 username taken), and `201 { user, token }`. REST endpoints accept `Authorization: Bearer <token>`
 through the same active-account verifier used by cookies. Explicit malformed or
 expired Authorization never falls back to cookies.
 Browser login/registration response bodies and cookies are unchanged.
@@ -308,6 +310,8 @@ npm run practice:export > practice_matches.jsonl
 |--------|------|------|-------------|
 | POST | `/api/users/register` | No | Register with username + password |
 | POST | `/api/users/login` | No | Login, returns HTTP-only cookie |
+| POST | `/api/users/native/register` | No | Native register, returns `{ user, token }` |
+| POST | `/api/users/native/login` | No | Native login, returns `{ user, token }` |
 | POST | `/api/users/logout` | Yes | Clear auth cookie |
 | GET | `/api/users/me` | Yes | Get current user |
 | PATCH | `/api/users/me` | Yes | Update current user |
@@ -318,21 +322,20 @@ npm run practice:export > practice_matches.jsonl
 | POST | `/api/rooms/practice` | Yes | Start a practice game against bots |
 | GET | `/api/rooms/available` | Yes | List joinable rooms + active games |
 | GET | `/api/rooms/:roomCode` | Yes | Get room details |
-| POST | `/api/rooms/join` | Yes | Join a room by code |
+| POST | `/api/rooms/:roomCode/join` | Yes | Join a room by code |
 | POST | `/api/rooms/:roomCode/choose-team` | Yes | Choose team 0 or 1 |
 | POST | `/api/rooms/:roomCode/ready` | Yes | Toggle ready state |
 | POST | `/api/rooms/:roomCode/pause` | Yes | Pause an active practice room |
 | POST | `/api/rooms/:roomCode/resume` | Yes | Resume an active practice room and recover its turn |
 | POST | `/api/rooms/:roomCode/leave` | Yes | Leave an open lobby; practice rooms are deleted, active multiplayer returns 409, and finished multiplayer history is preserved |
-| POST | `/api/games/choose-briscola` | Yes | Choose trump suit |
-| POST | `/api/games/play-card` | Yes | Play a card |
-| GET | `/api/games/playable-cards/:roomCode` | Yes | Get legal cards for current turn |
-| GET | `/api/games/:roomCode/state` | Yes | Get full game state |
+| GET | `/api/games/:roomCode/state` | Yes | Get the caller's full game state |
+| POST | `/api/games/:roomCode/briscola` | Yes | Choose trump suit; returns the new state |
+| POST | `/api/games/:roomCode/cards` | Yes | Play a card; returns the new state |
 | GET | `/health` | No | Health check |
 | GET | `/ready` | No | Database readiness check |
 
 Team selection and ready-state changes are REST-only mutations. Socket.IO
-continues to deliver `team_chosen`, `ready_changed`, and `game_started` events,
+delivers `game_state` (full per-player state), `room_changed`, `lobby_changed`,
 plus presence and chat events.
 
 ## CI

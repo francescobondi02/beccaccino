@@ -62,8 +62,9 @@ The root folder contains local development tooling only.
 ## Global Invariants
 
 - The server is authoritative. Clients send only server-legal cards
-  (`GET /api/games/playable-cards/:roomCode`) and treat socket events as
-  signals to reload state. They do not run a second rules engine.
+  (`playableCards` in the game state) and render the full `game_state` the
+  server pushes; room and lobby events are signals to reload. Clients do not
+  run a second rules engine. Shared types live in `backend/src/contract/`.
 - Game rules exist twice and must stay identical: TypeScript in
   `backend/src/domain/game/` (`computeRoundScore` in `roundScore.ts`,
   `trickWinner.ts`, `legalCards.ts`, `detectCricca.ts`, `turnOrder.ts`) and
@@ -82,7 +83,7 @@ The root folder contains local development tooling only.
   (`ai/serving/app.py:_require_bot_token`).
 - Web authentication uses the `authToken` httpOnly cookie
   (same-origin requests from `frontend/src/lib/api.ts` send it). Native
-  authentication uses `POST /api/users/native/login` and a bearer token
+  authentication uses `POST /api/users/native/login` (or `/native/register`) and a bearer token
   (`mobile/src/lib/session.ts` sends `credentials: 'omit'`;
   `mobile/src/lib/socket.ts` sends `auth.token`). Both paths are checked by
   `verifyActiveSession` (`backend/src/auth/activeSession.ts`).

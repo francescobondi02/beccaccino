@@ -131,7 +131,8 @@ describe("Bot turn driver", () => {
     });
     const initialState = await apiAs(userId, "human").get(`/api/games/${roomCode}/state`);
     expect(initialState.body.round.briscola).toBeNull();
-    expect(initialState.body.round.deal.remainingMs).toBeGreaterThan(0);
+    expect(Date.parse(initialState.body.round.deal.reviewEndsAt))
+      .toBeGreaterThan(Date.parse(initialState.body.serverTime));
     await settle(roomCode);
 
     const round = await loadRound(roomCode);
@@ -177,8 +178,8 @@ describe("Bot turn driver", () => {
 
       const legal = await readPlayableCards({ roomCode, userId });
       const res = await apiAs(userId, "human")
-        .post("/api/games/play-card")
-        .send({ roomCode, suit: legal[0].suit, value: legal[0].value });
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: legal[0].suit, value: legal[0].value });
       expect(res.statusCode).toBe(200);
     }
     await settle(roomCode);

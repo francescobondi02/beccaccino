@@ -1,12 +1,6 @@
 import { logger } from "../logger";
 import { getSocketInstance } from "../socketInstance";
 
-export type GameEvent = {
-  target: string;
-  event: string;
-  payload: unknown;
-};
-
 export function publishEvent(
   target: string,
   event: string,
@@ -23,8 +17,8 @@ export function publishEvent(
   }
 }
 
-export function publishEvents(events: readonly GameEvent[]): void {
-  for (const event of events) {
-    publishEvent(event.target, event.event, event.payload);
-  }
+// Room pages and the lobby refetch on these. Skip the lobby for changes it does not list.
+export function publishRoomChanged(roomCode: string, { lobby = true } = {}): void {
+  publishEvent(roomCode, "room_changed", { roomCode });
+  if (lobby) publishEvent("lobby", "lobby_changed", { roomCode });
 }

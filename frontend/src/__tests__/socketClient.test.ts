@@ -30,6 +30,7 @@ import {
   getSocket,
   disconnectSocket,
   getConnectionStatus,
+  subscribe,
 } from "@/sockets/socketClient";
 
 function emitSocketEvent(event: string, ...args: unknown[]) {
@@ -51,6 +52,14 @@ describe("socketClient", () => {
     disconnectSocket();
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it("subscribes and unsubscribes the same listener", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribe("room_changed", listener);
+    expect(mockSocket.on).toHaveBeenCalledWith("room_changed", listener);
+    unsubscribe();
+    expect(mockSocket.off).toHaveBeenCalledWith("room_changed", listener);
   });
 
   describe("getSocket", () => {

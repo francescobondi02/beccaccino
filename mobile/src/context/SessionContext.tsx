@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type PropsWithChildren } from 'react';
 import { AppState } from 'react-native';
 
-import { clearSession, restoreSession, SessionHttpError, signIn, type SessionUser } from '@/lib/session';
+import { clearSession, register, restoreSession, SessionHttpError, signIn, type SessionUser } from '@/lib/session';
 
 type SessionState =
   | { status: 'loading' }
@@ -12,6 +12,7 @@ type SessionState =
 type SessionContextValue = {
   state: SessionState;
   login: (username: string, password: string) => Promise<boolean>;
+  register: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<boolean>;
   retry: () => void;
 };
@@ -75,11 +76,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
     return () => subscription.remove();
   }, [perform, restore, state.status]);
 
-  const login = async (username: string, password: string) => {
+  const authenticate = async (start: typeof signIn, username: string, password: string) => {
     if (pending.current) return false;
     setState({ status: 'loading' });
     return perform(async (signal) => ({
-      status: 'signedIn', user: await signIn(process.env.EXPO_PUBLIC_BACKEND_URL, username, password, signal),
+      status: 'signedIn', user: await start(process.env.EXPO_PUBLIC_BACKEND_URL, username, password, signal),
     }), (error) => ({
       status: 'signedOut', message: error instanceof Error ? error.message : 'Impossibile accedere.',
     }));
@@ -100,7 +101,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
     });
   };
 
-  return <SessionContext value={{ state, login, logout, retry }}>{children}</SessionContext>;
+  return <SessionContext value={{
+    state, logout, retry,
+    login: (username, password) => authenticate(signIn, username, password),
+    register: (username, password) => authenticate(register, username, password),
+  }}>{children}</SessionContext>;
 }
 
 export function useSession() {

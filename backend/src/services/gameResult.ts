@@ -1,11 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { sumRoundScores } from "../domain/game/gameScore";
+import type { Team } from "../contract/cards";
+import type { GameResult } from "../contract/game";
 
 export async function readGameResult(
   client: Prisma.TransactionClient,
   gameRoomId: number,
-  winnerTeam: number,
-) {
+  winnerTeam: Team,
+): Promise<GameResult> {
   const room = await client.gameRoom.findUniqueOrThrow({
     where: { id: gameRoomId },
     select: {
@@ -74,8 +76,15 @@ export async function readGameResult(
       team1: room.rounds.filter((round) => round.winnerTeam === 1).length,
     },
     statistics: {
-      players,
-      rounds: room.rounds.map(({ hands, ...round }) => round),
+      players: players.map(({ playerId, team, ...player }) => ({ ...player, team: team as Team })),
+      rounds: room.rounds.map((round) => ({
+        number: round.number,
+        winnerTeam: round.winnerTeam as Team,
+        score: {
+          team0: { points: round.team0Points, figures: round.team0Figures },
+          team1: { points: round.team1Points, figures: round.team1Figures },
+        },
+      })),
     },
   };
 }

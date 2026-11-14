@@ -5,10 +5,8 @@ import {
   resolveTurnSeat,
   nextCallerPlayerId,
 } from "../../domain/game/turnOrder";
-import {
-  TurnIdentity,
-  TurnPhase,
-} from "../turn";
+import type { TurnPhase } from "../../contract/game";
+import { TurnIdentity } from "../turn";
 
 type GameReadClient = Pick<
   Prisma.TransactionClient,
@@ -54,17 +52,6 @@ export async function readCallerPlayerId(
     previousCaller,
     nextCaller: (caller) => nextCallerPlayerId(players, caller),
   });
-}
-
-export async function readCurrentTurnUserId(
-  round: { id: number; briscola: string | null },
-  players: { id: number; userId: number; seat: number | null }[],
-  callerPlayerId: number | null,
-  client: GameReadClient = prisma,
-): Promise<number | null> {
-  return (
-    await readCurrentTurn(round, players, callerPlayerId, client)
-  )?.userId ?? null;
 }
 
 export async function readCurrentTurn(

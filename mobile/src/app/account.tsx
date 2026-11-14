@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, Keyboard, Linking, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import ActionButton from '@/components/ActionButton';
 import Sheet from '@/components/Sheet';
@@ -8,13 +8,12 @@ import { colors, shared } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useCloseOrHome from '@/hooks/useCloseOrHome';
 
-const siteUrl = 'https://beccaccino-client.vercel.app';
-
 export default function AccountScreen() {
-  const { state, login, logout, retry } = useSession();
+  const { state, login, register, logout, retry } = useSession();
   const router = useRouter();
   const { width, height, fontScale } = useWindowDimensions();
   const stacked = width < height || width < 560 || fontScale >= 1.4;
+  const [registering, setRegistering] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -26,7 +25,7 @@ export default function AccountScreen() {
     Keyboard.dismiss();
     const secret = password;
     setPassword('');
-    void login(username, secret);
+    void (registering ? register : login)(username, secret);
   };
 
   return (
@@ -50,12 +49,14 @@ export default function AccountScreen() {
                       returnKeyType="next" onSubmitEditing={() => passwordInput.current?.focus()}
                       onFocus={() => setFocused('user')} onBlur={() => setFocused(null)}
                       selectionColor={colors.primary} style={[styles.input, focused === 'user' && styles.inputFocused]} />
+                    {registering && <Text style={shared.note}>Da 3 a 20 caratteri</Text>}
                   </View>
                   <View style={[styles.field, stacked && styles.stackedField]}>
                     <Text style={styles.label}>PASSWORD</Text>
                     <View style={styles.passwordRow}>
                       <TextInput ref={passwordInput} accessibilityLabel="Password" value={password} onChangeText={setPassword}
-                        autoCapitalize="none" autoCorrect={false} autoComplete="current-password" textContentType="password"
+                        autoCapitalize="none" autoCorrect={false}
+                        autoComplete={registering ? 'new-password' : 'current-password'} textContentType={registering ? 'newPassword' : 'password'}
                         secureTextEntry={!showPassword} returnKeyType="go" onSubmitEditing={submit}
                         onFocus={() => setFocused('password')} onBlur={() => setFocused(null)}
                         selectionColor={colors.primary} style={[styles.input, styles.passwordInput, focused === 'password' && styles.inputFocused]} />
@@ -64,11 +65,13 @@ export default function AccountScreen() {
                         <Text style={styles.visibilityLabel}>{showPassword ? 'Nascondi' : 'Mostra'}</Text>
                       </Pressable>
                     </View>
+                    {registering && <Text style={shared.note}>Almeno 6 caratteri</Text>}
                   </View>
                 </View>
-                <ActionButton label="Accedi" disabled={!username.trim() || !password} onPress={submit} />
-                <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(siteUrl)} style={styles.link}>
-                  <Text style={shared.body}>Non hai un account? <Text style={styles.linkText}>Registrati sul sito</Text></Text>
+                <ActionButton label={registering ? 'Registrati' : 'Accedi'} disabled={!username.trim() || !password} onPress={submit} />
+                <Pressable accessibilityRole="button" onPress={() => setRegistering((value) => !value)} style={styles.link}>
+                  <Text style={shared.body}>{registering ? 'Hai già un account? ' : 'Non hai un account? '}
+                    <Text style={styles.linkText}>{registering ? 'Accedi' : 'Registrati'}</Text></Text>
                 </Pressable>
               </>}
               {state.status === 'signedIn' && <>

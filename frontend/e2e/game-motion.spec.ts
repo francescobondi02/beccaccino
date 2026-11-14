@@ -1,40 +1,25 @@
 import { test, expect, type WebSocketRoute } from "@playwright/test";
-import type { GameStateResponse, PlayedCardData } from "../src/game/model";
+import type { GameState, PlayedCard } from "../../backend/src/contract/game";
+import { cardsOf, gameState, iso, withCurrentServerTime, score, tablePlayers } from "./helpers/gameState";
 
 test.describe("Responsive table", () => {
   test("keeps central messages, seats, cards and controls separate on every screen size", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    const players = ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-      id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-      botModel: seat === 1 || seat === 2 ? "forte" : null,
+    const players = tablePlayers().map((player) => ({
+      ...player, botModel: player.seat === 1 || player.seat === 2 ? "forte" as const : null,
     }));
-    const state: GameStateResponse = {
-      status: "playing", pausedAt: null,
-      round: { id: 30, number: 1, briscola: "spade" },
-      callerUserId: 3, currentTurnUserId: 1, currentHandNumber: 1,
-      myCards: ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
-        .map((value, index) => ({ id: 40 + index, suit: "denara", value, playerId: 10, roundId: 30, inHand: true })),
-      playedCards: [
-        { playerId: 12, userId: 3, suit: "coppe", value: "cavallo", position: 0, signal: "busso" },
-        { playerId: 11, userId: 2, suit: "coppe", value: "tre", position: 1 },
-        { playerId: 13, userId: 4, suit: "spade", value: "due", position: 2 },
-      ],
-      lastHandCards: [], finishedGame: null, isPractice: false, allHands: null,
-      totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
-      turnTimer: { turnUserId: 1, remainingMs: 45000, totalMs: 60000, phase: "play_card" },
-      playerControls: players.map(({ userId, botModel }) => ({ userId, botModel, abandonedAt: null })),
-    };
-    await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: players[0].username } }));
-    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-      id: 20, code: "ROOM", started: true, finished: false, isPractice: state.isPractice, players,
-    } }));
-    let holdSnapshot = false;
-    let pendingSnapshots = 0;
-    await page.route("**/games/ROOM/state", (route) => {
-      if (!holdSnapshot) return route.fulfill({ json: state });
-      pendingSnapshots += 1;
+    const trick: PlayedCard[] = [
+      { userId: 3, suit: "coppe", value: "cavallo", signal: "busso" },
+      { userId: 2, suit: "coppe", value: "tre", signal: null },
+      { userId: 4, suit: "spade", value: "due", signal: null },
+    ];
+    const state = gameState({
+      round: { number: 1, callerUserId: 3, briscola: "spade", cricca: false, deal: null },
+      trick: { number: 1, cards: trick },
+      myHand: cardsOf("denara", ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]),
     });
-    await page.route("**/games/playable-cards/ROOM", (route) => route.fulfill({ json: { playableCards: [] } }));
+    await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: players[0].username } }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
     let socket: WebSocketRoute | undefined;
     await page.routeWebSocket(/\/socket\.io\//, (wire) => {
       socket = wire;
@@ -49,17 +34,15 @@ test.describe("Responsive table", () => {
       [1280, 900, "multiplayer"], [1280, 720, "multiplayer"],
       [1024, 600, "practice"], [1024, 600, "afk"],
     ] as const) {
-      holdSnapshot = false;
       state.isPractice = mode === "practice";
-      state.playerControls = players.map(({ userId, botModel }) => ({
-        userId, botModel: userId === 1 && mode === "afk" ? "forte" : botModel, abandonedAt: null,
+      state.players = players.map((player) => ({
+        ...player, botModel: player.userId === 1 && mode === "afk" ? "forte" : player.botModel,
       }));
+      state.turn = { userId: 1, phase: "play_card", startedAt: iso(Date.now()), deadline: iso(Date.now() + 45_000) };
       await page.setViewportSize({ width, height });
       await page.goto("/game/ROOM");
       await expect(page.locator("[data-card-user-id]")).toHaveCount(3);
       await expect(page.getByTestId("table-status")).toContainText("Marta dichiara busso");
-      pendingSnapshots = 0;
-      holdSnapshot = true;
       const collisions = () => page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
         const arena = rect(".arcade-arena");
@@ -103,9 +86,16 @@ test.describe("Responsive table", () => {
       });
       expect(await collisions(), `During play: ${mode} ${width}x${height}`).toEqual([]);
       if (!socket) throw new Error("Test socket is not connected");
-      socket.send(`42${JSON.stringify(["card_played", {
-        playerId: 10, userId: 1, suit: "coppe", value: "asso", position: 3, handNumber: 1,
-      }])}`);
+      const card = { suit: "coppe", value: "asso" } as const;
+      socket.send(`42${JSON.stringify(["game_state", withCurrentServerTime({
+        ...state, version: 2, myHand: state.myHand.slice(1), trick: { number: 2, cards: [] },
+        lastTrick: {
+          roundNumber: 1, trickNumber: 1, winnerUserId: 4,
+          cards: [...trick, { ...card, userId: 1, signal: null }], onTableUntil: iso(Date.now() + 3000),
+        },
+        turn: { userId: 4, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
+        lastAction: { kind: "card_played", userId: 1, card, signal: null, source: "human", takeover: false },
+      })])}`);
       await expect(page.locator("[data-card-user-id]")).toHaveCount(4);
       expect(await collisions(), `Completed trick: ${mode} ${width}x${height}`).toEqual([]);
       const occupiedLayout = {
@@ -116,7 +106,6 @@ test.describe("Responsive table", () => {
       await expect(page.locator("[data-card-user-id]")).toHaveCount(0);
       expect(await page.locator(".arcade-arena").boundingBox(), `Table shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.arena);
       expect(await page.getByTestId("player-hand").boundingBox(), `Hand shifted after collection at ${width}x${height}`).toEqual(occupiedLayout.hand);
-      expect(pendingSnapshots).toBeGreaterThan(0);
     }
   });
 });
@@ -129,34 +118,33 @@ for (const [view, reducedMotion, width, height] of [
     await page.emulateMedia({ reducedMotion });
     await page.setViewportSize({ width, height });
     const names = ["Giulia", "Luca", "Marta", "Diego"];
-    const state: GameStateResponse = {
-      status: "playing", pausedAt: null,
-      round: { id: 30, number: 1, briscola: "spade" },
-      callerUserId: 1, currentTurnUserId: 1, currentHandNumber: 1,
-      myCards: [{ id: 40, suit: "spade", value: "quattro", playerId: 10, roundId: 30, inHand: true }],
-      playedCards: [{ playerId: 11, userId: 2, suit: "coppe", value: "asso", position: 0 }],
-      lastHandCards: [], turnTimer: null, finishedGame: null,
-      totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
-      isPractice: false, allHands: null,
+    const myCard = cardsOf("spade", ["quattro"]);
+    let state = gameState({
+      isPractice: false, players: tablePlayers(names),
+      trick: { number: 1, cards: [{ userId: 2, suit: "coppe", value: "asso", signal: null }] },
+      myHand: myCard, playableCards: myCard,
+      turn: { userId: 1, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
+    });
+    // The next state after cards[position] is played; the trick's last card also applies `after`.
+    const play = (cards: PlayedCard[], position: number, handNumber: number, after: Partial<GameState> = {}) => {
+      const { userId, suit, value, signal } = cards[position];
+      state = {
+        ...state, version: state.version + 1,
+        myHand: state.myHand.filter((held) => held.suit !== suit || held.value !== value), playableCards: [],
+        trick: { number: handNumber, cards: cards.slice(0, position + 1) },
+        turn: { userId: cards[position + 1]?.userId ?? userId, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
+        lastAction: { kind: "card_played", userId, card: { suit, value }, signal, source: "human", takeover: false },
+        ...after,
+      };
+      return withCurrentServerTime(state);
     };
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: names[0] } }));
-    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-      id: 20, code: "ROOM", started: true, finished: false,
-      players: names.map((username, seat) => ({
-        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-      })),
-    } }));
-    let readyAt = 0;
-    await page.route("**/games/ROOM/state", (route) => {
-      if (state.round.deal) state.round.deal.remainingMs = Math.max(0, readyAt - Date.now());
-      return route.fulfill({ json: state });
-    });
-    await page.route("**/games/playable-cards/ROOM", (route) =>
-      route.fulfill({ json: { playableCards: state.myCards } }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
     let posts = 0;
-    await page.route("**/games/play-card", (route) => {
+    let postResponse: GameState | undefined;
+    await page.route("**/games/ROOM/cards", (route) => {
       posts += 1;
-      return route.fulfill({ json: { success: true } });
+      return route.fulfill({ json: postResponse });
     });
     let socket: WebSocketRoute | undefined;
     await page.routeWebSocket(/\/socket\.io\//, (wire) => {
@@ -177,7 +165,7 @@ for (const [view, reducedMotion, width, height] of [
     await expect(page.locator("[data-card-user-id]")).toHaveCount(1);
     expect(await page.locator("[data-card-user-id] > div").evaluateAll((elements) =>
       elements.flatMap((element) => element.getAnimations()).length)).toBe(0);
-    state.playedCards = [];
+    state.trick = { number: 1, cards: [] };
     await page.reload();
     await expect(page.getByTestId("game-layout")).toBeVisible();
     await expect.poll(() => Boolean(socket)).toBe(true);
@@ -188,53 +176,61 @@ for (const [view, reducedMotion, width, height] of [
       await page.evaluate(() => new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
       const handNumber = winner >= 3 ? 10 : winner;
-      const cards: PlayedCardData[] = names.map((_, position) => ({
-        playerId: 10 + position, userId: position + 1, position, handNumber,
+      const cards: PlayedCard[] = names.map((_, position) => ({
+        userId: position + 1, signal: null,
         suit: position + 1 === winner ? "spade" : "coppe",
-        value: position + 1 === winner ? "quattro" : ["tre", "due", "asso", "re"][position],
+        value: position + 1 === winner ? "quattro" : (["tre", "due", "asso", "re"] as const)[position],
       }));
-      if (winner === 1) {
-        await page.getByTestId("hand-card-spade-quattro").click();
-        await page.getByRole("button", { name: "Niente", exact: true }).click();
-        await expect.poll(() => posts).toBe(1);
-        await expect(page.locator("[data-card-user-id]")).toHaveCount(0);
-        state.myCards = [];
-      }
-      for (const card of cards) {
-        if (card.userId === 1) state.myCards = state.myCards.filter((held) =>
-          held.suit !== card.suit || held.value !== card.value);
-        state.playedCards = cards.slice(0, card.position + 1);
-        emit("card_played", card);
-        await expect(page.locator("[data-card-user-id]")).toHaveCount(card.position + 1);
-        if (card.position === 0) {
+      // Built when the fourth card lands, so display times start then.
+      const trickEnd = (): Partial<GameState> => {
+        const lastTrick = {
+          roundNumber: state.round.number, trickNumber: handNumber, winnerUserId: winner, cards,
+          onTableUntil: iso(Date.now() + 3000),
+        };
+        if (winner === 3) {
+          const readyAt = Date.now() + 8000;
+          return {
+            lastTrick, status: "choosing_briscola", trick: null,
+            round: {
+              number: 2, callerUserId: 1, briscola: null, cricca: false,
+              deal: { animationEndsAt: iso(readyAt - 1600), reviewEndsAt: iso(readyAt) },
+            },
+            roundSummary: { roundNumber: 1, score: score(6, 5), winnerTeam: 0, visibleUntil: iso(readyAt - 4000) },
+            myHand: cardsOf("coppe", ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]),
+            turn: { userId: 1, phase: "choose_briscola", startedAt: iso(readyAt), deadline: null },
+          };
+        }
+        if (winner === 4) {
+          return {
+            lastTrick, status: "finished", trick: null, turn: null,
+            result: {
+              winnerTeam: 1, totalRounds: 1, finalScores: { team0: 4, team1: 7 }, roundsWon: { team0: 0, team1: 1 },
+              statistics: { players: [], rounds: [{ number: 1, winnerTeam: 1, score: score(4, 7) }] },
+            },
+          };
+        }
+        return {
+          lastTrick, trick: { number: handNumber + 1, cards: [] },
+          turn: { userId: winner, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
+        };
+      };
+      for (let position = 0; position < cards.length; position += 1) {
+        const next = play(cards, position, handNumber, position === 3 ? trickEnd() : {});
+        if (winner === 1 && position === 0) {
+          postResponse = next;
+          await page.getByTestId("hand-card-spade-quattro").click();
+          await page.getByRole("button", { name: "Niente", exact: true }).click();
+          await expect.poll(() => posts).toBe(1);
+        } else {
+          emit("game_state", next);
+        }
+        await expect(page.locator("[data-card-user-id]")).toHaveCount(position + 1);
+        if (position === 0) {
           const entries = await page.locator("[data-card-user-id] > div").evaluateAll((elements) =>
             elements.flatMap((element) => element.getAnimations())
               .filter((animation) => animation.effect?.getTiming().duration === 420).length);
           expect(entries).toBe(reducedMotion === "reduce" ? 0 : 1);
         }
-      }
-      state.playedCards = [];
-      state.currentHandNumber = handNumber + 1;
-      if (winner === 3) {
-        readyAt = Date.now() + 8000;
-        state.status = "choosing_briscola";
-        state.round = { id: 31, number: 2, briscola: null,
-          deal: { remainingMs: 8000, animationMs: 2400, reviewMs: 1600 } };
-        state.roundSummary = {
-          roundNumber: 1, team0Points: 6, team1Points: 5, winnerTeam: 0,
-        };
-        state.myCards = ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
-          .map((value, index) => ({ id: 50 + index, suit: "coppe", value, playerId: 10, roundId: 31, inHand: true }));
-        emit("new_round_started", { roundId: 31, roundNumber: 2, callerUserId: 1 });
-      } else if (winner === 4) {
-        state.status = "finished";
-        state.finishedGame = {
-          winnerTeam: 1, totalRounds: 1, finalScores: { team0: 4, team1: 7 },
-          roundsWon: { team0: 0, team1: 1 },
-        };
-        emit("game_finished", state.finishedGame);
-      } else {
-        emit("turn_timer_started", { turnUserId: winner, totalMs: 60000, phase: "play_card" });
       }
       await expect(page.getByText(`Presa a ${names[winner - 1]}`, { exact: true })).toBeVisible();
       await expect(page.locator('[data-winning-card="true"]')).toHaveAttribute("data-card-user-id", String(winner));
@@ -276,11 +272,14 @@ for (const [view, reducedMotion, width, height] of [
         await expect(recap).toBeHidden();
         await expect(page.getByTestId("card-deal")).toBeAttached();
         await expect(page.getByRole("dialog", { name: "Scegli la briscola" })).toBeVisible();
-        state.status = "playing";
-        state.round.briscola = "spade";
-        state.round.deal = null;
-        state.roundSummary = null;
-        emit("briscola_chosen", { briscola: "spade" });
+        state = {
+          ...state, version: state.version + 1, status: "playing",
+          round: { ...state.round, briscola: "spade", deal: null }, roundSummary: null,
+          trick: { number: 1, cards: [] },
+          turn: { userId: 1, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
+          lastAction: { kind: "briscola_chosen", userId: 1, suit: "spade", source: "human", takeover: false },
+        };
+        emit("game_state", withCurrentServerTime(state));
         await expect(page.getByRole("dialog")).toHaveCount(0);
       }
     }

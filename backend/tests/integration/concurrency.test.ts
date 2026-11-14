@@ -41,17 +41,13 @@ describe("Concurrent play-card requests", () => {
 
     const [res1, res2] = await Promise.all([
       apiAs(starter.userId, starter.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: starterCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: starterCard!.suit,
           value: starterCard!.value,
         }),
       apiAs(otherPlayer.userId, otherPlayer.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: otherCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: otherCard!.suit,
           value: otherCard!.value,
         }),
     ]);
@@ -85,17 +81,13 @@ describe("Concurrent play-card requests", () => {
 
     const [res1, res2] = await Promise.all([
       apiAs(starter.userId, starter.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: starterCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: starterCard!.suit,
           value: starterCard!.value,
         }),
       apiAs(starter.userId, starter.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: starterCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: starterCard!.suit,
           value: starterCard!.value,
         }),
     ]);
@@ -141,17 +133,13 @@ describe("Concurrent play-card requests", () => {
 
     await Promise.all([
       apiAs(starter.userId, starter.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: starterCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: starterCard!.suit,
           value: starterCard!.value,
         }),
       apiAs(otherPlayer.userId, otherPlayer.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: otherCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: otherCard!.suit,
           value: otherCard!.value,
         }),
     ]);
@@ -194,14 +182,14 @@ describe("Concurrent join-room requests", () => {
 
     for (let i = 1; i < 3; i++) {
       const joinRes = await apiAs(userIds[i], usernames[i])
-        .post("/api/rooms/join")
-        .send({ roomCode });
+        .post(`/api/rooms/${roomCode}/join`)
+        ;
       expect(joinRes.statusCode).toBe(200);
     }
 
     const [res1, res2] = await Promise.all([
-      apiAs(userIds[3], usernames[3]).post("/api/rooms/join").send({ roomCode }),
-      apiAs(userIds[4], usernames[4]).post("/api/rooms/join").send({ roomCode }),
+      apiAs(userIds[3], usernames[3]).post(`/api/rooms/${roomCode}/join`),
+      apiAs(userIds[4], usernames[4]).post(`/api/rooms/${roomCode}/join`),
     ]);
 
     const statuses = [res1.statusCode, res2.statusCode].sort();
@@ -234,8 +222,8 @@ async function setupTeamRace() {
   const roomCode = created.body.code;
   for (let index = 1; index < userIds.length; index++) {
     await apiAs(userIds[index], usernames[index])
-      .post("/api/rooms/join")
-      .send({ roomCode });
+      .post(`/api/rooms/${roomCode}/join`)
+      ;
   }
   return { roomCode, userIds, usernames };
 }

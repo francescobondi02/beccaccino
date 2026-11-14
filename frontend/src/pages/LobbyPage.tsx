@@ -98,7 +98,7 @@ const LobbyPage = () => {
   const joinRoom = (code: string) =>
     enterRoom(
       async () => {
-        await apiPost("/rooms/join", { roomCode: code });
+        await apiPost(`/rooms/${code}/join`);
         return code;
       },
       `Accesso alla stanza ${code}`,

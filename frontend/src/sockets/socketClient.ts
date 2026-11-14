@@ -1,7 +1,7 @@
 // src/sockets/socketClient.ts
 import { io, Socket } from "socket.io-client";
 import { toast } from "sonner";
-import type { ServerToClientEvents, ClientToServerEvents } from "./events";
+import type { ServerToClientEvents, ClientToServerEvents } from "@contract/socket";
 
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -104,6 +104,19 @@ export function getSocket(): AppSocket {
   }
 
   return socket;
+}
+
+export function subscribe<Event extends keyof ServerToClientEvents>(
+  event: Event,
+  listener: ServerToClientEvents[Event],
+): () => void {
+  const socket = getSocket();
+  // socket.io cannot resolve its listener type for a generic event name.
+  const handler = listener as never;
+  socket.on(event, handler);
+  return () => {
+    socket.off(event, handler);
+  };
 }
 
 export function getConnectionStatus(): ConnectionStatus {

@@ -18,6 +18,7 @@ import {
 } from "../helpers/botServiceStub";
 import { logger } from "../../src/logger";
 import * as cardQueries from "../../src/services/playableCards";
+import * as eventPublisher from "../../src/runtime/eventPublisher";
 import { recoverRoomRuntime } from "../../src/runtime/recovery";
 import { changePlayerControl } from "../../src/services/playerControl";
 import * as turnState from "../../src/game/snapshots/turnState";
@@ -90,6 +91,7 @@ describe("Practice pause and resume", () => {
     const roomCode = await startPractice();
     const initialTimer = getTurnTimerState(roomCode);
     expect(initialTimer).not.toBeNull();
+    expect((await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } })).version).toBe(1);
 
     const paused = await apiAs(userId, "pause-human")
       .post(`/api/rooms/${roomCode}/pause`)
@@ -108,6 +110,7 @@ describe("Practice pause and resume", () => {
     });
     expect(room.pausedAt).not.toBeNull();
     expect(room.pauseEpoch).toBe(1);
+    expect(room.version).toBe(2);
 
     clearRuntimeRoom(roomCode);
     const state = await apiAs(userId, "pause-human").get(
@@ -117,17 +120,15 @@ describe("Practice pause and resume", () => {
     expect(state.body).toMatchObject({
       status: "paused",
       isPractice: true,
-      turnTimer: null,
+      turn: null,
+      playableCards: [],
     });
-    expect(state.body.pausedAt).toBeTruthy();
     expect(getTurnTimerState(roomCode)).toBeNull();
     expect(
       (
         await apiAs(userId, "pause-human")
-          .post("/api/games/play-card")
-          .send({
-            roomCode,
-            suit: "coppe",
+          .post(`/api/games/${roomCode}/cards`)
+          .send({ suit: "coppe",
             value: "asso",
           })
       ).statusCode,
@@ -139,7 +140,7 @@ describe("Practice pause and resume", () => {
       expect.objectContaining({
         code: roomCode,
         isPractice: true,
-        pausedAt: state.body.pausedAt,
+        pausedAt: room.pausedAt!.toISOString(),
       }),
     ]);
 
@@ -165,20 +166,17 @@ describe("Practice pause and resume", () => {
           })
         ).pauseEpoch,
       ).toBe(2);
-      expect(
-        resumedEvents.filter((event) => event.event === "practice_resumed"),
-      ).toEqual([
-        { target: roomCode, event: "practice_resumed" },
-        { target: "lobby", event: "practice_resumed" },
+      expect(resumedEvents).toEqual([
+        { target: `user:${userId}`, event: "game_state" },
+        { target: roomCode, event: "room_changed" },
+        { target: "lobby", event: "lobby_changed" },
       ]);
 
       const duplicate = await apiAs(userId, "pause-human")
         .post(`/api/rooms/${roomCode}/resume`)
         .send({});
       expect(duplicate.statusCode).toBe(200);
-      expect(
-        resumedEvents.filter((event) => event.event === "practice_resumed"),
-      ).toHaveLength(2);
+      expect(resumedEvents).toHaveLength(3);
     } finally {
       setSocketInstance(originalIo);
     }
@@ -188,6 +186,48 @@ describe("Practice pause and resume", () => {
     });
     expect(resumedRoom.pausedAt).toBeNull();
     expect(resumedRoom.pauseEpoch).toBe(2);
+    expect(resumedRoom.version).toBe(3);
+  });
+
+  it("pushes practice states only to the human, with their own cards and the right room code", async () => {
+    const publish = jest.spyOn(eventPublisher, "publishEvent");
+    const practiceCode = await startPractice();
+    await apiAs(userId, "pause-human").post(`/api/rooms/${practiceCode}/pause`).send({});
+
+    const friends = [];
+    for (const username of ["friend-1", "friend-2", "friend-3"]) {
+      friends.push((await api().post("/api/users/register").send({ username, password: "test123" })).body);
+    }
+    const created = await apiAs(userId, "pause-human").post("/api/rooms").send({});
+    const multiplayerCode = created.body.code as string;
+    for (const friend of friends) {
+      await apiAs(friend.id, friend.username).post(`/api/rooms/${multiplayerCode}/join`);
+    }
+    const members = [{ id: userId, username: "pause-human" }, ...friends];
+    for (const [index, member] of members.entries()) {
+      await apiAs(member.id, member.username)
+        .post(`/api/rooms/${multiplayerCode}/choose-team`).send({ team: index % 2 });
+    }
+    for (const member of members) {
+      await apiAs(member.id, member.username)
+        .post(`/api/rooms/${multiplayerCode}/ready`).send({ isReady: true });
+    }
+
+    const pushes = publish.mock.calls.filter(([, event]) => event === "game_state");
+    const practicePushes = pushes.filter(([, , state]: any) => state.roomCode === practiceCode);
+    expect(practicePushes.map(([target]) => target)).toEqual([`user:${userId}`, `user:${userId}`]);
+    expect(practicePushes.map(([, , state]: any) => state.lastAction.kind)).toEqual(["game_started", "paused"]);
+    const practiceCards = await prisma.playerCard.findMany({
+      where: { player: { userId }, round: { gameRoom: { code: practiceCode } } },
+    });
+    expect((practicePushes[0][2] as any).myHand).toHaveLength(10);
+    expect((practicePushes[0][2] as any).myHand).toEqual(expect.arrayContaining(
+      practiceCards.map(({ suit, value }) => ({ suit, value })),
+    ));
+    const humanMultiplayerPushes = pushes.filter(
+      ([target, , state]: any) => target === `user:${userId}` && state.roomCode === multiplayerCode,
+    );
+    expect(humanMultiplayerPushes.map(([, , state]: any) => state.lastAction.kind)).toEqual(["game_started"]);
   });
 
   it("publishes pause lifecycle events only when state changes", async () => {
@@ -211,11 +251,10 @@ describe("Practice pause and resume", () => {
         ).toBe(200);
       }
 
-      expect(
-        pausedEvents.filter((event) => event.event === "practice_paused"),
-      ).toEqual([
-        { target: roomCode, event: "practice_paused" },
-        { target: "lobby", event: "practice_paused" },
+      expect(pausedEvents).toEqual([
+        { target: `user:${userId}`, event: "game_state" },
+        { target: roomCode, event: "room_changed" },
+        { target: "lobby", event: "lobby_changed" },
       ]);
     } finally {
       setSocketInstance(originalIo);
@@ -262,7 +301,7 @@ describe("Practice pause and resume", () => {
         error: "Practice game runtime unavailable; retry",
       });
       expect(getTurnTimerState(roomCode)).toBeNull();
-      expect(resumedEvents).not.toContain("practice_resumed");
+      expect(resumedEvents).toEqual([]);
 
       readTurn.mockRestore();
       const retry = await apiAs(userId, "pause-human")
@@ -270,9 +309,7 @@ describe("Practice pause and resume", () => {
         .send({});
       expect(retry.statusCode).toBe(200);
       expect(getTurnTimerState(roomCode)).not.toBeNull();
-      expect(
-        resumedEvents.filter((event) => event === "practice_resumed"),
-      ).toHaveLength(2);
+      expect(resumedEvents).toEqual(["game_state", "room_changed", "lobby_changed"]);
       expect(
         await prisma.gameRoom.findUniqueOrThrow({
           where: { code: roomCode },
@@ -297,18 +334,15 @@ describe("Practice pause and resume", () => {
     );
 
     expect(state.statusCode).toBe(200);
-    expect(state.body.turnTimer).toBeNull();
+    expect(state.body.turn.deadline).toBeNull();
     expect(getTurnTimerState(roomCode)).toBeNull();
     expect(stub.requests).toHaveLength(requestsBefore);
 
     await expect(recoverRoomRuntime(roomCode)).resolves.toBe(true);
     const recovered = getTurnTimerState(roomCode);
     expect(recovered).toMatchObject({
-      turnUserId: state.body.currentTurnUserId,
-      phase:
-        state.body.round.briscola === null
-          ? "choose_briscola"
-          : "play_card",
+      turnUserId: state.body.turn.userId,
+      phase: state.body.turn.phase,
     });
 
     await expect(recoverRoomRuntime(roomCode)).resolves.toBe(false);
@@ -427,14 +461,11 @@ describe("Practice pause and resume", () => {
       const card = await prisma.playerCard.findFirstOrThrow({
         where: { playerId: player.id },
       });
-      const room = await prisma.gameRoom.findUniqueOrThrow({
-        where: { code: roomCode },
-      });
       expect(
         (
           await apiAs(userId, "pause-human")
-            .post("/api/games/choose-briscola")
-            .send({ gameRoomId: room.id, suit: card.suit })
+            .post(`/api/games/${roomCode}/briscola`)
+            .send({ suit: card.suit })
         ).statusCode,
       ).toBe(200);
     }
@@ -495,20 +526,17 @@ describe("Practice pause and resume", () => {
         const card = await prisma.playerCard.findFirstOrThrow({
           where: { playerId: player.id },
         });
-        const room = await prisma.gameRoom.findUniqueOrThrow({
-          where: { code: roomCode },
-        });
         await apiAs(userId, "pause-human")
-          .post("/api/games/choose-briscola")
-          .send({ gameRoomId: room.id, suit: card.suit });
+          .post(`/api/games/${roomCode}/briscola`)
+          .send({ suit: card.suit });
       }
       const playable = await apiAs(userId, "pause-human").get(
-        `/api/games/playable-cards/${roomCode}`,
+        `/api/games/${roomCode}/state`,
       );
       const card = playable.body.playableCards[0];
       await apiAs(userId, "pause-human")
-        .post("/api/games/play-card")
-        .send({ roomCode, suit: card.suit, value: card.value });
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: card.suit, value: card.value });
     }
 
     await waitFor(() => stub.requests.length === 1);
@@ -601,14 +629,11 @@ describe("Practice pause and resume", () => {
       const card = await prisma.playerCard.findFirstOrThrow({
         where: { playerId: player.id },
       });
-      const room = await prisma.gameRoom.findUniqueOrThrow({
-        where: { code: roomCode },
-      });
       expect(
         (
           await apiAs(userId, "pause-human")
-            .post("/api/games/choose-briscola")
-            .send({ gameRoomId: room.id, suit: card.suit })
+            .post(`/api/games/${roomCode}/briscola`)
+            .send({ suit: card.suit })
         ).statusCode,
       ).toBe(200);
     }

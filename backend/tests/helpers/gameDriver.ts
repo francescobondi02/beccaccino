@@ -27,8 +27,7 @@ export async function setupGame() {
 
   for (let i = 1; i < 4; i++) {
     const joinRes = await apiAs(userIds[i], usernames[i])
-      .post("/api/rooms/join")
-      .send({ roomCode });
+      .post(`/api/rooms/${roomCode}/join`);
     expect(joinRes.statusCode).toBe(200);
   }
 
@@ -137,11 +136,8 @@ export async function chooseBriscola(
   const callerPlayer = room!.players.find((p) => p.id === callerPlayerId)!;
 
   const chooseBriscolaRes = await apiAs(callerPlayer.userId, callerPlayer.user.username)
-    .post("/api/games/choose-briscola")
-    .send({
-      gameRoomId: room!.id,
-      suit: mostCommonSuit,
-    });
+    .post(`/api/games/${roomCode}/briscola`)
+    .send({ suit: mostCommonSuit });
 
   expect(chooseBriscolaRes.statusCode).toBe(200);
   expect(chooseBriscolaRes.body.round.briscola).toBe(mostCommonSuit);
@@ -179,7 +175,7 @@ export async function oneHand(
 
   for (const player of playerOrder) {
     const playableRes = await apiAs(player.userId, player.user.username)
-      .get(`/api/games/playable-cards/${roomCode}`);
+      .get(`/api/games/${roomCode}/state`);
 
     expect(playableRes.statusCode).toBe(200);
     const playableCards = playableRes.body.playableCards;
@@ -190,12 +186,8 @@ export async function oneHand(
     expect(card).not.toBeNull();
 
     const playRes = await apiAs(player.userId, player.user.username)
-      .post("/api/games/play-card")
-      .send({
-        roomCode,
-        suit: card!.suit,
-        value: card!.value,
-      });
+      .post(`/api/games/${roomCode}/cards`)
+      .send({ suit: card!.suit, value: card!.value });
 
     if (playRes.statusCode !== 200) {
       console.log("Play card error:", playRes.body, "Card:", card);

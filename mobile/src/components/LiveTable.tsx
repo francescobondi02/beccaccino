@@ -11,7 +11,9 @@ import { colors, hard } from '@/constants/theme';
 import useCardDrag from '@/hooks/useCardDrag';
 import useReducedMotion from '@/hooks/useReducedMotion';
 import { cardImage } from '@/lib/cardImages';
-import { cardKey, cardLabel, ourSide, relativeSeat, type Card, type GameState, type Room, type Trick } from '@/lib/game';
+import type { Card } from '@contract/cards';
+import type { GameState, LastTrick } from '@contract/game';
+import { cardKey, cardLabel, displayName, nameOf, ourSide, relativeSeat } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 import { tableLayout } from '@/lib/tableLayout';
@@ -61,11 +63,11 @@ function HandCard({ card, index, count, width, step, selected, legal, disabled, 
   );
 }
 
-export default function LiveTable({ room, game, userId, playable, selected, disabled, onSelect,
+export default function LiveTable({ game, userId, selected, disabled, onSelect,
   onPlay, onMenu, onHistory, controls, prompt, completedTrick, onCollected, hidden }: {
-  room: Room; game: GameState; userId: number; playable: Card[]; selected: Card | null; disabled: boolean;
+  game: GameState; userId: number; selected: Card | null; disabled: boolean;
   onSelect: (card: Card) => void; onPlay: (card: Card) => Promise<boolean>; onMenu: () => void; onHistory: () => void; controls: ReactNode; prompt: ReactNode;
-  completedTrick: Trick | null; onCollected: () => void; hidden: boolean;
+  completedTrick: LastTrick | null; onCollected: () => void; hidden: boolean;
 }) {
   const { width, height, fontScale } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -76,21 +78,22 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
   const [dragging, setDragging] = useState(false);
   const [zoom, setZoom] = useState<Card | null>(null);
   // A held card can leave the hand (e.g. auto-played) without a press-out: drop its preview.
-  if (zoom && !game.myCards.some((card) => cardKey(card) === cardKey(zoom))) setZoom(null);
+  if (zoom && !game.myHand.some((card) => cardKey(card) === cardKey(zoom))) setZoom(null);
   const [motion] = useState(() => ({ collect: new Animated.Value(0), glow: new Animated.Value(0) }));
-  const position = (playerId: number) => relativeSeat(room, playerId, userId);
-  const score = game.totalPoints;
-  const [us, them] = ourSide<[number, number]>(room, userId, [score.team0Points, score.team0Figures], [score.team1Points, score.team1Figures]);
-  const winner = completedTrick ? room.players.find((p) => p.userId === completedTrick.winnerUserId) : null;
+  const { players, playableCards: playable, score } = game;
+  const position = (playerId: number) => relativeSeat(players, playerId, userId);
+  const [us, them] = ourSide<[number, number]>(players, userId, [score.team0.points, score.team0.figures], [score.team1.points, score.team1.figures]);
+  const winner = completedTrick ? players.find((p) => p.userId === completedTrick.winnerUserId) : null;
+  const winnerName = winner ? displayName(winner.username) : 'un giocatore';
   const winnerSeat = layout.seats[winner ? position(winner.userId) : 3];
-  const cards = completedTrick?.cards ?? game.playedCards;
-  const tableCount = game.playedCards.length;
+  const cards = completedTrick?.cards ?? game.trick?.cards ?? [];
+  const tableCount = game.trick?.cards.length ?? 0;
   useEffect(() => { if (tableCount > 0) playSound('card'); }, [tableCount]);
   useEffect(() => {
     motion.collect.setValue(0);
     motion.glow.setValue(0);
     if (!completedTrick) return;
-    AccessibilityInfo.announceForAccessibility(`Presa a ${winner?.username ?? 'un giocatore'}`);
+    AccessibilityInfo.announceForAccessibility(`Presa a ${winnerName}`);
     playSound('trick');
     const animation = Animated.sequence([
       Animated.delay(reduced ? 350 : 600),
@@ -101,10 +104,10 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
     let active = true;
     animation.start(({ finished }) => { if (finished && active) onCollected(); });
     return () => { active = false; animation.stop(); };
-  }, [completedTrick, motion, reduced, onCollected, winner?.username]);
+  }, [completedTrick, motion, reduced, onCollected, winnerName]);
 
   const handSpace = size.width - 216;
-  const count = game.myCards.length;
+  const count = game.myHand.length;
   const step = count > 1 ? Math.min(layout.handWidth * 0.74, (handSpace - layout.handWidth) / (count - 1)) : 0;
   const fanWidth = layout.handWidth + step * Math.max(0, count - 1);
   const board = (
@@ -112,22 +115,22 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
       onLayout={({ nativeEvent: { layout } }) => { if (layout.width && layout.height) setSize(layout); }}>
       <TableFelt bottom={layout.handHeight * 0.45} />
       <View style={styles.topLeft}>
-        <ActionButton compact secondary label={room.isPractice ? "Pausa / menu" : "Menu"} glyph={room.isPractice ? "II" : "☰"} onPress={onMenu} />
+        <ActionButton compact secondary label={game.isPractice ? "Pausa / menu" : "Menu"} glyph={game.isPractice ? "II" : "☰"} onPress={onMenu} />
         <ScoreBoard us={us} them={them} />
-        {game.lastCompletedTrick && <LastTrickButton trick={game.lastCompletedTrick} onPress={onHistory} />}
+        {game.lastTrick && <LastTrickButton trick={game.lastTrick} onPress={onHistory} />}
       </View>
       <View style={styles.topRight}>
         <TrumpBadge suit={game.round.briscola} round={game.round.number} cricca={game.round.cricca} />
       </View>
-      {room.players.filter((p) => p.userId !== userId).map((player) => {
+      {players.filter((p) => p.userId !== userId).map((player) => {
         const index = position(player.userId);
-        const active = game.currentTurnUserId === player.userId && game.status !== 'paused';
+        const active = game.turn?.userId === player.userId;
         const signal = cards.find((card) => card.userId === player.userId)?.signal;
         return (
-          <View key={player.userId} accessible accessibilityLabel={`${index === 1 ? 'Socio' : 'Avversario'} ${player.username}${active ? ', sta giocando' : ''}${signal ? `, ${signal}` : ''}`}
+          <View key={player.userId} accessible accessibilityLabel={`${index === 1 ? 'Socio' : 'Avversario'} ${nameOf(players, player.userId)}${active ? ', sta giocando' : ''}${signal ? `, ${signal}` : ''}`}
             style={[styles.seat, { left: layout.seats[index].x, top: layout.seats[index].y, width: layout.seatWidth }]}>
-            <PlayerBadge name={player.username} partner={index === 1} active={active} highlighted={winner?.userId === player.userId}
-              signal={signal} bot={game.playerControls.some((c) => c.userId === player.userId && c.botModel !== null)}
+            <PlayerBadge name={nameOf(players, player.userId)} partner={index === 1} active={active} highlighted={winner?.userId === player.userId}
+              signal={signal} bot={player.botModel !== null}
               reduced={reduced} />
           </View>
         );
@@ -135,8 +138,8 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
       {cards.map((card) => {
         const index = position(card.userId);
         const seat = layout.seats[index];
-        return <TableCard key={`${completedTrick?.roundId ?? game.round.id}:${completedTrick?.handNumber ?? game.currentHandNumber}:${cardKey(card)}`}
-          image={cardImage(card)} label={`${room.players.find((p) => p.userId === card.userId)?.username}: ${cardLabel(card)}${card.signal ? `, ${card.signal}` : ''}`}
+        return <TableCard key={`${completedTrick?.roundNumber ?? game.round.number}:${completedTrick?.trickNumber ?? game.trick?.number}:${cardKey(card)}`}
+          image={cardImage(card)} label={`${nameOf(players, card.userId)}: ${cardLabel(card)}${card.signal ? `, ${card.signal}` : ''}`}
           index={index} layout={layout} origin={{ x: seat.x + layout.seatWidth / 2, y: seat.y + 20 }} reduceMotion={motionPreference}
           destination={{ x: winnerSeat.x + layout.seatWidth / 2, y: winnerSeat.y + 20 }}
           collect={motion.collect} glow={motion.glow} winner={card.userId === winner?.userId} />;
@@ -147,7 +150,7 @@ export default function LiveTable({ room, game, userId, playable, selected, disa
       </View>}
       {prompt && <View style={[styles.promptSlot, { bottom: layout.handHeight + 18, left: 8, width: handSpace }]}>{prompt}</View>}
       <View accessibilityLabel="Le tue carte" style={[styles.hand, { left: 8 + (handSpace - fanWidth) / 2, width: fanWidth, height: layout.handHeight }]}>
-        {game.myCards.map((card, index) => <HandCard key={`${game.round.id}:${cardKey(card)}`}
+        {game.myHand.map((card, index) => <HandCard key={`${game.round.number}:${cardKey(card)}`}
           card={card} index={index} count={count} width={layout.handWidth} step={step}
           selected={selected !== null && cardKey(selected) === cardKey(card)}
           legal={playable.some((legal) => cardKey(legal) === cardKey(card))} disabled={disabled}

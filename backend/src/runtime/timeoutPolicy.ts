@@ -1,4 +1,4 @@
-import { TurnPhase } from "../game/turn";
+import type { TurnPhase } from "../contract/game";
 
 export function turnDurationMs(phase: TurnPhase): number {
   const seconds =

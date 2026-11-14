@@ -16,20 +16,21 @@ import PausedPracticeDialog from "@/components/game/PausedPracticeDialog";
 import GameActions from "@/components/game/GameActions";
 import { AlertCircle, Crown, History, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
-import { apiGet, apiPost, ApiError } from "@/lib/api";
+import type { Card as PlayingCard, Signal } from "@contract/cards";
+import type { GameState } from "@contract/game";
+import { apiPost, ApiError } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useGameTable } from "@/hooks/useGameTable";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useTurnCountdown } from "@/hooks/useTurnCountdown";
 import { useRoundDeal } from "@/hooks/useRoundDeal";
-import type { PlayerCard, Signal } from "@/game/model";
 import { positionPlayers } from "@/game/presentation";
-import {
-  normalizeRoom,
-  type Room,
-  type RoomResponse,
-} from "@/rooms/model";
+
+const LOAD_ERRORS: Record<number, { message: string; leaveTo: (roomCode: string) => string }> = {
+  404: { message: "La stanza non esiste più", leaveTo: () => "/" },
+  403: { message: "Non sei un giocatore in questa stanza", leaveTo: () => "/" },
+  400: { message: "La partita non è ancora iniziata", leaveTo: (roomCode) => `/room/${roomCode}` },
+};
 
 const GameTable = () => {
   const { gameRoomCode } = useParams();
@@ -41,47 +42,38 @@ const GameTable = () => {
     retry: retryAuth,
   } = useAuth({ redirectOnFail: true });
   const userId = user?.id ?? null;
-  const [room, setRoom] = useState<Room | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const myPlayer =
-    room?.players.find((player) => player.userId === userId) ?? null;
 
   const {
-    currentRound,
-    roundDeal,
-    callerUserId,
-    myCards,
-    currentTurnUserId,
-    playedCards,
-    animatedCard,
+    gameState,
+    error: loadError,
+    notice,
     completedTrick,
     fastCollection,
-    playableCards,
-    lastHand,
-    currentHandNumber,
-    totalPoints,
-    turnTimer,
+    playedCards,
+    animatedCard,
     currentSignal,
-    notice,
-    playerControls = [],
-    isPractice,
-    roundEndData,
-    gameFinishedData,
-    gameStatus,
-    gameStateStatus,
+    currentTurnUserId,
+    turnDeadline,
+    playableCards,
+    roundDeal,
+    applyGameState,
     refetchGameState,
-    setRequestsEnabled,
-    applyLocalBriscola,
-  } = useGameTable(gameRoomCode, userId, room?.players ?? []);
+  } = useGameTable(gameRoomCode, userId);
+  const round = gameState?.round;
+  const result = gameState?.result ?? null;
+  const gameStatus = gameState?.status;
+  const myHand = gameState?.myHand ?? [];
+  const myPlayer =
+    gameState?.players.find((player) => player.userId === userId) ?? null;
   const connectionStatus = useConnectionStatus();
-  const countdown = useTurnCountdown(turnTimer);
+  const countdown = useTurnCountdown(turnDeadline);
   const deal = useRoundDeal(
     roundDeal,
-    !completedTrick && gameStatus === "choosing_briscola" && currentRound?.briscola === null,
+    !completedTrick && gameStatus === "choosing_briscola" && round?.briscola === null,
   );
-  const showRoundSummary = Boolean(roundEndData) && deal.phase === "collecting";
-  const myControl = playerControls.find((player) => player.userId === userId);
-  const myBotControlled = Boolean(myControl?.botModel);
+  const roundSummary = gameState?.roundSummary ?? null;
+  const showRoundSummary = Boolean(roundSummary) && deal.phase === "collecting";
+  const myBotControlled = Boolean(myPlayer?.botModel);
 
   const [lastTrickDialogOpen, setLastTrickDialogOpen] = useState(false);
   const [isReturningHome, setIsReturningHome] = useState(false);
@@ -90,94 +82,34 @@ const GameTable = () => {
   const [confirmPausedAbandon, setConfirmPausedAbandon] = useState(false);
 
   // Leader card waiting for a signal choice
-  const [pendingCard, setPendingCard] = useState<PlayerCard | null>(null);
+  const [pendingCard, setPendingCard] = useState<PlayingCard | null>(null);
   const [isPlayingCard, setIsPlayingCard] = useState(false);
   const signalDialogOpen = pendingCard !== null && !isPlayingCard;
   const [isChoosingTrump, setIsChoosingTrump] = useState(false);
 
   const cleanupRoom = useCallback(async (): Promise<void> => {
-    if (!room || (!room.isPractice && gameFinishedData) || !gameRoomCode) return;
+    if (!gameState || (!gameState.isPractice && gameState.result) || !gameRoomCode) return;
 
     try {
       await apiPost(`/rooms/${gameRoomCode}/leave`, {});
     } catch (error) {
-      if (room.isPractice && error instanceof ApiError && error.status === 404) return;
+      if (gameState.isPractice && error instanceof ApiError && error.status === 404) return;
       throw error;
     }
-  }, [gameRoomCode, room, gameFinishedData]);
+  }, [gameRoomCode, gameState]);
 
   useEffect(() => {
-    if (myControl?.abandonedAt && !gameFinishedData) {
-      setRequestsEnabled(false);
-      navigate("/");
-    }
+    if (isReturningHome || !gameRoomCode || !(loadError instanceof ApiError)) return;
+    const loadErrorAction = LOAD_ERRORS[loadError.status];
+    if (!loadErrorAction) return;
+    toast.error(loadErrorAction.message);
+    navigate(loadErrorAction.leaveTo(gameRoomCode));
+  }, [loadError, isReturningHome, gameRoomCode, navigate]);
+
+  useEffect(() => {
+    if (myPlayer?.abandoned && !result) navigate("/");
     if (myBotControlled) setPendingCard(null);
-  }, [myControl?.abandonedAt, myBotControlled, gameFinishedData, navigate, setRequestsEnabled]);
-
-  // Carica i dati della stanza
-  useEffect(() => {
-    if (!userId || !gameRoomCode) return;
-
-    const fetchRoom = async () => {
-      setIsLoading(true);
-      try {
-        const roomData = await apiGet<RoomResponse>(`/rooms/${gameRoomCode}`);
-
-        // Verifica che la partita sia iniziata
-        if (!roomData.started) {
-          toast.error("La partita non è ancora iniziata");
-          navigate(`/room/${gameRoomCode}`);
-          return;
-        }
-
-        const normalizedRoom = normalizeRoom(roomData);
-        setRoom(normalizedRoom);
-      } catch (error) {
-        if (error instanceof ApiError) {
-          if (error.status === 404) {
-            toast.error("Stanza non trovata");
-          } else if (error.status === 403) {
-            toast.error("Non sei un giocatore in questa stanza");
-          } else {
-            toast.error("Errore nel caricamento della stanza");
-          }
-        } else {
-          console.error("Error fetching room:", error);
-          toast.error("Impossibile caricare i dati della stanza");
-        }
-        navigate("/");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchRoom();
-  }, [userId, gameRoomCode, navigate]);
-
-  // Un giocatore che abbandona sparisce dalla stanza
-  useEffect(() => {
-    return subscribeToRoomEvent("player_left", ({ userId: leftUserId }) => {
-      toast.warning("Un giocatore ha abbandonato la partita");
-      setRoom((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          players: prev.players.filter((p) => p.userId !== leftUserId),
-        };
-      });
-    });
-  }, []);
-
-  useEffect(() => {
-    return subscribeToRoomEvent(
-      "practice_abandoned",
-      ({ roomCode: abandonedRoomCode }) => {
-        if (abandonedRoomCode !== gameRoomCode) return;
-        toast.info("L'allenamento è stato abbandonato");
-        navigate("/");
-      },
-    );
-  }, [gameRoomCode, navigate]);
+  }, [myPlayer?.abandoned, myBotControlled, result, navigate]);
 
   // Il caller vede il dialog briscola (non chiudibile) finché non sceglie.
   const trumpDialogOpen =
@@ -185,11 +117,11 @@ const GameTable = () => {
     !myBotControlled &&
     !completedTrick &&
     deal.phase === "ready" &&
-    myCards.length > 0 &&
-    currentRound?.briscola === null &&
-    callerUserId === userId &&
+    myHand.length > 0 &&
+    round?.briscola === null &&
+    round.callerUserId === userId &&
     !showRoundSummary &&
-    !gameFinishedData;
+    !result;
 
   useEffect(() => {
     if (gameStatus === "paused") setPendingCard(null);
@@ -200,32 +132,25 @@ const GameTable = () => {
     if (pendingCard && (
       currentTurnUserId !== userId ||
       playedCards.length > 0 ||
-      !myCards.some((card) => card.id === pendingCard.id && card.inHand)
+      !gameState?.myHand.some((card) => card.suit === pendingCard.suit && card.value === pendingCard.value)
     )) {
       setPendingCard(null);
     }
-  }, [pendingCard, currentTurnUserId, userId, playedCards.length, myCards]);
+  }, [pendingCard, currentTurnUserId, userId, playedCards.length, gameState?.myHand]);
 
-  const playersWithPositions = positionPlayers(
-    (room?.players ?? []).map((player) => ({
-      ...player,
-      ...playerControls.find((control) => control.userId === player.userId),
-    })),
-    userId,
-  );
+  const playersWithPositions = positionPlayers(gameState?.players ?? [], userId);
 
   const sendPlayCard = async (
-    card: PlayerCard,
+    card: PlayingCard,
     signal?: Signal | null,
   ) => {
     setIsPlayingCard(true);
     try {
-      await apiPost(`/games/play-card`, {
-        roomCode: gameRoomCode,
+      applyGameState(await apiPost<GameState>(`/games/${gameRoomCode}/cards`, {
         suit: card.suit,
         value: card.value,
         signal: signal || null,
-      });
+      }));
     } catch (error) {
       const message =
         error instanceof ApiError ? error.body?.error : undefined;
@@ -238,7 +163,7 @@ const GameTable = () => {
   };
 
   // GameBoard only enables my playable cards on my turn.
-  const handleCardClick = async (card: PlayerCard) => {
+  const handleCardClick = async (card: PlayingCard) => {
     if (isPlayingCard) return;
 
     // If trick leader (no cards on table), show signal dialog
@@ -256,14 +181,10 @@ const GameTable = () => {
   };
 
   const handleTrumpSelect = async (suit: string) => {
-    if (!myPlayer || !room || isChoosingTrump) return;
+    if (!myPlayer || isChoosingTrump) return;
     setIsChoosingTrump(true);
     try {
-      await apiPost(`/games/choose-briscola`, {
-        gameRoomId: room.id,
-        suit,
-      });
-      applyLocalBriscola(suit);
+      applyGameState(await apiPost<GameState>(`/games/${gameRoomCode}/briscola`, { suit }));
       toast.success(`Briscola scelta: ${suit === "denara" ? "denari" : suit}`);
     } catch (error) {
       if (error instanceof ApiError) {
@@ -279,7 +200,6 @@ const GameTable = () => {
 
   const handleReturnHome = async () => {
     setIsReturningHome(true);
-    setRequestsEnabled(false);
     try {
       await cleanupRoom();
       navigate("/");
@@ -287,7 +207,6 @@ const GameTable = () => {
       console.error("Error leaving game:", error);
       toast.error("Impossibile abbandonare la partita. Riprova.");
       setIsReturningHome(false);
-      setRequestsEnabled(true);
     }
   };
 
@@ -316,11 +235,11 @@ const GameTable = () => {
     roomAction("resume-control", setIsResuming, "Impossibile riprendere il controllo. Riprova.", refetchGameState);
 
   const gameActions =
-    !gameFinishedData && gameStatus !== "paused" ? (
+    !result && gameStatus !== "paused" ? (
       <GameActions
         isPausing={isPausing}
         isLeaving={isReturningHome}
-        onPause={isPractice ? () => void handlePause() : undefined}
+        onPause={gameState?.isPractice ? () => void handlePause() : undefined}
         onLeave={() => void handleReturnHome()}
       />
     ) : null;
@@ -329,7 +248,7 @@ const GameTable = () => {
     return <AuthErrorState onRetry={retryAuth} />;
   }
 
-  if (authLoading || isLoading || gameStateStatus === "loading") {
+  if (authLoading || (!gameState && !loadError)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 flex items-center justify-center">
         <Card className="bg-card/80 backdrop-blur-sm p-8">
@@ -342,7 +261,7 @@ const GameTable = () => {
     );
   }
 
-  if (gameStateStatus === "error") {
+  if (!gameState) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 flex items-center justify-center">
         <Card className="bg-card/80 backdrop-blur-sm p-8 text-center">
@@ -364,7 +283,7 @@ const GameTable = () => {
     );
   }
 
-  if (!room || !myPlayer) {
+  if (!myPlayer) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background via-secondary/30 to-accent/20 flex items-center justify-center">
         <Card className="bg-card/80 backdrop-blur-sm p-8">
@@ -374,11 +293,10 @@ const GameTable = () => {
     );
   }
 
-  if (gameFinishedData && !completedTrick) {
+  if (result && !completedTrick) {
     return (
       <GameResult
-        result={gameFinishedData}
-        players={room.players}
+        result={result}
         myTeam={myPlayer.team}
         onHome={handleReturnHome}
         isReturningHome={isReturningHome}
@@ -391,7 +309,7 @@ const GameTable = () => {
       className="arcade-game-page circolo-shell relative overflow-hidden"
       data-testid="game-table-page"
       data-current-turn-userid={currentTurnUserId ?? ""}
-      data-briscola={currentRound?.briscola ?? ""}
+      data-briscola={round?.briscola ?? ""}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(157_42%_25%_/_0.11),transparent_58%)]" />
 
@@ -400,11 +318,11 @@ const GameTable = () => {
 
       <GameScoreHeader
         roomCode={gameRoomCode}
-        briscola={currentRound?.briscola}
-        roundNumber={currentRound?.number}
-        handNumber={currentHandNumber}
+        briscola={round?.briscola}
+        roundNumber={round?.number}
+        handNumber={completedTrick?.trickNumber ?? gameState.trick?.number ?? null}
         playerTeam={myPlayer.team}
-        totalPoints={totalPoints}
+        totalPoints={gameState.score}
       />
 
       <GameBoard
@@ -417,10 +335,10 @@ const GameTable = () => {
         animatedCard={animatedCard}
         completedTrick={completedTrick}
         fastCollection={fastCollection}
-        briscola={currentRound?.briscola}
-        callerUserId={callerUserId}
+        briscola={round?.briscola}
+        callerUserId={round?.callerUserId ?? null}
         currentUserId={userId}
-        hand={completedTrick && completedTrick.roundId !== currentRound?.id ? [] : myCards}
+        hand={completedTrick && completedTrick.roundNumber !== round?.number ? [] : myHand}
         playableCards={myBotControlled || isPlayingCard ? [] : playableCards}
         onCardClick={(card) => void handleCardClick(card)}
         deal={deal}
@@ -438,13 +356,13 @@ const GameTable = () => {
             <History className="h-4 w-4" aria-hidden="true" />
             Ultima presa
           </Button>
-          {myBotControlled && !gameFinishedData && (
+          {myBotControlled && !result && (
             <Button size="sm" disabled={isResuming} onClick={() => void handleResumeControl()}>
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
               Riprendi controllo
             </Button>
           )}
-          {!myBotControlled && currentRound?.briscola === null && callerUserId === userId && (
+          {!myBotControlled && round?.briscola === null && round.callerUserId === userId && (
             <Button
               variant="default"
               size="sm"
@@ -473,7 +391,7 @@ const GameTable = () => {
         disabled={isChoosingTrump}
         open={trumpDialogOpen}
         onSelectSuit={handleTrumpSelect}
-        myCards={myCards}
+        myCards={myHand}
         actions={gameActions}
       />
       <PausedPracticeDialog
@@ -489,17 +407,17 @@ const GameTable = () => {
       <LastTrickDialog
         open={lastTrickDialogOpen}
         onOpenChange={setLastTrickDialogOpen}
-        lastHand={lastHand}
+        lastHand={gameState.lastTrick?.cards ?? []}
         players={playersWithPositions}
         userId={userId}
       />
-      {roundEndData && (
+      {roundSummary && (
         <RoundEndDialog
           open={showRoundSummary}
-          result={roundEndData}
-          totalPoints={totalPoints}
-          myTeam={myPlayer?.team ?? null}
-          callerName={room.players.find((player) => player.userId === callerUserId)?.username ?? "Giocatore"}
+          result={roundSummary}
+          totalPoints={gameState.score}
+          myTeam={myPlayer.team}
+          callerName={gameState.players.find((player) => player.userId === round?.callerUserId)?.username ?? "Giocatore"}
           practiceActions={gameActions}
         />
       )}

@@ -1,13 +1,13 @@
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import type { RoundEndData, TotalPoints } from "@/game/model";
+import type { RoundSummary, Score } from "@contract/game";
 import type { ReactNode } from "react";
 
 interface RoundEndDialogProps {
   open: boolean;
-  result: RoundEndData;
-  totalPoints: TotalPoints;
+  result: RoundSummary;
+  totalPoints: Score;
   myTeam: number | null;
   callerName: string;
   practiceActions?: ReactNode;
@@ -29,10 +29,10 @@ export default function RoundEndDialog({
           {([0, 1] as const).map((team) => (
             <div key={team} className={`rounded-lg border p-4 ${team === result.winnerTeam ? "border-primary" : "border-border"}`}>
               <h3 className="font-bold">Squadra {team + 1}{team === myTeam ? " · La tua" : ""}</h3>
-              <p className="mt-2 text-2xl font-bold">{team === 0 ? result.team0Points : result.team1Points} punti</p>
-              <p className="text-sm text-muted-foreground">{(team === 0 ? result.team0Figures : result.team1Figures) ?? 0} figure</p>
+              <p className="mt-2 text-2xl font-bold">{result.score[`team${team}`].points} punti</p>
+              <p className="text-sm text-muted-foreground">{result.score[`team${team}`].figures} figure</p>
               <p className="mt-3 text-sm">
-                Totale: {team === 0 ? totalPoints.team0Points : totalPoints.team1Points} punti · {team === 0 ? totalPoints.team0Figures : totalPoints.team1Figures} figure
+                Totale: {totalPoints[`team${team}`].points} punti · {totalPoints[`team${team}`].figures} figure
               </p>
             </div>
           ))}

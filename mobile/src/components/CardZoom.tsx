@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Animated, Image, StyleSheet, Text } from 'react-native';
 import { colors } from '@/constants/theme';
 import { cardImage } from '@/lib/cardImages';
-import { cardLabel, type Card } from '@/lib/game';
+import type { Card } from '@contract/cards';
+import { cardLabel } from '@/lib/game';
 
 // Large preview shown while a hand card is long-pressed.
 export default function CardZoom({ card, note, reduced }: { card: Card | null; note?: string; reduced: boolean }) {

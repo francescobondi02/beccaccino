@@ -5,7 +5,9 @@ import { detectCricca } from "../../domain/game/detectCricca";
 import { getRng } from "../../utils/random";
 import { withRoomLock } from "../../utils/roomLock";
 import { logger } from "../../logger";
-import { publishEvents } from "../../runtime/eventPublisher";
+import { publishRoomChanged } from "../../runtime/eventPublisher";
+import { markGameChanged, sendGameState } from "../../services/gameState";
+import type { ActionSource } from "../../contract/game";
 import {
   clearRuntimeRoom,
   startRuntimeTurn,
@@ -26,7 +28,7 @@ import {
   TurnIdentity,
 } from "../turn";
 import { readCallerPlayerId } from "../snapshots/turnState";
-import { roundDealPresentation } from "../../gameConfig";
+import { roundDealRemainingMs } from "../../gameConfig";
 import { BotTier } from "../../services/botUsers";
 import { restoreBotSeats } from "../../runtime/botRegistry";
 
@@ -53,6 +55,16 @@ export function assertPlayerControl(
   } else if (player.botModel !== null || player.abandonedAt) {
     throw new GameError("Un bot sta giocando al tuo posto. Riprendi prima il controllo.", 409);
   }
+}
+
+// expectedBotModel: undefined for the seat owner, null for a timeout, else the bot tier.
+export function actionSource(
+  expectedBotModel: string | null | undefined,
+  chosenByServer: boolean,
+): ActionSource {
+  if (expectedBotModel === undefined) return "human";
+  if (expectedBotModel === null) return "timeout";
+  return chosenByServer ? "bot_fallback" : "bot";
 }
 
 export async function claimPracticeTransition(
@@ -257,6 +269,7 @@ export async function startFirstRound(
         }
 
         const roundSetup = await setupRound(gameRoomId, 1, tx);
+        await markGameChanged(tx, gameRoomId);
         const room = await tx.gameRoom.findUniqueOrThrow({
           where: { id: gameRoomId },
           select: { pauseEpoch: true },
@@ -288,80 +301,55 @@ export async function startFirstRound(
         handId: null,
         playedCardCount: 0,
       },
-      roundDealPresentation({
+      roundDealRemainingMs({
         number: roundSetup.roundNumber,
         createdAt: roundSetup.createdAt,
-      }).remainingMs,
+      }),
     );
-    publishEvents([
-      { target: roomCode, event: "game_started", payload: {} },
-      { target: "lobby", event: "room_deleted", payload: { roomCode } },
-    ]);
+    await sendGameState(roomCode, { kind: "game_started" });
+    publishRoomChanged(roomCode);
   } catch (error) {
     clearRuntimeRoom(roomCode);
     throw error;
   }
 }
 
-/**
- * Set briscola for the current round and create the first hand.
- * Extracted as a service so it can be called from both the REST controller and auto-play.
- *
- * Wraps the implementation in a per-room mutex so two simultaneous calls
- * (e.g. caller hitting the button + auto-play timer firing in the same tick)
- * cannot both pass the "briscola === null" check.
- */
 export async function setBriscola(args: {
-  gameRoomId: number;
-  playerId: number;
+  roomCode: string;
+  userId: number;
   suit: Suit;
-  /** Set by the timer: the server picked this suit, the caller did not. */
+  /** Set by the timer or bot fallback: the server picked this suit. */
   autoChosen?: boolean;
   /** Bot moves must belong to the same pause/resume generation they started in. */
   expectedPauseEpoch?: number;
   expectedTurn?: TurnIdentity;
   expectedBotModel?: string | null;
 }) {
-  // We need the roomCode to key the lock. Look it up once; the inner function
-  // will re-fetch the full room with players for correctness.
-  const room = await prisma.gameRoom.findUnique({
-    where: { id: args.gameRoomId },
-    select: { code: true },
-  });
-  if (!room) throw new GameError("Game room not found", 404);
-  return withRoomLock(room.code, () => setBriscolaUnlocked(args));
+  return withRoomLock(args.roomCode, () => setBriscolaUnlocked(args));
 }
 
 async function setBriscolaUnlocked({
-  gameRoomId,
-  playerId,
+  roomCode,
+  userId,
   suit,
   autoChosen = false,
   expectedPauseEpoch,
   expectedTurn,
   expectedBotModel,
-}: {
-  gameRoomId: number;
-  playerId: number;
-  suit: Suit;
-  autoChosen?: boolean;
-  expectedPauseEpoch?: number;
-  expectedTurn?: TurnIdentity;
-  expectedBotModel?: string | null;
-}) {
+}: Parameters<typeof setBriscola>[0]) {
   const gameRoom = await prisma.gameRoom.findUnique({
-    where: { id: gameRoomId },
+    where: { code: roomCode },
     include: { players: true },
   });
   if (!gameRoom) throw new GameError("Game room not found", 404);
 
-  const player = gameRoom.players.find((p) => p.id === playerId);
+  const player = gameRoom.players.find((p) => p.userId === userId);
   if (!player) throw new GameError("Player not in this game room", 403);
   assertPlayerControl(player, expectedBotModel);
   if (gameRoom.pausedAt) throw new PracticeTurnCancelledError();
 
   const currentRound = await prisma.round.findFirst({
-    where: { gameRoomId },
+    where: { gameRoomId: gameRoom.id },
     orderBy: { number: "desc" },
   });
   if (!currentRound) throw new Error("No active round found");
@@ -378,23 +366,21 @@ async function setBriscolaUnlocked({
     throw new RuntimeTurnCancelledError();
   }
 
-  // Verify it's the correct player's turn to choose
   const callerPlayerId = await readCallerPlayerId(
     currentRound,
     gameRoom.players,
   );
-
-  if (playerId !== callerPlayerId) {
+  if (player.id !== callerPlayerId) {
     throw new GameError("It's not your turn to choose briscola", 403);
   }
 
   // Check for Cricca: caller has Tre + Due + Asso of the chosen briscola suit
   const callerCards = await prisma.playerCard.findMany({
-    where: { playerId, roundId: currentRound.id },
+    where: { playerId: player.id, roundId: currentRound.id },
   });
   const hasCricca = detectCricca(callerCards, suit);
 
-  const { updatedRound, firstHand } = await prisma.$transaction(async (tx) => {
+  const firstHand = await prisma.$transaction(async (tx) => {
     await claimPracticeTransition(tx, gameRoom, expectedPauseEpoch);
     if (player.botModel === null) {
       await tx.player.update({
@@ -409,46 +395,30 @@ async function setBriscolaUnlocked({
     if (claim.count !== 1) {
       throw new GameError("Briscola already set for this round", 409);
     }
-    const firstHand = await tx.hand.create({
+    await markGameChanged(tx, gameRoom.id);
+    return tx.hand.create({
       data: {
         roundId: currentRound.id,
         number: 1,
-        starterId: playerId,
+        starterId: player.id,
       },
     });
-    const updatedRound = await tx.round.findUniqueOrThrow({
-      where: { id: currentRound.id },
-    });
-    return { updatedRound, firstHand };
   });
 
   logger.info(
     {
-      roomCode: gameRoom.code,
-      gameRoomId,
+      roomCode,
       roundNumber: currentRound.number,
-      callerPlayerId: playerId,
+      callerPlayerId: player.id,
       briscola: suit,
       cricca: hasCricca,
     },
     "briscola_set",
   );
 
-  publishEvents([
-    {
-      target: gameRoom.code,
-      event: "briscola_chosen",
-      payload: {
-        briscola: suit,
-        roundNumber: currentRound.number,
-        starterId: playerId,
-        cricca: hasCricca,
-      },
-    },
-  ]);
   startRuntimeTurn(
-    gameRoom.code,
-    player.userId,
+    roomCode,
+    userId,
     "play_card",
     gameRoom.pauseEpoch,
     {
@@ -457,9 +427,11 @@ async function setBriscolaUnlocked({
       playedCardCount: 0,
     },
   );
-  return {
-    round: updatedRound,
-    hand: firstHand,
-    roomCode: gameRoom.code,
-  };
+  return sendGameState(roomCode, {
+    kind: "briscola_chosen",
+    userId,
+    suit,
+    source: actionSource(expectedBotModel, autoChosen),
+    takeover: false,
+  });
 }

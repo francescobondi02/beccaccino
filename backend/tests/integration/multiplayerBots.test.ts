@@ -42,7 +42,7 @@ async function createLobby(teams: (number | null)[], tier: string | null = "fort
     const user = users[index];
     if (index > 0) {
       const joined = await apiAs(user.id, user.username)
-        .post("/api/rooms/join").send({ roomCode: code });
+        .post(`/api/rooms/${code}/join`);
       expect(joined.statusCode).toBe(200);
     }
     if (teams[index] !== null) {
@@ -105,7 +105,7 @@ describe("Multiplayer bot filling", () => {
     const { users, code } = await createLobby([0]);
     const friend = await prisma.user.create({ data: { username: "friend" } });
     const joined = await apiAs(friend.id, friend.username)
-      .post("/api/rooms/join").send({ roomCode: code });
+      .post(`/api/rooms/${code}/join`);
     expect(joined.statusCode).toBe(200);
     expect(joined.body.players).toHaveLength(2);
     await apiAs(users[0].id, users[0].username)
@@ -129,13 +129,11 @@ describe("Multiplayer bot filling", () => {
     const retry = await client.post(`/api/rooms/${code}/bots`).send({ tier: "forte" });
     expect(retry.body.players.find((player: { userId: number }) => player.userId === users[0].id).isReady).toBe(true);
 
-    const publish = jest.spyOn(eventPublisher, "publishEvent");
+    const publish = jest.spyOn(eventPublisher, "publishRoomChanged");
     const changed = await client.post(`/api/rooms/${code}/bots`).send({ tier: "medio" });
     expect(changed.statusCode).toBe(200);
     expect(changed.body.players.every((player: { isReady: boolean }) => !player.isReady)).toBe(true);
-    expect(publish).toHaveBeenCalledWith(code, "room_settings_changed", {
-      room: expect.objectContaining({ botTier: "medio", players: changed.body.players }),
-    });
+    expect(publish).toHaveBeenCalledWith(code, { lobby: false });
     expect((await client.get(`/api/rooms/${code}`)).body.botTier).toBe("medio");
     const disabled = await client.post(`/api/rooms/${code}/bots`).send({ tier: null });
     expect(disabled.statusCode).toBe(200);
@@ -191,7 +189,7 @@ describe("Multiplayer bot filling", () => {
     const friend = await prisma.user.create({ data: { username: "racing-friend" } });
     const [ready, joined] = await Promise.all([
       apiAs(users[0].id, users[0].username).post(`/api/rooms/${code}/ready`).send({ isReady: true }),
-      apiAs(friend.id, friend.username).post("/api/rooms/join").send({ roomCode: code }),
+      apiAs(friend.id, friend.username).post(`/api/rooms/${code}/join`),
     ]);
     expect(ready.statusCode).toBe(200);
     const room = await loadRoom(code);
@@ -202,6 +200,7 @@ describe("Multiplayer bot filling", () => {
 
   it("restores bot runtime after restart and executes a mixed-room bot move", async () => {
     const { users, code } = await createLobby([0]);
+    const publish = jest.spyOn(eventPublisher, "publishEvent");
     await apiAs(users[0].id, users[0].username)
       .post(`/api/rooms/${code}/ready`).send({ isReady: true });
     const room = await loadRoom(code);
@@ -222,6 +221,10 @@ describe("Multiplayer bot filling", () => {
     });
     expect(stub.requests).toHaveLength(1);
     expect((await loadRoom(code)).rounds[0].briscola).toBe("coppe");
+    const targets = publish.mock.calls
+      .filter(([, event]) => event === "game_state")
+      .map(([target]) => target);
+    expect(targets).toEqual([`user:${users[0].id}`, `user:${users[0].id}`]);
   });
 
   it("counts finished mixed games in human statistics and rankings, but never ranks bot accounts", async () => {

@@ -68,18 +68,20 @@ export async function clearSession(): Promise<void> {
   }
 }
 
-export async function signIn(
+async function startSession(
+  path: string, statusMessages: Record<number, string>,
   backendUrl: string | undefined, username: string, password: string, signal: AbortSignal,
 ): Promise<SessionUser> {
   const origin = backendOrigin(backendUrl).origin;
   let body: unknown;
   try {
-    body = await request(origin, '/api/users/native/login', signal, {
+    body = await request(origin, path, signal, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ username: username.trim(), password }),
     });
   } catch (error) {
-    if (error instanceof SessionHttpError && error.status === 401) throw new Error('Nome utente o password non corretti.');
+    const message = error instanceof SessionHttpError ? statusMessages[error.status] : undefined;
+    if (message) throw new Error(message);
     throw error;
   }
   if (!isRecord(body) || !validToken(body.token)) {
@@ -96,6 +98,15 @@ export async function signIn(
   }
   return user;
 }
+
+export const signIn = startSession.bind(null, '/api/users/native/login', {
+  401: 'Nome utente o password non corretti.',
+});
+
+export const register = startSession.bind(null, '/api/users/native/register', {
+  400: 'Il nome utente deve avere da 3 a 20 caratteri e la password almeno 6.',
+  409: 'Questo nome utente è già in uso. Scegline un altro.',
+});
 
 export async function readSessionCredentials(backendUrl: string | undefined): Promise<{ origin: string; token: string } | null> {
   const origin = backendOrigin(backendUrl).origin;

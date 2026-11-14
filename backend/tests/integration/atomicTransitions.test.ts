@@ -77,7 +77,7 @@ async function nextMove(roomCode: string) {
   const nextSeat = (starter.seat! + hand.cards.length) % 4;
   const player = room.players.find((candidate) => candidate.seat === nextSeat)!;
   const playable = await apiAs(player.userId, player.user.username).get(
-    `/api/games/playable-cards/${roomCode}`,
+    `/api/games/${roomCode}/state`,
   );
 
   expect(playable.statusCode).toBe(200);
@@ -87,7 +87,6 @@ async function nextMove(roomCode: string) {
     hand,
     player,
     payload: {
-      roomCode,
       suit: playable.body.playableCards[0].suit,
       value: playable.body.playableCards[0].value,
     },
@@ -97,7 +96,7 @@ async function nextMove(roomCode: string) {
 async function playNext(roomCode: string) {
   const move = await nextMove(roomCode);
   const response = await apiAs(move.player.userId, move.player.user.username)
-    .post("/api/games/play-card")
+    .post(`/api/games/${roomCode}/cards`)
     .send(move.payload);
   expect(response.statusCode).toBe(200);
   return move;
@@ -133,8 +132,8 @@ describe("Atomic game transitions", () => {
     events.length = 0;
 
     const failed = await apiAs(caller.userId, caller.user.username)
-      .post("/api/games/choose-briscola")
-      .send({ gameRoomId: room.id, suit: "coppe" });
+      .post(`/api/games/${roomCode}/briscola`)
+      .send({ suit: "coppe" });
 
     expect(failed.statusCode).toBe(500);
     expect(
@@ -146,8 +145,8 @@ describe("Atomic game transitions", () => {
 
     await prisma.hand.delete({ where: { id: sentinel.id } });
     const retry = await apiAs(caller.userId, caller.user.username)
-      .post("/api/games/choose-briscola")
-      .send({ gameRoomId: room.id, suit: "coppe" });
+      .post(`/api/games/${roomCode}/briscola`)
+      .send({ suit: "coppe" });
 
     expect(retry.statusCode).toBe(200);
     expect(await prisma.hand.count({ where: { roundId: round.id } })).toBe(1);
@@ -183,7 +182,7 @@ describe("Atomic game transitions", () => {
     events.length = 0;
 
     const failed = await apiAs(move.player.userId, move.player.user.username)
-      .post("/api/games/play-card")
+      .post(`/api/games/${roomCode}/cards`)
       .send(move.payload);
 
     expect(failed.statusCode).toBe(500);
@@ -212,7 +211,7 @@ describe("Atomic game transitions", () => {
     await prisma.$executeRawUnsafe("DROP FUNCTION atomic_fail_hand_insert()");
 
     const retry = await apiAs(move.player.userId, move.player.user.username)
-      .post("/api/games/play-card")
+      .post(`/api/games/${roomCode}/cards`)
       .send(move.payload);
 
     expect(retry.statusCode).toBe(200);
@@ -236,7 +235,7 @@ describe("Atomic game transitions", () => {
     events.length = 0;
 
     const failed = await apiAs(move.player.userId, move.player.user.username)
-      .post("/api/games/play-card")
+      .post(`/api/games/${roomCode}/cards`)
       .send(move.payload);
 
     expect(failed.statusCode).toBe(500);
@@ -266,7 +265,7 @@ describe("Atomic game transitions", () => {
       'ALTER TABLE "GameRoom" DROP CONSTRAINT atomic_reject_finished',
     );
     const retry = await apiAs(move.player.userId, move.player.user.username)
-      .post("/api/games/play-card")
+      .post(`/api/games/${roomCode}/cards`)
       .send(move.payload);
 
     expect(retry.statusCode).toBe(200);
@@ -293,7 +292,7 @@ describe("Atomic game transitions", () => {
     let failed;
     try {
       failed = await apiAs(move.player.userId, move.player.user.username)
-        .post("/api/games/play-card")
+        .post(`/api/games/${roomCode}/cards`)
         .send(move.payload);
     } finally {
       restoreRng();
@@ -315,7 +314,7 @@ describe("Atomic game transitions", () => {
     expectTimerUnchanged(roomCode, timerBefore);
 
     const retry = await apiAs(move.player.userId, move.player.user.username)
-      .post("/api/games/play-card")
+      .post(`/api/games/${roomCode}/cards`)
       .send(move.payload);
 
     expect(retry.statusCode).toBe(200);

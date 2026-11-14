@@ -85,6 +85,7 @@ export function createServer(options: CreateServerOptions = {}): CreatedServer {
       },
       "socket_connected",
     );
+    socket.join(`user:${socket.data.user.userId}`);
     registerRoomSocket(socket, io);
   });
 

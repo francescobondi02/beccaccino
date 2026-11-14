@@ -10,6 +10,7 @@ import { apiAs } from "../helpers/serverHarness";
 import * as events from "../../src/runtime/eventPublisher";
 import * as score from "../../src/domain/game/gameScore";
 import { getSocketInstance, setSocketInstance } from "../../src/socketInstance";
+import { getTurnTimerState } from "../../src/runtime/turnTimer";
 
 beforeEach(async () => {
   await clearDatabase();
@@ -17,12 +18,14 @@ beforeEach(async () => {
 afterEach(() => jest.restoreAllMocks());
 
 describe("Game flow", () => {
-  it("publishes each move before the next turn timer", async () => {
+  it("pushes one full state per player for each move", async () => {
     const { roomCode, round, cards } = await setupGame();
     const originalIo = getSocketInstance();
-    const emitted: string[] = [];
+    const emitted: { target: string; event: string; state: any }[] = [];
     setSocketInstance({
-      to: () => ({ emit: (event: string) => emitted.push(event) }),
+      to: (target: string) => ({
+        emit: (event: string, state: any) => emitted.push({ target, event, state }),
+      }),
     } as any);
     try {
       await chooseBriscola(roomCode, round, cards);
@@ -30,40 +33,94 @@ describe("Game flow", () => {
     } finally {
       setSocketInstance(originalIo);
     }
-    expect(emitted).toEqual([
-      "briscola_chosen",
-      "turn_timer_started",
-      ...Array(4).fill(["card_played", "turn_timer_started"]).flat(),
-    ]);
+    const players = await prisma.player.findMany({
+      where: { gameRoom: { code: roomCode } }, include: { user: true },
+    });
+    const userTargets = players.map((player) => `user:${player.userId}`).sort();
+    expect(emitted.every(({ event }) => event === "game_state")).toBe(true);
+    expect(emitted).toHaveLength(5 * 4);
+    const versions: number[] = [];
+    for (let move = 0; move < 5; move++) {
+      const batch = emitted.slice(move * 4, move * 4 + 4);
+      expect(batch.map(({ target }) => target).sort()).toEqual(userTargets);
+      expect(new Set(batch.map(({ state }) => state.version)).size).toBe(1);
+      versions.push(batch[0].state.version);
+      expect(batch[0].state.lastAction.kind).toBe(move === 0 ? "briscola_chosen" : "card_played");
+      expect(batch[0].state.lastAction.source).toBe("human");
+      for (const { target, state } of batch) {
+        const player = players.find((candidate) => `user:${candidate.userId}` === target)!;
+        const dealt = cards
+          .filter((card) => card.playerId === player.id)
+          .map((card) => `${card.suit}-${card.value}`);
+        expect(state.myHand.length).toBeGreaterThan(8);
+        expect(dealt).toEqual(expect.arrayContaining(
+          state.myHand.map((card: any) => `${card.suit}-${card.value}`),
+        ));
+      }
+    }
+    expect(versions).toEqual(versions.map((_, index) => versions[0] + index));
+    const caller = players.find((player) => `user:${player.userId}` === emitted[0].target)!;
+    const reconnect = await apiAs(caller.userId, caller.user.username).get(`/api/games/${roomCode}/state`);
+    expect(reconnect.body.version).toBe(versions[4]);
+    expect(reconnect.body.lastAction).toBeNull();
+  });
+
+  it("returns the pushed state to the caller of a move", async () => {
+    const { roomCode, round, cards } = await setupGame();
+    await chooseBriscola(roomCode, round, cards);
+    const sent = jest.spyOn(events, "publishEvent");
+    const turnUserId = getTurnTimerState(roomCode)!.turnUserId;
+    const player = await prisma.player.findFirstOrThrow({
+      where: { userId: turnUserId, gameRoom: { code: roomCode } }, include: { user: true },
+    });
+    const before = await apiAs(player.userId, player.user.username).get(`/api/games/${roomCode}/state`);
+    const card = before.body.playableCards[0];
+    const played = await apiAs(player.userId, player.user.username)
+      .post(`/api/games/${roomCode}/cards`).send({ suit: card.suit, value: card.value });
+    expect(played.statusCode).toBe(200);
+    expect(played.body.version).toBe(before.body.version + 1);
+    const pushed = sent.mock.calls.find(([target]) => target === `user:${player.userId}`);
+    expect(played.body).toEqual(pushed![2]);
+  });
+
+  it("returns the pushed state to the caller of briscola", async () => {
+    const { roomCode } = await setupGame();
+    const sent = jest.spyOn(events, "publishEvent");
+    const caller = await prisma.player.findFirstOrThrow({
+      where: { userId: getTurnTimerState(roomCode)!.turnUserId, gameRoom: { code: roomCode } },
+      include: { user: true },
+    });
+    const chosen = await apiAs(caller.userId, caller.user.username)
+      .post(`/api/games/${roomCode}/briscola`).send({ suit: "coppe" });
+    expect(chosen.statusCode).toBe(200);
+    const pushed = sent.mock.calls.find(([target]) => target === `user:${caller.userId}`);
+    expect(chosen.body).toEqual(pushed![2]);
   });
 
   it("sets up a game, chooses briscola, and plays a full round", async () => {
-    const published = jest.spyOn(events, "publishEvents");
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);
     await oneRound(roomCode, round);
-    const finished = published.mock.calls.flatMap(([batch]) => batch)
-      .find((event) => event.event === "game_finished");
-    expect(finished).toBeDefined();
     const player = await prisma.player.findFirstOrThrow({
       where: { gameRoom: { code: roomCode } },
       include: { user: true },
     });
     const state = await apiAs(player.userId, player.user.username).get(`/api/games/${roomCode}/state`);
     expect(state.statusCode).toBe(200);
-    expect(state.body.finishedGame).toEqual(finished!.payload);
-    expect(state.body.finishedGame.statistics.players).toHaveLength(4);
-    expect(state.body.finishedGame.statistics.players.reduce(
+    expect(state.body.status).toBe("finished");
+    expect(state.body.turn).toBeNull();
+    expect(state.body.result.statistics.players).toHaveLength(4);
+    expect(state.body.result.statistics.players.reduce(
       (total: number, player: { tricksWon: number }) => total + player.tricksWon, 0,
     )).toBe(10);
     const lastHand = await prisma.hand.findFirstOrThrow({
       where: { roundId: round.id }, orderBy: { number: "desc" },
     });
     const winner = await prisma.player.findUniqueOrThrow({ where: { id: lastHand.winnerId! } });
-    expect(state.body.lastCompletedTrick).toMatchObject({
-      roundId: round.id, handNumber: 10, winnerUserId: winner.userId,
+    expect(state.body.lastTrick).toMatchObject({
+      roundNumber: 1, trickNumber: 10, winnerUserId: winner.userId,
     });
-    expect(state.body.lastCompletedTrick.cards).toHaveLength(4);
+    expect(state.body.lastTrick.cards).toHaveLength(4);
   });
 
   it("recovers the round summary only during the four-second presentation window", async () => {
@@ -79,11 +136,13 @@ describe("Game flow", () => {
     const summary = await apiAs(player.userId, player.user.username).get(path);
     expect(summary.statusCode).toBe(200);
     expect(summary.body.roundSummary).toMatchObject({ roundNumber: 1, winnerTeam: expect.any(Number) });
-    expect(summary.body.round.deal.remainingMs).toBeGreaterThan(4000);
-    expect(summary.body.round.deal.remainingMs).toBeLessThanOrEqual(8000);
-    expect(summary.body.lastHandCards).toEqual([]);
-    expect(summary.body.lastCompletedTrick).toMatchObject({ roundId: round.id, handNumber: 10 });
-    expect(summary.body.lastCompletedTrick.cards).toHaveLength(4);
+    const summaryEndsAt = Date.parse(summary.body.roundSummary.visibleUntil);
+    expect(summaryEndsAt - Date.parse(summary.body.serverTime)).toBeGreaterThan(0);
+    expect(summaryEndsAt - Date.parse(summary.body.serverTime)).toBeLessThanOrEqual(4000);
+    expect(Date.parse(summary.body.round.deal.reviewEndsAt) - summaryEndsAt).toBe(4000);
+    expect(summary.body.trick).toBeNull();
+    expect(summary.body.lastTrick).toMatchObject({ roundNumber: 1, trickNumber: 10 });
+    expect(summary.body.lastTrick.cards).toHaveLength(4);
     const nextRound = await prisma.round.findFirstOrThrow({
       where: { gameRoomId: round.gameRoomId, number: 2 },
     });
@@ -93,8 +152,7 @@ describe("Game flow", () => {
     });
     const dealing = await apiAs(player.userId, player.user.username).get(path);
     expect(dealing.body.roundSummary).toBeNull();
-    expect(dealing.body.round.deal.remainingMs).toBeLessThan(4000);
-    expect(dealing.body.round.deal.remainingMs).toBeGreaterThan(0);
+    expect(Date.parse(dealing.body.round.deal.reviewEndsAt)).toBeGreaterThan(Date.parse(dealing.body.serverTime));
   });
 
   it("refreshes room activity after briscola selection and card play", async () => {

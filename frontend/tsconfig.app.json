@@ -23,7 +23,8 @@
     "noFallthroughCasesInSwitch": false,
 
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@contract/*": ["../backend/src/contract/*"]
     }
   },
   "include": ["src"]

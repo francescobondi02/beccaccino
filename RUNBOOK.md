@@ -56,7 +56,7 @@ If a Sentry event is missing `user`, the user wasn't logged in or the page hadn'
 
 1. Get the room code from the user.
 2. Render logs → search `"roomCode":"<CODE>"` for the last hour.
-3. Look for the last `card_played` event and the next expected turn (`turn_timer_started`).
+3. Look for the last `card_played` log line and the next expected turn.
 4. If the timer fired but `auto_play_failed` shows, that's a benign race (player clicked at the same time as the timeout). If neither fires, the server may have restarted — check `server_started` near that timestamp. The next state fetch will lazily restart the timer (`turn_timer_recovered_after_restart`).
 
 ### "I can't log in"

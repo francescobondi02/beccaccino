@@ -35,7 +35,7 @@ const GameRoom = () => {
       if (handleActiveRoomConflict(error, navigate)) return;
       if (error instanceof ApiError) {
         if (error.status === 404) {
-          toast.error("Stanza non trovata");
+          toast.error("La stanza non esiste più");
         } else if (error.status === 403) {
           toast.error("Non sei un giocatore in questa stanza");
         } else {
@@ -66,11 +66,9 @@ const GameRoom = () => {
   const {
     room,
     isLoading,
-    gameStarted,
     connectionStatus,
     leaveWaitingRoom,
-    setPlayerReady,
-    setPlayerTeam,
+    refreshRoom,
     configureBots,
   } = useWaitingRoom({
     roomCode,
@@ -83,11 +81,11 @@ const GameRoom = () => {
   const playerSlots = waitingRoomSlots(room, userId);
 
   useEffect(() => {
-    if ((!gameStarted && !room?.started) || !roomCode) return;
+    if (!room?.started || !roomCode) return;
 
     toast.success("La partita sta per iniziare! Ti portiamo al tavolo.");
     navigate(`/game/${roomCode}`);
-  }, [gameStarted, room?.started, navigate, roomCode]);
+  }, [room?.started, navigate, roomCode]);
 
   const handleReady = async () => {
     if (!myPlayer || !userId || isUpdating) return;
@@ -99,7 +97,7 @@ const GameRoom = () => {
         `/rooms/${roomCode}/ready`,
         { isReady },
       );
-      setPlayerReady(userId, isReady);
+      void refreshRoom();
       toast.success(isReady ? "Sei pronto!" : "Non più pronto");
 
       if (data.allReady && (room?.players.length === 4 || room?.botTier)) {
@@ -158,7 +156,7 @@ const GameRoom = () => {
 
     try {
       await apiPost(`/rooms/${roomCode}/choose-team`, { team });
-      setPlayerTeam(userId, team);
+      void refreshRoom();
       toast.success(`Sei nella squadra ${team + 1}!`);
     } catch (error) {
       console.error("Error choosing team:", error);

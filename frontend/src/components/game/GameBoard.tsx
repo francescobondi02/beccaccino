@@ -3,14 +3,10 @@ import PlayerSeat from "@/components/PlayerSeat";
 import PlayingCard from "@/components/PlayingCard";
 import TableCenter from "@/components/TableCenter";
 import SignalCallout from "./SignalCallout";
-import type {
-  CompletedTrick,
-  PlayedCardData,
-  PlayerCard,
-  Signal,
-  RoundDealView,
-} from "@/game/model";
-import type { PositionedPlayer } from "@/game/presentation";
+import type { Card, Signal } from "@contract/cards";
+import type { PlayedCard } from "@contract/game";
+import type { RoundDealView } from "@/game/model";
+import { cardKey, type PositionedPlayer } from "@/game/presentation";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 interface GameBoardProps {
@@ -18,16 +14,16 @@ interface GameBoardProps {
   currentTurnUserId: number | null;
   currentSignal: { userId: number; signal: Signal; cardKey?: string } | null;
   countdown: number | null;
-  playedCards: PlayedCardData[];
+  playedCards: PlayedCard[];
   briscola: string | null | undefined;
   callerUserId: number | null;
   currentUserId: number | null;
-  hand: PlayerCard[];
-  playableCards: PlayerCard[];
-  onCardClick: (card: PlayerCard) => void;
+  hand: Card[];
+  playableCards: Card[];
+  onCardClick: (card: Card) => void;
   deal?: RoundDealView;
-  animatedCard?: PlayedCardData | null;
-  completedTrick?: CompletedTrick;
+  animatedCard?: PlayedCard | null;
+  completedTrick?: { winnerUserId: number; cards: PlayedCard[] } | null;
   fastCollection?: boolean;
   notice?: string | null;
   children?: ReactNode;
@@ -95,8 +91,7 @@ export default function GameBoard({
     const slot = board.current?.querySelector<HTMLElement>(`[data-card-user-id="${animatedCard.userId}"]`);
     const element = slot?.firstElementChild;
     const seat = board.current?.querySelector(`[data-player-user-id="${animatedCard.userId}"]`);
-    const key = `${animatedCard.suit}-${animatedCard.value}`;
-    const origin = cardOrigin.current?.key === key && animatedCard.userId === currentUserId
+    const origin = cardOrigin.current?.key === cardKey(animatedCard) && animatedCard.userId === currentUserId
       ? cardOrigin.current.rect : seat?.getBoundingClientRect();
     cardOrigin.current = null;
     if (!slot || !element?.animate || !origin) return;
@@ -110,10 +105,6 @@ export default function GameBoard({
 
   useLayoutEffect(() => {
     if (!completedTrick || reducedMotion) return;
-    if (completedTrick.winnerUserId === null) {
-      console.warn("Skipping trick collection: missing trump or incomplete trick");
-      return;
-    }
     const seat = board.current?.querySelector(`[data-player-user-id="${completedTrick.winnerUserId}"]`);
     if (!seat) return;
     const destination = seat.getBoundingClientRect();
@@ -151,7 +142,7 @@ export default function GameBoard({
   const presentingHand = deal && deal.phase !== "ready";
   const usernameOf = (userId: number | null | undefined) =>
     players.find((player) => player.userId === userId)?.username ?? "Giocatore";
-  const statusText = completedTrick?.winnerUserId != null
+  const statusText = completedTrick
     ? `Presa a ${usernameOf(completedTrick.winnerUserId)}`
     : deal?.phase === "collecting"
       ? "Raccolta delle carte..."
@@ -184,22 +175,20 @@ export default function GameBoard({
     ) : null;
   };
 
-  const handCards = hand
-    .filter((card) => card.inHand)
-    .map((card, index) => {
+  const handCards = hand.map((card, index) => {
       const isPlayable = playableCards.some(
         (playable) => playable.suit === card.suit && playable.value === card.value,
       );
       const isCurrentTurn = currentTurnUserId === currentUserId;
       return (
         <PlayingCard
-          key={card.id}
+          key={cardKey(card)}
           suit={card.suit}
           value={card.value}
           onClick={() => {
-            const element = board.current?.querySelector(`[data-testid="hand-card-${card.suit}-${card.value}"]`);
+            const element = board.current?.querySelector(`[data-testid="hand-card-${cardKey(card)}"]`);
             if (element) cardOrigin.current = {
-              key: `${card.suit}-${card.value}`,
+              key: cardKey(card),
               rect: element.getBoundingClientRect(),
             };
             onCardClick(card);
@@ -214,7 +203,7 @@ export default function GameBoard({
           }`}
           clickable={isCurrentTurn && isPlayable}
           disabled={!isCurrentTurn || !isPlayable}
-          data-testid={`hand-card-${card.suit}-${card.value}`}
+          data-testid={`hand-card-${cardKey(card)}`}
         />
       );
     });
@@ -308,7 +297,7 @@ export default function GameBoard({
             </div>
           </TableCenter>
           {deal?.phase === "dealing" && (
-            <CardDeal key={hand[0]?.roundId} deal={deal} />
+            <CardDeal key={deal.startedAt} deal={deal} />
           )}
         </div>
       </div>
@@ -318,7 +307,7 @@ export default function GameBoard({
           className="flex max-w-5xl flex-wrap justify-center gap-2"
           data-testid="player-hand"
         >
-          {hand.every((card) => !card.inHand) && (
+          {hand.length === 0 && (
             <div
               aria-hidden="true"
               className="h-28 w-20 xl:h-[7.75rem] xl:w-[5.5rem]"

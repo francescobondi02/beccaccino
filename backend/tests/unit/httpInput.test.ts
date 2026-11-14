@@ -1,8 +1,8 @@
 import { ClientError } from "../../src/http/errors";
 import {
-  parseJoinRoom,
   parsePracticeTier,
   parseReady,
+  parseRoomCode,
   parseTeam,
 } from "../../src/http/input/rooms";
 import {
@@ -27,7 +27,7 @@ describe("HTTP input parsers", () => {
     [() => parseRegistrationInput({ username: "valid", password: "123" })],
     [() => parseLoginInput({ username: "valid" })],
     [() => parseUsernameUpdate({ username: 42 })],
-    [() => parseJoinRoom({ roomCode: "" })],
+    [() => parseRoomCode("")],
     [() => parsePracticeTier({ tier: "impossible" })],
     [() => parseReady({ isReady: "yes" })],
     [() => parseTeam({ team: 2 })],
@@ -48,7 +48,7 @@ describe("HTTP input parsers", () => {
       email: "f@example.com",
     });
     expect(parsePracticeTier({ tier: "esperto" })).toBe("esperto");
-    expect(parseJoinRoom({ roomCode: "ABC123" })).toBe("ABC123");
+    expect(parseRoomCode("ABC123")).toBe("ABC123");
     expect(parseReady({ isReady: false })).toBe(false);
     expect(parseTeam({ team: 1 })).toBe(1);
   });

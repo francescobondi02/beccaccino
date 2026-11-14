@@ -3,11 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, X, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getSocket } from "@/sockets/socketClient";
-import { subscribeToRoomEvent } from "@/sockets/roomHandlers";
-import type { ChatMessagePayload } from "@/sockets/events";
-
-type ChatMessage = ChatMessagePayload;
+import { getSocket, subscribe } from "@/sockets/socketClient";
+import type { ChatMessagePayload } from "@contract/socket";
 
 interface GameChatProps {
   roomCode: string;
@@ -16,7 +13,7 @@ interface GameChatProps {
 
 const GameChat = ({ roomCode, userId }: GameChatProps) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessagePayload[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [unreadCount, setUnreadCount] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -37,24 +34,21 @@ const GameChat = ({ roomCode, userId }: GameChatProps) => {
 
   // Listen for chat messages
   useEffect(() => {
-    const handleChatMessage = (data: ChatMessage) => {
+    const handleChatMessage = (data: ChatMessagePayload) => {
       setMessages((prev) => [...prev.slice(-99), data]); // Keep last 100 messages
       if (!isOpenRef.current) {
         setUnreadCount((prev) => prev + 1);
       }
     };
 
-    return subscribeToRoomEvent("chat_message", handleChatMessage);
+    return subscribe("chat_message", handleChatMessage);
   }, []);
 
   const handleSend = () => {
     if (!inputValue.trim() || !userId || !roomCode) return;
 
     const socket = getSocket();
-    socket.emit("send_chat_message", {
-      roomCode,
-      message: inputValue.trim(),
-    });
+    socket.emit("send_chat_message", { message: inputValue.trim() });
 
     setInputValue("");
   };

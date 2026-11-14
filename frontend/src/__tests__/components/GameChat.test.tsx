@@ -11,12 +11,7 @@ const mockSocket = {
 
 vi.mock("@/sockets/socketClient", () => ({
   getSocket: () => mockSocket,
-}));
-vi.mock("@/sockets/roomHandlers", () => ({
-  subscribeToRoomEvent: (
-    event: string,
-    listener: (...args: unknown[]) => void,
-  ) => {
+  subscribe: (event: string, listener: (...args: unknown[]) => void) => {
     mockSocket.on(event, listener);
     return () => mockSocket.off(event, listener);
   },
@@ -132,7 +127,6 @@ describe("GameChat", () => {
     });
 
     expect(mockSocket.emit).toHaveBeenCalledWith("send_chat_message", {
-      roomCode: "ABCD",
       message: "Ciao!",
     });
   });
@@ -176,7 +170,6 @@ describe("GameChat", () => {
     });
 
     expect(mockSocket.emit).toHaveBeenCalledWith("send_chat_message", {
-      roomCode: "ABCD",
       message: "Enter test",
     });
   });

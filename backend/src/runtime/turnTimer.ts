@@ -1,8 +1,5 @@
-import {
-  isSameTurn,
-  TurnIdentity,
-  TurnPhase,
-} from "../game/turn";
+import type { TurnPhase } from "../contract/game";
+import { isSameTurn, TurnIdentity } from "../game/turn";
 
 type TimerState = {
   timeout: NodeJS.Timeout;
@@ -87,6 +84,7 @@ export function clearTurnTimer(roomCode: string): void {
 export function getTurnTimerState(roomCode: string): {
   remainingMs: number;
   totalMs: number;
+  startedAt: number;
   turnUserId: number;
   phase: TurnPhase;
   isBot: boolean;
@@ -96,6 +94,7 @@ export function getTurnTimerState(roomCode: string): {
   return {
     remainingMs: Math.max(0, timer.durationMs - (Date.now() - timer.startedAt)),
     totalMs: timer.durationMs,
+    startedAt: timer.startedAt,
     turnUserId: timer.currentTurnUserId,
     phase: timer.phase,
     isBot: timer.isBot,

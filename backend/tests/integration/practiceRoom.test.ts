@@ -143,8 +143,8 @@ describe("Practice room creation", () => {
       .send({});
 
     const res = await apiAs(userId, "human")
-      .post("/api/rooms/join")
-      .send({ roomCode: target.body.code });
+      .post(`/api/rooms/${target.body.code}/join`)
+      ;
 
     expect(res.statusCode).toBe(200);
     expect(

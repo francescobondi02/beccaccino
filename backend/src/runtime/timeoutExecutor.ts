@@ -1,11 +1,11 @@
-import { TurnIdentity, TurnPhase } from "../game/turn";
+import type { TurnPhase } from "../contract/game";
+import { TurnIdentity } from "../game/turn";
 import { logger } from "../logger";
 import {
   PracticeTurnCancelledError,
   RuntimeTurnCancelledError,
 } from "../game/transitions/round";
 import { autoChooseBriscola, autoPlayCard } from "./autoPlay";
-import { publishEvent } from "./eventPublisher";
 import { changePlayerControl } from "../services/playerControl";
 
 export async function executeTimedOutTurn(args: {
@@ -33,11 +33,6 @@ export async function executeTimedOutTurn(args: {
         null,
       );
     }
-    publishEvent(args.roomCode, "auto_played", {
-      userId: args.userId,
-      phase: args.phase,
-    });
-
     await changePlayerControl({ roomCode: args.roomCode, userId: args.userId, action: "timeout" });
   } catch (error) {
     if (

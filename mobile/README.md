@@ -30,7 +30,7 @@ account. Keep Metro running; Fast Refresh updates the app after source changes.
 No USB cable, CocoaPods or custom native build is needed for this preview.
 
 The app currently provides a landscape home, a native rules guide, an offline
-guided trick, real username/password login, secure session restoration/logout,
+guided trick, real username/password login and registration, secure session restoration/logout,
 a server-backed **Gioca** hub (practice, live room list, create/join by code), a
 native waiting room and the shared live table for practice and multiplayer. Native stack navigation handles
 back gestures and platform transitions. Standard buttons are at least 50 points
@@ -111,14 +111,14 @@ home or the in-game menu; the choice is stored on the device.
 ## Playing
 
 **Gioca** opens `/play`. It loads `GET /api/rooms/available`, joins the
-Socket.IO `lobby` and reloads on `room_*` events. Up to two of your active
+Socket.IO `lobby` and reloads on `lobby_changed`. Up to two of your active
 multiplayer rooms, started or still waiting, appear under **Le tue partite**
 (Rientra) and open the table or the waiting room; open rooms can be joined by tap or by the
-six-character code. **Crea una stanza** calls `POST /api/rooms`.
+six-character code (`POST /api/rooms/:code/join`). **Crea una stanza** calls `POST /api/rooms`.
 
 The waiting room (`/room/[code]`) joins the room socket and reloads on
-player/team/ready/settings events. Tap a free seat to choose a team, choose a
-bot tier for empty seats, then **Sono pronto**; `game_started` opens the table.
+`room_changed`. Tap a free seat to choose a team, choose a
+bot tier for empty seats, then **Sono pronto**; a reloaded room with `started` opens the table.
 **Invita amici** uses the native share sheet. Multiplayer tables cannot pause:
 **Esci e torna dopo** keeps your seat, **Abbandona partita** hands it to a bot.
 
@@ -130,12 +130,13 @@ does not replace a saved game. Creation uses the existing `forte` policy and
 allows 90 seconds for the backend's 75-second bot readiness check. A failed
 creation is reconciled before a retry; mutations are never automatically resent.
 
-The native table uses the same REST mutations and Socket.IO room events as the
+The native table uses the same REST mutations and `game_state` pushes as the
 website. The native socket sends its origin-bound token through `auth.token`;
 the server validates it using the existing active-account verifier. Reconnect
-rejoins the room with acknowledgement and fetches an authoritative snapshot
-and legal cards. Stale requests cannot overwrite newer socket notifications.
-The server supplies `lastCompletedTrick`, including its winner and round,
+rejoins the room with acknowledgement and fetches `GET /api/games/:code/state`.
+Every state (push, mutation response, refetch) follows the client update rule:
+a state for another table or with a lower `version` is ignored.
+The state carries `lastTrick`, including its winner and round,
 so collection and history work across rounds without a second rules engine.
 
 Select a legal card, optionally choose a leader signal, then confirm with
@@ -155,8 +156,8 @@ prevent that request: use explicit pause before leaving when it must be guarante
 An interrupted app restores from the server rather than assuming it was paused.
 Abandoning requires confirmation and uses the existing archive-and-retire path.
 
-The backend must include native socket authentication and `lastCompletedTrick`;
-older deployments fail explicitly rather than simulating state. Local play
+The app and backend share the contract types in `backend/src/contract/`, so
+both must be deployed from the same commit. Local play
 requires the existing Python service and its approved trained model, with the
 same private `BOT_SERVICE_TOKEN` in the backend and bot processes.
 
@@ -184,8 +185,13 @@ deployed there. To use a local backend instead, copy `.env.example` to
 `.env.local`, set `EXPO_PUBLIC_BACKEND_URL` to its **origin** (without `/api`)
 and restart Metro. Delete `.env.local` to return to production.
 
-On a physical phone, `localhost` means the phone. For Android Emulator, the
-host machine is normally `10.0.2.2`; iOS Simulator can reach the Mac's localhost.
+The local backend listens on port 8000. On a physical phone with Expo Go,
+`EXPO_PUBLIC_BACKEND_URL` must use the laptop's LAN IP (for example
+`http://192.168.x.y:8000`), not `localhost`: on the phone, `localhost` means the
+phone. Accounts live in the backend's database, so a production-site account
+does not exist on a local backend; register a new one in the app.
+
+For Android Emulator, the host machine is normally `10.0.2.2`; iOS Simulator can reach the Mac's localhost.
 Use HTTPS on devices; native transport policies may reject local HTTP. Release
 JavaScript rejects non-HTTPS backend URLs. Do not disable transport security to
 work around deployment problems.
@@ -194,9 +200,11 @@ work around deployment problems.
 include JWT signing keys, service tokens, database URLs or account passwords.
 ### Native session
 
-The native account screen calls `POST /api/users/native/login`, which reuses
-the existing credential checks and returns `{ user, token }` without setting a
-cookie. Authenticated REST calls send `Authorization: Bearer <token>`; an explicit
+The native account screen switches between **Accedi** and **Registrati**. It calls
+`POST /api/users/native/login` or `POST /api/users/native/register`, which reuse
+the browser credential checks and validation and return `{ user, token }` without
+setting a cookie. Registration takes only a username (3 to 20 characters) and a
+password (at least 6); HTTP 400 and 409 are shown as Italian messages. Authenticated REST calls send `Authorization: Bearer <token>`; an explicit
 invalid Authorization header never falls back to a cookie or test identity.
 Existing browser login/registration cookies and response bodies are unchanged.
 Both transports reuse `verifyActiveSession`, including deleted-account checks.
@@ -213,12 +221,11 @@ cancelled on provider unmount; network calls time out after eight seconds.
 Logout deletes the device credential. It does not introduce server-side token
 revocation or refresh tokens; issued JWTs retain the existing seven-day policy.
 Socket.IO accepts native `auth.token` as well as existing browser cookies.
-Explicit invalid native tokens never fall back to cookies. Registration, profile editing and account deletion are outside
+Explicit invalid native tokens never fall back to cookies. Profile editing and account deletion are outside
 this first integration slice. Expo authentication is not game authentication.
 
-For an optional local phone preview, run a backend yourself and set
-`EXPO_PUBLIC_BACKEND_URL` in `.env.local` to its origin; no tracked
-configuration defines that backend's port or database. Use a separate
+For an optional local phone preview, run a backend yourself (port 8000) and set
+`EXPO_PUBLIC_BACKEND_URL` in `.env.local` to its LAN origin, as above. Use a separate
 development database, not the website's local DB or the public service.
 Only integration tests may reset the guarded `localhost/becca_test` database.
 Use test credentials on local HTTP. If that backend's signing key changes (for example a
@@ -299,19 +306,20 @@ No EAS account/project, cloud build or publication is required by this setup.
   (`setAudioModeAsync`, `createAudioPlayer`).
 - `eslint.config.js`: `eslint-config-expo/flat`, ignoring `dist/**` and
   `coverage/**`.
-- `tsconfig.json`: strict TypeScript with the `@/*` alias for `./src/*`.
+- `tsconfig.json`: strict TypeScript with the `@/*` alias for `./src/*` and
+  `@contract/*` for the shared types in `../backend/src/contract/*` (type-only imports).
 
 ## Invariants
 
 - The only runtime configuration is `EXPO_PUBLIC_BACKEND_URL`: an empty value
   means `https://beccaccino-server.onrender.com`; any other value must be a
   bare origin, and release builds require HTTPS (`src/lib/backend.ts`).
-- The server owns game rules and state. The app sends mutations over REST
-  and treats Socket.IO events only as reload signals. Room, lobby and game reads
-  are parsed with the validators in `src/lib/game.ts`, account responses with
-  `readUser` in `src/lib/session.ts`. Responses to game and waiting-room
-  mutations (play-card, choose-briscola, pause/resume, resume-control, leave,
-  choose-team, ready, bots) are discarded unparsed.
+- The server owns game rules and state. The app sends mutations over REST.
+  The table renders the full `GameState` from `game_state` pushes, the briscola
+  and card responses, and refetches. Lobby and waiting-room screens treat
+  `lobby_changed` and `room_changed` only as reload signals. Room, lobby and game
+  responses use the shared contract types without runtime parsing; account
+  responses are parsed with `readUser` in `src/lib/session.ts`.
 - Authentication uses a bearer token stored with `expo-secure-store` and bound
   to its backend origin; browser cookies are never used (`credentials: 'omit'`).
 - Generated native folders (`/ios`, `/android`), `dist/` and `.env*.local` are
@@ -323,8 +331,6 @@ No EAS account/project, cloud build or publication is required by this setup.
 - Secure-storage entries `becca.session` (origin and token) and `becca.sound`
   (sound preference) on the device.
 - Audio playback, haptics and screen-reader announcements on the device.
-- Opens the website registration page in the system browser from the account
-  screen.
 
 ## Verification
 

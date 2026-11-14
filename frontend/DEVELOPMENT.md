@@ -50,10 +50,9 @@ frontend/
 │   │   ├── LastTrickDialog.tsx # View last trick
 │   │   └── ui/                 # shadcn/ui primitives (do not edit manually)
 │   ├── sockets/
-│   │   ├── events.ts           # Typed client/server event contract
 │   │   ├── socketClient.ts     # Singleton socket connection
-│   │   ├── lobbyHandlers.ts    # Lobby events (room_created, room_updated, etc.)
-│   │   └── roomHandlers.ts     # Room events (player_joined, team_chosen, etc.)
+│   │   ├── lobbyHandlers.ts    # lobby_changed subscription
+│   │   └── roomHandlers.ts     # Room join/leave and game_state, room_changed, chat events
 │   ├── hooks/
 │   │   ├── useAppUpdate.ts     # Production /version.json polling and reload toast
 │   │   ├── useAuth.ts          # Shared authentication state and actions
@@ -64,8 +63,8 @@ frontend/
 │   │   ├── useRoundDeal.ts     # Round deal presentation phases
 │   │   ├── useTurnCountdown.ts # Server-authoritative timer presentation
 │   │   └── useWaitingRoom.ts   # Waiting-room fetch and socket reconciliation
-│   ├── game/                   # Game DTOs, reducer state, and view selectors
-│   ├── rooms/                  # Room DTOs, normalization, and pure reducers
+│   ├── game/                   # View selectors
+│   ├── rooms/                  # Waiting-room view selectors
 │   ├── styles/                 # arcade.css
 │   └── lib/
 │       ├── api.ts              # Typed REST request helpers
@@ -87,12 +86,12 @@ frontend/
 
 - **Single socket connection**: `socketClient.ts` provides a singleton. All pages use it via `lobbyHandlers.ts` and `roomHandlers.ts`.
 - **Auth via HTTP-only cookies**: The backend sets a `authToken` cookie. Same-origin requests send it by default.
-- **State management**: Local React state + React Query. No global store.
+- **State management**: Local React state + React Query. No global store. Wire types come from `backend/src/contract` through the `@contract/*` path. The table keeps the server's full `GameState` in React Query `["game", code]`; pushes, mutation responses and refetches all apply it through `keepNewer` (higher `version` wins).
 - **Real-time updates**: Socket.IO for live events (player joined, card played, round ended). REST for mutations (play card, choose team, ready up).
-- **Page ownership**: Pages own route adaptation, user feedback, commands, and view composition. Hooks own asynchronous coordination. Reducers and selectors remain pure.
+- **Page ownership**: Pages own route adaptation, user feedback, commands, and view composition. Hooks own asynchronous coordination. Selectors remain pure.
 - **Trick history**: Live games, including practice, expose only the previous completed trick through `LastTrickDialog` ("Ultima presa"). There is no full practice history or revealed-hand view, including in development.
 - **Identity changes**: `useAuth` drops the singleton socket whenever the signed-in user changes, so the next handshake carries the new cookie identity.
-- **Invite links**: `/room/:code` joins non-members through `POST /rooms/join`; signed-out visitors are redirected to `/?join=CODE` with the code prefilled.
+- **Invite links**: `/room/:code` joins non-members through `POST /rooms/:code/join`; signed-out visitors are redirected to `/?join=CODE` with the code prefilled.
 - **App updates**: Production builds poll `/version.json` and show a persistent "Aggiornamento disponibile" toast with a reload action when the build id differs (see [Deployment](#deployment)).
 - **Practice pause**: The explicit pause action stops server-side bot and timer activity before returning home. Paused games appear under `Allenamenti in pausa`; resume completes before navigation, while direct paused-game links show blocking resume and confirmed-abandon controls. Disconnects never pause a game automatically.
 
@@ -122,9 +121,9 @@ frontend/src/__tests__/
 ├── setup.ts                # jest-dom, browser API, and environment setup
 ├── components/            # Component rendering and interaction
 ├── game/                  # Game presentation selectors
-├── hooks/                 # Auth, connection, game-state reducer and timers
+├── hooks/                 # Auth, connection, game state and timers
 ├── pages/                 # Page request and workflow states
-├── rooms/                 # Room normalization and reducers
+├── rooms/                 # Waiting-room selectors
 ├── *Handlers.test.ts      # Lobby and room socket subscriptions
 ├── socketClient.test.ts   # Socket singleton behavior
 ├── useAppUpdate.test.ts   # Version polling and update toast
@@ -179,9 +178,11 @@ npx playwright test --ui
 frontend/e2e/
 ├── helpers/
 │   ├── BotPlayer.ts        # Player abstraction (register, join, play cards, etc.)
-│   └── fixtures.ts         # Playwright fixtures with createBot factory
+│   ├── fixtures.ts         # Playwright fixtures with createBot factory
+│   └── gameState.ts        # GameState fixtures for mocked tables
 ├── arcade-ui.spec.ts       # Arcade layout, round recap, results, and rules
 ├── first-trick.spec.ts     # Briscola selection and the first 4-card trick
+├── full-game.spec.ts       # 4 players finish a game (backend with GAME_WIN_POINTS=5; CI on main only)
 ├── game-motion.spec.ts     # Table layout and card travel/collection animations
 ├── lobby-to-game.spec.ts   # 4 players: register → room → teams → ready → game starts
 └── practice-pause-resume.spec.ts # Pause, resume, direct overlay, abandon

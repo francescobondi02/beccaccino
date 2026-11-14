@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { PlayerPosition, Signal } from "@/game/model";
+import type { Signal } from "@contract/cards";
+import type { PlayerPosition } from "@/game/model";
 
 interface SignalCalloutProps {
   signal: Signal;

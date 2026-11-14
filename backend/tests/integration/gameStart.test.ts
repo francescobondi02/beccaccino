@@ -185,7 +185,7 @@ describe("first-round startup", () => {
       to: () => ({
         emit: (event: string) => {
           events.push(event);
-          if (event === "game_started") {
+          if (event === "game_state" && runtimeAtStart === null) {
             runtimeAtStart = getTurnTimerState(code);
           }
         },
@@ -198,7 +198,9 @@ describe("first-round startup", () => {
       setSocketInstance(originalIo);
     }
 
-    expect(events).toEqual(["turn_timer_started", "game_started", "room_deleted"]);
+    expect(events).toEqual([
+      ...Array(4).fill("game_state"), "room_changed", "lobby_changed",
+    ]);
     expect(runtimeAtStart).toMatchObject({
       phase: "choose_briscola",
     });

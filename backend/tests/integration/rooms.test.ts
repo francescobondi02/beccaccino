@@ -81,8 +81,8 @@ describe("Room API", () => {
 
       const create = await apiAs(user.id, user.username).post("/api/rooms").send({});
       const join = await apiAs(user.id, user.username)
-        .post("/api/rooms/join")
-        .send({ roomCode: otherRoom.body.code });
+        .post(`/api/rooms/${otherRoom.body.code}/join`)
+        ;
       for (const res of [create, join]) {
         expect(res.statusCode).toBe(409);
         expect(res.body.activeRoomCode).toBe(waitingRoom.body.code);
@@ -115,7 +115,7 @@ describe("Room API", () => {
       const roomCode: string = created.body.code;
       for (const [index, user] of users.entries()) {
         if (index > 0) {
-          await apiAs(user.id, user.username).post("/api/rooms/join").send({ roomCode });
+          await apiAs(user.id, user.username).post(`/api/rooms/${roomCode}/join`);
         }
         await apiAs(user.id, user.username)
           .post(`/api/rooms/${roomCode}/choose-team`)
@@ -150,14 +150,10 @@ describe("Room API", () => {
       expect(await prisma.player.findMany({ select: { userId: true, isReady: true } })).toEqual([
         { userId: stays.id, isReady: false },
       ]);
-      expect(events).toContainEqual({
-        target: "lobby",
-        event: "room_updated",
-        payload: { roomCode, currentPlayers: 1 },
-      });
-      expect(events).toContainEqual(
-        expect.objectContaining({ target: roomCode, event: "room_settings_changed" }),
-      );
+      expect(events.slice(-2)).toEqual([
+        { target: roomCode, event: "room_changed", payload: { roomCode } },
+        { target: "lobby", event: "lobby_changed", payload: { roomCode } },
+      ]);
     });
 
     it("removes a started room from the lobby list", async () => {
@@ -168,11 +164,10 @@ describe("Room API", () => {
           .send({ isReady: true });
       }
 
-      expect(events).toContainEqual({
-        target: "lobby",
-        event: "room_deleted",
-        payload: { roomCode },
-      });
+      expect(events.slice(-2)).toEqual([
+        { target: roomCode, event: "room_changed", payload: { roomCode } },
+        { target: "lobby", event: "lobby_changed", payload: { roomCode } },
+      ]);
     });
   });
 
@@ -192,7 +187,7 @@ describe("Room API", () => {
     });
   });
 
-  describe("POST /api/rooms/join", () => {
+  describe("POST /api/rooms/:roomCode/join", () => {
     it("allows a user to join an existing room", async () => {
       const creator = await createUser("creator");
       const joiner = await createUser("joiner");
@@ -203,8 +198,8 @@ describe("Room API", () => {
       const roomCode = createRes.body.code;
 
       const joinRes = await apiAs(joiner.id, joiner.username)
-        .post("/api/rooms/join")
-        .send({ roomCode });
+        .post(`/api/rooms/${roomCode}/join`)
+        ;
 
       expect(joinRes.statusCode).toBe(200);
       expect(joinRes.body.players).toHaveLength(2);
@@ -215,8 +210,8 @@ describe("Room API", () => {
       const user = await createUser("lonely");
 
       const res = await apiAs(user.id, user.username)
-        .post("/api/rooms/join")
-        .send({ roomCode: "ZZZZZZ" });
+        .post("/api/rooms/ZZZZZZ/join")
+        ;
 
       expect(res.statusCode).toBe(404);
     });
@@ -230,8 +225,8 @@ describe("Room API", () => {
       const roomCode = createRes.body.code;
 
       const res = await apiAs(creator.id, creator.username)
-        .post("/api/rooms/join")
-        .send({ roomCode });
+        .post(`/api/rooms/${roomCode}/join`)
+        ;
 
       expect(res.statusCode).toBe(409);
       expect(res.body.activeRoomCode).toBe(roomCode);
@@ -250,14 +245,14 @@ describe("Room API", () => {
       // Fill the room
       for (let i = 1; i < 4; i++) {
         await apiAs(users[i].id, users[i].username)
-          .post("/api/rooms/join")
-          .send({ roomCode });
+          .post(`/api/rooms/${roomCode}/join`)
+          ;
       }
 
       // 5th player should be rejected
       const res = await apiAs(users[4].id, users[4].username)
-        .post("/api/rooms/join")
-        .send({ roomCode });
+        .post(`/api/rooms/${roomCode}/join`)
+        ;
 
       expect(res.statusCode).toBe(400);
       expect(res.body.error).toMatch(/full/i);
@@ -278,8 +273,8 @@ describe("Room API", () => {
       });
 
       const res = await apiAs(activeUser.id, activeUser.username)
-        .post("/api/rooms/join")
-        .send({ roomCode: targetRoom.body.code });
+        .post(`/api/rooms/${targetRoom.body.code}/join`)
+        ;
 
       expect(res.statusCode).toBe(409);
       expect(res.body.activeRoomCode).toBe(activeRoom.body.code);
@@ -326,11 +321,11 @@ describe("Room API", () => {
       const roomCode = createRes.body.code;
 
       await apiAs(users[1].id, users[1].username)
-        .post("/api/rooms/join")
-        .send({ roomCode });
+        .post(`/api/rooms/${roomCode}/join`)
+        ;
       await apiAs(users[2].id, users[2].username)
-        .post("/api/rooms/join")
-        .send({ roomCode });
+        .post(`/api/rooms/${roomCode}/join`)
+        ;
 
       // First two join team 0
       await apiAs(users[0].id, users[0].username)
@@ -357,8 +352,8 @@ describe("Room API", () => {
         .post("/api/rooms")
         .send({});
       await apiAs(users[1].id, users[1].username)
-        .post("/api/rooms/join")
-        .send({ roomCode: created.body.code });
+        .post(`/api/rooms/${created.body.code}/join`)
+        ;
       for (const user of users) {
         await apiAs(user.id, user.username)
           .post(`/api/rooms/${created.body.code}/choose-team`)
@@ -498,8 +493,8 @@ describe("Room API", () => {
 
       for (let i = 1; i < 4; i++) {
         await apiAs(users[i].id, users[i].username)
-          .post("/api/rooms/join")
-          .send({ roomCode });
+          .post(`/api/rooms/${roomCode}/join`)
+          ;
       }
 
       // Assign teams (2v2)
@@ -544,8 +539,8 @@ describe("Room API", () => {
 
       for (let i = 1; i < 4; i++) {
         await apiAs(users[i].id, users[i].username)
-          .post("/api/rooms/join")
-          .send({ roomCode });
+          .post(`/api/rooms/${roomCode}/join`)
+          ;
       }
 
       // Unbalanced teams: 3 on team 0, 1 on team 1
@@ -576,8 +571,8 @@ describe("Room API", () => {
       // Fill room with 4 players and start
       for (let i = 1; i < 4; i++) {
         await apiAs(users[i].id, users[i].username)
-          .post("/api/rooms/join")
-          .send({ roomCode });
+          .post(`/api/rooms/${roomCode}/join`)
+          ;
       }
       const teams = [0, 1, 0, 1];
       for (let i = 0; i < 4; i++) {
@@ -594,8 +589,8 @@ describe("Room API", () => {
 
       // 5th player tries to join started room
       const joinRes = await apiAs(users[4].id, users[4].username)
-        .post("/api/rooms/join")
-        .send({ roomCode });
+        .post(`/api/rooms/${roomCode}/join`)
+        ;
 
       expect(joinRes.statusCode).toBe(400);
     });
@@ -612,8 +607,8 @@ describe("Room API", () => {
       const roomCode = createRes.body.code;
 
       await apiAs(joiner.id, joiner.username)
-        .post("/api/rooms/join")
-        .send({ roomCode });
+        .post(`/api/rooms/${roomCode}/join`)
+        ;
 
       const leaveRes = await apiAs(joiner.id, joiner.username)
         .post(`/api/rooms/${roomCode}/leave`)

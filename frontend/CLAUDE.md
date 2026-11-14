@@ -32,10 +32,9 @@ src/
     GameResult.tsx        Full-page final scores, team stats and match awards
     ui/                 shadcn/ui components (don't edit manually — use CLI to add new ones)
   sockets/
-    events.ts           Typed client/server event contract
     socketClient.ts     Singleton Socket.IO client, reconnection logic, status tracking
-    lobbyHandlers.ts    Lobby socket events: room_created, room_updated, room_full, room_deleted
-    roomHandlers.ts     Room socket events: join, leave, team, ready, game start
+    lobbyHandlers.ts    Lobby socket subscription: lobby_changed
+    roomHandlers.ts     Room join/leave and game_state, room_changed, chat events
   hooks/
     useAppUpdate.ts     Production /version.json polling and reload toast
     useAuth.ts          Shared authentication state and actions
@@ -46,8 +45,8 @@ src/
     useRoundDeal.ts     Round deal presentation phases
     useTurnCountdown.ts Server-authoritative timer presentation
     useWaitingRoom.ts   Waiting-room hydration and socket coordination
-  game/                 Game DTOs, reducer state, and presentation selectors
-  rooms/                Room DTOs, normalization, and pure state reducers
+  game/                 Presentation selectors
+  rooms/                Waiting-room presentation selectors
   lib/
     api.ts              Typed REST helpers and ApiError
     roomRedirect.ts     Active-room conflict navigation
@@ -60,6 +59,7 @@ e2e/
     fixtures.ts         Multi-browser test fixtures (4 independent contexts)
   lobby-to-game.spec.ts  4 players: register → room → teams → ready → game starts
   first-trick.spec.ts    Briscola selection and the first 4-card trick
+  full-game.spec.ts      4 players finish a game (GAME_WIN_POINTS=5; CI on main only)
   practice-pause-resume.spec.ts Practice pause, resume, direct links, and abandon
   arcade-ui.spec.ts      Arcade layout, recap, results, and rules
   game-motion.spec.ts    Table layout and card travel/collection animations
@@ -73,7 +73,8 @@ public/
 ### Responsibility boundaries
 - Pages adapt routes and authentication, execute user commands, and compose views.
 - Hooks coordinate REST, Socket.IO, and reconnect behavior.
-- Reducers and selectors are pure and independently tested.
+- Selectors are pure and independently tested.
+- Wire types come from `backend/src/contract` via the `@contract/*` path.
 - Feature view components receive data and callbacks; they do not fetch or subscribe.
 
 ### Socket.IO Client (socketClient.ts)
@@ -86,19 +87,21 @@ public/
 ### GameTable.tsx (main game page)
 - Composes the active table from `useGameTable`, pure selectors, and focused
   game components
-- `useGameTable` fetches `GET /api/games/:roomCode/state` and reconciles
-  card, hand, round, timer, and practice lifecycle events
+- `useGameTable` keeps the full `GameState` in React Query `["game", code]`:
+  `GET /api/games/:roomCode/state`, `game_state` pushes and mutation responses
+  all go through `keepNewer` (higher `version` wins); `room_changed` and
+  reconnect refetch. Notices come from `lastAction`.
 - Player positions mapped to CSS positions: bottom (me), top (partner), left/right (opponents)
-- Signal flow: click card → if trick leader, show SignalDialog → then send play-card with signal
+- Signal flow: click card → if trick leader, show SignalDialog → then `POST /api/games/:code/cards` with the signal
 - The pending leader card is held in `pendingCard` state; the signal choice is open while it is set and no card is being sent
-- Timer UI syncs with `turn_timer_started` socket event (server-authoritative timestamp)
+- Timer UI uses `turn.deadline`, corrected by `serverTime` for clock skew
 
 ### Auth Flow
 - AuthDialog handles register + login
 - Cookie set by backend, sent automatically because fetch and Socket.IO are same-origin
 - `GET /api/users/me` to check auth state on page load
 - Redirect to home if not authenticated on protected pages (`GameRoom` redirects to `/?join=CODE`)
-- Invite links (`/room/:code`) join non-members via `POST /rooms/join`; signed-out
+- Invite links (`/room/:code`) join non-members via `POST /rooms/:code/join`; signed-out
   visitors land on `/?join=CODE` with the code prefilled
 - The singleton socket is dropped whenever the signed-in user changes
 
@@ -162,11 +165,10 @@ npx playwright show-report  # HTML report with traces after failures
   without flying cards; practice controls remain available throughout.
 - Finished results replace the table after any live last-trick collection,
   without a new route or automatic dismissal. Restored results appear immediately.
-  `game_finished` and refreshed snapshots carry the same statistics. Show only
+  Every `GameState` with a `result` carries the statistics. Show only
   positive-count awards (busso, enemy aces captured, own aces lost), including
   all tied players. Per-round details use native `details`; no new tracking,
-  dependencies or permanent medal system. Missing statistics are supported
-  during rolling deployment; the existing scores remain visible.
+  dependencies or permanent medal system.
 - shadcn/ui components in `src/components/ui/` — add new ones via `npx shadcn-ui@latest add <name>`
 - Live card motion uses server events and measured hand/seat positions. Completed
   tricks capture their display winner before the next round changes trump.

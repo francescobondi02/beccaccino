@@ -1,33 +1,25 @@
 import { test, expect } from "./helpers/fixtures";
-import type { GameStateResponse } from "../src/game/model";
+import { cardsOf, gameState, iso, withCurrentServerTime, score } from "./helpers/gameState";
+
+const fullHand = cardsOf("coppe", ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]);
 
 test.describe("Arcade interface", () => {
   test("shows the round recap before dealing without restarting it on reload", async ({ page }) => {
-    const cards = ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
-      .map((value, index) => ({ id: 40 + index, suit: "coppe", value, playerId: 10, roundId: 31, inHand: true }));
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-      id: 20, code: "ROOM", started: true, finished: false, isPractice: true,
-      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-      })),
-    } }));
     let readyAt = 0;
     await page.route("**/games/ROOM/state", (route) => {
       if (!readyAt) readyAt = Date.now() + 8000;
-      const remainingMs = Math.max(0, readyAt - Date.now());
-      const state: GameStateResponse = {
-        status: "choosing_briscola", pausedAt: null,
-        round: { id: 31, number: 2, briscola: null, deal: { remainingMs, animationMs: 2400, reviewMs: 1600 } },
-        roundSummary: remainingMs > 4000 ? {
-          roundNumber: 1, team0Points: 6, team1Points: 5, team0Figures: 2, team1Figures: 0, winnerTeam: 0,
-        } : null,
-        callerUserId: 1, currentTurnUserId: 1, currentHandNumber: null,
-        myCards: cards, playedCards: [], lastHandCards: [],
-        totalPoints: { team0Points: 6, team1Points: 5, team0Figures: 2, team1Figures: 0 },
-        turnTimer: null, finishedGame: null, isPractice: true, allHands: null,
-      };
-      return route.fulfill({ json: state });
+      return route.fulfill({ json: withCurrentServerTime(gameState({
+        status: "choosing_briscola",
+        round: {
+          number: 2, callerUserId: 1, briscola: null, cricca: false,
+          deal: { animationEndsAt: iso(readyAt - 1600), reviewEndsAt: iso(readyAt) },
+        },
+        trick: null, myHand: fullHand,
+        turn: { userId: 1, phase: "choose_briscola", startedAt: iso(readyAt), deadline: iso(readyAt + 90_000) },
+        score: score(6, 5, 2),
+        roundSummary: { roundNumber: 1, score: score(6, 5, 2), winnerTeam: 0, visibleUntil: iso(readyAt - 4000) },
+      })) });
     });
     await page.goto("/game/ROOM");
     const recap = page.getByRole("dialog", { name: "Smazzata 1 conclusa" });
@@ -49,32 +41,21 @@ test.describe("Arcade interface", () => {
 
   test("keeps full-page results after reload with optional tied awards", async ({ page }) => {
     await page.routeWebSocket(/\/socket\.io\//, () => {});
-    const state: GameStateResponse = {
-      status: "finished", pausedAt: null,
-      round: { id: 30, number: 1, briscola: "spade" },
-      callerUserId: 1, currentTurnUserId: null, currentHandNumber: null,
-      myCards: [], playedCards: [], lastHandCards: [],
-      totalPoints: { team0Points: 7, team1Points: 4, team0Figures: 1, team1Figures: 1 },
-      turnTimer: null, isPractice: true, allHands: null,
-      finishedGame: {
+    const state = gameState({
+      status: "finished", trick: null, score: score(7, 4, 1, 1),
+      result: {
         winnerTeam: 0, totalRounds: 1, finalScores: { team0: 7, team1: 4 }, roundsWon: { team0: 1, team1: 0 },
         statistics: {
           players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-            playerId: 10 + seat, username, team: seat % 2, tricksWon: seat < 2 ? 5 : 0,
+            username, team: seat % 2 === 0 ? 0 : 1, tricksWon: seat < 2 ? 5 : 0,
             busso: seat < 2 ? 2 : 0, acesCaptured: seat === 2 ? 2 : 0, acesLost: seat === 1 ? 2 : 0,
           })),
-          rounds: [{ number: 1, winnerTeam: 0, team0Points: 7, team1Points: 4, team0Figures: 1, team1Figures: 1 }],
+          rounds: [{ number: 1, winnerTeam: 0, score: score(7, 4, 1, 1) }],
         },
       },
-    };
+    });
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-      id: 20, code: "ROOM", started: true, finished: true, isPractice: true,
-      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-      })),
-    } }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
     const [width, height] = [1440, 844];
     await page.setViewportSize({ width, height });
     await page.goto("/game/ROOM");
@@ -87,13 +68,13 @@ test.describe("Arcade interface", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.reload();
     await expect(page.getByTestId("game-result-page")).toBeVisible();
-    state.finishedGame!.statistics!.players.forEach((player) => {
+    state.result!.statistics.players.forEach((player) => {
       player.busso = 0; player.acesCaptured = 0; player.acesLost = 0;
     });
     await page.reload();
     await expect(page.getByRole("heading", { name: "Premi della partita" })).toHaveCount(0);
-    state.finishedGame!.statistics!.players[0].busso = 2;
-    state.finishedGame!.statistics!.players[1].busso = 2;
+    state.result!.statistics.players[0].busso = 2;
+    state.result!.statistics.players[1].busso = 2;
   });
 
   for (const reducedMotion of ["no-preference", "reduce"] as const) {
@@ -101,30 +82,19 @@ test.describe("Arcade interface", () => {
       // REST fixtures have no authenticated Socket.IO session.
       await page.routeWebSocket(/\/socket\.io\//, () => {});
       await page.emulateMedia({ reducedMotion });
-      const cards = ["asso", "due", "tre", "quattro", "cinque", "sei", "sette", "fante", "cavallo", "re"]
-        .map((value, index) => ({ id: 40 + index, suit: "coppe", value, playerId: 10, roundId: 30, inHand: true }));
-      const state: GameStateResponse = {
-        status: "choosing_briscola", pausedAt: null,
-        round: { id: 30, number: 1, briscola: null },
-        callerUserId: 1, currentTurnUserId: 1, currentHandNumber: null,
-        myCards: cards, playedCards: [], lastHandCards: [],
-        totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
-        turnTimer: null, finishedGame: null, isPractice: true, allHands: null,
-      };
       await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-      await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-        id: 20, code: "ROOM", started: true, finished: false, isPractice: true,
-        players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-          id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-        })),
-      } }));
       let readyAt = 0;
       await page.route("**/games/ROOM/state", (route) => {
         if (!readyAt) readyAt = Date.now() + 4000;
-        return route.fulfill({ json: {
-          ...state,
-          round: { ...state.round, deal: { remainingMs: Math.max(0, readyAt - Date.now()), animationMs: 2400, reviewMs: 1600 } },
-        } });
+        return route.fulfill({ json: withCurrentServerTime(gameState({
+          status: "choosing_briscola",
+          round: {
+            number: 1, callerUserId: 1, briscola: null, cricca: false,
+            deal: { animationEndsAt: iso(readyAt - 1600), reviewEndsAt: iso(readyAt) },
+          },
+          trick: null, myHand: fullHand,
+          turn: { userId: 1, phase: "choose_briscola", startedAt: iso(readyAt), deadline: iso(readyAt + 90_000) },
+        })) });
       });
 
       const width = 1440;
@@ -162,8 +132,11 @@ test.describe("Arcade interface", () => {
       }));
       await page.route("**/rooms", (route) => route.fulfill({ json: { code: "ROOM" } }));
       await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-        id: 20, code: "ROOM", started: false, finished: false,
-        players: [{ id: 10, userId: 1, username: "Giulia", seat: 0, team: 0, isReady: true }],
+        id: 20, code: "ROOM", started: false, finished: false, isPractice: false, botTier: null, pausedAt: null,
+        players: [{
+          id: 10, userId: 1, seat: 0, team: 0, isReady: true, botModel: null, abandonedAt: null,
+          user: { id: 1, username: "Giulia" },
+        }],
       } }));
       await page.route("**/rooms/ROOM/leave", (route) => {
         departures.push("leave");
@@ -200,32 +173,20 @@ test.describe("Arcade interface", () => {
 
   test("keeps the table and hand space fixed after the last card", async ({ page }) => {
     await page.routeWebSocket(/\/socket\.io\//, () => {});
-    const card = {
-      id: 40, suit: "coppe", value: "asso", playerId: 10, roundId: 30, inHand: true,
-    };
-    const state: GameStateResponse = {
-      status: "playing", pausedAt: null,
-      round: { id: 30, number: 1, briscola: "spade" },
-      callerUserId: 1, currentTurnUserId: 2, currentHandNumber: 10,
-      myCards: [card], playedCards: [], lastHandCards: [],
-      totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
-      turnTimer: null, finishedGame: null, isPractice: true, allHands: null,
-    };
+    const card = cardsOf("coppe", ["asso"]);
+    const state = gameState({
+      trick: { number: 10, cards: [] }, myHand: card,
+      turn: { userId: 2, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
+    });
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: {
-      id: 20, code: "ROOM", started: true, finished: false, isPractice: true,
-      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-      })),
-    } }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
 
     for (const viewport of [
       { width: 1920, height: 1080 }, { width: 1280, height: 800 },
       { width: 1024, height: 768 },
     ]) {
       await page.setViewportSize(viewport);
-      state.myCards = [card];
+      state.myHand = card;
       await page.goto("/game/ROOM");
       const hand = page.getByTestId("player-hand");
       await expect(hand.getByRole("button")).toHaveCount(1);
@@ -248,50 +209,40 @@ test.describe("Arcade interface", () => {
         seat.y >= tools.y + tools.height,
         `Practice controls cover the player at ${viewport.width}px`,
       ).toBe(true);
-      for (const remaining of [[], [{ ...card, inHand: false }]]) {
-        state.myCards = remaining;
-        await page.reload();
-        await expect(page.getByTestId("game-layout")).toBeVisible();
-        await expect(hand.getByRole("button")).toHaveCount(0);
-        await page.evaluate(() => document.fonts.ready);
-        expect.soft(await page.locator(".arcade-arena").boundingBox(), `Table moved at ${viewport.width}px`).toEqual(occupied.arena);
-        expect.soft(await hand.boundingBox(), `Hand collapsed at ${viewport.width}px`).toEqual(occupied.hand);
-        expect.soft(await page.getByTestId("player-seat-bottom").boundingBox()).toEqual(occupied.seat);
-        expect.soft(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-      }
+      state.myHand = [];
+      await page.reload();
+      await expect(page.getByTestId("game-layout")).toBeVisible();
+      await expect(hand.getByRole("button")).toHaveCount(0);
+      await page.evaluate(() => document.fonts.ready);
+      expect.soft(await page.locator(".arcade-arena").boundingBox(), `Table moved at ${viewport.width}px`).toEqual(occupied.arena);
+      expect.soft(await hand.boundingBox(), `Hand collapsed at ${viewport.width}px`).toEqual(occupied.hand);
+      expect.soft(await page.getByTestId("player-seat-bottom").boundingBox()).toEqual(occupied.seat);
+      expect.soft(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     }
   });
 
   test("requires briscola but allows cancelling and changing a leading card", async ({ page }) => {
-    const cards = ["asso", "tre"].map((value, index) => ({
-      id: 40 + index, suit: "coppe", value, playerId: 10, roundId: 30, inHand: true,
-    }));
-    const room = {
-      id: 20, code: "ROOM", started: true, finished: false, isPractice: false,
-      players: ["Giulia", "Luca", "Marta", "Diego"].map((username, seat) => ({
-        id: 10 + seat, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-      })),
-    };
-    let state: GameStateResponse = {
-      status: "choosing_briscola", pausedAt: null,
-      round: { id: 30, number: 1, briscola: null },
-      callerUserId: 1, currentTurnUserId: 1, currentHandNumber: null,
-      myCards: cards, playedCards: [], lastHandCards: [],
-      totalPoints: { team0Points: 0, team1Points: 0, team0Figures: 0, team1Figures: 0 },
-      turnTimer: null, finishedGame: null, isPractice: false, allHands: null,
-    };
+    const cards = cardsOf("coppe", ["asso", "tre"]);
+    let state = gameState({
+      isPractice: false, status: "choosing_briscola",
+      round: { number: 1, callerUserId: 1, briscola: null, cricca: false, deal: null },
+      trick: null, myHand: cards,
+      turn: { userId: 1, phase: "choose_briscola", startedAt: iso(Date.now()), deadline: null },
+    });
     const plays: unknown[] = [];
     await page.route("**/users/me", (route) => route.fulfill({ json: { id: 1, username: "Giulia" } }));
-    await page.route("**/rooms/ROOM", (route) => route.fulfill({ json: room }));
-    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: state }));
-    await page.route("**/games/playable-cards/ROOM", (route) => route.fulfill({ json: { playableCards: cards } }));
-    await page.route("**/games/choose-briscola", (route) => {
-      state = { ...state, status: "playing", currentHandNumber: 1, round: { ...state.round, briscola: "spade" } };
-      return route.fulfill({ json: {} });
+    await page.route("**/games/ROOM/state", (route) => route.fulfill({ json: withCurrentServerTime(state) }));
+    await page.route("**/games/ROOM/briscola", (route) => {
+      state = {
+        ...state, version: 2, status: "playing", round: { ...state.round, briscola: "spade" },
+        trick: { number: 1, cards: [] }, playableCards: cards,
+        turn: { userId: 1, phase: "play_card", startedAt: iso(Date.now()), deadline: null },
+      };
+      return route.fulfill({ json: withCurrentServerTime(state) });
     });
-    await page.route("**/games/play-card", (route) => {
+    await page.route("**/games/ROOM/cards", (route) => {
       plays.push(route.request().postDataJSON());
-      return route.fulfill({ json: {} });
+      return route.fulfill({ json: withCurrentServerTime(state) });
     });
 
     await page.goto("/game/ROOM");
@@ -314,7 +265,7 @@ test.describe("Arcade interface", () => {
     await page.getByTestId("hand-card-coppe-tre").click();
     await signal.getByRole("button", { name: "Niente", exact: true }).click();
     await expect.poll(() => plays).toEqual([
-      { roomCode: "ROOM", suit: "coppe", value: "tre", signal: null },
+      { suit: "coppe", value: "tre", signal: null },
     ]);
   });
 

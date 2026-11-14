@@ -71,15 +71,15 @@ describe("Caller-tie statistics", () => {
     const first = await apiAs(users[0].id, users[0].username).get("/api/games/TIE001/state");
     const refreshed = await apiAs(users[1].id, users[1].username).get("/api/games/TIE001/state");
     expect(first.statusCode).toBe(200);
-    expect(refreshed.body.finishedGame).toEqual(first.body.finishedGame);
-    expect(first.body.finishedGame.statistics.players).toEqual([
-      { playerId: players[0].id, username: "tieA", team: 0, tricksWon: 1, busso: 1, acesCaptured: 2, acesLost: 0 },
-      { playerId: players[1].id, username: "tieB", team: 1, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 1 },
-      { playerId: players[2].id, username: "tieC", team: 0, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 0 },
-      { playerId: players[3].id, username: "tieD", team: 1, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 1 },
+    expect(refreshed.body.result).toEqual(first.body.result);
+    expect(first.body.result.statistics.players).toEqual([
+      { username: "tieA", team: 0, tricksWon: 1, busso: 1, acesCaptured: 2, acesLost: 0 },
+      { username: "tieB", team: 1, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 1 },
+      { username: "tieC", team: 0, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 0 },
+      { username: "tieD", team: 1, tricksWon: 0, busso: 0, acesCaptured: 0, acesLost: 1 },
     ]);
-    expect(first.body.finishedGame.statistics.rounds).toEqual([
-      { number: 1, winnerTeam: 0, team0Points: 5, team1Points: 5, team0Figures: 0, team1Figures: 0 },
+    expect(first.body.result.statistics.rounds).toEqual([
+      { number: 1, winnerTeam: 0, score: { team0: { points: 5, figures: 0 }, team1: { points: 5, figures: 0 } } },
     ]);
   });
 
@@ -94,9 +94,8 @@ describe("Caller-tie statistics", () => {
       expect(response.statusCode).toBe(200);
       expect(response.body).toMatchObject({
         status: "finished",
-        currentTurnUserId: null,
-        turnTimer: null,
-        finishedGame: {
+        turn: null,
+        result: {
           winnerTeam: 1,
           totalRounds: 1,
           finalScores: { team0: 5, team1: 5 },

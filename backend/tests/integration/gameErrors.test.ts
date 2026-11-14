@@ -46,11 +46,8 @@ describe("Game Error Cases", () => {
       // Try choosing briscola again as an authenticated player in the room
       const someplayer = room!.players[0];
       const res = await apiAs(someplayer.userId, someplayer.user.username)
-        .post("/api/games/choose-briscola")
-        .send({
-          gameRoomId: room!.id,
-          suit: "coppe",
-        });
+        .post(`/api/games/${roomCode}/briscola`)
+        .send({ suit: "coppe" });
 
       expect(res.statusCode).toBe(400);
       expect(res.body.error).toMatch(/already/i);
@@ -60,9 +57,6 @@ describe("Game Error Cases", () => {
     it("rejects a player not in the game room", async () => {
       const { roomCode } = await setupGame();
 
-      const room = await prisma.gameRoom.findUnique({
-        where: { code: roomCode },
-      });
 
       // Create a fresh user that is NOT in this game room
       const outsider = await prisma.user.create({
@@ -70,11 +64,8 @@ describe("Game Error Cases", () => {
       });
 
       const res = await apiAs(outsider.id, outsider.username)
-        .post("/api/games/choose-briscola")
-        .send({
-          gameRoomId: room!.id,
-          suit: "spade",
-        });
+        .post(`/api/games/${roomCode}/briscola`)
+        .send({ suit: "spade" });
 
       expect(res.statusCode).toBe(403);
     });
@@ -103,10 +94,8 @@ describe("Game Error Cases", () => {
       const timerBefore = getTurnTimerState(roomCode)!;
 
       const res = await apiAs(wrongPlayer.userId, wrongPlayer.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: wrongPlayerCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: wrongPlayerCard!.suit,
           value: wrongPlayerCard!.value,
         });
 
@@ -159,10 +148,8 @@ describe("Game Error Cases", () => {
       const timerBefore = getTurnTimerState(roomCode)!;
 
       const res = await apiAs(starter.userId, starter.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: otherCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: otherCard!.suit,
           value: otherCard!.value,
         });
 
@@ -207,20 +194,16 @@ describe("Game Error Cases", () => {
       });
 
       const firstPlay = await apiAs(starter.userId, starter.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: starterCard!.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: starterCard!.suit,
           value: starterCard!.value,
         });
       expect(firstPlay.statusCode).toBe(200);
 
       const timerBefore = getTurnTimerState(roomCode)!;
       const res = await apiAs(nextPlayer.userId, nextPlayer.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: illegalCard.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: illegalCard.suit,
           value: illegalCard.value,
         });
 
@@ -245,19 +228,18 @@ describe("Game Error Cases", () => {
         where: { playerId: starter.id, roundId: round.id },
       });
       const request = {
-        roomCode,
         suit: card!.suit,
         value: card!.value,
       };
 
       const firstPlay = await apiAs(starter.userId, starter.user.username)
-        .post("/api/games/play-card")
+        .post(`/api/games/${roomCode}/cards`)
         .send(request);
       expect(firstPlay.statusCode).toBe(200);
 
       const timerBefore = getTurnTimerState(roomCode)!;
       const retry = await apiAs(starter.userId, starter.user.username)
-        .post("/api/games/play-card")
+        .post(`/api/games/${roomCode}/cards`)
         .send(request);
 
       expect(retry.statusCode).toBe(403);
@@ -273,10 +255,8 @@ describe("Game Error Cases", () => {
         data: { username: "ghost", password: "x" },
       });
       const res = await apiAs(user.id, user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode: "XXXXXX",
-          suit: "coppe",
+        .post(`/api/games/${"XXXXXX"}/cards`)
+        .send({ suit: "coppe",
           value: "asso",
         });
 
@@ -330,9 +310,8 @@ describe("Game Error Cases", () => {
       expect(res.body.round).toBeDefined();
       expect(res.body.round.number).toBe(1);
       expect(res.body.round.briscola).toBeNull();
-      expect(res.body.myCards).toBeDefined();
-      expect(res.body.myCards.length).toBe(10);
-      expect(res.body.callerUserId).toBeDefined();
+      expect(res.body.myHand).toHaveLength(10);
+      expect(typeof res.body.round.callerUserId).toBe("number");
     });
 
     it("returns briscola after it's chosen", async () => {
@@ -384,11 +363,9 @@ describe("Game Error Cases", () => {
         .get(`/api/games/${roomCode}/state`);
 
       expect(res.statusCode).toBe(200);
-      expect(res.body.currentTurnUserId).toBeDefined();
-      expect(typeof res.body.currentTurnUserId).toBe("number");
-
+      expect(res.body.turn.phase).toBe("play_card");
       const playerUserIds = room!.players.map((p) => p.userId);
-      expect(playerUserIds).toContain(res.body.currentTurnUserId);
+      expect(playerUserIds).toContain(res.body.turn.userId);
     });
 
     it("updates played cards after a valid play", async () => {
@@ -405,11 +382,11 @@ describe("Game Error Cases", () => {
       const stateRes = await apiAs(p0.userId, p0.user.username)
         .get(`/api/games/${roomCode}/state`);
 
-      const currentTurnUserId = stateRes.body.currentTurnUserId;
+      const currentTurnUserId = stateRes.body.turn.userId;
       const turnPlayer = room!.players.find((p) => p.userId === currentTurnUserId)!;
 
       const playableRes = await apiAs(turnPlayer.userId, turnPlayer.user.username)
-        .get(`/api/games/playable-cards/${roomCode}`);
+        .get(`/api/games/${roomCode}/state`);
 
       expect(playableRes.statusCode).toBe(200);
       const playableCards = playableRes.body.playableCards;
@@ -417,10 +394,8 @@ describe("Game Error Cases", () => {
 
       const cardToPlay = playableCards[0];
       const playRes = await apiAs(turnPlayer.userId, turnPlayer.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: cardToPlay.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: cardToPlay.suit,
           value: cardToPlay.value,
         });
 
@@ -429,11 +404,11 @@ describe("Game Error Cases", () => {
       const newState = await apiAs(p0.userId, p0.user.username)
         .get(`/api/games/${roomCode}/state`);
 
-      expect(newState.body.playedCards.length).toBe(1);
-      expect(newState.body.playedCards[0].suit).toBe(cardToPlay.suit);
-      expect(newState.body.playedCards[0].value).toBe(cardToPlay.value);
+      expect(newState.body.trick.cards).toHaveLength(1);
+      expect(newState.body.trick.cards[0].suit).toBe(cardToPlay.suit);
+      expect(newState.body.trick.cards[0].value).toBe(cardToPlay.value);
 
-      expect(newState.body.currentTurnUserId).not.toBe(currentTurnUserId);
+      expect(newState.body.turn.userId).not.toBe(currentTurnUserId);
     });
   });
 
@@ -461,11 +436,8 @@ describe("Game Error Cases", () => {
       const timerBefore = getTurnTimerState(roomCode)!;
 
       const res = await apiAs(wrongPlayer.userId, wrongPlayer.user.username)
-        .post("/api/games/choose-briscola")
-        .send({
-          gameRoomId: room!.id,
-          suit: "coppe",
-        });
+        .post(`/api/games/${roomCode}/briscola`)
+        .send({ suit: "coppe" });
 
       expect(res.statusCode).toBe(403);
       expect(res.body.error).toMatch(/not your turn to choose briscola/i);
@@ -494,11 +466,8 @@ describe("Game Error Cases", () => {
       )!;
 
       const res = await apiAs(correctCaller.userId, correctCaller.user.username)
-        .post("/api/games/choose-briscola")
-        .send({
-          gameRoomId: room!.id,
-          suit: "coppe",
-        });
+        .post(`/api/games/${roomCode}/briscola`)
+        .send({ suit: "coppe" });
 
       expect(res.statusCode).toBe(200);
     });
@@ -519,11 +488,11 @@ describe("Game Error Cases", () => {
       const stateRes = await apiAs(p0.userId, p0.user.username)
         .get(`/api/games/${roomCode}/state`);
 
-      const currentTurnUserId = stateRes.body.currentTurnUserId;
+      const currentTurnUserId = stateRes.body.turn.userId;
       const turnPlayer = room!.players.find((p) => p.userId === currentTurnUserId)!;
 
       const res = await apiAs(turnPlayer.userId, turnPlayer.user.username)
-        .get(`/api/games/playable-cards/${roomCode}`);
+        .get(`/api/games/${roomCode}/state`);
 
       expect(res.statusCode).toBe(200);
       expect(res.body.playableCards.length).toBe(10);
@@ -543,29 +512,27 @@ describe("Game Error Cases", () => {
       const stateRes = await apiAs(p0.userId, p0.user.username)
         .get(`/api/games/${roomCode}/state`);
 
-      const firstTurnUserId = stateRes.body.currentTurnUserId;
+      const firstTurnUserId = stateRes.body.turn.userId;
       const firstTurnPlayer = room!.players.find((p) => p.userId === firstTurnUserId)!;
 
       const playableRes = await apiAs(firstTurnPlayer.userId, firstTurnPlayer.user.username)
-        .get(`/api/games/playable-cards/${roomCode}`);
+        .get(`/api/games/${roomCode}/state`);
 
       const firstCard = playableRes.body.playableCards[0];
       await apiAs(firstTurnPlayer.userId, firstTurnPlayer.user.username)
-        .post("/api/games/play-card")
-        .send({
-          roomCode,
-          suit: firstCard.suit,
+        .post(`/api/games/${roomCode}/cards`)
+        .send({ suit: firstCard.suit,
           value: firstCard.value,
         });
 
       const newState = await apiAs(p0.userId, p0.user.username)
         .get(`/api/games/${roomCode}/state`);
 
-      const secondTurnUserId = newState.body.currentTurnUserId;
+      const secondTurnUserId = newState.body.turn.userId;
       const secondTurnPlayer = room!.players.find((p) => p.userId === secondTurnUserId)!;
 
       const secondPlayable = await apiAs(secondTurnPlayer.userId, secondTurnPlayer.user.username)
-        .get(`/api/games/playable-cards/${roomCode}`);
+        .get(`/api/games/${roomCode}/state`);
 
       expect(secondPlayable.statusCode).toBe(200);
       const secondCards = secondPlayable.body.playableCards;

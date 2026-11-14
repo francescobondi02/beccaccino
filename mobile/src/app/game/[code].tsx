@@ -12,7 +12,8 @@ import { colors } from '@/constants/theme';
 import { useSession } from '@/context/SessionContext';
 import useLiveGame from '@/hooks/useLiveGame';
 import { cardImage } from '@/lib/cardImages';
-import { cardKey, cardLabel, ourSide, signalIcons, signals, suits, teamOf, type Card, type Signal } from '@/lib/game';
+import type { Card, Signal } from '@contract/cards';
+import { cardKey, cardLabel, ourSide, signalIcons, signals, suits, teamOf } from '@/lib/game';
 import { touchFeedback } from '@/lib/haptics';
 import { playSound } from '@/lib/sound';
 import type { SessionUser } from '@/lib/session';
@@ -20,14 +21,14 @@ import type { SessionUser } from '@/lib/session';
 function GameTable({ code, user }: { code: string; user: SessionUser }) {
   const router = useRouter();
   const { retry: retrySession } = useSession();
-  const { snapshot, connection, error, needsLogin, busy, syncing, completedTrick, finishCollection, mutate, refresh } = useLiveGame(code, user);
+  const { snapshot, connection, error, needsLogin, busy, syncing, completedTrick, finishCollection, mutate, refresh } = useLiveGame(code);
   const [selection, setSelection] = useState<{ key: string; card: Card } | null>(null);
   const [signalChoice, setSignalChoice] = useState<{ key: string; signal: Signal } | null>(null);
   const [dialog, setDialog] = useState<'menu' | 'trump' | 'history' | 'abandon' | null>(null);
   const [now, setNow] = useState(Date.now);
   const reduced = useReducedMotion() !== false;
-  const { announcement, done } = useGameAnnouncements(snapshot, completedTrick, user.id);
-  const won = !!snapshot && snapshot.game.finishedGame?.winnerTeam === teamOf(snapshot.room, user.id);
+  const { announcement, done } = useGameAnnouncements(snapshot?.game ?? null, completedTrick, user.id);
+  const won = !!snapshot && snapshot.game.result?.winnerTeam === teamOf(snapshot.game.players, user.id);
   useEffect(() => { if (won) { touchFeedback('success'); playSound('win'); } }, [won]);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 500);
@@ -52,28 +53,30 @@ function GameTable({ code, user }: { code: string; user: SessionUser }) {
       <ActionButton secondary label="Torna a Gioca" onPress={() => router.replace('/play')} />
     </View>
   );
-  const { game, room, playable, receivedAt } = snapshot;
-  const dealReadyAt = receivedAt + (game.round.deal?.remainingMs ?? 0);
-  const presentingRound = now < dealReadyAt && game.status === 'choosing_briscola';
-  const showSummary = game.roundSummary !== null && presentingRound &&
-    now < dealReadyAt - (game.round.deal!.animationMs + game.round.deal!.reviewMs) && !completedTrick;
-  const controlledByBot = game.playerControls.some((p) => p.userId === user.id && p.botModel !== null);
+  const { game, clockOffset } = snapshot;
+  const serverNow = now + clockOffset;
+  const playable = game.playableCards;
+  const presentingRound = game.status === 'choosing_briscola' && game.round.deal !== null &&
+    serverNow < Date.parse(game.round.deal.reviewEndsAt);
+  const showSummary = game.roundSummary !== null && serverNow < Date.parse(game.roundSummary.visibleUntil) && !completedTrick;
+  const controlledByBot = game.players.some((p) => p.userId === user.id && p.botModel !== null);
   const enabled = connection === 'ready' && !busy && !syncing && !error && !completedTrick && !presentingRound;
-  const turnKey = `${game.round.id}:${game.currentHandNumber}:${game.currentTurnUserId}:${game.playedCards.length}`;
+  const leading = (game.trick?.cards.length ?? 0) === 0;
+  const turnKey = `${game.round.number}:${game.trick?.number}:${game.turn?.userId}:${game.trick?.cards.length}`;
   const selected = selection?.key === turnKey && playable.some((card) => cardKey(card) === cardKey(selection.card))
     ? selection : null;
-  const myTurn = game.currentTurnUserId === user.id && !controlledByBot;
-  const canChoose = enabled && game.status === 'choosing_briscola' && game.callerUserId === user.id && !controlledByBot;
+  const myTurn = game.turn?.userId === user.id && !controlledByBot;
+  const canChoose = enabled && game.status === 'choosing_briscola' && game.round.callerUserId === user.id && !controlledByBot;
   const canPlay = enabled && game.status === 'playing' && myTurn;
-  const remaining = game.turnTimer?.totalMs === null || !game.turnTimer ? null
-    : Math.max(0, Math.ceil((receivedAt + game.turnTimer.remainingMs - now) / 1000));
+  const remaining = game.turn?.deadline ? Math.max(0, Math.ceil((Date.parse(game.turn.deadline) - serverNow) / 1000)) : null;
   const paused = game.status === 'paused';
-  const finished = game.finishedGame !== null && !completedTrick;
+  const finished = game.result !== null && !completedTrick;
   const overlay = dialog !== null || paused || finished || showSummary;
   const closeDialog = () => setDialog(null);
-  const practice = room.isPractice;
-  const summary = game.roundSummary && ourSide(room, user.id, game.roundSummary.team0Points, game.roundSummary.team1Points);
-  const final = game.finishedGame && ourSide(room, user.id, game.finishedGame.finalScores.team0, game.finishedGame.finalScores.team1);
+  const practice = game.isPractice;
+  const summary = game.roundSummary &&
+    ourSide(game.players, user.id, game.roundSummary.score.team0.points, game.roundSummary.score.team1.points);
+  const final = game.result && ourSide(game.players, user.id, game.result.finalScores.team0, game.result.finalScores.team1);
   const goHome = () => router.replace('/play');
   const pause = async () => {
     setDialog('menu');
@@ -84,7 +87,7 @@ function GameTable({ code, user }: { code: string; user: SessionUser }) {
   };
   const errorAlert = error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>;
   const signal = signalChoice?.key === turnKey ? signalChoice.signal : null;
-  const signalPicker = canPlay && game.playedCards.length === 0 && <View style={styles.signalChoices}>
+  const signalPicker = canPlay && leading && <View style={styles.signalChoices}>
     <Text style={styles.signalTitle}>SEGNO?</Text>
     {signals.map((option) => <ActionButton key={option} compact secondary={signal !== option} selected={signal === option}
       label={option} glyph={`${signalIcons[option]} ${option.toUpperCase()}`}
@@ -93,8 +96,7 @@ function GameTable({ code, user }: { code: string; user: SessionUser }) {
   // Tap-tap, the Gioca button and drag-to-table all end here; only cards the server marked legal are sent.
   const play = async (card = selected?.card) => {
     if (!canPlay || !card || !playable.some((legal) => cardKey(legal) === cardKey(card))) return false;
-    const ok = await mutate('/api/games/play-card', { roomCode: code, ...card,
-      signal: game.playedCards.length === 0 ? signal : null });
+    const ok = await mutate(`/api/games/${code}/cards`, { ...card, signal: leading ? signal : null });
     if (ok) touchFeedback('play');
     return ok;
   };
@@ -108,19 +110,19 @@ function GameTable({ code, user }: { code: string; user: SessionUser }) {
           : <ActionButton label={busy ? 'Invio…' : 'Gioca'} disabled={!canPlay || !selected} onPress={() => void play()} />}
   </>;
   return <View style={styles.screen}>
-    <LiveTable room={room} game={game} userId={user.id} playable={playable} selected={selected?.card ?? null}
+    <LiveTable game={game} userId={user.id} selected={selected?.card ?? null}
       disabled={!canPlay} onSelect={(card) => setSelection({ key: turnKey, card })} onPlay={play}
       onMenu={() => void pause()} onHistory={() => setDialog('history')} controls={controls} prompt={signalPicker || null} completedTrick={completedTrick} onCollected={finishCollection} hidden={overlay} />
     <CenterToast message={announcement} onDone={done} reduced={reduced}
       sticky={connection !== 'ready' ? 'RICONNESSIONE…' : null} />
     <GameDialog title="Scegli la briscola" visible={dialog === 'trump' && !paused && !finished} onClose={closeDialog}>
       <Text style={styles.body}>Guarda la tua mano, poi scegli il seme.</Text>
-      <View style={styles.cardRow}>{game.myCards.map((card, index) =>
+      <View style={styles.cardRow}>{game.myHand.map((card, index) =>
         <Image key={cardKey(card)} source={cardImage(card)} accessible accessibilityLabel={cardLabel(card)}
           style={[styles.historyCard, index > 0 && styles.overlap]} />)}</View>
       <View style={styles.suitChoices}>{suits.map((suit) => <Pressable key={suit} accessibilityRole="button" accessibilityLabel={suit}
         accessibilityState={{ disabled: !canChoose }} disabled={!canChoose}
-        onPress={() => { touchFeedback(); void mutate('/api/games/choose-briscola', { gameRoomId: room.id, suit }).then((ok) => { if (ok) closeDialog(); }); }}
+        onPress={() => { touchFeedback(); void mutate(`/api/games/${code}/briscola`, { suit }).then((ok) => { if (ok) closeDialog(); }); }}
         style={({ pressed }) => [styles.suit, pressed && styles.suitPressed, !canChoose && styles.suitDisabled]}>
         <Image source={cardImage({ suit, value: 'asso' })} accessible={false} style={styles.suitCard} />
         <Text style={styles.suitLabel}>{suit.toUpperCase()}</Text>
@@ -143,7 +145,7 @@ function GameTable({ code, user }: { code: string; user: SessionUser }) {
       </View>
     </GameDialog>
     <GameDialog title="Ultima presa" visible={dialog === 'history' && !paused && !finished} onClose={closeDialog}>
-      {game.lastCompletedTrick && <TrickReview trick={game.lastCompletedTrick} room={room} userId={user.id} />}
+      {game.lastTrick && <TrickReview trick={game.lastTrick} players={game.players} userId={user.id} />}
     </GameDialog>
     <GameDialog title="Abbandonare la partita?" visible={dialog === 'abandon'} onClose={() => setDialog('menu')}>
       <Text style={styles.body}>{practice ? 'L’allenamento verrà archiviato e non potrai riprenderlo. Nessun effetto sulla classifica.'
@@ -158,7 +160,7 @@ function GameTable({ code, user }: { code: string; user: SessionUser }) {
     </GameDialog>
     <GameDialog title={won ? 'La partita è vostra!' : 'Vincono gli avversari'} visible={finished}>
       <View style={styles.finalBoard}><ScoreBoard us={[final?.[0] ?? 0, 0]} them={[final?.[1] ?? 0, 0]} /></View>
-      <Text style={styles.body}>{game.finishedGame?.totalRounds} mani giocate. {practice ? 'Allenamento completato.' : 'Partita conclusa.'}</Text>
+      <Text style={styles.body}>{game.result?.totalRounds} mani giocate. {practice ? 'Allenamento completato.' : 'Partita conclusa.'}</Text>
       {errorAlert}
       <ActionButton label="Torna a Gioca" disabled={busy} onPress={() => void (practice ? leave() : goHome())} />
     </GameDialog>

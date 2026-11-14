@@ -4,8 +4,9 @@ import { withRoomLock } from "../utils/roomLock";
 import { replacementBotTier } from "./botUsers";
 import { clearTurnTimer, getTurnTimerState } from "../runtime/turnTimer";
 import { recoverRoomRuntimeUnlocked } from "../runtime/recovery";
-import { publishEvent } from "../runtime/eventPublisher";
+import { markGameChanged, sendGameState } from "./gameState";
 import { logger } from "../logger";
+import type { BotTier } from "../contract/cards";
 
 type PlayerControlChange = {
   roomCode: string;
@@ -49,21 +50,26 @@ export async function changePlayerControlUnlocked(args: PlayerControlChange) {
     await recoverRoomRuntimeUnlocked(room.code);
     return { success: true };
   }
-  await prisma.player.update({
-    where: { id: player.id },
-    data: { botModel, abandonedAt, ...(args.action === "resume" ? { timeoutCount: 0 } : {}) },
+  await prisma.$transaction(async (tx) => {
+    await tx.player.update({
+      where: { id: player.id },
+      data: { botModel, abandonedAt, ...(args.action === "resume" ? { timeoutCount: 0 } : {}) },
+    });
+    await markGameChanged(tx, room.id);
   });
   if (getTurnTimerState(room.code)?.turnUserId === player.userId) {
     clearTurnTimer(room.code);
   }
   await recoverRoomRuntimeUnlocked(room.code);
-  const payload = {
-    userId: player.userId,
-    username: player.user.username,
-    botModel,
-    abandonedAt: abandonedAt?.toISOString() ?? null,
-  };
-  publishEvent(room.code, "player_control_changed", payload);
-  logger.info({ roomCode: room.code, action: args.action, ...payload }, "player_control_changed");
+  await sendGameState(
+    room.code,
+    args.action === "abandon"
+      ? { kind: "abandoned", userId: player.userId }
+      : { kind: "control_changed", userId: player.userId, botModel: botModel as BotTier | null },
+  );
+  logger.info(
+    { roomCode: room.code, action: args.action, userId: player.userId, botModel, abandonedAt },
+    "player_control_changed",
+  );
   return { success: true };
 }

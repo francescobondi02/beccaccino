@@ -11,7 +11,8 @@ import { generateUniqueRoomCode } from "./roomCode";
 import { assertNoActiveMultiplayerGame } from "./roomQueries";
 import { startFirstRound } from "../game/transitions/round";
 import { logger } from "../logger";
-import { publishEvent } from "../runtime/eventPublisher";
+import { publishRoomChanged } from "../runtime/eventPublisher";
+import { sendGameState } from "./gameState";
 import {
   readCallerPlayerId,
   readCurrentTurn,
@@ -100,6 +101,7 @@ export async function retirePracticeRoom(args: {
     });
 
     clearRuntimeRoom(room.code);
+    publishRoomChanged(room.code);
     return true;
   });
 }
@@ -248,6 +250,7 @@ export async function pausePracticeRoom(
         data: {
           pausedAt: new Date(),
           pauseEpoch: { increment: 1 },
+          version: { increment: 1 },
           lastActivityAt: new Date(),
         },
       });
@@ -264,6 +267,7 @@ export async function pausePracticeRoom(
       }
     }
     clearTurnTimer(args.roomCode);
+    if (paused) await sendGameState(args.roomCode, { kind: "paused" });
 
     const pausedRoom = await prisma.gameRoom.findUniqueOrThrow({
       where: { id: room.id },
@@ -271,14 +275,7 @@ export async function pausePracticeRoom(
     });
     return { ...pausedRoom, paused };
   });
-  if (room.paused) {
-    const payload = {
-      roomCode: args.roomCode,
-      pausedAt: room.pausedAt,
-    };
-    publishEvent(args.roomCode, "practice_paused", payload);
-    publishEvent("lobby", "practice_paused", payload);
-  }
+  if (room.paused) publishRoomChanged(args.roomCode);
   logger.info(args, "practice_game_paused");
   return {
     success: true,
@@ -328,6 +325,7 @@ export async function resumePracticeRoom(
         data: {
           pausedAt: null,
           pauseEpoch: { increment: 1 },
+          version: { increment: 1 },
           lastActivityAt: new Date(),
         },
       });
@@ -355,13 +353,10 @@ export async function resumePracticeRoom(
         turn.identity,
       );
     }
+    if (room.pausedAt !== null) await sendGameState(args.roomCode, { kind: "resumed" });
     return room.pausedAt !== null;
   });
-  if (resumed) {
-    const payload = { roomCode: args.roomCode };
-    publishEvent(args.roomCode, "practice_resumed", payload);
-    publishEvent("lobby", "practice_resumed", payload);
-  }
+  if (resumed) publishRoomChanged(args.roomCode);
   logger.info(args, "practice_game_resumed");
   return { success: true, paused: false };
 }

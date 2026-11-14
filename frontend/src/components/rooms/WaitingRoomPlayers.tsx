@@ -47,7 +47,7 @@ export default function WaitingRoomPlayers({
                     }`}
                   >
                     {player ? (
-                      initials(player.username)
+                      initials(player.user.username)
                     ) : bot ? (
                       <Bot className="h-6 w-6" />
                     ) : (
@@ -56,8 +56,8 @@ export default function WaitingRoomPlayers({
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="truncate font-semibold text-lg" title={player?.username}>
-                        {player ? player.username : bot ? "Bot alla partenza" : "In attesa..."}
+                      <p className="truncate font-semibold text-lg" title={player?.user.username}>
+                        {player ? player.user.username : bot ? "Bot alla partenza" : "In attesa..."}
                       </p>
                       {isCurrentUser && (
                         <Badge variant="secondary" className="text-xs">

@@ -154,6 +154,7 @@ model GameRoom {
   botTier        String?   // Fill empty multiplayer seats at startup; null = humans only
   pausedAt       DateTime?
   pauseEpoch     Int       @default(0)
+  version        Int       @default(0)  // Grows by one with every game state change
   createdAt      DateTime  @default(now())
   lastActivityAt DateTime  @default(now())
 

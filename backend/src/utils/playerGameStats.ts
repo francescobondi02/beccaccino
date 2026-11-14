@@ -2,8 +2,8 @@ import {
   sumRoundScores,
   decideScoreWinner,
   RoundScoreRow,
-  Team,
 } from "../domain/game/gameScore";
+import type { Team } from "../contract/cards";
 
 type StatsRound = RoundScoreRow & {
   hands: { starterId: number }[];

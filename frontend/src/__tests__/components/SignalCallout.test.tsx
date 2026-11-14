@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SignalCallout from "@/components/game/SignalCallout";
 import GameBoard from "@/components/game/GameBoard";
 import { positionPlayers } from "@/game/presentation";
-import { gameTableReducer, initialGameTableState, type GameTableState } from "@/game/state";
+import type { PlayedCard } from "@contract/game";
 
 describe("SignalCallout", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -39,31 +39,24 @@ describe("SignalCallout", () => {
 
   it("replays an identical declaration in the next trick, not when followers play", () => {
     const players = positionPlayers(["Alex", "Luca", "Giulia", "Marta"].map((username, seat) => ({
-      id: seat + 1, userId: seat + 1, username, seat, team: seat % 2, isReady: true,
-    })), 1);
-    const lead = { playerId: 1, userId: 1, suit: "denara", value: "asso", position: 0, signal: "busso" as const };
-    let state = gameTableReducer(initialGameTableState, {
-      type: "card_played", data: lead, myUserId: 1 });
-    const leadSignal = ({ playedCards }: GameTableState) => {
-      const card = playedCards.find((played) => played.position === 0);
-      return card?.signal ? { userId: card.userId, signal: card.signal, cardKey: `${card.suit}-${card.value}` } : null;
+      userId: seat + 1, username, isBot: false, seat, team: seat % 2 === 0 ? 0 : 1,
+      botModel: null, abandoned: false,
+    }) as const), 1);
+    const lead: PlayedCard = { userId: 1, suit: "denara", value: "asso", signal: "busso" };
+    const board = (playedCards: PlayedCard[]) => {
+      const first = playedCards[0];
+      return (
+        <GameBoard players={players} currentTurnUserId={null}
+          currentSignal={first.signal ? { userId: first.userId, signal: first.signal, cardKey: `${first.suit}-${first.value}` } : null}
+          countdown={null} playedCards={playedCards} briscola="denara"
+          callerUserId={1} currentUserId={1} hand={[]} playableCards={[]} onCardClick={vi.fn()} />
+      );
     };
-    const board = (current: GameTableState) => (
-      <GameBoard players={players} currentTurnUserId={null} currentSignal={leadSignal(current)}
-        countdown={null} playedCards={current.playedCards} briscola="denara"
-        callerUserId={1} currentUserId={1} hand={[]} playableCards={[]} onCardClick={vi.fn()} />
-    );
-    const { rerender } = render(board(state));
+    const { rerender } = render(board([lead]));
     act(() => vi.advanceTimersByTime(2800));
-    state = gameTableReducer(state, {
-      type: "card_played", data: { ...lead, userId: 2, playerId: 2, position: 1, signal: null },
-      myUserId: 1,
-    });
-    rerender(board(state));
+    rerender(board([lead, { ...lead, userId: 2, signal: null }]));
     expect(screen.queryByText("busso!")).not.toBeInTheDocument();
-    state = gameTableReducer(state, {
-      type: "card_played", data: { ...lead, value: "tre", handNumber: 2 }, myUserId: 1 });
-    rerender(board(state));
+    rerender(board([{ ...lead, value: "tre" }]));
     expect(screen.getByText("busso!")).toBeInTheDocument();
   });
 });
