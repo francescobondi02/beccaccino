@@ -19,15 +19,11 @@ import {
   Value,
   VALUES,
 } from "../../domain/game/cards";
-import {
-  resolveCaller as resolveCallerRule,
-  nextCallerPlayerId,
-} from "../../domain/game/turnOrder";
+import { nextCallerPlayerId } from "../../domain/game/turnOrder";
 import {
   isSameTurn,
   TurnIdentity,
 } from "../turn";
-import { readCallerPlayerId } from "../snapshots/turnState";
 import { roundDealRemainingMs } from "../../gameConfig";
 import { BotTier } from "../../services/botUsers";
 import { restoreBotSeats } from "../../runtime/botRegistry";
@@ -114,7 +110,7 @@ type RoundSetupResult = {
   gameRoomId: number;
   roundNumber: number;
   roundId: number;
-  callerPlayerId: number;
+  callerId: number;
   createdAt: Date;
 };
 
@@ -166,69 +162,46 @@ export async function setupRound(
     }
   }
 
-  const previousRound = await tx.round.findFirst({
-    where: { gameRoomId, number: roundNumber - 1 },
-    include: { hands: { orderBy: { number: "asc" } } },
-  });
+  const deck = shuffleDeck(generateDeck());
+  const cardsPerPlayer = 10;
+  const hands = players.map((player, index) => ({
+    playerId: player.id,
+    cards: deck.slice(index * cardsPerPlayer, (index + 1) * cardsPerPlayer),
+  }));
 
-  const newRoundNumber = previousRound ? previousRound.number + 1 : 1;
-
-  let callerPlayerId: number;
+  let callerId: number | null;
+  if (roundNumber === 1) {
+    callerId =
+      hands.find((hand) =>
+        hand.cards.some(
+          (card) => card.suit === Suit.denara && card.value === Value.quattro,
+        ),
+      )?.playerId ?? null;
+  } else {
+    const previousRound = await tx.round.findUniqueOrThrow({
+      where: { gameRoomId_number: { gameRoomId, number: roundNumber - 1 } },
+      select: { callerId: true },
+    });
+    callerId = nextCallerPlayerId(players, previousRound.callerId);
+  }
+  if (callerId === null) {
+    throw new Error("Could not find the briscola caller for this round");
+  }
 
   const round = await tx.round.create({
-    data: {
-      number: newRoundNumber,
-      briscola: null,
-      gameRoomId: gameRoomId,
-    },
+    data: { number: roundNumber, gameRoomId, callerId },
   });
-
-  const deck = shuffleDeck(generateDeck());
-
-  const cardsPerPlayer = 10;
-  let playerWithQuattroDenara: number | null = null;
-  for (let i = 0; i < players.length; i++) {
-    const playerId = players[i].id;
-    const handCards = deck.slice(i * cardsPerPlayer, (i + 1) * cardsPerPlayer);
-
-    if (
-      handCards.some(
-        (card) => card.suit === Suit.denara && card.value === Value.quattro,
-      )
-    ) {
-      playerWithQuattroDenara = playerId;
-    }
-
-    await tx.playerCard.createMany({
-      data: handCards.map((card) => ({
-        playerId: playerId,
-        suit: card.suit,
-        value: card.value,
-        roundId: round.id,
-      })),
-    });
-  }
-
-  // Determine the briscola caller for this round
-  if (newRoundNumber === 1) {
-    callerPlayerId = playerWithQuattroDenara!;
-  } else {
-    const nextCaller = resolveCallerRule({
-      roundNumber: newRoundNumber,
-      previousCaller: previousRound!.hands[0].starterId,
-      nextCaller: (caller) => nextCallerPlayerId(players, caller),
-    });
-    if (nextCaller === null) {
-      throw new Error("Could not rotate briscola caller from previous round");
-    }
-    callerPlayerId = nextCaller;
-  }
+  await tx.handCard.createMany({
+    data: hands.flatMap((hand) =>
+      hand.cards.map((card) => ({ ...card, playerId: hand.playerId, roundId: round.id })),
+    ),
+  });
 
   return {
     gameRoomId,
-    roundNumber: newRoundNumber,
+    roundNumber,
     roundId: round.id,
-    callerPlayerId,
+    callerId,
     createdAt: round.createdAt,
   };
 }
@@ -278,7 +251,7 @@ export async function startFirstRound(
           where: { gameRoomId },
           select: { id: true, userId: true, botModel: true },
         });
-        const caller = players.find((player) => player.id === roundSetup.callerPlayerId);
+        const caller = players.find((player) => player.id === roundSetup.callerId);
         if (!caller) throw new Error("Briscola caller not found");
 
         return {
@@ -298,7 +271,7 @@ export async function startFirstRound(
       pauseEpoch,
       {
         roundId: roundSetup.roundId,
-        handId: null,
+        trickId: null,
         playedCardCount: 0,
       },
       roundDealRemainingMs({
@@ -359,28 +332,24 @@ async function setBriscolaUnlocked({
     expectedTurn &&
     !isSameTurn(expectedTurn, {
       roundId: currentRound.id,
-      handId: null,
+      trickId: null,
       playedCardCount: 0,
     })
   ) {
     throw new RuntimeTurnCancelledError();
   }
 
-  const callerPlayerId = await readCallerPlayerId(
-    currentRound,
-    gameRoom.players,
-  );
-  if (player.id !== callerPlayerId) {
+  if (player.id !== currentRound.callerId) {
     throw new GameError("It's not your turn to choose briscola", 403);
   }
 
   // Check for Cricca: caller has Tre + Due + Asso of the chosen briscola suit
-  const callerCards = await prisma.playerCard.findMany({
+  const callerCards = await prisma.handCard.findMany({
     where: { playerId: player.id, roundId: currentRound.id },
   });
   const hasCricca = detectCricca(callerCards, suit);
 
-  const firstHand = await prisma.$transaction(async (tx) => {
+  const firstTrick = await prisma.$transaction(async (tx) => {
     await claimPracticeTransition(tx, gameRoom, expectedPauseEpoch);
     if (player.botModel === null) {
       await tx.player.update({
@@ -396,7 +365,7 @@ async function setBriscolaUnlocked({
       throw new GameError("Briscola already set for this round", 409);
     }
     await markGameChanged(tx, gameRoom.id);
-    return tx.hand.create({
+    return tx.trick.create({
       data: {
         roundId: currentRound.id,
         number: 1,
@@ -409,7 +378,7 @@ async function setBriscolaUnlocked({
     {
       roomCode,
       roundNumber: currentRound.number,
-      callerPlayerId: player.id,
+      callerId: player.id,
       briscola: suit,
       cricca: hasCricca,
     },
@@ -423,7 +392,7 @@ async function setBriscolaUnlocked({
     gameRoom.pauseEpoch,
     {
       roundId: currentRound.id,
-      handId: firstHand.id,
+      trickId: firstTrick.id,
       playedCardCount: 0,
     },
   );

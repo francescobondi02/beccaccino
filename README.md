@@ -29,6 +29,8 @@ make reset   # delete the database and dependency volumes, then start fresh
 make qr      # print the Expo Go URL and QR code again
 ```
 
+After pulling Phase 3a, run `make reset` (drops the local databases).
+
 | Service | URL |
 | --- | --- |
 | Web | http://localhost:8081 |
@@ -82,9 +84,8 @@ make qr      # print the Expo Go URL and QR code again
   Python in `ai/becca_env/` (`rules.py:compute_round_scores`,
   `rules.py:determine_hand_winner`, `game.py:BeccaGame`). Seats {0,2} are
   team 0 and seats {1,3} are team 1 (`ai/becca_env/game.py:TEAM_OF_SEAT`).
-- Round scores are stored as separate points and figures columns
-  (`backend/prisma/schema.prisma:Round`). Recover raw points with
-  `raw = points * 3 + figures`.
+- Round scores are stored as raw points (`Round.team0Raw`/`team1Raw` in
+  `backend/prisma/schema.prisma`). Real points are `raw // 3`, figures `raw % 3`.
 - Card suits and values cross the backend-to-bot boundary as the lowercase
   Prisma enum strings (`denara`, `asso`, ...), never as indices
   (`ai/serving/state_adapter.py:_card`).

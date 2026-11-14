@@ -20,9 +20,7 @@ src/
   game/turn.ts             Shared turn phase, identity, and comparison
   runtime/                 Timers, bots, timeout policy, recovery, publication
   services/                Room operations/queries, account, stats
-  practice/                Practice archive payload version, types, parser
   sockets/room.ts          Presence and chat handlers
-  scripts/                 Practice JSONL export
 ```
 
 Controllers parse input, call one operation, and return the result. Do not add
@@ -41,8 +39,8 @@ Use these entry points when following the game:
 - `domain/game/trickWinner.ts`, `roundScore.ts`, `gameScore.ts`: pure rules at each scope.
 
 Use explicit `userId` and `playerId` names. `playerTeams` maps player IDs to
-teams. A trick is one four-card play; a hand is the cards held by a player.
-Prisma's `Hand` model and existing `hand*` API fields retain their legacy names.
+teams. A trick is one four-card play (`Trick`); a hand is the cards held by a
+player (`HandCard`).
 
 ## Call Flow
 
@@ -164,10 +162,9 @@ local `becca_test` URL hard-coded in `package.json`; it never targets another
 host or database and does not reset data. Integration
 tests use the shared reset in `tests/helpers/database.ts`.
 
-Practice retirement archives and deletes in one transaction. Runtime state is
-cleared only after successful deletion, so archive/delete failure leaves both
-the room and runtime available for retry. The versioned JSON payload contract
-is in `practice/matchPayload.ts` and is shared by archive creation and export.
+Practice retirement deletes the game rows in one transaction. Runtime state is
+cleared only after successful deletion, so a delete failure leaves both the
+room and runtime available for retry.
 
 ## Verification
 

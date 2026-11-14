@@ -6,7 +6,7 @@ beforeEach(async () => {
   await clearDatabase();
 });
 
-async function createCallerTieGame() {
+async function createFinishedGame() {
   const users = [];
   for (const username of ["tieA", "tieB", "tieC", "tieD"]) {
     users.push(
@@ -17,7 +17,7 @@ async function createCallerTieGame() {
   }
 
   const room = await prisma.gameRoom.create({
-    data: { code: "TIE001", started: true, finished: true },
+    data: { code: "TIE001", started: true, finished: true, winnerTeam: 1 },
   });
   const players = [];
   for (let index = 0; index < users.length; index++) {
@@ -36,31 +36,33 @@ async function createCallerTieGame() {
   const round = await prisma.round.create({
     data: {
       gameRoomId: room.id,
+      callerId: players[1].id,
       number: 1,
       briscola: "coppe",
-      team0Points: 5,
-      team1Points: 5,
+      team0Raw: 15,
+      team1Raw: 15,
       winnerTeam: 0,
     },
   });
-  const hand = await prisma.hand.create({
+  const trick = await prisma.trick.create({
     data: {
       roundId: round.id,
       number: 1,
       starterId: players[1].id,
       winnerId: players[0].id,
+      completedAt: new Date(),
     },
   });
 
-  return { users, players, round, hand };
+  return { users, players, round, trick };
 }
 
-describe("Caller-tie statistics", () => {
+describe("Stored winner statistics", () => {
   it("derives signals, tricks and enemy aces from persisted cards on refresh", async () => {
-    const { users, players, hand } = await createCallerTieGame();
+    const { users, players, trick } = await createFinishedGame();
     await prisma.playedCard.createMany({
       data: players.map((player, position) => ({
-        handId: hand.id,
+        trickId: trick.id,
         playerId: player.id,
         position,
         suit: (["denara", "coppe", "spade", "bastoni"] as const)[position],
@@ -83,8 +85,8 @@ describe("Caller-tie statistics", () => {
     ]);
   });
 
-  it("restores the final caller's team as winner for every player", async () => {
-    const { users } = await createCallerTieGame();
+  it("returns the stored winner to every player", async () => {
+    const { users } = await createFinishedGame();
 
     for (const user of users) {
       const response = await apiAs(user.id, user.username).get(
@@ -105,8 +107,8 @@ describe("Caller-tie statistics", () => {
     }
   });
 
-  it("reports the final caller's team as the profile winner", async () => {
-    const { users } = await createCallerTieGame();
+  it("reports the stored winner in profile stats", async () => {
+    const { users } = await createFinishedGame();
 
     const winner = await apiAs(users[1].id, users[1].username).get(
       "/api/users/me/stats",
@@ -123,8 +125,8 @@ describe("Caller-tie statistics", () => {
     expect(loser.body.recentGames[0].result).toBe("Sconfitta");
   });
 
-  it("awards exactly two leaderboard wins to the caller's team", async () => {
-    const { users } = await createCallerTieGame();
+  it("awards exactly two leaderboard wins to the stored winner team", async () => {
+    const { users } = await createFinishedGame();
 
     const response = await apiAs(users[0].id, users[0].username).get(
       "/api/users/leaderboard",

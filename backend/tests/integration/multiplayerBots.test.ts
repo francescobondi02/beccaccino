@@ -95,7 +95,7 @@ describe("Multiplayer bot filling", () => {
       expect(botTierForTurn(code, bot.userId)).toBe("forte");
     }
     expect(room.rounds).toHaveLength(1);
-    expect(await prisma.playerCard.count({ where: { roundId: room.rounds[0].id } })).toBe(40);
+    expect(await prisma.handCard.count({ where: { roundId: room.rounds[0].id } })).toBe(40);
     expect(stub.readyTiers).toEqual(users.length < 4 ? ["forte"] : []);
     const timer = getTurnTimerState(code)!;
     expect(timer.isBot).toBe(bots.some((bot) => bot.userId === timer.turnUserId));
@@ -217,7 +217,7 @@ describe("Multiplayer bot filling", () => {
       tier: "forte",
       phase: "choose_briscola",
       expectedPauseEpoch: room.pauseEpoch,
-      expectedTurn: { roundId: room.rounds[0].id, handId: null, playedCardCount: 0 },
+      expectedTurn: { roundId: room.rounds[0].id, trickId: null, playedCardCount: 0 },
     });
     expect(stub.requests).toHaveLength(1);
     expect((await loadRoom(code)).rounds[0].briscola).toBe("coppe");
@@ -233,13 +233,10 @@ describe("Multiplayer bot filling", () => {
     await client.post(`/api/rooms/${code}/ready`).send({ isReady: true });
     clearRuntimeRoom(code);
     const room = await loadRoom(code);
-    await prisma.gameRoom.update({ where: { id: room.id }, data: { finished: true } });
+    await prisma.gameRoom.update({ where: { id: room.id }, data: { finished: true, winnerTeam: 0 } });
     await prisma.round.update({
       where: { id: room.rounds[0].id },
-      data: {
-        briscola: "coppe", winnerTeam: 0, team0Points: 6, team1Points: 5,
-        hands: { create: { number: 1, starterId: room.players[0].id } },
-      },
+      data: { briscola: "coppe", winnerTeam: 0, team0Raw: 18, team1Raw: 15 },
     });
     const stats = await client.get("/api/users/me/stats");
     expect(stats.statusCode).toBe(200);

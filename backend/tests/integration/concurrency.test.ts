@@ -20,22 +20,22 @@ describe("Concurrent play-card requests", () => {
       include: { players: { include: { user: true } } },
     });
 
-    const currentHand = await prisma.hand.findFirst({
+    const currentTrick = await prisma.trick.findFirst({
       where: { roundId: round.id },
       orderBy: { number: "desc" },
     });
 
-    const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
+    const starter = room!.players.find((p) => p.id === currentTrick!.starterId)!;
     // Use the starter's partner (2 seats away): never next in turn order, so
     // their play stays illegal even if the lock runs the starter's play first.
     const otherPlayer = room!.players.find(
       (p) => p.seat === (starter.seat! + 2) % 4,
     )!;
 
-    const starterCard = await prisma.playerCard.findFirst({
+    const starterCard = await prisma.handCard.findFirst({
       where: { playerId: starter.id, roundId: round.id },
     });
-    const otherCard = await prisma.playerCard.findFirst({
+    const otherCard = await prisma.handCard.findFirst({
       where: { playerId: otherPlayer.id, roundId: round.id },
     });
 
@@ -68,14 +68,14 @@ describe("Concurrent play-card requests", () => {
       include: { players: { include: { user: true } } },
     });
 
-    const currentHand = await prisma.hand.findFirst({
+    const currentTrick = await prisma.trick.findFirst({
       where: { roundId: round.id },
       orderBy: { number: "desc" },
     });
 
-    const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
+    const starter = room!.players.find((p) => p.id === currentTrick!.starterId)!;
 
-    const starterCard = await prisma.playerCard.findFirst({
+    const starterCard = await prisma.handCard.findFirst({
       where: { playerId: starter.id, roundId: round.id },
     });
 
@@ -112,22 +112,22 @@ describe("Concurrent play-card requests", () => {
       include: { players: { include: { user: true } } },
     });
 
-    const currentHand = await prisma.hand.findFirst({
+    const currentTrick = await prisma.trick.findFirst({
       where: { roundId: round.id },
       orderBy: { number: "desc" },
     });
 
-    const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
+    const starter = room!.players.find((p) => p.id === currentTrick!.starterId)!;
     // Use the starter's partner (2 seats away): never next in turn order, so
     // their play stays illegal even if the lock runs the starter's play first.
     const otherPlayer = room!.players.find(
       (p) => p.seat === (starter.seat! + 2) % 4,
     )!;
 
-    const starterCard = await prisma.playerCard.findFirst({
+    const starterCard = await prisma.handCard.findFirst({
       where: { playerId: starter.id, roundId: round.id },
     });
-    const otherCard = await prisma.playerCard.findFirst({
+    const otherCard = await prisma.handCard.findFirst({
       where: { playerId: otherPlayer.id, roundId: round.id },
     });
 
@@ -145,16 +145,16 @@ describe("Concurrent play-card requests", () => {
     ]);
 
     const playedCards = await prisma.playedCard.findMany({
-      where: { handId: currentHand!.id },
+      where: { trickId: currentTrick!.id },
     });
     expect(playedCards.length).toBe(1);
 
-    const starterRemainingCards = await prisma.playerCard.findMany({
+    const starterRemainingCards = await prisma.handCard.findMany({
       where: { playerId: starter.id, roundId: round.id },
     });
     expect(starterRemainingCards.length).toBe(9);
 
-    const otherRemainingCards = await prisma.playerCard.findMany({
+    const otherRemainingCards = await prisma.handCard.findMany({
       where: { playerId: otherPlayer.id, roundId: round.id },
     });
     expect(otherRemainingCards.length).toBe(10);

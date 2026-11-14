@@ -53,7 +53,7 @@ export async function autoChooseBriscola(
     throw new Error("No briscola choice found for the current runtime turn");
   }
 
-  const cards = await prisma.playerCard.findMany({
+  const cards = await prisma.handCard.findMany({
     where: { playerId: player.id, roundId: room.rounds[0].id },
   });
   const counts = new Map<Suit, number>();

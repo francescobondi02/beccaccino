@@ -96,6 +96,25 @@ describe("Leaderboard API", () => {
       expect(res.body.leaderboard[3].wins).toBe(0);
     });
 
+    it("ignores finished games without a winner", async () => {
+      const { roomCode, round, cards } = await setupGame();
+      await chooseBriscola(roomCode, round, cards);
+      await oneRound(roomCode, round);
+      const counted = await request(getServer()).get("/api/users/leaderboard");
+      expect(counted.body.leaderboard.length).toBeGreaterThan(0);
+      const room = await prisma.gameRoom.update({
+        where: { code: roomCode },
+        data: { winnerTeam: null },
+        include: { players: { include: { user: true } } },
+      });
+
+      const res = await request(getServer()).get("/api/users/leaderboard");
+      expect(res.body.leaderboard).toHaveLength(0);
+      const { userId, user } = room.players[0];
+      const stats = await apiAs(userId, user.username).get("/api/users/me/stats");
+      expect(stats.body.totalGames).toBe(0);
+    });
+
     it("does not include players who only have unfinished games", async () => {
       // Create a user in a room that hasn't started
       const registerRes = await api()

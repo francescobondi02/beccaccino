@@ -1,7 +1,7 @@
 import {
   setupGame,
   chooseBriscola,
-  oneHand,
+  oneTrick,
   oneRound,
 } from "../helpers/gameDriver";
 import { prisma } from "../../src/db";
@@ -29,7 +29,7 @@ describe("Game flow", () => {
     } as any);
     try {
       await chooseBriscola(roomCode, round, cards);
-      await oneHand(roomCode, round, 1);
+      await oneTrick(roomCode, round, 1);
     } finally {
       setSocketInstance(originalIo);
     }
@@ -113,10 +113,10 @@ describe("Game flow", () => {
     expect(state.body.result.statistics.players.reduce(
       (total: number, player: { tricksWon: number }) => total + player.tricksWon, 0,
     )).toBe(10);
-    const lastHand = await prisma.hand.findFirstOrThrow({
+    const finalTrick = await prisma.trick.findFirstOrThrow({
       where: { roundId: round.id }, orderBy: { number: "desc" },
     });
-    const winner = await prisma.player.findUniqueOrThrow({ where: { id: lastHand.winnerId! } });
+    const winner = await prisma.player.findUniqueOrThrow({ where: { id: finalTrick.winnerId! } });
     expect(state.body.lastTrick).toMatchObject({
       roundNumber: 1, trickNumber: 10, winnerUserId: winner.userId,
     });
@@ -177,7 +177,7 @@ describe("Game flow", () => {
       where: { code: roomCode },
       data: { lastActivityAt: staleActivity },
     });
-    await oneHand(roomCode, round, 1);
+    await oneTrick(roomCode, round, 1);
 
     const afterCardPlay = await prisma.gameRoom.findUniqueOrThrow({
       where: { code: roomCode },

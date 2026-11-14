@@ -6,7 +6,7 @@ interface GameScoreHeaderProps {
   roomCode: string | undefined;
   briscola: string | null | undefined;
   roundNumber: number | undefined;
-  handNumber: number | null;
+  trickNumber: number | null;
   playerTeam: number | null;
   totalPoints: Score;
 }
@@ -15,7 +15,7 @@ export default function GameScoreHeader({
   roomCode,
   briscola,
   roundNumber,
-  handNumber,
+  trickNumber,
   playerTeam,
   totalPoints,
 }: GameScoreHeaderProps) {
@@ -33,9 +33,9 @@ export default function GameScoreHeader({
           className="arcade-score-panel circolo-panel border-[hsl(39_45%_50%_/_0.6)] px-5 py-2.5 backdrop-blur-sm"
           data-testid="team-points-panel"
         >
-          {handNumber && roundNumber && (
+          {trickNumber && roundNumber && (
             <div className="text-center text-xs text-muted-foreground mb-2 border-b border-border pb-1">
-              Smazzata {roundNumber} &middot; Presa {handNumber}/10
+              Smazzata {roundNumber} &middot; Presa {trickNumber}/10
             </div>
           )}
           <div className="flex items-center gap-6">

@@ -37,84 +37,21 @@ enum Value {
 // User
 // ===========
 model User {
-  id                      Int       @id @default(autoincrement())
-  username                String    @unique
-  email                   String?   @unique          // Email opzionale per OAuth
-  password                String?                    // Password opzionale (null per OAuth)
-  isBot                   Boolean   @default(false)  // Bot account: excluded from leaderboard/stats
-  expertAccessGrantedAt   DateTime?
+  id        Int       @id @default(autoincrement())
+  username  String    @unique
+  email     String?   @unique          // Email opzionale per OAuth
+  password  String?                    // Password opzionale (null per OAuth)
+  isBot     Boolean   @default(false)  // Bot account: excluded from leaderboard/stats
 
   // OAuth fields
-  googleId  String?  @unique          // Google OAuth ID
+  googleId  String?   @unique          // Google OAuth ID
 
   // Metadata
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt @default(now())
-  deletedAt DateTime?                // Set when the account is anonymized (soft delete)
+  deletedAt DateTime?                  // Set when the account is anonymized (soft delete)
 
-  players             Player[]
-  expertAnnotations   ExpertAnnotation[]
-}
-
-// =================
-// Expert annotation
-// =================
-model AnnotationScenario {
-  id                  Int      @id @default(autoincrement())
-  code                String   @unique
-  decisionType        String   @default("play_card")
-  predictedDifficulty String
-  importance          Int
-  tags                String[]
-  state               Json
-  stateHash           String   @unique
-  sourceBatch         String
-  active              Boolean  @default(true)
-  createdAt           DateTime @default(now())
-
-  annotations ExpertAnnotation[]
-
-  @@index([active, predictedDifficulty])
-}
-
-model ExpertAnnotation {
-  id                  Int      @id @default(autoincrement())
-  userId              Int
-  scenarioId          Int
-  scenarioHash        String
-  selectedSuit        Suit?
-  selectedValue       Value?
-  selectedSignal      String?
-  selectedBriscola    Suit?
-  skipped             Boolean  @default(false)
-  comment             String?
-  perceivedDifficulty String
-  responseTimeMs      Int
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt @default(now())
-
-  user     User               @relation(fields: [userId], references: [id])
-  scenario AnnotationScenario @relation(fields: [scenarioId], references: [id])
-
-  @@unique([userId, scenarioId])
-  @@index([scenarioId])
-}
-
-// ==============
-// PracticeMatch
-// ==============
-// A finished or abandoned practice game, snapshotted just before its live rows
-// are deleted (see services/practiceArchive.ts). One row per game: the whole
-// match lives in `payload`, so nothing here needs the game tables to survive.
-model PracticeMatch {
-  id            Int      @id @default(autoincrement())
-  humanSeat     Int
-  botTier       String   // Difficulty the three bots played at
-  completed     Boolean  // false = abandoned before a team reached the win score
-  schemaVersion Int      // Payload and replay rules, so old games stay readable
-  payload       Json
-  startedAt     DateTime
-  endedAt       DateTime // Last move in the game, not the archive time
+  players   Player[]
 }
 
 // ===========
@@ -132,10 +69,13 @@ model Player {
   userId     Int
   gameRoomId Int
 
-  user       User      @relation(fields: [userId], references: [id])
-  gameRoom   GameRoom  @relation(fields: [gameRoomId], references: [id])
-  playedCards PlayedCard[]
-  playerCards PlayerCard[]
+  user          User      @relation(fields: [userId], references: [id])
+  gameRoom      GameRoom  @relation(fields: [gameRoomId], references: [id])
+  playedCards   PlayedCard[]
+  handCards     HandCard[]
+  calledRounds  Round[]
+  startedTricks Trick[]   @relation("startedTricks")
+  wonTricks     Trick[]   @relation("wonTricks")
   @@unique([gameRoomId, seat])
   @@unique([gameRoomId, userId])
   @@index([userId])
@@ -150,6 +90,7 @@ model GameRoom {
   code           String    @unique  // tipo "ABCD"
   started        Boolean   @default(false)
   finished       Boolean   @default(false)
+  winnerTeam     Int?      // 0 or 1; null while playing or when the game ended with no winner
   isPractice     Boolean   @default(false)  // Human vs bots: excluded from all aggregates
   botTier        String?   // Fill empty multiplayer seats at startup; null = humans only
   pausedAt       DateTime?
@@ -163,43 +104,45 @@ model GameRoom {
 }
 
 // ===========
-// Hand
-// ===========
-model Hand {
-  id         Int       @id @default(autoincrement())
-  number     Int               // 1–10
-  roundId    Int
-  starterId  Int               // playerId che ha iniziato la mano
-  winnerId   Int?              // playerId che ha preso
-  createdAt  DateTime  @default(now())
-
-  round      Round     @relation(fields: [roundId], references: [id])
-  cards      PlayedCard[]
-  @@unique([roundId, number])
-}
-
-// ===========
 // Round
 // ===========
 model Round {
   id          Int       @id @default(autoincrement())
   number      Int                 // 1, 2, 3, ...
+  callerId    Int                 // Chooses the briscola and leads trick 1
   briscola    Suit?               // fissata a inizio round
-  // null = scelta precedente al tracciamento; true = scelta dal server
-  briscolaAutoChosen Boolean?
+  briscolaAutoChosen Boolean @default(false) // true = the server chose after a timeout or bot failure
   cricca      Boolean   @default(false) // true se il caller ha Tre+Due+Asso di briscola
   gameRoomId  Int
-  winnerTeam  Int?                // 0 o 1 (oppure nullable finché non finisce)
-  team0Points Int       @default(0) // Punti team 0
-  team1Points Int       @default(0) // Punti team 1
-  team0Figures Int      @default(0) // Figure team 0 (1/3 di punto)
-  team1Figures Int      @default(0) // Figure team 1 (1/3 di punto)
+  winnerTeam  Int?                // 0 or 1; null until the round ends
+  team0Raw    Int       @default(0) // Points in thirds: real points = raw / 3, figures = raw % 3
+  team1Raw    Int       @default(0)
   createdAt   DateTime  @default(now())
 
+  caller      Player    @relation(fields: [callerId], references: [id])
   gameRoom    GameRoom  @relation(fields: [gameRoomId], references: [id])
-  hands       Hand[]
-  playerCards PlayerCard[]
+  tricks      Trick[]
+  handCards   HandCard[]
   @@unique([gameRoomId, number])
+}
+
+// ===========
+// Trick
+// ===========
+model Trick {
+  id          Int       @id @default(autoincrement())
+  number      Int               // 1–10
+  roundId     Int
+  starterId   Int
+  winnerId    Int?
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  round       Round     @relation(fields: [roundId], references: [id])
+  starter     Player    @relation("startedTricks", fields: [starterId], references: [id])
+  winner      Player?   @relation("wonTricks", fields: [winnerId], references: [id], onDelete: Restrict)
+  cards       PlayedCard[]
+  @@unique([roundId, number])
 }
 
 // ===========
@@ -207,34 +150,32 @@ model Round {
 // ===========
 model PlayedCard {
   id       Int     @id @default(autoincrement())
-  handId   Int
+  trickId  Int
   playerId Int
   suit     Suit       // "coppe", "denara", ...
   value    Value      // "asso", "due", "re", etc.
   position Int       // ordine di gioco: 0–3
   signal   String?    // "striscio" | "busso" | "volo" | null
-  // true quando la carta è stata scelta dal server, non dal proprietario del
-  // posto: timeout di un umano, oppure fallback quando il bot service fallisce.
-  // Serve per escludere queste mosse dai dati di training.
-  // null = giocata precedente al tracciamento
-  autoPlayed Boolean?
+  // true when the server chose the card instead of the seat owner: a human
+  // timeout or a bot service failure. Excluded from training data.
+  autoPlayed Boolean @default(false)
 
-  hand     Hand   @relation(fields: [handId], references: [id])
+  trick    Trick  @relation(fields: [trickId], references: [id])
   player   Player @relation(fields: [playerId], references: [id])
-  @@unique([handId, position])
+  @@unique([trickId, position])
   @@index([playerId])
 }
 
 // ===========
-// PlayerCard
+// HandCard
 // ===========
-model PlayerCard {
+// A card a player still holds in the current round. Playing it deletes the row.
+model HandCard {
   id         Int    @id @default(autoincrement())
   playerId   Int
   roundId    Int
   suit       Suit
   value      Value
-  inHand     Boolean @default(true) // true finché non giocata
 
   player     Player @relation(fields: [playerId], references: [id])
   round      Round  @relation(fields: [roundId], references: [id])

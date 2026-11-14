@@ -81,14 +81,14 @@ describe("Game Error Cases", () => {
         include: { players: { include: { user: true } } },
       });
 
-      const currentHand = await prisma.hand.findFirst({
+      const currentTrick = await prisma.trick.findFirst({
         where: { roundId: round.id },
         orderBy: { number: "desc" },
       });
 
-      const wrongPlayer = room!.players.find((p) => p.id !== currentHand!.starterId)!;
+      const wrongPlayer = room!.players.find((p) => p.id !== currentTrick!.starterId)!;
 
-      const wrongPlayerCard = await prisma.playerCard.findFirst({
+      const wrongPlayerCard = await prisma.handCard.findFirst({
         where: { playerId: wrongPlayer.id, roundId: round.id },
       });
       const timerBefore = getTurnTimerState(roomCode)!;
@@ -108,7 +108,7 @@ describe("Game Error Cases", () => {
       const { roomCode, round, cards } = await setupGame();
       await chooseBriscola(roomCode, round, cards);
 
-      const currentHand = await prisma.hand.findFirst({
+      const currentTrick = await prisma.trick.findFirst({
         where: { roundId: round.id },
         orderBy: { number: "desc" },
       });
@@ -118,9 +118,9 @@ describe("Game Error Cases", () => {
         include: { players: { include: { user: true } } },
       });
 
-      const starter = room!.players.find((p) => p.id === currentHand!.starterId)!;
+      const starter = room!.players.find((p) => p.id === currentTrick!.starterId)!;
 
-      const starterCards = await prisma.playerCard.findMany({
+      const starterCards = await prisma.handCard.findMany({
         where: { playerId: starter.id, roundId: round.id },
       });
 
@@ -129,7 +129,7 @@ describe("Game Error Cases", () => {
       let otherCard: { suit: string; value: string } | null = null;
 
       for (const otherPlayer of otherPlayers) {
-        const otherCards = await prisma.playerCard.findMany({
+        const otherCards = await prisma.handCard.findMany({
           where: { playerId: otherPlayer.id, roundId: round.id },
         });
         for (const candidate of otherCards) {
@@ -166,17 +166,17 @@ describe("Game Error Cases", () => {
         where: { code: roomCode },
         include: { players: { include: { user: true } } },
       });
-      const hand = await prisma.hand.findFirst({
+      const trick = await prisma.trick.findFirst({
         where: { roundId: round.id },
       });
-      const starter = room!.players.find((p) => p.id === hand!.starterId)!;
+      const starter = room!.players.find((p) => p.id === trick!.starterId)!;
       const nextPlayer = room!.players.find(
         (p) => p.seat === (starter.seat! + 1) % 4,
       )!;
-      const starterCard = await prisma.playerCard.findFirst({
+      const starterCard = await prisma.handCard.findFirst({
         where: { playerId: starter.id, roundId: round.id },
       });
-      const nextCards = await prisma.playerCard.findMany({
+      const nextCards = await prisma.handCard.findMany({
         where: { playerId: nextPlayer.id, roundId: round.id },
         orderBy: { id: "asc" },
       });
@@ -184,11 +184,11 @@ describe("Game Error Cases", () => {
         (suit) => suit !== starterCard!.suit,
       )!;
 
-      await prisma.playerCard.update({
+      await prisma.handCard.update({
         where: { id: nextCards[0].id },
         data: { suit: starterCard!.suit },
       });
-      const illegalCard = await prisma.playerCard.update({
+      const illegalCard = await prisma.handCard.update({
         where: { id: nextCards[1].id },
         data: { suit: offSuit },
       });
@@ -220,11 +220,11 @@ describe("Game Error Cases", () => {
         where: { code: roomCode },
         include: { players: { include: { user: true } } },
       });
-      const hand = await prisma.hand.findFirst({
+      const trick = await prisma.trick.findFirst({
         where: { roundId: round.id },
       });
-      const starter = room!.players.find((p) => p.id === hand!.starterId)!;
-      const card = await prisma.playerCard.findFirst({
+      const starter = room!.players.find((p) => p.id === trick!.starterId)!;
+      const card = await prisma.handCard.findFirst({
         where: { playerId: starter.id, roundId: round.id },
       });
       const request = {
@@ -538,7 +538,7 @@ describe("Game Error Cases", () => {
       const secondCards = secondPlayable.body.playableCards;
       expect(secondCards.length).toBeGreaterThan(0);
 
-      const secondPlayerAllCards = await prisma.playerCard.findMany({
+      const secondPlayerAllCards = await prisma.handCard.findMany({
         where: {
           roundId: round.id,
           player: { userId: secondTurnUserId },

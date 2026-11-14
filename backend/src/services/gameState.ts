@@ -1,10 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { GameError } from "../utils/gameError";
-import { sumRoundScores, decideGameWinner } from "../domain/game/gameScore";
+import { sumRoundScores, toTeamScore } from "../domain/game/gameScore";
 import { selectLegalCards } from "../domain/game/legalCards";
-import { GAME_WIN_POINTS, TRICK_DISPLAY_MS, roundDealTimes } from "../gameConfig";
-import { readCallerPlayerId, readCurrentTurn } from "../game/snapshots/turnState";
+import { TRICK_DISPLAY_MS, roundDealTimes } from "../gameConfig";
+import { readCurrentTurn } from "../game/snapshots/turnState";
 import { getTurnTimerState } from "../runtime/turnTimer";
 import { publishEvent } from "../runtime/eventPublisher";
 import { logger } from "../logger";
@@ -26,12 +26,12 @@ const playedCardsInclude = {
     orderBy: { position: "asc" },
     include: { player: { select: { userId: true } } },
   },
-} satisfies Prisma.HandInclude;
+} satisfies Prisma.TrickInclude;
 
-type HandWithCards = Prisma.HandGetPayload<{ include: typeof playedCardsInclude }>;
+type TrickWithCards = Prisma.TrickGetPayload<{ include: typeof playedCardsInclude }>;
 
-function toPlayedCards(hand: HandWithCards): PlayedCard[] {
-  return hand.cards.map((card) => ({
+function toPlayedCards(trick: TrickWithCards): PlayedCard[] {
+  return trick.cards.map((card) => ({
     userId: card.player.userId,
     suit: card.suit,
     value: card.value,
@@ -58,59 +58,41 @@ async function readGameSnapshot(client: Prisma.TransactionClient, roomCode: stri
   });
   if (!round) throw new GameError("No active round found", 404);
 
-  const callerPlayerId = await readCallerPlayerId(round, room.players, client);
-  const turn = await readCurrentTurn(round, room.players, callerPlayerId, client);
-  const handCards = await client.playerCard.findMany({
+  const turn = await readCurrentTurn(round, room.players, client);
+  const handCards = await client.handCard.findMany({
     where: { roundId: round.id },
     orderBy: [{ suit: "asc" }, { value: "asc" }],
     select: { playerId: true, suit: true, value: true },
   });
-  const trick = await client.hand.findFirst({
+  const trick = await client.trick.findFirst({
     where: { roundId: round.id, winnerId: null },
     orderBy: { number: "desc" },
     include: playedCardsInclude,
   });
-  const lastTrick = await client.hand.findFirst({
+  const lastTrick = await client.trick.findFirst({
     where: { round: { gameRoomId: room.id }, winnerId: { not: null } },
     orderBy: [{ roundId: "desc" }, { number: "desc" }],
     include: { ...playedCardsInclude, round: { select: { number: true } } },
   });
-  // The next trick or round is written in the transaction that ends the trick.
-  const afterLastTrick = lastTrick
-    ? (await client.hand.findFirst({
-        where: { roundId: lastTrick.roundId, number: lastTrick.number + 1 },
-        select: { createdAt: true },
-      })) ??
-      (await client.round.findFirst({
-        where: { gameRoomId: room.id, number: lastTrick.round.number + 1 },
-        select: { createdAt: true },
-      }))
-    : null;
   const completedRounds = await client.round.findMany({
     where: { gameRoomId: room.id, winnerTeam: { not: null } },
     orderBy: { number: "asc" },
   });
 
-  const score = sumRoundScores(completedRounds);
-  const callerTeam = room.players.find((player) => player.id === callerPlayerId)?.team;
-  const winnerTeam =
-    room.finished && (callerTeam === 0 || callerTeam === 1)
-      ? decideGameWinner(score, GAME_WIN_POINTS, callerTeam)
-      : null;
   const result =
-    winnerTeam === null ? null : await readGameResult(client, room.id, winnerTeam);
+    room.winnerTeam === null
+      ? null
+      : await readGameResult(client, room.id);
 
   return {
     room,
     round,
-    callerPlayerId,
     turn,
     handCards,
     trick,
     lastTrick,
-    lastTrickEndedAt: afterLastTrick?.createdAt ?? room.lastActivityAt,
     previousRound: completedRounds.find((candidate) => candidate.number === round.number - 1),
-    score,
+    score: sumRoundScores(completedRounds),
     result,
   };
 }
@@ -163,7 +145,7 @@ function toGameState(
     })),
     round: {
       number: round.number,
-      callerUserId: room.players.find((player) => player.id === snapshot.callerPlayerId)!.userId,
+      callerUserId: room.players.find((player) => player.id === round.callerId)!.userId,
       briscola: round.briscola,
       cricca: round.cricca,
       deal:
@@ -182,7 +164,7 @@ function toGameState(
           winnerUserId: room.players.find((player) => player.id === lastTrick.winnerId)!.userId,
           cards: toPlayedCards(lastTrick),
           onTableUntil: new Date(
-            snapshot.lastTrickEndedAt.getTime() + TRICK_DISPLAY_MS,
+            lastTrick.completedAt!.getTime() + TRICK_DISPLAY_MS,
           ).toISOString(),
         }
       : null,
@@ -206,8 +188,8 @@ function toGameState(
         ? {
             roundNumber: previousRound.number,
             score: {
-              team0: { points: previousRound.team0Points, figures: previousRound.team0Figures },
-              team1: { points: previousRound.team1Points, figures: previousRound.team1Figures },
+              team0: toTeamScore(previousRound.team0Raw),
+              team1: toTeamScore(previousRound.team1Raw),
             },
             winnerTeam: previousRound.winnerTeam as Team,
             visibleUntil: new Date(deal.summaryEndsAt).toISOString(),

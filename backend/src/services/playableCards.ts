@@ -17,7 +17,7 @@ export async function readPlayableCards({
         orderBy: { number: "desc" },
         take: 1,
         include: {
-          hands: {
+          tricks: {
             orderBy: { number: "desc" },
             take: 1,
             include: { cards: true },
@@ -36,21 +36,21 @@ export async function readPlayableCards({
     throw new GameError("Player not in this game room", 403);
   }
 
-  // Before briscola is chosen there is no Hand yet — nothing is playable,
+  // Before briscola is chosen there is no trick yet — nothing is playable,
   // which is an ordinary state, not an error.
   const currentRound = room.rounds[0];
-  const currentHand = currentRound?.hands[0];
-  if (!currentRound || !currentHand) {
+  const currentTrick = currentRound?.tricks[0];
+  if (!currentRound || !currentTrick) {
     return [];
   }
 
-  const cardsInHand = await prisma.playerCard.findMany({
+  const cardsInHand = await prisma.handCard.findMany({
     where: {
       playerId: player.id,
       roundId: currentRound.id,
     },
   });
   const leadSuit =
-    currentHand.cards.find((card) => card.position === 0)?.suit ?? null;
+    currentTrick.cards.find((card) => card.position === 0)?.suit ?? null;
   return selectLegalCards(cardsInHand, leadSuit);
 }

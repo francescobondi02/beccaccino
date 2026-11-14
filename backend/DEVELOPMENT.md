@@ -57,7 +57,7 @@ backend/
   best-effort event publication. Game transactions commit before starting or
   clearing runtime; there is no intermediate coordinator or directive layer.
 - `domain/game/` owns pure caller, seat, turn, legality, trick, and scoring
-  rules. Snapshots, transitions, bots, and archives consume those
+  rules. Snapshots, transitions, and bots consume those
   rules instead of reimplementing them.
 - `game/snapshots/` and `services/gameState.ts` are reads. Loading
   `GET /api/games/:roomCode/state` never schedules a timer or starts a bot.
@@ -84,10 +84,10 @@ from native clients through the same active-account verifier; explicit invalid
 native tokens never fall back to cookies. Use local/staging test accounts before
 deploying this additive API change; no migration is required.
 
-Game snapshots also expose `lastCompletedTrick` (round ID, hand number, winner
-user ID and four played cards), including the previous round's last trick while
-the next round is dealing. Existing `lastHandCards` remains current-round only.
-Native card collection uses this persisted winner rather than recalculating rules.
+Game snapshots also expose `lastTrick` (round number, trick number, winner user
+ID and four played cards), including the previous round's last trick while the
+next round is dealing. Native card collection uses this stored winner rather
+than recalculating rules.
 
 ## Database Management (Prisma)
 
@@ -226,46 +226,17 @@ serializer against Python-generated states.
 | `npm run db:test:prepare` | Apply the Prisma schema to the isolated `becca_test` database |
 | `npm start` | Run compiled `dist/index.js` (production) |
 | `npm run migrate` | Apply Prisma migrations |
-| `npm run practice:export` | Emit archived practice games as JSONL, one game per line |
 
 ## Practice Game Data
 
-Practice games are training data. A practice room is deleted as soon as the
-human leaves it, and the sweeper deletes finished or day-old ones, so
-`retirePracticeRoom` snapshots the game into one `PracticeMatch` row on its way
-out, in the same transaction, so a failed snapshot keeps the game and runtime
-for the next attempt instead of losing either.
+Practice games are normal games with bots, stored in the same tables as
+multiplayer games (`isPractice = true`). Stats and the leaderboard skip them.
+Training reads the game tables directly. `PlayedCard.autoPlayed` and
+`Round.briscolaAutoChosen` mark moves the server chose after a timeout or a bot
+service failure; exclude them from training labels.
 
-A valid game with no genuine human action is intentionally retired without an
-archive. Malformed player or round state is different: snapshot construction or
-payload validation throws, rolling back both the archive and live-row deletion
-while leaving runtime available for retry.
-
-The row holds the cards each seat was dealt plus every card played in order,
-which is enough to rebuild the complete game. Bot cards remain in that history
-because they define the situation the human answered; they are context, not
-training labels.
-
-Each round also contains `humanActions`. This is the only training-label list.
-It contains a briscola or card choice only when the acting seat is the human and
-the server did not choose for them. `PlayedCard.autoPlayed` and
-`Round.briscolaAutoChosen` are checked while building this list. `true` means
-the server chose after a timeout or fallback, while `null` means the action
-predates provenance tracking; both are excluded.
-
-Storage is a non-issue and needs no tuning. A full 8-round game is about 20 KB
-of JSON, but Postgres compresses JSONB values over ~2 KB automatically — the
-measured on-disk size is **1.4 KB per game**, so 10,000 games is ~14 MB. App-side
-gzip, shorter card codes, and dropping the redundant deal together save under
-500 bytes per game; none of it is worth the opacity.
-
-Practice archives contain no account ID, username, email, or pseudonym. The
-human is identified only by `humanSeat`, which is enough to distinguish their
-choices from the three bot seats.
-
-```sh
-npm run practice:export > practice_matches.jsonl
-```
+Until Phase 3b, practice game rows are still deleted when the player leaves or
+the stale practice room sweeper runs.
 
 ## API Endpoints
 

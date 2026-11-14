@@ -217,7 +217,7 @@ describe("Practice pause and resume", () => {
     const practicePushes = pushes.filter(([, , state]: any) => state.roomCode === practiceCode);
     expect(practicePushes.map(([target]) => target)).toEqual([`user:${userId}`, `user:${userId}`]);
     expect(practicePushes.map(([, , state]: any) => state.lastAction.kind)).toEqual(["game_started", "paused"]);
-    const practiceCards = await prisma.playerCard.findMany({
+    const practiceCards = await prisma.handCard.findMany({
       where: { player: { userId }, round: { gameRoom: { code: practiceCode } } },
     });
     expect((practicePushes[0][2] as any).myHand).toHaveLength(10);
@@ -458,7 +458,7 @@ describe("Practice pause and resume", () => {
       const player = await prisma.player.findFirstOrThrow({
         where: { gameRoom: { code: roomCode }, userId },
       });
-      const card = await prisma.playerCard.findFirstOrThrow({
+      const card = await prisma.handCard.findFirstOrThrow({
         where: { playerId: player.id },
       });
       expect(
@@ -477,7 +477,7 @@ describe("Practice pause and resume", () => {
       where: { gameRoomId: room.id },
       orderBy: { number: "desc" },
     });
-    const hand = await prisma.hand.findFirstOrThrow({
+    const trick = await prisma.trick.findFirstOrThrow({
       where: { roundId: round.id },
       orderBy: { number: "desc" },
       include: { cards: true },
@@ -490,8 +490,8 @@ describe("Practice pause and resume", () => {
     process.env.TURN_TIMEOUT_SECONDS = "0";
     startRuntimeTurn(roomCode, userId, "play_card", room.pauseEpoch, {
       roundId: round.id,
-      handId: hand.id,
-      playedCardCount: hand.cards.length,
+      trickId: trick.id,
+      playedCardCount: trick.cards.length,
     });
     process.env.TURN_TIMEOUT_SECONDS = "100000";
 
@@ -523,7 +523,7 @@ describe("Practice pause and resume", () => {
         const player = await prisma.player.findFirstOrThrow({
           where: { gameRoom: { code: roomCode }, userId },
         });
-        const card = await prisma.playerCard.findFirstOrThrow({
+        const card = await prisma.handCard.findFirstOrThrow({
           where: { playerId: player.id },
         });
         await apiAs(userId, "pause-human")
@@ -626,7 +626,7 @@ describe("Practice pause and resume", () => {
       const player = await prisma.player.findFirstOrThrow({
         where: { gameRoom: { code: roomCode }, userId },
       });
-      const card = await prisma.playerCard.findFirstOrThrow({
+      const card = await prisma.handCard.findFirstOrThrow({
         where: { playerId: player.id },
       });
       expect(
@@ -646,7 +646,7 @@ describe("Practice pause and resume", () => {
       where: { gameRoomId: room.id },
       orderBy: { number: "desc" },
     });
-    const hand = await prisma.hand.findFirstOrThrow({
+    const trick = await prisma.trick.findFirstOrThrow({
       where: { roundId: round.id },
       orderBy: { number: "desc" },
       include: { cards: true },
@@ -664,8 +664,8 @@ describe("Practice pause and resume", () => {
     process.env.TURN_TIMEOUT_SECONDS = "0";
     startRuntimeTurn(roomCode, userId, "play_card", room.pauseEpoch, {
       roundId: round.id,
-      handId: hand.id,
-      playedCardCount: hand.cards.length,
+      trickId: trick.id,
+      playedCardCount: trick.cards.length,
     });
     await waitFor(() => playableSpy.mock.calls.length === 1);
     await expect(recoverRoomRuntime(roomCode)).resolves.toBe(false);

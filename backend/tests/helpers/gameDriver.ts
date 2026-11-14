@@ -1,7 +1,7 @@
 import { prisma } from "../../src/db";
-import { computeRoundScore } from "../../src/domain/game/roundScore";
-import { Suit } from "@prisma/client";
-import { PlayerCard, Round } from "@prisma/client";
+import { computeRoundScore, settleRound } from "../../src/domain/game/roundScore";
+import { GAME_WIN_POINTS } from "../../src/gameConfig";
+import { HandCard, Round } from "@prisma/client";
 import { api, apiAs } from "./serverHarness";
 
 export async function setupGame() {
@@ -62,7 +62,7 @@ export async function setupGame() {
 
   const round = finalRoom!.rounds[0];
 
-  const cards = await prisma.playerCard.findMany({
+  const cards = await prisma.handCard.findMany({
     where: { roundId: round.id },
   });
   expect(cards.length).toBe(40);
@@ -89,40 +89,7 @@ export async function chooseBriscola(
   });
   expect(room).not.toBeNull();
 
-  let callerPlayerId: number | null = null;
-
-  if (round.number == 1) {
-    for (const card of cards) {
-      if (card.value === "quattro" && card.suit === "denara") {
-        callerPlayerId = card.playerId;
-        break;
-      }
-    }
-  } else {
-    const previousRound = await prisma.round.findFirst({
-      where: { gameRoomId: room!.id, number: round.number - 1 },
-      include: {
-        hands: {
-          orderBy: { number: "asc" },
-          take: 1,
-        },
-      },
-    });
-
-    expect(previousRound).not.toBeNull();
-    const firstHand = previousRound!.hands[0];
-    expect(firstHand).not.toBeNull();
-
-    const prevCaller = room!.players.find((p) => p.id === firstHand!.starterId);
-    const nextSeat = (prevCaller!.seat! + 1) % 4;
-    const nextPlayer = room!.players.find((p) => p.seat === nextSeat);
-    callerPlayerId = nextPlayer!.id;
-    expect(nextPlayer).not.toBeNull();
-  }
-
-  expect(callerPlayerId).not.toBeNull();
-
-  const callerCards = cards.filter((c) => c.playerId === callerPlayerId);
+  const callerCards = cards.filter((c) => c.playerId === round.callerId);
   const cardsBySuit: Record<string, number> = {};
   for (const card of callerCards) {
     cardsBySuit[card.suit] = (cardsBySuit[card.suit] || 0) + 1;
@@ -133,7 +100,7 @@ export async function chooseBriscola(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
   )[0][0];
 
-  const callerPlayer = room!.players.find((p) => p.id === callerPlayerId)!;
+  const callerPlayer = room!.players.find((p) => p.id === round.callerId)!;
 
   const chooseBriscolaRes = await apiAs(callerPlayer.userId, callerPlayer.user.username)
     .post(`/api/games/${roomCode}/briscola`)
@@ -142,16 +109,16 @@ export async function chooseBriscola(
   expect(chooseBriscolaRes.statusCode).toBe(200);
   expect(chooseBriscolaRes.body.round.briscola).toBe(mostCommonSuit);
 
-  const handsAfterBriscola = await prisma.hand.findMany({
+  const tricks = await prisma.trick.findMany({
     where: { roundId: round.id },
   });
-  expect(handsAfterBriscola.length).toBe(1);
+  expect(tricks.length).toBe(1);
 }
 
-export async function oneHand(
+export async function oneTrick(
   roomCode: string,
   round: any,
-  handNumber: number
+  trickNumber: number
 ) {
   const updatedRoom = await prisma.gameRoom.findUnique({
     where: { code: roomCode },
@@ -159,15 +126,15 @@ export async function oneHand(
   });
   expect(updatedRoom).not.toBeNull();
 
-  const starterHand = await prisma.hand.findFirst({
-    where: { roundId: round.id, number: handNumber },
+  const starterTrick = await prisma.trick.findFirst({
+    where: { roundId: round.id, number: trickNumber },
   });
-  expect(starterHand).not.toBeNull();
+  expect(starterTrick).not.toBeNull();
 
   const playerOrder = Array.from(
     { length: 4 },
     (_, i) =>
-      (updatedRoom!.players.find((p) => p.id === starterHand!.starterId)!
+      (updatedRoom!.players.find((p) => p.id === starterTrick!.starterId)!
         .seat! +
         i) %
       4
@@ -196,124 +163,34 @@ export async function oneHand(
   }
 
   const playedCards = await prisma.playedCard.findMany({
-    where: { handId: starterHand!.id },
+    where: { trickId: starterTrick!.id },
   });
   expect(playedCards.length).toBe(4);
 }
 
 export async function oneRound(roomCode: string, round: any) {
-  for (let i = 0; i < 10; i++) {
-    const hands = await prisma.hand.findMany({
-      where: { roundId: round.id },
-      orderBy: { number: "asc" },
-    });
+  for (let number = 1; number <= 10; number++) {
+    await oneTrick(roomCode, round, number);
 
-    expect(hands[i]).not.toBeNull();
-
-    await oneHand(roomCode, round, i + 1);
-
-    if (i < 9) {
-      const nextHand = await prisma.hand.findFirst({
-        where: { roundId: round.id, number: i + 2 },
+    if (number < 10) {
+      const [previous, next] = await prisma.trick.findMany({
+        where: { roundId: round.id, number: { in: [number, number + 1] } },
+        orderBy: { number: "asc" },
       });
-      expect(nextHand).not.toBeNull();
-
-      const previousHand = await prisma.hand.findFirst({
-        where: { roundId: round.id, number: i + 1 },
-      });
-      expect(previousHand?.winnerId).toBe(nextHand?.starterId);
+      expect(next).toBeDefined();
+      expect(previous.winnerId).toBe(next.starterId);
     }
   }
 
-  const finalHands = await prisma.hand.findMany({
-    where: { roundId: round.id },
-    include: { cards: true },
-  });
-  expect(finalHands.length).toBe(10);
-
-  const allPlayedCards = await prisma.playedCard.findMany({
-    where: { handId: { in: finalHands.map((h) => h.id) } },
-  });
-  expect(allPlayedCards.length).toBe(40);
-
-  const players = await prisma.player.findMany({
-    where: { gameRoomId: round.gameRoomId },
-  });
-
-  const teamPlayers: Record<number, number> = {};
-  for (const player of players) {
-    teamPlayers[player.id] = player.team!;
-  }
-
-  const rawPoints = computeRoundScore(finalHands, teamPlayers, round.briscola);
-  const lastHand = finalHands.reduce((prev, curr) =>
-    curr.number > prev.number ? curr : prev
-  );
-  const bonusTeam = teamPlayers[lastHand.winnerId!];
-
-  return {
-    rawPoints,
-    finalPoints: {
-      team0: rawPoints.team0.points,
-      team1: rawPoints.team1.points,
-    },
-    bonusTeam,
-  };
-}
-
-export async function computeRoundPoints(
-  roundId: number,
-  roundCount: number,
-  team0Total: number,
-  team1Total: number
-): Promise<{
-  team0Cleaned: number;
-  team1Cleaned: number;
-  team0Total: number;
-  team1Total: number;
-}> {
-  const round = await prisma.round.findUnique({ where: { id: roundId } });
-
-  const hands = await prisma.hand.findMany({
-    where: { roundId },
-    include: { cards: true },
-  });
-
-  const players = await prisma.player.findMany({
-    where: { gameRoomId: round!.gameRoomId },
-  });
-
-  const teamPlayers: Record<number, number> = {};
-  for (const p of players) {
-    teamPlayers[p.id] = p.team!;
-  }
-
-  const rawPoints = computeRoundScore(hands, teamPlayers, round!.briscola as Suit);
-
-  const team0Cleaned = rawPoints.team0.points;
-  const team1Cleaned = rawPoints.team1.points;
-
-  const roundSum = team0Cleaned + team1Cleaned;
-  if (roundSum !== 11) {
-    throw new Error(`Round ${roundCount} does not sum to 11 (got ${roundSum})`);
-  }
-
-  console.log(
-    `Round ${roundCount}: Team 0 → ${team0Cleaned} / Team 1 → ${team1Cleaned}` +
-      ` (Total: ${team0Total + team0Cleaned} - ${team1Total + team1Cleaned})`
-  );
-
-  return {
-    team0Cleaned,
-    team1Cleaned,
-    team0Total: team0Total + team0Cleaned,
-    team1Total: team1Total + team1Cleaned,
-  };
+  expect(await prisma.trick.count({ where: { roundId: round.id } })).toBe(10);
+  expect(
+    await prisma.playedCard.count({ where: { trick: { roundId: round.id } } }),
+  ).toBe(40);
 }
 
 export async function prepareNextRound(currentRound: Round): Promise<{
   nextRound: Round;
-  nextCards: PlayerCard[];
+  nextCards: HandCard[];
 }> {
   const nextRound = await prisma.round.findFirst({
     where: { gameRoomId: currentRound.gameRoomId },
@@ -324,9 +201,58 @@ export async function prepareNextRound(currentRound: Round): Promise<{
     throw new Error("No next round found");
   }
 
-  const nextCards = await prisma.playerCard.findMany({
+  const nextCards = await prisma.handCard.findMany({
     where: { roundId: nextRound.id },
   });
 
   return { nextRound, nextCards };
+}
+
+/**
+ * Recomputes every round of a finished game from its played cards, then checks
+ * the stored raw scores, that the game ended at the first round reaching the
+ * target, and the stored winner (an exact tie goes to the last caller's team).
+ */
+export async function expectStoredResult(roomCode: string) {
+  const room = await prisma.gameRoom.findUniqueOrThrow({
+    where: { code: roomCode },
+    include: {
+      players: true,
+      rounds: {
+        orderBy: { number: "asc" },
+        include: {
+          tricks: { orderBy: { number: "asc" }, include: { cards: true } },
+        },
+      },
+    },
+  });
+  const teamOf: Record<number, number> = {};
+  for (const player of room.players) teamOf[player.id] = player.team!;
+
+  let team0 = 0;
+  let team1 = 0;
+  for (const round of room.rounds) {
+    expect(Math.max(team0, team1)).toBeLessThan(GAME_WIN_POINTS * 3);
+    const settled = settleRound(
+      computeRoundScore(
+        round.tricks.map((trick) => ({ winnerId: trick.winnerId!, cards: trick.cards })),
+        teamOf,
+      ),
+      round.cricca ? teamOf[round.callerId] : null,
+    );
+    expect(settled.team0Raw + settled.team1Raw).toBe(round.cricca ? 44 : 35);
+    expect(round).toMatchObject(settled);
+    team0 += round.team0Raw;
+    team1 += round.team1Raw;
+  }
+
+  const points0 = Math.floor(team0 / 3);
+  const points1 = Math.floor(team1 / 3);
+  expect(room.finished).toBe(true);
+  expect(Math.max(points0, points1)).toBeGreaterThanOrEqual(GAME_WIN_POINTS);
+  expect(room.winnerTeam).toBe(
+    points0 === points1
+      ? teamOf[room.rounds[room.rounds.length - 1].callerId]
+      : points0 > points1 ? 0 : 1,
+  );
 }

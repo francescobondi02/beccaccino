@@ -78,13 +78,14 @@ describe("practice room sweeper", () => {
     const round = await prisma.round.create({
       data: {
         gameRoomId: room.id,
+        callerId: room.players[0].id,
         number: 1,
         briscola: "coppe",
         briscolaAutoChosen: true,
         winnerTeam: 0,
       },
     });
-    const hand = await prisma.hand.create({
+    const trick = await prisma.trick.create({
       data: {
         roundId: round.id,
         number: 1,
@@ -92,7 +93,7 @@ describe("practice room sweeper", () => {
         winnerId: room.players[0].id,
       },
     });
-    await prisma.playerCard.createMany({
+    await prisma.handCard.createMany({
       data: room.players.flatMap((player, seat) =>
         VALUES.slice(1).map((value) => ({
           playerId: player.id,
@@ -105,7 +106,7 @@ describe("practice room sweeper", () => {
     await prisma.playedCard.createMany({
       data: room.players.map((player, seat) => ({
         playerId: player.id,
-        handId: hand.id,
+        trickId: trick.id,
         suit: SUITS[seat],
         value: VALUES[0],
         position: seat,
@@ -113,7 +114,7 @@ describe("practice room sweeper", () => {
       })),
     });
     const playedCard = await prisma.playedCard.findFirstOrThrow({
-      where: { handId: hand.id },
+      where: { trickId: trick.id },
     });
     scheduleTurnTimer({
       roomCode: room.code,
@@ -122,7 +123,7 @@ describe("practice room sweeper", () => {
       pauseEpoch: 0,
       identity: {
         roundId: round.id,
-        handId: hand.id,
+        trickId: trick.id,
         playedCardCount: 4,
       },
       durationMs: 100_000,
@@ -137,8 +138,8 @@ describe("practice room sweeper", () => {
     ).toBeNull();
     expect(await prisma.player.count({ where: { gameRoomId: room.id } })).toBe(0);
     expect(await prisma.round.count({ where: { gameRoomId: room.id } })).toBe(0);
-    expect(await prisma.hand.findUnique({ where: { id: hand.id } })).toBeNull();
-    expect(await prisma.playerCard.count({ where: { roundId: round.id } })).toBe(0);
+    expect(await prisma.trick.findUnique({ where: { id: trick.id } })).toBeNull();
+    expect(await prisma.handCard.count({ where: { roundId: round.id } })).toBe(0);
     expect(
       await prisma.playedCard.findUnique({ where: { id: playedCard.id } }),
     ).toBeNull();

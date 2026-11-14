@@ -9,6 +9,7 @@ import {
 import { getTurnTimerState } from "../../src/runtime/turnTimer";
 import { readPlayableCards } from "../../src/services/playableCards";
 import { logger } from "../../src/logger";
+import { expectStoredResult } from "../helpers/gameDriver";
 
 /**
  * The bot-turn driver (BOT_PLAY_DESIGN.md §3.4).
@@ -120,7 +121,7 @@ describe("Bot turn driver", () => {
     prisma.round.findFirst({
       where: { gameRoom: { code: roomCode } },
       orderBy: { number: "desc" },
-      include: { hands: { orderBy: { number: "asc" }, include: { cards: true } } },
+      include: { tricks: { orderBy: { number: "asc" }, include: { cards: true } } },
     });
 
   it("has a bot caller choose briscola and lead without the human acting", async () => {
@@ -149,7 +150,7 @@ describe("Bot turn driver", () => {
     ).toBe(true);
 
     // Seat 0 is the human, so the bots play up to (but not past) their turn.
-    const played = round!.hands.flatMap((h) => h.cards);
+    const played = round!.tricks.flatMap((trick) => trick.cards);
     expect(played.length).toBeGreaterThan(0);
   });
 
@@ -187,17 +188,43 @@ describe("Bot turn driver", () => {
     // One completed trick per human card — the human plays once per trick, and
     // the bots fill in every other position on their own.
     const round = (await loadRound(roomCode))!;
-    expect(round.hands.filter((h) => h.winnerId !== null)).toHaveLength(HUMAN_TURNS);
+    expect(round.tricks.filter((trick) => trick.winnerId !== null)).toHaveLength(HUMAN_TURNS);
 
     const humanPlayer = await prisma.player.findFirst({
       where: { userId, gameRoom: { code: roomCode } },
     });
-    const cards = round.hands.flatMap((h) => h.cards);
+    const cards = round.tricks.flatMap((trick) => trick.cards);
     expect(cards.filter((c) => c.playerId === humanPlayer!.id)).toHaveLength(HUMAN_TURNS);
 
     // Every seat contributed, so no bot silently stopped acting.
     expect(new Set(cards.map((c) => c.playerId)).size).toBe(4);
   }, 15_000);
+
+  it("plays a full practice game to stored scores and a winner", async () => {
+    const roomCode = await startPractice();
+    const deadline = Date.now() + 50_000;
+    for (;;) {
+      const room = await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } });
+      if (room.finished) break;
+      if (Date.now() > deadline) throw new Error("practice game never finished");
+      const timer = getTurnTimerState(roomCode);
+      if (timer && !timer.isBot && timer.turnUserId === userId) {
+        const human = apiAs(userId, "human");
+        if (timer.phase === "choose_briscola") {
+          const res = await human.post(`/api/games/${roomCode}/briscola`).send({ suit: "denara" });
+          expect(res.statusCode).toBe(200);
+        } else {
+          const [card] = await readPlayableCards({ roomCode, userId });
+          const res = await human
+            .post(`/api/games/${roomCode}/cards`)
+            .send({ suit: card.suit, value: card.value });
+          expect(res.statusCode).toBe(200);
+        }
+      }
+      await sleep(POLL_INTERVAL_MS);
+    }
+    await expectStoredResult(roomCode);
+  }, 60_000);
 
   it("never kicks a bot, even when the service keeps failing", async () => {
     const roomCode = await startPractice(() => {
@@ -208,7 +235,7 @@ describe("Bot turn driver", () => {
     // Autoplay covered the failing seats, so the game still progressed...
     const round = await loadRound(roomCode);
     expect(round!.briscola).not.toBeNull();
-    expect(round!.hands.flatMap((h) => h.cards).length).toBeGreaterThan(0);
+    expect(round!.tricks.flatMap((trick) => trick.cards).length).toBeGreaterThan(0);
 
     // ...and no bot accrued a timeout or a kick. Three timeouts would swap the
     // model for the dumb heuristic permanently, and we would never notice.
@@ -278,8 +305,8 @@ describe("Bot turn driver", () => {
     await settle(roomCode);
 
     const round = await loadRound(roomCode);
-    const signalled = round!.hands
-      .flatMap((h) => h.cards)
+    const signalled = round!.tricks
+      .flatMap((trick) => trick.cards)
       .filter((c) => c.signal !== null);
 
     expect(signalled.length).toBeGreaterThan(0);
@@ -334,7 +361,7 @@ describe("Bot turn driver", () => {
     expect(await prisma.player.count()).toBe(0);
     expect(await prisma.round.count()).toBe(0);
     expect(await prisma.playedCard.count()).toBe(0);
-    expect(await prisma.playerCard.count()).toBe(0);
+    expect(await prisma.handCard.count()).toBe(0);
 
     // ...but the reusable bot users survive, and the bot chain is stopped.
     expect(await prisma.user.count({ where: { isBot: true } })).toBe(3);

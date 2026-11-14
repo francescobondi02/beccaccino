@@ -31,7 +31,7 @@ import {
 } from "../turn";
 
 type PlayedCardInput = {
-  handId: number;
+  trickId: number;
   playerId: number;
   suit: Suit;
   value: Value;
@@ -42,7 +42,7 @@ type PlayedCardInput = {
 
 async function persistPlayedCard(
   tx: Prisma.TransactionClient,
-  playerCardId: number,
+  handCardId: number,
   data: PlayedCardInput,
   expectedBotModel?: string | null,
 ) {
@@ -52,7 +52,7 @@ async function persistPlayedCard(
       data: { timeoutCount: expectedBotModel === null ? { increment: 1 } : 0 },
     });
   }
-  await tx.playerCard.delete({ where: { id: playerCardId } });
+  await tx.handCard.delete({ where: { id: handCardId } });
   return tx.playedCard.create({ data });
 }
 
@@ -99,7 +99,7 @@ async function playCardUnlocked({
         orderBy: { number: "desc" },
         take: 1,
         include: {
-          hands: {
+          tricks: {
             orderBy: { number: "desc" },
             take: 1,
             include: { cards: { orderBy: { position: "asc" } } },
@@ -120,20 +120,20 @@ async function playCardUnlocked({
   if (room.pausedAt) throw new PracticeTurnCancelledError();
 
   const currentRound = room.rounds[0];
-  const currentHand = currentRound?.hands[0];
-  if (!currentRound || !currentHand) {
-    throw new GameError("No active round or hand found", 400);
+  const currentTrick = currentRound?.tricks[0];
+  if (!currentRound || !currentTrick) {
+    throw new GameError("No active round or trick found", 400);
   }
 
-  const playedCards = currentHand.cards;
+  const playedCards = currentTrick.cards;
   if (playedCards.length >= 4) {
-    throw new GameError("Hand is already full", 400);
+    throw new GameError("Trick is already full", 400);
   }
   if (
     expectedTurn &&
     !isSameTurn(expectedTurn, {
       roundId: currentRound.id,
-      handId: currentHand.id,
+      trickId: currentTrick.id,
       playedCardCount: playedCards.length,
     })
   ) {
@@ -141,7 +141,7 @@ async function playCardUnlocked({
   }
 
   const starterSeat =
-    room.players.find((candidate) => candidate.id === currentHand.starterId)
+    room.players.find((candidate) => candidate.id === currentTrick.starterId)
       ?.seat ?? null;
   const currentTurnSeat =
     starterSeat === null
@@ -149,7 +149,7 @@ async function playCardUnlocked({
       : resolveTurnSeat({
           briscolaChosen: true,
           callerSeat: null,
-          hand: {
+          trick: {
             starterSeat,
             playedCardCount: playedCards.length,
             winnerSeat: null,
@@ -162,19 +162,19 @@ async function playCardUnlocked({
     throw new GameError("It's not this player's turn", 403);
   }
 
-  const cardsInHand = await prisma.playerCard.findMany({
+  const cardsInHand = await prisma.handCard.findMany({
     where: {
       playerId: player.id,
       roundId: currentRound.id,
     },
   });
-  const playerCard = cardsInHand.find(
+  const handCard = cardsInHand.find(
     (card) => card.suit === suit && card.value === value,
   );
-  if (!playerCard) throw new GameError("Player does not have this card", 400);
+  if (!handCard) throw new GameError("Player does not have this card", 400);
 
   const leadCard = playedCards.find((card) => card.position === 0);
-  if (!isLegalCard(cardsInHand, playerCard, leadCard?.suit ?? null)) {
+  if (!isLegalCard(cardsInHand, handCard, leadCard?.suit ?? null)) {
     throw new GameError("Player must follow suit", 400);
   }
 
@@ -182,7 +182,7 @@ async function playCardUnlocked({
     playedCards.length === 0 && signal ? signal : null;
   const position = playedCards.length;
   const playedCardData: PlayedCardInput = {
-    handId: currentHand.id,
+    trickId: currentTrick.id,
     playerId: player.id,
     suit,
     value,
@@ -202,7 +202,7 @@ async function playCardUnlocked({
   if (position < 3) {
     await prisma.$transaction(async (tx) => {
       await claimPracticeTransition(tx, room, expectedPauseEpoch);
-      await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
+      await persistPlayedCard(tx, handCard.id, playedCardData, expectedBotModel);
       await markGameChanged(tx, room.id);
     });
     logger.info({ roomCode, userId, suit, value, position }, "card_played");
@@ -210,7 +210,7 @@ async function playCardUnlocked({
     const nextTurnSeat = resolveTurnSeat({
       briscolaChosen: true,
       callerSeat: null,
-      hand: {
+      trick: {
         starterSeat: starterSeat!,
         playedCardCount: position + 1,
         winnerSeat: null,
@@ -227,7 +227,7 @@ async function playCardUnlocked({
         room.pauseEpoch,
         {
           roundId: currentRound.id,
-          handId: currentHand.id,
+          trickId: currentTrick.id,
           playedCardCount: position + 1,
         },
       );
@@ -240,19 +240,19 @@ async function playCardUnlocked({
     currentRound.briscola,
   );
 
-  if (currentHand.number < 10) {
-    const nextHand = await prisma.$transaction(async (tx) => {
+  if (currentTrick.number < 10) {
+    const nextTrick = await prisma.$transaction(async (tx) => {
       await claimPracticeTransition(tx, room, expectedPauseEpoch);
-      await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
+      await persistPlayedCard(tx, handCard.id, playedCardData, expectedBotModel);
       await markGameChanged(tx, room.id);
-      await tx.hand.update({
-        where: { id: currentHand.id },
-        data: { winnerId: trickWinnerPlayerId },
+      await tx.trick.update({
+        where: { id: currentTrick.id },
+        data: { winnerId: trickWinnerPlayerId, completedAt: new Date() },
       });
-      return tx.hand.create({
+      return tx.trick.create({
         data: {
           roundId: currentRound.id,
-          number: currentHand.number + 1,
+          number: currentTrick.number + 1,
           starterId: trickWinnerPlayerId,
         },
       });
@@ -270,7 +270,7 @@ async function playCardUnlocked({
         room.pauseEpoch,
         {
           roundId: currentRound.id,
-          handId: nextHand.id,
+          trickId: nextTrick.id,
           playedCardCount: 0,
         },
         TRICK_DISPLAY_MS,
@@ -279,7 +279,7 @@ async function playCardUnlocked({
     return sendGameState(roomCode, lastAction);
   }
 
-  const allHands = await prisma.hand.findMany({
+  const allTricks = await prisma.trick.findMany({
     where: { roundId: currentRound.id },
     orderBy: { number: "asc" },
     include: { cards: { orderBy: { position: "asc" } } },
@@ -291,25 +291,19 @@ async function playCardUnlocked({
     }
   }
 
-  const roundScore = settleRound(computeRoundScore(
-    allHands.map((hand) => ({
-      winnerId:
-        hand.id === currentHand.id ? trickWinnerPlayerId : hand.winnerId,
-      cards: [
-        ...hand.cards.map((card) => ({
-          value: card.value,
-          suit: card.suit,
-          playerId: card.playerId,
-        })),
-        ...(hand.id === currentHand.id
-          ? [{ value, suit, playerId: player.id }]
-          : []),
-      ],
-    })),
-    playerTeams,
-    currentRound.briscola!,
-  ), currentRound.cricca ? playerTeams[allHands[0].starterId] : null);
-  const roundWinnerTeam = roundScore.winnerTeam;
+  const callerTeam = playerTeams[currentRound.callerId];
+  if (callerTeam !== 0 && callerTeam !== 1) {
+    throw new Error("Round caller has no valid team");
+  }
+  const tricks = allTricks.map((trick) =>
+    trick.id === currentTrick.id
+      ? { winnerId: trickWinnerPlayerId, cards: [...trick.cards, { value }] }
+      : { winnerId: trick.winnerId!, cards: trick.cards },
+  );
+  const roundScore = settleRound(
+    computeRoundScore(tricks, playerTeams),
+    currentRound.cricca ? callerTeam : null,
+  );
 
   const previousCompletedRounds = await prisma.round.findMany({
     where: {
@@ -317,29 +311,10 @@ async function playCardUnlocked({
       id: { not: currentRound.id },
       winnerTeam: { not: null },
     },
-    select: {
-      team0Points: true,
-      team1Points: true,
-      team0Figures: true,
-      team1Figures: true,
-      winnerTeam: true,
-    },
+    select: { team0Raw: true, team1Raw: true },
   });
-  const allCompletedRounds = [
-    ...previousCompletedRounds,
-    {
-      team0Points: roundScore.team0.points,
-      team1Points: roundScore.team1.points,
-      team0Figures: roundScore.team0.figures,
-      team1Figures: roundScore.team1.figures,
-      winnerTeam: roundWinnerTeam,
-    },
-  ];
+  const allCompletedRounds = [...previousCompletedRounds, roundScore];
   const gameScore = sumRoundScores(allCompletedRounds);
-  const callerTeam = playerTeams[allHands[0].starterId];
-  if (callerTeam !== 0 && callerTeam !== 1) {
-    throw new Error("Round caller has no valid team");
-  }
   const gameWinnerTeam = decideGameWinner(
     gameScore,
     GAME_WIN_POINTS,
@@ -348,26 +323,20 @@ async function playCardUnlocked({
 
   const nextRound = await prisma.$transaction(async (tx) => {
     await claimPracticeTransition(tx, room, expectedPauseEpoch);
-    await persistPlayedCard(tx, playerCard.id, playedCardData, expectedBotModel);
+    await persistPlayedCard(tx, handCard.id, playedCardData, expectedBotModel);
     await markGameChanged(tx, room.id);
-    await tx.hand.update({
-      where: { id: currentHand.id },
-      data: { winnerId: trickWinnerPlayerId },
+    await tx.trick.update({
+      where: { id: currentTrick.id },
+      data: { winnerId: trickWinnerPlayerId, completedAt: new Date() },
     });
     await tx.round.update({
       where: { id: currentRound.id },
-      data: {
-        team0Points: roundScore.team0.points,
-        team1Points: roundScore.team1.points,
-        team0Figures: roundScore.team0.figures,
-        team1Figures: roundScore.team1.figures,
-        winnerTeam: roundWinnerTeam,
-      },
+      data: roundScore,
     });
     if (gameWinnerTeam !== null) {
       await tx.gameRoom.update({
         where: { id: room.id },
-        data: { finished: true },
+        data: { finished: true, winnerTeam: gameWinnerTeam },
       });
       return null;
     }
@@ -380,11 +349,7 @@ async function playCardUnlocked({
     {
       roomCode,
       roundNumber: currentRound.number,
-      team0Points: roundScore.team0.points,
-      team1Points: roundScore.team1.points,
-      team0Figures: roundScore.team0.figures,
-      team1Figures: roundScore.team1.figures,
-      winnerTeam: roundWinnerTeam,
+      ...roundScore,
       cricca: currentRound.cricca,
     },
     "round_ended",
@@ -406,7 +371,7 @@ async function playCardUnlocked({
   }
 
   const newCaller = room.players.find(
-    (candidate) => candidate.id === nextRound!.callerPlayerId,
+    (candidate) => candidate.id === nextRound!.callerId,
   );
   if (newCaller) {
     startRuntimeTurn(
@@ -416,7 +381,7 @@ async function playCardUnlocked({
       room.pauseEpoch,
       {
         roundId: nextRound!.roundId,
-        handId: null,
+        trickId: null,
         playedCardCount: 0,
       },
       roundDealRemainingMs({

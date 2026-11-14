@@ -80,7 +80,7 @@ describe("Bot state serializer matches the Python fixtures", () => {
 
 /**
  * Rebuild a fixture board in the database: a practice room seated to match the
- * fixture's seats, one round, and each trick replayed as Hand + PlayedCard rows.
+ * fixture's seats, one round, and each trick replayed as Trick + PlayedCard rows.
  */
 async function seedFromFixture(state: BotState, actingSeat: number) {
   const botUserIds = await ensureBotUsers();
@@ -122,11 +122,12 @@ async function seedFromFixture(state: BotState, actingSeat: number) {
       briscola: state.briscola as Suit | null,
       cricca: state.cricca,
       gameRoomId: room.id,
+      callerId: playerIdOf.get(state.caller_seat)!,
     },
   });
 
   for (const [seat, cards] of Object.entries(state.hands)) {
-    await prisma.playerCard.createMany({
+    await prisma.handCard.createMany({
       data: cards.map((c) => ({
         playerId: playerIdOf.get(Number(seat))!,
         roundId: round.id,
@@ -139,7 +140,7 @@ async function seedFromFixture(state: BotState, actingSeat: number) {
   let trickNumber = 1;
   for (const trick of state.completed_tricks) {
     const leadSeat = trick.cards[0].seat;
-    const hand = await prisma.hand.create({
+    const trickRow = await prisma.trick.create({
       data: {
         roundId: round.id,
         number: trickNumber++,
@@ -151,7 +152,7 @@ async function seedFromFixture(state: BotState, actingSeat: number) {
     });
     await prisma.playedCard.createMany({
       data: trick.cards.map((c, position) => ({
-        handId: hand.id,
+        trickId: trickRow.id,
         playerId: playerIdOf.get(c.seat)!,
         suit: c.suit as Suit,
         value: c.value as Value,
@@ -162,9 +163,9 @@ async function seedFromFixture(state: BotState, actingSeat: number) {
   }
 
   // The open trick exists once briscola is set — even with no cards played yet,
-  // since setBriscola creates hand 1 for the caller to lead into.
+  // since setBriscola creates trick 1 for the caller to lead into.
   if (state.phase === "play_card") {
-    const hand = await prisma.hand.create({
+    const trickRow = await prisma.trick.create({
       data: {
         roundId: round.id,
         number: trickNumber,
@@ -173,7 +174,7 @@ async function seedFromFixture(state: BotState, actingSeat: number) {
     });
     await prisma.playedCard.createMany({
       data: state.current_trick.map((c, position) => ({
-        handId: hand.id,
+        trickId: trickRow.id,
         playerId: playerIdOf.get(c.seat)!,
         suit: c.suit as Suit,
         value: c.value as Value,
@@ -191,12 +192,11 @@ async function seedFromFixture(state: BotState, actingSeat: number) {
       data: {
         number: 0,
         gameRoomId: room.id,
+        callerId: playerIdOf.get(state.caller_seat)!,
         briscola: Suit.denara,
         winnerTeam: raw["0"] >= raw["1"] ? 0 : 1,
-        team0Points: Math.floor(raw["0"] / 3),
-        team0Figures: raw["0"] % 3,
-        team1Points: Math.floor(raw["1"] / 3),
-        team1Figures: raw["1"] % 3,
+        team0Raw: raw["0"],
+        team1Raw: raw["1"],
       },
     });
   }

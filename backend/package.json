@@ -40,7 +40,6 @@
     "seed:dev": "ts-node --transpile-only scripts/seedDevUsers.ts",
     "test": "jest --runInBand",
     "test:unit": "jest --selectProjects unit",
-    "test:integration": "jest --selectProjects integration --runInBand",
-    "practice:export": "node dist/scripts/exportPracticeMatches.js"
+    "test:integration": "jest --selectProjects integration --runInBand"
   }
 }

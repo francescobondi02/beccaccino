@@ -59,7 +59,6 @@ export async function deleteAccount(userId: number): Promise<void> {
       username: `deleted_user_${userId}_${anonToken}`,
       email: `deleted_user_${userId}_${anonToken}@deleted.invalid`,
       password: null,
-      expertAccessGrantedAt: null,
     },
   });
 }
