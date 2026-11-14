@@ -12,7 +12,6 @@ export async function getUserStatistics(userId: number) {
       gameRoom: {
         include: {
           rounds: {
-            orderBy: { number: "asc" },
             where: { winnerTeam: { not: null } },
             select: { team0Raw: true, team1Raw: true },
           },
@@ -112,7 +111,6 @@ export async function getLeaderboardStatistics() {
             include: {
               rounds: {
                 where: { winnerTeam: { not: null } },
-                orderBy: { number: "asc" },
                 select: { team0Raw: true, team1Raw: true },
               },
             },

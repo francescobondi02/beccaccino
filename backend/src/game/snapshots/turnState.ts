@@ -15,7 +15,7 @@ export async function readCurrentTurn(
   phase: TurnPhase;
   identity: TurnIdentity;
 } | null> {
-  const lastTrick = await client.trick.findFirst({
+  const trick = await client.trick.findFirst({
     where: { roundId: round.id },
     orderBy: { number: "desc" },
     include: { cards: { orderBy: { position: "asc" } } },
@@ -23,17 +23,17 @@ export async function readCurrentTurn(
   const callerSeat =
     players.find((player) => player.id === round.callerId)?.seat ?? null;
   const starterSeat =
-    players.find((player) => player.id === lastTrick?.starterId)?.seat ?? null;
+    players.find((player) => player.id === trick?.starterId)?.seat ?? null;
   const winnerSeat =
-    players.find((player) => player.id === lastTrick?.winnerId)?.seat ?? null;
+    players.find((player) => player.id === trick?.winnerId)?.seat ?? null;
   const turnSeat = resolveTurnSeat({
     briscolaChosen: round.briscola !== null,
     callerSeat,
     trick:
-      lastTrick && starterSeat !== null
+      trick && starterSeat !== null
         ? {
             starterSeat,
-            playedCardCount: lastTrick.cards.length,
+            playedCardCount: trick.cards.length,
             winnerSeat,
           }
         : null,
@@ -51,8 +51,8 @@ export async function readCurrentTurn(
         ? { roundId: round.id, trickId: null, playedCardCount: 0 }
         : {
             roundId: round.id,
-            trickId: lastTrick?.id ?? null,
-            playedCardCount: lastTrick?.cards.length ?? 0,
+            trickId: trick?.id ?? null,
+            playedCardCount: trick?.cards.length ?? 0,
           },
   };
 }

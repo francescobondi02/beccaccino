@@ -119,8 +119,8 @@ describeLive("Live bot service (real model)", () => {
     // The round completed: briscola chosen by a bot caller, all 40 cards played.
     expect(round!.briscola).not.toBeNull();
     expect(round!.tricks).toHaveLength(TRICKS_PER_ROUND);
-    expect(round!.tricks.flatMap((h) => h.cards)).toHaveLength(40);
-    expect(round!.tricks.every((h) => h.winnerId !== null)).toBe(true);
+    expect(round!.tricks.flatMap((trick) => trick.cards)).toHaveLength(40);
+    expect(round!.tricks.every((trick) => trick.winnerId !== null)).toBe(true);
 
     // And it scored: 35 raw points per round (32 card points + 3 last-trick).
     expect(round!.team0Raw + round!.team1Raw).toBe(round!.cricca ? 44 : 35);

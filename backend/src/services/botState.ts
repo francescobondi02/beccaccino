@@ -107,8 +107,8 @@ export async function buildBotTurn(
   // Tricks in play order. The in-progress one is the only trick without a winner;
   // a completed round leaves all ten resolved.
   const tricks = round.tricks;
-  const openTrick = tricks.find((h) => h.winnerId === null);
-  const completedTricks = tricks.filter((h) => h.winnerId !== null);
+  const openTrick = tricks.find((trick) => trick.winnerId === null);
+  const completedTricks = tricks.filter((trick) => trick.winnerId !== null);
 
   const heldCards = await prisma.handCard.findMany({
     where: { roundId: round.id },
@@ -188,16 +188,9 @@ export async function buildBotTurn(
 async function cumulativeRawScores(
   gameRoomId: number,
 ): Promise<Record<string, number>> {
-  const rounds = await prisma.round.findMany({
+  const { _sum } = await prisma.round.aggregate({
     where: { gameRoomId, winnerTeam: { not: null } },
-    select: { team0Raw: true, team1Raw: true },
+    _sum: { team0Raw: true, team1Raw: true },
   });
-
-  return rounds.reduce(
-    (total, r) => ({
-      "0": total["0"] + r.team0Raw,
-      "1": total["1"] + r.team1Raw,
-    }),
-    { "0": 0, "1": 0 },
-  );
+  return { "0": _sum.team0Raw ?? 0, "1": _sum.team1Raw ?? 0 };
 }

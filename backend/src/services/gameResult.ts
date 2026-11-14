@@ -6,11 +6,11 @@ import type { GameResult } from "../contract/game";
 export async function readGameResult(
   client: Prisma.TransactionClient,
   gameRoomId: number,
-  winnerTeam: Team,
 ): Promise<GameResult> {
   const room = await client.gameRoom.findUniqueOrThrow({
     where: { id: gameRoomId },
     select: {
+      winnerTeam: true,
       players: {
         orderBy: { seat: "asc" },
         select: { id: true, team: true, user: { select: { username: true } } },
@@ -66,7 +66,7 @@ export async function readGameResult(
   }
   const score = sumRoundScores(room.rounds);
   return {
-    winnerTeam,
+    winnerTeam: room.winnerTeam as Team,
     totalRounds: room.rounds.length,
     finalScores: { team0: score.team0.points, team1: score.team1.points },
     roundsWon: {

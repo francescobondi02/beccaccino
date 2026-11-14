@@ -39,7 +39,7 @@ export function decideGameWinner(
 }
 
 /** Resolve a finished game's winner; exact point ties go to the final caller. */
-export function decideScoreWinner(
+function decideScoreWinner(
   cumulative: Score,
   callerTeam: Team,
 ): Team {

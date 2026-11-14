@@ -110,7 +110,7 @@ type RoundSetupResult = {
   gameRoomId: number;
   roundNumber: number;
   roundId: number;
-  callerPlayerId: number;
+  callerId: number;
   createdAt: Date;
 };
 
@@ -169,9 +169,9 @@ export async function setupRound(
     cards: deck.slice(index * cardsPerPlayer, (index + 1) * cardsPerPlayer),
   }));
 
-  let callerPlayerId: number | null;
+  let callerId: number | null;
   if (roundNumber === 1) {
-    callerPlayerId =
+    callerId =
       hands.find((hand) =>
         hand.cards.some(
           (card) => card.suit === Suit.denara && card.value === Value.quattro,
@@ -182,14 +182,14 @@ export async function setupRound(
       where: { gameRoomId_number: { gameRoomId, number: roundNumber - 1 } },
       select: { callerId: true },
     });
-    callerPlayerId = nextCallerPlayerId(players, previousRound.callerId);
+    callerId = nextCallerPlayerId(players, previousRound.callerId);
   }
-  if (callerPlayerId === null) {
+  if (callerId === null) {
     throw new Error("Could not find the briscola caller for this round");
   }
 
   const round = await tx.round.create({
-    data: { number: roundNumber, gameRoomId, callerId: callerPlayerId },
+    data: { number: roundNumber, gameRoomId, callerId },
   });
   await tx.handCard.createMany({
     data: hands.flatMap((hand) =>
@@ -201,7 +201,7 @@ export async function setupRound(
     gameRoomId,
     roundNumber,
     roundId: round.id,
-    callerPlayerId,
+    callerId,
     createdAt: round.createdAt,
   };
 }
@@ -251,7 +251,7 @@ export async function startFirstRound(
           where: { gameRoomId },
           select: { id: true, userId: true, botModel: true },
         });
-        const caller = players.find((player) => player.id === roundSetup.callerPlayerId);
+        const caller = players.find((player) => player.id === roundSetup.callerId);
         if (!caller) throw new Error("Briscola caller not found");
 
         return {
@@ -378,7 +378,7 @@ async function setBriscolaUnlocked({
     {
       roomCode,
       roundNumber: currentRound.number,
-      callerPlayerId: player.id,
+      callerId: player.id,
       briscola: suit,
       cricca: hasCricca,
     },

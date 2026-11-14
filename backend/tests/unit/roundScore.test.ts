@@ -41,7 +41,7 @@ describe("computeRoundScore", () => {
       return { winnerId: determineTrickWinner(cards, briscola), cards };
     });
 
-    const scores = computeRoundScore(tricks, TEAM_PLAYERS, "bastoni");
+    const scores = computeRoundScore(tricks, TEAM_PLAYERS);
     expect(scores.team0 + scores.team1).toBe(35);
   });
 
@@ -62,7 +62,7 @@ describe("computeRoundScore", () => {
       };
     });
 
-    const scores = computeRoundScore(tricks, TEAM_PLAYERS, "bastoni");
+    const scores = computeRoundScore(tricks, TEAM_PLAYERS);
     // team 0 wins everything: all 40 cards + last-trick bonus
     expect(scores.team0).toBe(35);
     expect(scores.team1).toBe(0);
@@ -85,7 +85,7 @@ describe("computeRoundScore", () => {
       makeTrick(2),
     ];
 
-    const scores = computeRoundScore(tricks, TEAM_PLAYERS, "denara");
+    const scores = computeRoundScore(tricks, TEAM_PLAYERS);
     // team 1 gets its asso plus the last-trick bonus
     expect(scores).toEqual({ team0: 27, team1: 6 });
   });
@@ -99,7 +99,7 @@ describe("computeRoundScore", () => {
         const cards = PLAYERS.map((playerId) => ({ playerId, ...shuffled[idx++] }));
         return { winnerId: determineTrickWinner(cards, "coppe" as Suit), cards };
       });
-      const scores = computeRoundScore(tricks, TEAM_PLAYERS, "coppe");
+      const scores = computeRoundScore(tricks, TEAM_PLAYERS);
       expect(scores.team0 + scores.team1).toBe(35);
     }
   });

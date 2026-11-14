@@ -291,24 +291,19 @@ async function playCardUnlocked({
     }
   }
 
-  const roundScore = settleRound(computeRoundScore(
-    allTricks.map((trick) => ({
-      winnerId:
-        trick.id === currentTrick.id ? trickWinnerPlayerId : trick.winnerId,
-      cards: [
-        ...trick.cards.map((card) => ({
-          value: card.value,
-          suit: card.suit,
-          playerId: card.playerId,
-        })),
-        ...(trick.id === currentTrick.id
-          ? [{ value, suit, playerId: player.id }]
-          : []),
-      ],
-    })),
-    playerTeams,
-    currentRound.briscola!,
-  ), currentRound.cricca ? playerTeams[currentRound.callerId] : null);
+  const callerTeam = playerTeams[currentRound.callerId];
+  if (callerTeam !== 0 && callerTeam !== 1) {
+    throw new Error("Round caller has no valid team");
+  }
+  const tricks = allTricks.map((trick) =>
+    trick.id === currentTrick.id
+      ? { winnerId: trickWinnerPlayerId, cards: [...trick.cards, { value }] }
+      : { winnerId: trick.winnerId!, cards: trick.cards },
+  );
+  const roundScore = settleRound(
+    computeRoundScore(tricks, playerTeams),
+    currentRound.cricca ? callerTeam : null,
+  );
 
   const previousCompletedRounds = await prisma.round.findMany({
     where: {
@@ -320,10 +315,6 @@ async function playCardUnlocked({
   });
   const allCompletedRounds = [...previousCompletedRounds, roundScore];
   const gameScore = sumRoundScores(allCompletedRounds);
-  const callerTeam = playerTeams[currentRound.callerId];
-  if (callerTeam !== 0 && callerTeam !== 1) {
-    throw new Error("Round caller has no valid team");
-  }
   const gameWinnerTeam = decideGameWinner(
     gameScore,
     GAME_WIN_POINTS,
@@ -380,7 +371,7 @@ async function playCardUnlocked({
   }
 
   const newCaller = room.players.find(
-    (candidate) => candidate.id === nextRound!.callerPlayerId,
+    (candidate) => candidate.id === nextRound!.callerId,
   );
   if (newCaller) {
     startRuntimeTurn(

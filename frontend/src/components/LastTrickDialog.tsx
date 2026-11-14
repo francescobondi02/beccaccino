@@ -11,7 +11,7 @@ import type { GamePlayer, PlayedCard } from "@contract/game";
 type LastTrickDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  lastHand: PlayedCard[];
+  cards: PlayedCard[];
   players: GamePlayer[];
   userId: number | null;
 };
@@ -19,7 +19,7 @@ type LastTrickDialogProps = {
 const LastTrickDialog = ({
   open,
   onOpenChange,
-  lastHand,
+  cards,
   players,
   userId,
 }: LastTrickDialogProps) => {
@@ -35,9 +35,9 @@ const LastTrickDialog = ({
           </DialogDescription>
         </DialogHeader>
 
-        {lastHand.length > 0 ? (
+        {cards.length > 0 ? (
           <div className="grid grid-cols-4 gap-4 mt-4 justify-items-center">
-            {lastHand.map((card, idx) => {
+            {cards.map((card, idx) => {
               const player = players.find((p) => p.userId === card.userId);
               const playerName =
                 card.userId === userId

@@ -89,9 +89,7 @@ export async function chooseBriscola(
   });
   expect(room).not.toBeNull();
 
-  const callerPlayerId = round.callerId;
-
-  const callerCards = cards.filter((c) => c.playerId === callerPlayerId);
+  const callerCards = cards.filter((c) => c.playerId === round.callerId);
   const cardsBySuit: Record<string, number> = {};
   for (const card of callerCards) {
     cardsBySuit[card.suit] = (cardsBySuit[card.suit] || 0) + 1;
@@ -102,7 +100,7 @@ export async function chooseBriscola(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
   )[0][0];
 
-  const callerPlayer = room!.players.find((p) => p.id === callerPlayerId)!;
+  const callerPlayer = room!.players.find((p) => p.id === round.callerId)!;
 
   const chooseBriscolaRes = await apiAs(callerPlayer.userId, callerPlayer.user.username)
     .post(`/api/games/${roomCode}/briscola`)
@@ -111,10 +109,10 @@ export async function chooseBriscola(
   expect(chooseBriscolaRes.statusCode).toBe(200);
   expect(chooseBriscolaRes.body.round.briscola).toBe(mostCommonSuit);
 
-  const handsAfterBriscola = await prisma.trick.findMany({
+  const tricks = await prisma.trick.findMany({
     where: { roundId: round.id },
   });
-  expect(handsAfterBriscola.length).toBe(1);
+  expect(tricks.length).toBe(1);
 }
 
 export async function oneTrick(
@@ -171,39 +169,23 @@ export async function oneTrick(
 }
 
 export async function oneRound(roomCode: string, round: any) {
-  for (let i = 0; i < 10; i++) {
-    const tricks = await prisma.trick.findMany({
-      where: { roundId: round.id },
-      orderBy: { number: "asc" },
-    });
+  for (let number = 1; number <= 10; number++) {
+    await oneTrick(roomCode, round, number);
 
-    expect(tricks[i]).not.toBeNull();
-
-    await oneTrick(roomCode, round, i + 1);
-
-    if (i < 9) {
-      const nextTrick = await prisma.trick.findFirst({
-        where: { roundId: round.id, number: i + 2 },
+    if (number < 10) {
+      const [previous, next] = await prisma.trick.findMany({
+        where: { roundId: round.id, number: { in: [number, number + 1] } },
+        orderBy: { number: "asc" },
       });
-      expect(nextTrick).not.toBeNull();
-
-      const previousTrick = await prisma.trick.findFirst({
-        where: { roundId: round.id, number: i + 1 },
-      });
-      expect(previousTrick?.winnerId).toBe(nextTrick?.starterId);
+      expect(next).toBeDefined();
+      expect(previous.winnerId).toBe(next.starterId);
     }
   }
 
-  const finalTricks = await prisma.trick.findMany({
-    where: { roundId: round.id },
-    include: { cards: true },
-  });
-  expect(finalTricks.length).toBe(10);
-
-  const allPlayedCards = await prisma.playedCard.findMany({
-    where: { trickId: { in: finalTricks.map((h) => h.id) } },
-  });
-  expect(allPlayedCards.length).toBe(40);
+  expect(await prisma.trick.count({ where: { roundId: round.id } })).toBe(10);
+  expect(
+    await prisma.playedCard.count({ where: { trick: { roundId: round.id } } }),
+  ).toBe(40);
 }
 
 export async function prepareNextRound(currentRound: Round): Promise<{
@@ -252,7 +234,10 @@ export async function expectStoredResult(roomCode: string) {
   for (const round of room.rounds) {
     expect(Math.max(team0, team1)).toBeLessThan(GAME_WIN_POINTS * 3);
     const settled = settleRound(
-      computeRoundScore(round.tricks, teamOf, round.briscola!),
+      computeRoundScore(
+        round.tricks.map((trick) => ({ winnerId: trick.winnerId!, cards: trick.cards })),
+        teamOf,
+      ),
       round.cricca ? teamOf[round.callerId] : null,
     );
     expect(settled.team0Raw + settled.team1Raw).toBe(round.cricca ? 44 : 35);

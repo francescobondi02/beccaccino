@@ -6,7 +6,7 @@ beforeEach(async () => {
   await clearDatabase();
 });
 
-async function createCallerTieGame() {
+async function createFinishedGame() {
   const users = [];
   for (const username of ["tieA", "tieB", "tieC", "tieD"]) {
     users.push(
@@ -57,9 +57,9 @@ async function createCallerTieGame() {
   return { users, players, round, trick };
 }
 
-describe("Caller-tie statistics", () => {
+describe("Stored winner statistics", () => {
   it("derives signals, tricks and enemy aces from persisted cards on refresh", async () => {
-    const { users, players, trick } = await createCallerTieGame();
+    const { users, players, trick } = await createFinishedGame();
     await prisma.playedCard.createMany({
       data: players.map((player, position) => ({
         trickId: trick.id,
@@ -86,7 +86,7 @@ describe("Caller-tie statistics", () => {
   });
 
   it("returns the stored winner to every player", async () => {
-    const { users } = await createCallerTieGame();
+    const { users } = await createFinishedGame();
 
     for (const user of users) {
       const response = await apiAs(user.id, user.username).get(
@@ -108,7 +108,7 @@ describe("Caller-tie statistics", () => {
   });
 
   it("reports the stored winner in profile stats", async () => {
-    const { users } = await createCallerTieGame();
+    const { users } = await createFinishedGame();
 
     const winner = await apiAs(users[1].id, users[1].username).get(
       "/api/users/me/stats",
@@ -126,7 +126,7 @@ describe("Caller-tie statistics", () => {
   });
 
   it("awards exactly two leaderboard wins to the stored winner team", async () => {
-    const { users } = await createCallerTieGame();
+    const { users } = await createFinishedGame();
 
     const response = await apiAs(users[0].id, users[0].username).get(
       "/api/users/leaderboard",

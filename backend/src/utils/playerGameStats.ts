@@ -1,16 +1,10 @@
 import { sumRoundScores } from "../domain/game/gameScore";
 
-export type PlayerGameSummary = {
-  didWin: boolean;
-  myTeamPoints: number;
-  opponentTeamPoints: number;
-};
-
 export function summarizePlayerGame(
   playerTeam: number | null,
   winnerTeam: number | null,
   rounds: { team0Raw: number; team1Raw: number }[],
-): PlayerGameSummary {
+) {
   if (playerTeam !== 0 && playerTeam !== 1) {
     throw new Error("Finished game player has no valid team");
   }

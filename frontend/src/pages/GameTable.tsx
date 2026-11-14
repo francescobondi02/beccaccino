@@ -407,7 +407,7 @@ const GameTable = () => {
       <LastTrickDialog
         open={lastTrickDialogOpen}
         onOpenChange={setLastTrickDialogOpen}
-        lastHand={gameState.lastTrick?.cards ?? []}
+        cards={gameState.lastTrick?.cards ?? []}
         players={playersWithPositions}
         userId={userId}
       />

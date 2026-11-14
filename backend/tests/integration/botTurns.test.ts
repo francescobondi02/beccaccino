@@ -150,7 +150,7 @@ describe("Bot turn driver", () => {
     ).toBe(true);
 
     // Seat 0 is the human, so the bots play up to (but not past) their turn.
-    const played = round!.tricks.flatMap((h) => h.cards);
+    const played = round!.tricks.flatMap((trick) => trick.cards);
     expect(played.length).toBeGreaterThan(0);
   });
 
@@ -188,12 +188,12 @@ describe("Bot turn driver", () => {
     // One completed trick per human card — the human plays once per trick, and
     // the bots fill in every other position on their own.
     const round = (await loadRound(roomCode))!;
-    expect(round.tricks.filter((h) => h.winnerId !== null)).toHaveLength(HUMAN_TURNS);
+    expect(round.tricks.filter((trick) => trick.winnerId !== null)).toHaveLength(HUMAN_TURNS);
 
     const humanPlayer = await prisma.player.findFirst({
       where: { userId, gameRoom: { code: roomCode } },
     });
-    const cards = round.tricks.flatMap((h) => h.cards);
+    const cards = round.tricks.flatMap((trick) => trick.cards);
     expect(cards.filter((c) => c.playerId === humanPlayer!.id)).toHaveLength(HUMAN_TURNS);
 
     // Every seat contributed, so no bot silently stopped acting.
@@ -235,7 +235,7 @@ describe("Bot turn driver", () => {
     // Autoplay covered the failing seats, so the game still progressed...
     const round = await loadRound(roomCode);
     expect(round!.briscola).not.toBeNull();
-    expect(round!.tricks.flatMap((h) => h.cards).length).toBeGreaterThan(0);
+    expect(round!.tricks.flatMap((trick) => trick.cards).length).toBeGreaterThan(0);
 
     // ...and no bot accrued a timeout or a kick. Three timeouts would swap the
     // model for the dumb heuristic permanently, and we would never notice.
@@ -306,7 +306,7 @@ describe("Bot turn driver", () => {
 
     const round = await loadRound(roomCode);
     const signalled = round!.tricks
-      .flatMap((h) => h.cards)
+      .flatMap((trick) => trick.cards)
       .filter((c) => c.signal !== null);
 
     expect(signalled.length).toBeGreaterThan(0);

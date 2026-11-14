@@ -82,7 +82,7 @@ async function readGameSnapshot(client: Prisma.TransactionClient, roomCode: stri
   const result =
     room.winnerTeam === null
       ? null
-      : await readGameResult(client, room.id, room.winnerTeam as Team);
+      : await readGameResult(client, room.id);
 
   return {
     room,
