@@ -1,1 +1,0 @@
-ALTER TABLE "GameRoom" ADD COLUMN "botTier" TEXT;
