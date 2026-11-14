@@ -29,6 +29,8 @@ make reset   # delete the database and dependency volumes, then start fresh
 make qr      # print the Expo Go URL and QR code again
 ```
 
+After pulling Phase 3a, run `make reset` (drops the local databases).
+
 | Service | URL |
 | --- | --- |
 | Web | http://localhost:8081 |

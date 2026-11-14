@@ -235,6 +235,9 @@ Training reads the game tables directly. `PlayedCard.autoPlayed` and
 `Round.briscolaAutoChosen` mark moves the server chose after a timeout or a bot
 service failure; exclude them from training labels.
 
+Until Phase 3b, practice game rows are still deleted when the player leaves or
+the stale practice room sweeper runs.
+
 ## API Endpoints
 
 | Method | Path | Auth | Description |

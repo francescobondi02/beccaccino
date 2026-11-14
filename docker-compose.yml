@@ -94,6 +94,7 @@ services:
       BACKEND_URL: http://backend:8000
     volumes:
       - ./frontend:/app
+      - ./backend/src/contract:/backend/src/contract:ro
       - frontend_node_modules:/app/node_modules
     ports:
       - "8081:8081"
