@@ -168,7 +168,7 @@ ALTER TABLE "Trick" ADD CONSTRAINT "Trick_roundId_fkey" FOREIGN KEY ("roundId") 
 ALTER TABLE "Trick" ADD CONSTRAINT "Trick_starterId_fkey" FOREIGN KEY ("starterId") REFERENCES "Player"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Trick" ADD CONSTRAINT "Trick_winnerId_fkey" FOREIGN KEY ("winnerId") REFERENCES "Player"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Trick" ADD CONSTRAINT "Trick_winnerId_fkey" FOREIGN KEY ("winnerId") REFERENCES "Player"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "PlayedCard" ADD CONSTRAINT "PlayedCard_trickId_fkey" FOREIGN KEY ("trickId") REFERENCES "Trick"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -140,7 +140,7 @@ model Trick {
 
   round       Round     @relation(fields: [roundId], references: [id])
   starter     Player    @relation("startedTricks", fields: [starterId], references: [id])
-  winner      Player?   @relation("wonTricks", fields: [winnerId], references: [id])
+  winner      Player?   @relation("wonTricks", fields: [winnerId], references: [id], onDelete: Restrict)
   cards       PlayedCard[]
   @@unique([roundId, number])
 }
