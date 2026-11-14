@@ -55,7 +55,7 @@ const DAY_MS = 24 * HOUR_MS;
 // A started practice game with one finished trick, a human and three bots.
 async function createPracticeGame(
   code: string,
-  data: { lastActivityAt: Date; pausedAt?: Date; finished?: boolean; winnerTeam?: number },
+  roomFields: { lastActivityAt: Date; pausedAt?: Date; finished?: boolean; winnerTeam?: number },
 ) {
   const users = await createUsers([
     { username: `${code}-human` },
@@ -68,7 +68,7 @@ async function createPracticeGame(
       code,
       started: true,
       isPractice: true,
-      ...data,
+      ...roomFields,
       players: {
         create: users.map((user, seat) => ({
           userId: user.id,
@@ -95,7 +95,7 @@ async function createPracticeGame(
       number: 1,
       starterId: room.players[0].id,
       winnerId: room.players[0].id,
-      completedAt: data.lastActivityAt,
+      completedAt: roomFields.lastActivityAt,
     },
   });
   await prisma.trick.create({

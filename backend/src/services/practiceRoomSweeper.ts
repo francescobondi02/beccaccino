@@ -16,7 +16,7 @@ async function runPracticeRoomSweep(now: Date): Promise<number> {
       finished: false,
       lastActivityAt: { lte: staleBefore },
     },
-    select: { id: true, code: true },
+    select: { code: true },
     orderBy: [{ lastActivityAt: "asc" }, { id: "asc" }],
   });
   let retiredRooms = 0;
@@ -26,14 +26,7 @@ async function runPracticeRoomSweep(now: Date): Promise<number> {
       const retired = await retirePracticeRoom(candidate.code, staleBefore);
       if (retired) retiredRooms += 1;
     } catch (error) {
-      logger.error(
-        {
-          err: error,
-          roomCode: candidate.code,
-          gameRoomId: candidate.id,
-        },
-        "practice_room_sweep_room_failed",
-      );
+      logger.error({ err: error, roomCode: candidate.code }, "practice_room_sweep_room_failed");
     }
   }
 

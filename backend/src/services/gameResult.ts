@@ -26,17 +26,10 @@ export async function readGameResult(
   }));
   const byId = new Map(players.map((player) => [player.playerId, player]));
   for (const trick of tricks) {
-    if (trick.winnerId === null) continue;
-    const winner = byId.get(trick.winnerId);
-    if (!winner || winner.team === null) {
-      throw new Error("Completed trick winner has no valid team");
-    }
+    const winner = byId.get(trick.winnerId!)!;
     winner.tricksWon += 1;
     for (const card of trick.cards) {
-      const player = byId.get(card.playerId);
-      if (!player || player.team === null) {
-        throw new Error("Played card owner has no valid team");
-      }
+      const player = byId.get(card.playerId)!;
       if (card.signal === "busso") player.busso += 1;
       if (card.value === "asso" && player.team !== winner.team) {
         winner.acesCaptured += 1;

@@ -1,5 +1,3 @@
-// src/controllers/gameController.ts
-
 import { Request, Response } from "express";
 import { playCard } from "../game/transitions/cardPlay";
 import { setBriscola } from "../game/transitions/round";

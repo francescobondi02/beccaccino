@@ -73,6 +73,8 @@ const shutdown = async (signal: string) => {
     exitCode = 1;
     logger.error({ err: error }, "server_close_failed");
   }
+  // Requests and the reconciler may have armed timers while closing.
+  clearAllTurnTimers();
   try {
     await prisma.$disconnect();
   } catch (error) {

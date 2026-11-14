@@ -1,4 +1,3 @@
-// src/sockets/room.ts
 /** Socket presence and chat handlers. Room mutations use the REST API. */
 
 import { Server, Socket } from "socket.io";
