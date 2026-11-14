@@ -103,17 +103,46 @@ yet. The owner runs these steps in order.
 2. Wipe the schema:
    `psql "$DIRECT_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'`.
    The running old backend fails until step 3 finishes.
-3. Render backend: point the service at this repository, branch `main`, root
-   directory `backend/`. In the same save, set a new `JWT_SECRET` and delete
-   `FRONTEND_URL`, `ANNOTATION_ACCESS_CODE` and any `SENTRY_*` variables.
-   Then deploy. Its start runs `prisma migrate deploy`, which creates the
-   baseline. Check `/ready`.
-4. Vercel: point the project at this repository, branch `main`, root directory
-   `frontend/`, with files outside the root directory included. Delete
-   `VITE_API_URL`, `VITE_SOCKET_URL` and any `SENTRY_*` variables. Then deploy.
-5. Users register again. The 3 bot users are created on demand.
-6. Smoke test: register, play a practice game on the website, log in on the
+3. Render backend. Open the service settings and set:
+   - Repository: `francescobondi02/beccaccino`, branch `main`.
+   - Root Directory: `backend`.
+   - Dockerfile Path: `./Dockerfile`. Docker Build Context: `.`.
+     Both paths are relative to `backend/`.
+   - Build Filters, Included Paths: `backend/**`. Changes in other folders
+     then do not redeploy the backend.
+   - Environment: set a new `JWT_SECRET`. Delete `FRONTEND_URL`,
+     `ANNOTATION_ACCESS_CODE` and any `SENTRY_*` variables.
+
+   Save all of this at once, then deploy. The start runs
+   `prisma migrate deploy`, which creates the baseline. Check that `/ready`
+   returns `{"status":"ready"}`.
+4. Vercel website. Open the project settings and set:
+   - Git: this repository, production branch `main`.
+   - Root Directory: `frontend`.
+   - Keep "Include files outside the root directory in the Build Step" on.
+     The website imports types from `backend/src/contract/`.
+   - Ignored Build Step:
+     `git diff --quiet HEAD^ HEAD -- . ../backend/src/contract`.
+     Vercel then skips the build when nothing the website uses has changed.
+   - Environment: delete `VITE_API_URL`, `VITE_SOCKET_URL` and any `SENTRY_*`
+     variables.
+
+   Then deploy.
+5. Render bot service (`becca-ai`). Open the service settings and set:
+   - Repository: this repository, branch `main`.
+   - Root Directory: `ai`.
+   - Dockerfile Path: `./Dockerfile`. Docker Build Context: `.`.
+   - Build Filters, Included Paths: `ai/**`.
+   - If the service comes from a Blueprint, set the Blueprint path to
+     `ai/render.yaml`.
+   - Keep `BOT_SERVICE_TOKEN`. It must match the backend.
+
+   Then deploy, or leave it on manual deploys.
+6. Users register again. The 3 bot users are created on demand.
+7. Smoke test: register, play a practice game on the website, log in on the
    phone app.
+8. Disconnect or archive the old frontend and backend repositories in Render
+   and Vercel. Otherwise a push there still deploys the old code.
 
 Rotate `JWT_SECRET` with the first deploy on the wiped database, not later.
 The backend accepts a token whose user id exists. After the wipe, ids start
