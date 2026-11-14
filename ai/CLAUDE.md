@@ -6,39 +6,7 @@ This module owns offline training, evaluation, search, and bot inference for
 Beccaccino. The TypeScript backend remains authoritative for persisted online
 games; the Python engine exists for high-throughput training and serving.
 
-## Structure
-
-```text
-becca_env/
-  deck.py          Cards, suits, strengths, and points
-  rules.py         Follow-suit, trick winner, and round scoring
-  game.py          Match state machine
-  observation.py   Public and centralized observation encoders
-  kaggle_observation.py Frozen 1888-feature Kaggle inference layout
-  env.py           Gymnasium environment and rewards
-  signals.py       Shared signal convention
-training/
-  engine.py        Canonical PPO lifecycle
-  trainer.py       Legacy-compatible CLI/setup adapter
-  rollout.py       Per-env, per-seat GAE and reward credit
-  dual_rollout.py  Production learner/opponent collection
-  network.py       V1-V4 policies and centralized critic
-  checkpoint.py    Atomic save/load, hashes, provenance, fallback
-  vec_env.py       Vector workers and exact state snapshots
-evaluation/
-  arena.py         Canonical seeded match runner and mirrored records
-  heuristic.py     Frozen rule-agent baseline
-  protocol.py      Persisted champion decisions
-inference/
-  hand_sampler.py  Public-constraint hand sampling
-  determinized.py  Determinized game copies
-  pimc.py          Shared PIMC config, agent, and search
-serving/
-  app.py           Raw-state /act and /tiers endpoints
-  state_adapter.py Backend DTO conversion
-  tiers.py         Facile, medio, forte, esperto construction
-  fixtures/        Cross-language observation fixtures
-```
+The layout and the commands are in [README.md](./README.md).
 
 ## Invariants
 
@@ -130,26 +98,9 @@ training encoder.
 
 ## Validation
 
-```bash
-pytest
-ruff check .
-ruff format --check .
-python -m scripts.gen_bot_fixtures
-git diff --exit-code serving/fixtures/
-```
-
-Build and smoke the wheel when package discovery changes:
-
-```bash
-python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/becca-wheel .
-```
-
-Build the deployment image when serving dependencies, artifacts, or startup
-behavior changes:
-
-```bash
-docker build -t becca-ai .
-```
+Run the README "Validate" commands. Also build the wheel when package discovery
+changes, and the Docker image when serving dependencies, artifacts or startup
+change.
 
 ## Documentation
 

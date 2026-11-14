@@ -1,118 +1,207 @@
-# BECCA — Operations Runbook
+# BECCA — Operations runbook
 
-Quick reference for diagnosing and fixing production issues during beta. When something breaks at 11 PM, start here.
+How to deploy, configure and repair production. Local development is in
+[README.md](./README.md).
 
-## Architecture at a glance
+## Services
 
-| Layer    | Hosted on | URL / dashboard |
-| -------- | --------- | --------------- |
-| Frontend | Vercel | https://beccaccino-client.vercel.app / Vercel BECCA project |
-| Backend | Render | https://beccaccino-server.onrender.com / `becca-backend` logs |
-| Database | Neon | https://console.neon.tech → BECCA project |
-| Errors | Sentry | https://sentry.io → backend + frontend projects |
+| Part | Host | Address |
+| --- | --- | --- |
+| Website | Vercel, root directory `frontend/` | https://beccaccino-client.vercel.app |
+| Backend | Render, Docker, root directory `backend/` | https://beccaccino-server.onrender.com |
+| Database | Neon PostgreSQL | Neon console |
+| Bot service | Render, Docker, from `ai/render.yaml` (free plan) | see [ai/docs/DEPLOYMENT.md](./ai/docs/DEPLOYMENT.md) |
 
-## First five minutes of any incident
+The browser talks only to the Vercel origin. `frontend/vercel.json` forwards
+`/api/*` and Socket.IO polling to the Render backend, and
+`frontend/api/socket-proxy.ts` bridges WebSocket upgrades. Both hard-code the
+Render URL. The native app calls the Render URL directly
+(`mobile/src/lib/backend.ts`).
 
-1. Open Sentry — is there a fresh error spike? Filter by `environment:production` and the last 30 minutes.
-2. Open Render → backend → Logs — search for `level:error` (or `"err"` in JSON logs).
-3. Open Vercel → frontend → Logs (or check Sentry replay if a session was captured).
-4. Check Neon → Monitoring — connection count, slow queries, CPU.
-5. Confirm the backend is alive: `curl https://<backend>/health` should return `{"status":"ok"}`.
+The backend runs as one instance. Room locks and turn timers live in memory;
+do not scale it out.
 
-## Logs — what to look for
+## Deploy
 
-Backend logs are structured JSON (pino). Useful queries inside Render's log search:
+Work lands on `develop`. A PR from `develop` to `main` releases it: Render
+builds `backend/Dockerfile` and Vercel builds `frontend/` on every push to
+`main`. The bot service is deployed by hand.
 
-| Want to find...                       | Search for                                                   |
-| ------------------------------------- | ------------------------------------------------------------ |
-| All errors                            | `"level":50` or `"err"`                                      |
-| What happened in a specific game      | `"roomCode":"ABCD"`                                          |
-| What a specific user did              | `"userId":42`                                                |
-| Card plays (the source of most bugs)  | `"card_played"`                                              |
-| Round/game outcomes                   | `"round_ended"` / `"game_finished"`                          |
-| Periodic ops metrics                  | `"ops_snapshot"` (active games, sockets, memory, every 60 s) |
-| Auto-play firing                      | `"auto_play_failed"` or `"turn_timer_recovered_after_restart"` |
-| Recent restarts                       | `"server_started"` / `"shutdown_initiated"`                  |
-| Any unhandled error                   | `"uncaught_exception"` / `"unhandled_rejection"`             |
+- The backend container runs `npx prisma migrate deploy && node dist/index.js`.
+  A failed migration stops the new container; Render keeps the old one.
+- The web app imports types from `backend/src/contract/`, so the Vercel project
+  must include files outside its root directory in the build.
+- Deploy the backend before the website when the contract changes. The mobile
+  app must come from the same commit as the backend.
+- Check after a deploy: `curl https://beccaccino-server.onrender.com/ready`
+  returns `{"status":"ready"}`, then log in and play a few tricks of a practice
+  game on the website.
 
-Every HTTP request gets a `req.id` (also returned in the `x-request-id` response header) so you can correlate a frontend network failure with backend logs.
+## Environment variables
 
-## Sentry — finding what a user saw
+Render, backend:
 
-1. Sentry → Issues → search by user: `user.id:42` or `user.username:"alice"`.
-2. Click the issue → Replays tab → watch the session leading up to the error.
-3. Cross-reference the timestamp + `req.id` with Render logs.
+| Variable | Notes |
+| --- | --- |
+| `DATABASE_URL` | Neon pooled URL (host contains `-pooler`) with `?sslmode=require&connection_limit=5&pool_timeout=10` |
+| `DIRECT_URL` | Neon direct URL of the same database. Prisma fails if it is unset. |
+| `JWT_SECRET` | Long random string. Changing it logs everyone out. |
+| `BOT_SERVICE_URL`, `BOT_SERVICE_TOKEN` | Bot service URL and its shared secret. Without them, practice games cannot start. |
+| `GAME_WIN_POINTS` | Optional, default 41. Read at startup; applies to every game after a restart. |
+| `TURN_TIMEOUT_SECONDS`, `BRISCOLA_TIMEOUT_SECONDS` | Optional, defaults 60 and 90. |
+| `BOT_THINK_DELAY_MS` | Optional, default 1000. |
+| `LOG_LEVEL` | Optional, default `info`. Use `debug` for more detail. |
+| `RUNTIME_RECONCILE_INTERVAL_MS` | Optional, default 30000. |
 
-User context is set on:
-- Login / register (`AuthDialog`)
-- `/users/me` checks on every page (Index, GameRoom, GameTable, Profile, Leaderboard)
-- Cleared on logout
+`NODE_ENV=production` is set by the Dockerfile. Render sets `PORT`.
 
-If a Sentry event is missing `user`, the user wasn't logged in or the page hadn't checked auth yet.
+Render, bot service: `BOT_SERVICE_TOKEN`, the same value as the backend.
 
-## Common scenarios
+Vercel: no variables are needed.
 
-### "My card didn't play" / "the game froze"
+Nothing reads `FRONTEND_URL`, `ANNOTATION_ACCESS_CODE`, `VITE_API_URL`,
+`VITE_SOCKET_URL` or any `SENTRY_*` variable. Delete them if they still exist.
 
-1. Get the room code from the user.
-2. Render logs → search `"roomCode":"<CODE>"` for the last hour.
-3. Look for the last `card_played` log line and the next expected turn.
-4. If the timer fired but `auto_play_failed` shows, that's a benign race (player clicked at the same time as the timeout). If neither fires, the server may have restarted — check `server_started` near that timestamp. The next state fetch will lazily restart the timer (`turn_timer_recovered_after_restart`).
+## Migrations
 
-### "I can't log in"
+Migrations live in `backend/prisma/migrations/` and apply on every backend
+start. Create them locally with `prisma migrate dev` (see
+[backend/README.md](./backend/README.md#database)). CI applies them to an empty
+database and fails if they do not match `schema.prisma`.
 
-1. Sentry → look for `login_failed` or `register_user_failed`.
-2. Render logs → look for that user's `req.id`.
-3. Common causes: the browser is not on the Vercel origin (the `SameSite=Lax` cookie only works through the `/api` proxy), DB unreachable.
+Run SQL by hand only with `DIRECT_URL`, never the pooled URL.
 
-### Backend down / health check failing
+## Backup and restore
 
-1. Render → backend → Events tab. Was there a deploy? Did the container OOM?
-2. `/health` endpoint probes the DB. If it's 503, the failure is at the Neon side.
-3. Neon → Monitoring → connections. If at the pooler limit, restart Render service or temporarily raise `DATABASE_URL` `connection_limit`.
-4. The Dockerfile runs `prisma migrate deploy` on startup. A migration failure crashes the container — check the very first log lines after a restart.
+Back up before every schema change. Use `pg_dump` of the same major version as
+Neon or newer:
 
-### Database connection exhaustion
+```sh
+pg_dump "$DIRECT_URL" --format=custom --file=becca-YYYY-MM-DD.dump
+```
 
-Symptoms: requests time out, `prisma client error: too many connections`.
+The dump contains password hashes. Keep it private and outside the repository.
 
-1. Confirm `DATABASE_URL` on Render uses the Neon **pooler** host (contains `-pooler`) and has `?connection_limit=5&pool_timeout=10` appended.
-2. `DIRECT_URL` should be the non-pooled host (used by `migrate deploy` only). It
-   must be **set** — Prisma fails schema validation on an unset `env()`, so a
-   missing `DIRECT_URL` crashes the container at the startup `migrate deploy`
-   rather than degrading gracefully.
-3. If a stuck process is hoarding connections, restart the Render service.
+To restore over a schema that has changed since the dump, empty the schema
+first:
 
-### Sentry stack traces are minified
+```sh
+psql "$DIRECT_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+pg_restore --no-owner --dbname "$DIRECT_URL" becca-YYYY-MM-DD.dump
+```
 
-Source maps are uploaded by:
-- **Frontend (Vercel)**: `vite build` runs `@sentry/vite-plugin` if `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` are set as Vercel env vars. The release tag comes from `VERCEL_GIT_COMMIT_SHA` (also set on `Sentry.init` via `VITE_SENTRY_RELEASE`).
-- **Backend (Render)**: Dockerfile runs `npm run sentry:sourcemaps` after `tsc`. Pass the same three secrets as build args, and `RENDER_GIT_COMMIT` for the release tag. Verify in Sentry → Releases that the SHA appears with attached source maps.
+Then deploy the commit that matches the dump. Neon can also restore a branch to
+a point in time, within the plan's history window.
 
-Common gotcha: the release in `Sentry.init` must match the release passed to the upload step. Both default to the git commit, so they should agree as long as both are set.
+## Release checkpoint: develop to main with a database wipe
 
-## Known caveats
+The first release of the monorepo replaces the old migration history with one
+baseline, so the production database is wiped once. There are no real users
+yet. The owner runs these steps in order.
 
-- **Turn timers are in-memory.** A server restart mid-game wipes them. The first `getGameState` fetch after restart restores the active timer, so auto-play resumes — but the player may need to refresh. Documented at `backend/src/controllers/gameController.ts` (lazy timer recovery block).
-- **Socket.IO sticky sessions.** If you scale Render to >1 instance you must enable a Redis adapter or sticky sessions. Currently single-instance.
-- **Leaderboard cache.** 60 s in-memory TTL. After a game finishes, the leaderboard may not update for up to a minute.
+1. Back up the Neon database (see above).
+2. Wipe the schema:
+   `psql "$DIRECT_URL" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'`.
+   The running old backend fails until step 3 finishes.
+3. Render backend. Open the service settings and set:
+   - Repository: `francescobondi02/beccaccino`, branch `main`.
+   - Root Directory: `backend`.
+   - Dockerfile Path: `./Dockerfile`. Docker Build Context: `.`.
+     Both paths are relative to `backend/`.
+   - Build Filters, Included Paths: `backend/**`. Changes in other folders
+     then do not redeploy the backend.
+   - Environment: set a new `JWT_SECRET`. Delete `FRONTEND_URL`,
+     `ANNOTATION_ACCESS_CODE` and any `SENTRY_*` variables.
 
-## Operational levers (env vars)
+   Save all of this at once, then deploy. The start runs
+   `prisma migrate deploy`, which creates the baseline. Check that `/ready`
+   returns `{"status":"ready"}`.
+4. Vercel website. Open the project settings and set:
+   - Git: this repository, production branch `main`.
+   - Root Directory: `frontend`.
+   - Keep "Include files outside the root directory in the Build Step" on.
+     The website imports types from `backend/src/contract/`.
+   - Ignored Build Step:
+     `git diff --quiet HEAD^ HEAD -- . ../backend/src/contract`.
+     Vercel then skips the build when nothing the website uses has changed.
+   - Environment: delete `VITE_API_URL`, `VITE_SOCKET_URL` and any `SENTRY_*`
+     variables.
 
-| Need to...                          | Set on Render            | Effect                               |
-| ----------------------------------- | ------------------------ | ------------------------------------ |
-| Get verbose logs                    | `LOG_LEVEL=debug`        | Restart required                     |
-| Disable Sentry temporarily          | unset `SENTRY_DSN`       | Restart required                     |
-| Shorten game for testing            | `GAME_WIN_POINTS=12`     | Affects new rooms                    |
-| Tune turn timeout                   | `TURN_TIMEOUT_SECONDS`   | Default 60 s                         |
-| Tune briscola choice timeout        | `BRISCOLA_TIMEOUT_SECONDS` | Default 90 s                       |
+   Then deploy.
+5. Render bot service (`becca-ai`). Open the service settings and set:
+   - Repository: this repository, branch `main`.
+   - Root Directory: `ai`.
+   - Dockerfile Path: `./Dockerfile`. Docker Build Context: `.`.
+   - Build Filters, Included Paths: `ai/**`.
+   - If the service comes from a Blueprint, set the Blueprint path to
+     `ai/render.yaml`.
+   - Keep `BOT_SERVICE_TOKEN`. It must match the backend.
 
-## When things are really on fire
+   Then deploy, or leave it on manual deploys.
+6. Users register again. The 3 bot users are created on demand.
+7. Smoke test: register, play a practice game on the website, log in on the
+   phone app.
+8. Disconnect or archive the old frontend and backend repositories in Render
+   and Vercel. Otherwise a push there still deploys the old code.
 
-- **Roll back**: Render → backend → Manual Deploy → previous successful commit. Vercel → frontend → Deployments → previous → Promote to Production.
-- **Database point-in-time restore**: Neon → Branches → restore to a timestamp before the incident.
-- **Drop traffic**: Vercel → frontend → set environment to `paused`, or scale Render service to 0 instances.
+Rotate `JWT_SECRET` with the first deploy on the wiped database, not later.
+The backend accepts a token whose user id exists. After the wipe, ids start
+again from 1, so an old token signed with the old secret could act as a new
+user.
 
-## Add to this runbook
+Rollback: restore the backup as above, then redeploy the previous commit.
 
-Every time we hit a new failure mode, add a one-line scenario above with: symptom → where to look → fix. The next on-call (probably you again) will thank you.
+## Incidents
+
+Start with Render logs, then Neon monitoring, then Vercel logs. Check
+`/health` (the process is up) and `/ready` (the database answers and runtime
+recovery finished).
+
+Backend logs are JSON (pino). Every request has an id, also returned in the
+`x-request-id` header. Useful searches:
+
+| To find | Search for |
+| --- | --- |
+| Errors | `"level":50` |
+| One game | `"roomCode":"ABCD23"` |
+| One user | `"userId":42` |
+| Moves and results | `card_played`, `round_ended`, `game_finished` |
+| Server-chosen moves | `bot_fallback_to_autoplay`, `turn_execution_failed` |
+| Timer repair | `turn_runtime_recovered`, `active_runtime_reconcile_failed`, `room_runtime_recovery_failed` |
+| Failed pushes | `game_publish_failed` |
+| Practice | `practice_game_paused`, `practice_game_resumed`, `player_abandoned_game`, `practice_rooms_swept` |
+| Restarts | `server_started`, `shutdown_initiated` |
+| Crashes | `uncaught_exception`, `unhandled_rejection` |
+| Load, every 60 s | `ops_snapshot` |
+
+### A game is stuck
+
+1. Get the room code and search the logs for it.
+2. Turn deadlines are stored (`GameRoom.turnStartedAt`). After a restart, startup
+   recovery re-arms every live game before `/ready` passes. The reconciler
+   repeats this every 30 s.
+3. If `room_runtime_recovery_failed` repeats for one room, read its error. A
+   paused practice game is not stuck; its player resumes it.
+
+### Backend down or not ready
+
+1. Render events: a failed deploy, a crash, out of memory? A failed
+   `prisma migrate deploy` shows in the first log lines.
+2. `/ready` returns 503 with `database unreachable`: check Neon.
+   `runtime recovery incomplete`: search `room_runtime_recovery_failed`.
+3. Too many connections: check that `DATABASE_URL` uses the pooler host and
+   `connection_limit=5`, then restart the service.
+
+### Practice games do not start
+
+Room creation first waits up to 75 s for the bot service's `/ready`. A free
+Render service sleeps and takes about a minute to wake. If it fails, check the
+bot service logs and that both services have the same `BOT_SERVICE_TOKEN`.
+
+### Known limits
+
+- The leaderboard is cached for 60 s.
+- The website's socket reconnects every 300 s, when Vercel ends the proxy
+  function. Clients refetch the state.
+- Web login rate limits use Vercel's address, so they are shared by all web
+  users.
