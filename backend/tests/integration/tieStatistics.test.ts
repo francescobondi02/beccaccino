@@ -50,6 +50,7 @@ async function createCallerTieGame() {
       number: 1,
       starterId: players[1].id,
       winnerId: players[0].id,
+      completedAt: new Date(),
     },
   });
 

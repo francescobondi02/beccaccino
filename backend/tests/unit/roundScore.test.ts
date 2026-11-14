@@ -86,9 +86,8 @@ describe("computeRoundScore", () => {
     ];
 
     const scores = computeRoundScore(tricks, TEAM_PLAYERS, "denara");
-    // team 1 gets the last-trick bonus
-    expect(scores.team1).toBeGreaterThan(0);
-    expect(scores.team0 + scores.team1).toBe(35);
+    // team 1 gets its asso plus the last-trick bonus
+    expect(scores).toEqual({ team0: 27, team1: 6 });
   });
 
   it("raw total is always 35 across multiple random seeds", () => {
