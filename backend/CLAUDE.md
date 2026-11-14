@@ -1,178 +1,24 @@
-# Backend - Express, Socket.IO, and Prisma
+# Backend agent notes
 
-Node 24, TypeScript, Express 5, Prisma, and Socket.IO. See `DEVELOPMENT.md`
-for setup, commands, endpoints, and operator procedures.
+Read the root [CLAUDE.md](../CLAUDE.md) and [README.md](./README.md) first.
 
-## Ownership
-
-```text
-src/
-  index.ts                 Process entry, startup recovery, shutdown
-  app.ts                   Express middleware, routes, probes, global errors
-  server.ts                HTTP and Socket.IO factory and transport auth
-  auth/                    Active account sessions
-  http/                    Input parsing, request identity, typed HTTP errors
-  controllers/             HTTP adaptation only
-  routes/                  Visible REST API map
-  domain/game/             Pure cards, caller, turn, trick, and scoring rules
-  game/liveGame.ts         Loads one game (room, players, round, trick, hands)
-  game/gameState.ts        Pure `toGameState`: the state one player sees
-  game/runGameAction.ts    The one write path for a game
-  game/transitions/        Round and card-play changes
-  runtime/                 Timers, bots, timeout policy, recovery, publication
-  services/                Room operations/queries, account, stats
-  sockets/room.ts          Presence and chat handlers
-```
-
-Controllers parse input, call one operation, and return the result. Do not add
-controller-local `try/catch` response mapping; `http/errorHandler.ts` maps typed
-client errors and sanitizes unexpected failures.
-
-Routes are the public API map. Avoid compatibility barrels that hide which
-controller or service owns a route.
-
-Use these entry points when following the game:
-
-- `services/multiplayerRooms.ts` and `services/practiceRooms.ts`: room operations.
-- `services/leaveRoom.ts`: participant departure, not ownership checks.
-- `services/botUsers.ts`: bot accounts and tiers; `botClient.ts`: Python HTTP calls.
-- `domain/game/trickWinner.ts`, `roundScore.ts`, `gameScore.ts`: pure rules at each scope.
-
-Use explicit `userId` and `playerId` names. `playerTeams` maps player IDs to
-teams. A trick is one four-card play (`Trick`); a hand is the cards held by a
-player (`HandCard`).
-
-## Call Flow
-
-Room mutations:
-
-```text
-route -> room mutation controller -> multiplayer/practice/leave operation
-      -> database mutation
-      -> runtime recovery or cleanup
-      -> best-effort Socket.IO publication
-```
-
-Game mutations:
-
-```text
-route -> game controller -> runGameAction(roomCode, change)
-      -> room lock, transaction, loadLiveGame, change
-      -> version compare-and-set, lastActivityAt, turnStartedAt
-      -> commit, re-arm the turn for the new version
-      -> game_state to each human
-```
-
-`runGameAction` is the only game write path. A change checks its rules, writes
-its rows and returns the `lastAction`, or null for nothing to do. Timers and bot
-replies pass `expectedVersion` and are dropped when the version moved. A human
-move that loses a version race gets 409 with the current `state`. Mutation
-responses return the caller's copy of the published state. Publication or
-re-arm failure after commit is logged; the reconciler repairs the runtime.
-
-`game/gameState.ts` is pure. A game-state GET must never start a timer, run a
-bot, or repair runtime.
-
-Team selection and ready changes are REST-only:
-
-- `POST /api/rooms/:roomCode/choose-team`
-- `POST /api/rooms/:roomCode/ready`
-
-Room changes emit `room_changed { roomCode }` to the room; changes that affect
-the lobby list also emit `lobby_changed` to `lobby`. Clients refetch over REST.
-Client-to-server room sockets are limited to lobby/room presence, leave, and
-chat.
-
-## Runtime Recovery
-
-`index.ts` completes the initial `reconcileActiveRuntime()` pass before the HTTP
-server listens. Recovery scans started, unfinished, unpaused rooms, locks each
-one and arms it when it has no timer for its current `version`. A human deadline
-is `GameRoom.turnStartedAt` plus the turn timeout, so a restart keeps it.
-`/ready` remains unavailable while any room recovery fails, and the reconciler
-retries every 30 seconds. Paused rooms are excluded.
-
-Runtime responsibilities are separate:
-
-- `turnTimer.ts`: one timer per room, tagged with the version it was armed for
-- `turnRuntime.ts`: `armTurn`, a bot move or the human deadline
-- `botExecutor.ts`: bot move, with a server-chosen move if the service fails
-- `timeoutPolicy.ts`: turn durations and bot think delay
-- `recovery.ts`: startup and periodic re-arming
-- `reconciler.ts`: periodic, non-overlapping runtime repair
-- `eventPublisher.ts`: best-effort Socket.IO publication
-
-Player control survives restarts in `Player.botModel`, `timeoutCount`, and
-`abandonedAt`. In multiplayer rooms, three consecutive human timeouts hand the
-retained seat to a real bot; practice rooms never do, because their single human
-must stay in control. The takeover happens in the same transaction as
-the third timeout. Successful manual moves reset the count atomically. Only
-`POST /api/rooms/:roomCode/resume-control` reclaims AFK control (reconnect does
-not), never a permanently abandoned seat. Multiplayer leave preserves player identity,
-cards, history, and ranking eligibility, but removes the abandoned membership
-from active-game conflicts. Control changes bump the version, which drops
-in-flight runtime moves. Ordinary disconnects do not remove or pause players.
-
-The backend assumes one active runtime instance. Distributed timer ownership is
-not implemented.
-
-Round presentation timing lives in `gameConfig.ts`: 2.4 seconds for dealing,
-then 1.6 seconds to read the hand, after a 4-second round summary on later
-rounds (ordinary tricks still retain their 3-second collection). Deadlines derive from persisted `Round.createdAt`, including
-runtime recovery. Bots wait until presentation ends before thinking about
-briscola; a human caller's 90-second choice deadline starts when the hand review ends
-(`runtime/timeoutPolicy.ts` `turnTimes` computes it for both the timer and snapshots).
-Game-state snapshots expose absolute end times in `round.deal` (`animationEndsAt`,
-`reviewEndsAt`); reads stay side-effect free.
-`roundSummary` exposes the previous score only during that 4-second window.
-`services/gameResult.ts` derives final scores, round history and player counters
-from persisted rounds/tricks/cards. Both atomic game completion and finished
-snapshots use it, so refresh and Socket.IO results agree. Enemy aces count for
-the trick winner, not their teammate; losing one's ace is not a skill judgment.
-
-## Backend and AI Boundary
-
-The backend is the online source of truth: it owns persisted game state,
-current-turn validation, and move acceptance. Python owns AI training,
-simulation, state adaptation, and inference. Keep the implementations aligned
-through shared rule vectors, the Python-generated bot fixture consumed by the
-backend integration suite, and the runtime legal-card agreement check.
-
-The cross-language fixture test reads the fixture from the sibling `ai/`
-folder.
-
-## Database Operations
-
-Schema and migrations live under `prisma/`.
-
-```bash
-npx prisma migrate deploy
-npx prisma generate
-npm run db:test:prepare
-```
-
-`db:test:prepare` runs `prisma migrate deploy` with `NODE_ENV=test` against the
-local `becca_test` URL hard-coded in `package.json`; it never targets another
-host or database and does not reset data. Integration
-tests use the shared reset in `tests/helpers/database.ts`.
-
-Practice retirement deletes an unstarted room in one transaction and marks a
-started game `finished` with `winnerTeam = null`, keeping its history.
-
-## Verification
-
-```bash
-npm run typecheck
-npm test
-npm run build
-```
-
-Jest has unit and integration projects. Integration tests run serially against
-PostgreSQL and use:
-
-- `tests/helpers/database.ts` for complete resets
-- `tests/helpers/serverHarness.ts` for the shared ephemeral HTTP server
-- `tests/helpers/gameDriver.ts` for deterministic game setup and play
-
-Test servers and sockets must be closed by teardown; do not leave background
-dev servers or listeners running after a test command.
+- Change a game only through `runGameAction`. Code that already holds the room
+  lock (game start, `leaveRoom`, practice retire) calls `runGameActionUnlocked`; the lock is not reentrant.
+- A change function checks its own rules, writes its rows and returns a
+  `LastAction`, or `null` when there is nothing to do. It must not publish,
+  arm timers or bump `version`; `runGameAction` does that.
+- `toGameState` and `GET /api/games/:roomCode/state` are pure reads. Never
+  start a timer, run a bot or repair the runtime from a read.
+- Put rules in `domain/game/` and use them from transitions, `gameState` and
+  bots. Do not copy a rule into a second place.
+- Final scores, round history and player counters come from
+  `services/gameResult.ts`, for both the end-of-game push and later reads.
+- Turn deadlines and presentation timings come from `gameConfig.ts` and
+  `runtime/timeoutPolicy.ts:turnTimes`. The server sends absolute end times;
+  clients never copy the constants.
+- Keep the Python bot wire format (`hands`, `current_trick`,
+  `completed_tricks` in `services/botState.ts`) as is. The fixture test in
+  `tests/integration/botStateFixtures.test.ts` guards it.
+- Tests must close every server, socket and timer they open. Do not leave dev
+  servers running after a test command.
+- The backend assumes one running instance. Locks and timers live in memory.

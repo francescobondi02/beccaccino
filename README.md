@@ -1,125 +1,80 @@
-# BECCA (Beccaccino Online) Blueprint
+# BECCA — Beccaccino Online
 
-## System Overview
+A real-time online version of Beccaccino, the Italian card game for 4 players
+in 2 teams. Play in a laptop or desktop browser, or on a phone with the native
+app. Practice games put you against 3 bots.
 
-BECCA is a real-time, four-player Italian card game (Beccaccino) for two teams.
-The repository is a monorepo without npm workspaces. All four modules (`ai`,
-`backend`, `frontend`, `mobile`) live in this repository.
+| Folder | What it is |
+| --- | --- |
+| [backend/](./backend/README.md) | Node 24, Express 5, Socket.IO, Prisma, PostgreSQL. Owns the game. |
+| [frontend/](./frontend/README.md) | React 18 and Vite website. |
+| [mobile/](./mobile/README.md) | Expo app for iOS and Android, run in Expo Go. |
+| [ai/](./ai/README.md) | Python game engine, bot training and the bot service. |
 
-- `backend` is the authority for game state. It exposes REST mutations under
-  `/api` and Socket.IO events for real-time updates, and stores data in
-  PostgreSQL through Prisma.
-- `frontend` (web) and `mobile` (native Expo app) are clients of the same
-  backend. They send mutations over REST and use socket events to refresh state.
-- `ai` provides the Python game engine used for training and the FastAPI bot
-  service that the backend calls for bot moves.
+One repository, no npm workspaces: each Node folder has its own
+`package.json` and lockfile.
 
-## Develop locally
+## Run locally
 
-The host needs only Docker and make. Everything else, including Node, Python
-and Expo Metro, runs in containers with hot reload. Dependencies live in named
-volumes, never in host `node_modules`.
+You need only Docker and make. Node, Python, Postgres and Metro run in
+containers with hot reload.
 
 ```sh
-make dev     # build, start detached, wait until healthy, print URLs and Expo QR
-make logs    # follow the logs
-make test    # backend unit + integration (becca_test), frontend Vitest, mobile check
-make stop    # stop, keep data
-make reset   # delete the database and dependency volumes, then start fresh
+make dev     # build, start, wait until healthy, print the URLs and the Expo QR code
 make qr      # print the Expo Go URL and QR code again
+make logs    # follow the logs of all services
+make test    # backend, frontend and mobile tests
+make stop    # stop the containers, keep the data
+make reset   # delete the database and dependency volumes, then make dev
 ```
 
-After pulling Phase 3a, run `make reset` (drops the local databases).
-
-| Service | URL |
+| Service | Address |
 | --- | --- |
 | Web | http://localhost:8081 |
-| API | http://localhost:8000 (also `http://<LAN IP>:8000`) |
-| Expo Metro | `exp://<LAN IP>:8082` |
-| Bot | http://localhost:8011/health |
+| API | http://localhost:8000 |
+| Metro (Expo Go) | `exp://<LAN IP>:8082` |
+| Bot service | http://localhost:8011/health |
 | Adminer | http://localhost:8080 (server `db`, user and password `postgres`) |
 | PostgreSQL | localhost:5432, databases `becca` and `becca_test` |
 
-- Accounts: `alice`, `bob`, `carol`, `dave`, password `password`, seeded by
-  `backend/scripts/seedDevUsers.ts` (dev-only, never in the production image).
-- Phone: install Expo Go, join the Mac's Wi-Fi and scan the QR from `make dev`
-  or `make qr`. Wrong IP? `make dev LAN_IP=192.168.1.20`.
-- Configuration: no `.env` is required. `docker-compose.yml` sets dev-only,
-  non-secret defaults for `JWT_SECRET` and `BOT_SERVICE_TOKEN`. An optional root
-  `.env` can override them. On restricted networks the Makefile reuses the
-  host's npm mirror (`~/.npmrc` `registry=`) and pip mirror (`pip3 config`)
-  inside the containers. An optional
-  `backend/.env` can still set other backend variables such as `GAME_WIN_POINTS`.
-- Migrations run on every backend start for `becca`; `make test` migrates
-  `becca_test` itself. `init-db.sql` creates both databases when the `db_data`
-  volume is first created.
-- The Python training environment in `ai/` is separate; see
-  [ai/README.md](./ai/README.md).
+- Log in as `alice`, `bob`, `carol` or `dave`, password `password`.
+- Phone: install Expo Go, join the same Wi-Fi as the computer and scan the QR
+  code. The Makefile finds the LAN IP with macOS `ipconfig`. If it is wrong or
+  missing, run `make dev LAN_IP=192.168.1.20`.
+- No `.env` file is needed. An optional root `.env` can override the dev-only
+  `JWT_SECRET` and `BOT_SERVICE_TOKEN`. Other settings live in
+  `docker-compose.yml`.
+- The backend applies migrations to `becca` on every start. Run `make reset`
+  after a pull that replaces the migration history.
 
-## Subdirectories & System Boundaries
+To open a database shell: `docker exec -it becca-db psql -U postgres -d becca`.
 
-- ai: [./ai/README.md](./ai/README.md) - Python 3.11+ Beccaccino engine
-  (`becca_env`), PPO self-play training, evaluation, PIMC inference and the
-  FastAPI bot service (`serving`: `POST /act`, `GET /ready`, `/tiers`,
-  `/health`, `/version`).
-- backend: [./backend/README.md](./backend/README.md) - Node 24 TypeScript
-  server with Express 5, Socket.IO and Prisma. REST routes are under
-  `/api/users`, `/api/rooms` and `/api/games`. It owns turn
-  timers, bot turns, recovery and scoring.
-- frontend: [./frontend/README.md](./frontend/README.md) - React 18 and Vite
-  web client, plus a Vercel function that proxies WebSockets
-  (`api/socket-proxy.ts`, `server/socketProxy.ts`).
-- mobile: [./mobile/README.md](./mobile/README.md) - Expo Router native client
-  (iOS and Android) with a token session, lobby, waiting room and live table.
+## Test
 
-## Global Invariants
+```sh
+make test                         # backend unit and integration, frontend Vitest, mobile check
+cd ai && pip install -e ".[dev,train,serve]" && pytest   # Python, on the host (3.11+)
+```
 
-- The server is authoritative. Clients send only server-legal cards
-  (`playableCards` in the game state) and render the full `game_state` the
-  server pushes; room and lobby events are signals to reload. Clients do not
-  run a second rules engine. Shared types live in `backend/src/contract/`.
-- Game rules exist twice and must stay identical: TypeScript in
-  `backend/src/domain/game/` (`computeRoundScore` in `roundScore.ts`,
-  `trickWinner.ts`, `legalCards.ts`, `detectCricca.ts`, `turnOrder.ts`) and
-  Python in `ai/becca_env/` (`rules.py:compute_round_scores`,
-  `rules.py:determine_hand_winner`, `game.py:BeccaGame`). Seats {0,2} are
-  team 0 and seats {1,3} are team 1 (`ai/becca_env/game.py:TEAM_OF_SEAT`).
-- Round scores are stored as raw points (`Round.team0Raw`/`team1Raw` in
-  `backend/prisma/schema.prisma`). Real points are `raw // 3`, figures `raw % 3`.
-- Card suits and values cross the backend-to-bot boundary as the lowercase
-  Prisma enum strings (`denara`, `asso`, ...), never as indices
-  (`ai/serving/state_adapter.py:_card`).
-- The backend calls the bot service with `Authorization: Bearer` and
-  `BOT_SERVICE_TOKEN` (`backend/src/services/botClient.ts`). The bot service
-  refuses `/act` and `/ready` without the same token
-  (`ai/serving/app.py:_require_bot_token`).
-- Web authentication uses the `authToken` httpOnly cookie
-  (same-origin requests from `frontend/src/lib/api.ts` send it). Native
-  authentication uses `POST /api/users/native/login` (or `/native/register`) and a bearer token
-  (`mobile/src/lib/session.ts` sends `credentials: 'omit'`;
-  `mobile/src/lib/socket.ts` sends `auth.token`). Both paths are checked by
-  `verifyActiveSession` (`backend/src/auth/activeSession.ts`).
-- Prisma migrations in `backend/prisma/migrations/` are immutable history.
-  Add new migrations; never edit applied ones.
+The 4-player Playwright game runs in CI on pushes to `main`. CI workflows live
+in `.github/workflows/`, one per folder.
 
-## Global Side Effects
+## Deploy
 
-- PostgreSQL 15: databases `becca` (development) and `becca_test`
-  (integration tests).
-- Bot inference: the backend calls the Python service at `BOT_SERVICE_URL`
-  (`docker-compose.yml` sets `http://bot:8011`).
-- Production: backend on Render (`https://beccaccino-server.onrender.com`, the
-  default origin of `mobile/src/lib/backend.ts`), web frontend on Vercel.
-- `make reset` deletes the local database volume.
-- CI: `.github/workflows/<module>.yml`, path-filtered.
+- Backend: Render builds `backend/Dockerfile`. The container runs
+  `prisma migrate deploy` before it starts the server.
+- Database: Neon PostgreSQL.
+- Website: Vercel builds `frontend/`. It proxies `/api` and `/socket.io` to
+  Render, so the browser uses one origin.
+- Bot service: a separate Render service from `ai/render.yaml`, deployed by
+  hand. See [ai/docs/DEPLOYMENT.md](./ai/docs/DEPLOYMENT.md).
 
-## Operator Documents
+The backend and website deploy on every push to `main`. Work goes to `develop` first;
+a PR from `develop` to `main` releases it. See [RUNBOOK.md](./RUNBOOK.md) for
+environment variables, migrations, backups and incidents.
 
-- [DEVELOPMENT.md](./DEVELOPMENT.md): local development workflow.
-- [RUNBOOK.md](./RUNBOOK.md): operational procedures.
-- [CLAUDE.md](./CLAUDE.md): agent context, rules and module boundaries.
+## More
 
-## System Verification
-
-- Run: `make test` (backend, frontend and mobile, inside the containers)
-- Run: `cd ai && pytest`
+- [CLAUDE.md](./CLAUDE.md): glossary, rules, architecture and conventions.
+- [RUNBOOK.md](./RUNBOOK.md): production operations.
+- [docs/decisions.md](./docs/decisions.md): design decisions and rejected alternatives.

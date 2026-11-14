@@ -97,6 +97,9 @@ promotion and NearPerfect-v1 gates. Historical results are kept separately in
 
 ## Serve
 
+`make dev` runs the service in the `bot` container on port 8011 with reload.
+To run it on the host:
+
 ```bash
 BOT_SERVICE_TOKEN=local-secret \
   uvicorn serving.app:app --host 0.0.0.0 --port 8011
@@ -139,22 +142,8 @@ consumer used them.
 
 ## Contracts
 
-- The current public observation has 518 features. The 462-feature and
-  470-feature layouts remain loadable for legacy inference, but cannot resume
-  current training.
-- The policy action space has 160 slots: 40 cards by no signal, striscio,
-  busso, or volo. The engine masks illegal actions.
-- Current format-3 resumable checkpoints include hashes, provenance, RNG,
-  vector-game state, pending rewards, rollout carry, and normalizer chains.
-  Exact continuation is pinned on CPU; exact GPU bit reproducibility is not
-  claimed.
-- `best.pt` is a teacher-coupled monitoring candidate. Promotion requires the
-  held-out paired protocol.
-- `esperto` uses the shared PIMC agent. Search correctness is tested, but its
-  current strength and latency promotion experiments remain unrun.
-- No checked-in artifact supports a NearPerfect-v1 claim.
-- Python/backend rule and encoding parity are pinned by unit vectors, committed
-  bot fixtures, the backend fixture consumer, and the runtime legality gate.
+Observation size, action space, checkpoint format, promotion and
+Python/backend parity rules are in [CLAUDE.md](./CLAUDE.md#invariants).
 
 ## Layout
 
@@ -171,88 +160,5 @@ checkpoints/  Local training output (default ckpt_dir; git-ignored)
 runs/         Local metrics and logs (default log_dir; git-ignored)
 Dockerfile    Serving image for the Render deployment
 render.yaml   Render service definition
-CLAUDE.md     Agent-facing development context
+CLAUDE.md     Rules and invariants for agents
 ```
-
-## Subdirectories & Boundaries
-
-- becca_env: [./becca_env/](./becca_env/) - Pure-Python
-  engine (deck, rules, `BeccaGame`), signal convention, 518-feature and frozen
-  1888-feature observation encoders, 160-slot action mask, and the
-  `BeccaEnv` Gymnasium environment with reward shaping. No I/O.
-- training: [./training/](./training/) - Canonical
-  `run_ppo` lifecycle, learner/opponent rollouts with per-`(env, seat)` GAE,
-  V1–V4 networks, centralized critic, behavioral cloning, and atomic format-3
-  checkpoints with SHA-256 sidecars and provenance.
-- evaluation: [./evaluation/](./evaluation/) - Random and
-  frozen heuristic baselines, seeded arena and mirrored-deal records, Elo,
-  confidence intervals, persisted champion protocol, and the fail-closed
-  NearPerfect-v1 gate.
-- inference: [./inference/](./inference/) - Public-constraint
-  hand sampling, determinized game copies, and the shared PIMC search agent.
-- serving: [./serving/](./serving/) - FastAPI `/act`,
-  `/tiers`, `/health`, `/ready`, `/version`; backend state adapter; tier
-  construction; checksum-verified inference artifacts (except `facile`) and
-  parity fixtures.
-- scripts: [./scripts/](./scripts/) - Operator CLIs for
-  training, scoring, champion selection, artifact export, fixture generation,
-  Kaggle runs, benchmarks and bot audits.
-
-## Interface
-
-- Python package roots discovered by setuptools: `becca_env`, `training`,
-  `evaluation`, `inference`, `serving` (`[pyproject.toml:tool.setuptools.packages.find]`).
-  `scripts` is run from the source tree as `python -m scripts.<name>`.
-- Shared agent contract: every agent exposes `select_action(game, seat)`
-  returning a `Suit`, a `(Card, Signal | None)` leader pair, or a follower
-  `Card` (`[evaluation/arena.py:NeuralAgent]`, `[evaluation/heuristic.py:HeuristicAgent]`,
-  `[inference/pimc.py:PIMCAgent]`).
-- HTTP contract consumed by the backend: `POST /act`, `GET /ready`,
-  `GET /tiers`, `GET /health`, `GET /version` (`[serving/app.py:app]`).
-- Deployment: `Dockerfile` installs only the `serve` extra, listens on
-  `PORT` (default `10000`) with one uvicorn worker, and fails the build if the
-  `esperto` artifact or the `forte` agent cannot load. `render.yaml` deploys it
-  on Render Free with `healthCheckPath: /health`
-  and the `BOT_SERVICE_TOKEN` secret.
-
-## Invariants
-
-- Rules mirror the backend: teams `{0, 2}` / `{1, 3}`, quattro di denara opens
-  round 1, follow suit when able, raw ×3 scoring with a `+3` last-trick bonus
-  and `+9` Cricca bonus (`[becca_env/game.py:TEAM_OF_SEAT]`,
-  `[becca_env/rules.py:compute_round_scores]`, `[becca_env/game.py:CRICCA_RAW_BONUS]`).
-- Signals are legal regardless of honesty; `becca_env/signals.py` is the one
-  convention used by reward shaping, the BC teacher, PIMC weighting and audits
-  (`[becca_env/signals.py:signal_is_honest]`).
-- `EVAL_SEED_BASE` and the heuristic yardstick are frozen
-  (`[evaluation/arena.py:EVAL_SEED_BASE]`, `[evaluation/heuristic.py:HeuristicAgent]`).
-- Backend and Python exchange enum strings, never card or suit indices
-  (`[serving/state_adapter.py:state_dict_to_game]`).
-
-## Side Effects
-
-- Training writes checkpoints, CSV metrics, plots, TensorBoard logs and,
-  optionally, Weights & Biases runs; spawns vector-env subprocesses
-  (`[training/engine.py:run_ppo]`, `[training/trainer.py:train]`).
-- Evaluation writes non-overwritable JSONL score artifacts
-  (`[evaluation/protocol.py:write_score_jsonl]`).
-- Every checkpoint save runs `git` subprocesses and enumerates installed
-  packages for provenance (`[training/checkpoint.py:save_checkpoint_payload]`,
-  `[training/provenance.py:checkpoint_provenance]`).
-- Serving reads `BOT_SERVICE_TOKEN`, loads `forte` and `esperto` artifacts
-  from `serving/models/`, and listens for HTTP (`[serving/app.py:lifespan]`).
-  `facile` instead loads a full training checkpoint from
-  `checkpoints/kaggle-runb/checkpoints/runB_bc.pt` with `load_checkpoint`
-  (`[serving/tiers.py:TIERS]`).
-- Scripts write files: `export_inference_artifact` writes an artifact and its
-  `.sha256` sidecar; `gen_bot_fixtures` overwrites
-  `serving/fixtures/bot_states.json`; `score_checkpoints` writes JSONL
-  (`[scripts/export_inference_artifact.py:main]`,
-  `[scripts/gen_bot_fixtures.py:main]`, `[scripts/score_checkpoints.py:main]`).
-- `scripts/kaggle_run.py` calls the external `kaggle` CLI, and `push-code`
-  writes `.source-provenance.json` into the staged dataset
-  (`[scripts/kaggle_run.py:_run]`, `[scripts/kaggle_run.py:push_code]`).
-
-## Verification
-
-- Run: `cd ai && pytest`
