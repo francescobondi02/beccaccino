@@ -15,9 +15,10 @@ src/
   controllers/             HTTP adaptation only
   routes/                  Visible REST API map
   domain/game/             Pure cards, caller, turn, trick, and scoring rules
-  game/snapshots/          Persisted caller/current-turn reads
-  game/transitions/        Atomic round and card-play mutations
-  game/turn.ts             Shared turn phase, identity, and comparison
+  game/liveGame.ts         Loads one game (room, players, round, trick, hands)
+  game/gameState.ts        Pure `toGameState`: the state one player sees
+  game/runGameAction.ts    The one write path for a game
+  game/transitions/        Round and card-play changes
   runtime/                 Timers, bots, timeout policy, recovery, publication
   services/                Room operations/queries, account, stats
   sockets/room.ts          Presence and chat handlers
@@ -34,7 +35,6 @@ Use these entry points when following the game:
 
 - `services/multiplayerRooms.ts` and `services/practiceRooms.ts`: room operations.
 - `services/leaveRoom.ts`: participant departure, not ownership checks.
-- `services/playableCards.ts`: read-only legal-card query.
 - `services/botUsers.ts`: bot accounts and tiers; `botClient.ts`: Python HTTP calls.
 - `domain/game/trickWinner.ts`, `roundScore.ts`, `gameScore.ts`: pure rules at each scope.
 
@@ -56,22 +56,22 @@ route -> room mutation controller -> multiplayer/practice/leave operation
 Game mutations:
 
 ```text
-route -> game controller -> round/card-play operation
-      -> database transaction
-      -> runtime start or cleanup
-      -> best-effort event publication
+route -> game controller -> runGameAction(roomCode, change)
+      -> room lock, transaction, loadLiveGame, change
+      -> version compare-and-set, lastActivityAt, turnStartedAt
+      -> commit, re-arm the turn for the new version
+      -> game_state to each human
 ```
 
-Each operation owns its database writes, runtime handoff, and publication.
-Every game writer calls `markGameChanged` (bumps `GameRoom.version`) inside its
-transaction. After commit and the runtime start or clear, it calls
-`sendGameState(roomCode, lastAction)`, which emits a full `game_state` (types in
-`src/contract/`) to `user:<id>` for each human still in the game. Mutation
-responses return the caller's copy of the same state. Publication failure is
-logged and captured but does not fail an already committed request.
+`runGameAction` is the only game write path. A change checks its rules, writes
+its rows and returns the `lastAction`, or null for nothing to do. Timers and bot
+replies pass `expectedVersion` and are dropped when the version moved. A human
+move that loses a version race gets 409 with the current `state`. Mutation
+responses return the caller's copy of the published state. Publication or
+re-arm failure after commit is logged; the reconciler repairs the runtime.
 
-`services/gameState.ts` and `game/snapshots/` are read-only. A game-state GET
-must never start a timer, run a bot, or repair runtime.
+`game/gameState.ts` is pure. A game-state GET must never start a timer, run a
+bot, or repair runtime.
 
 Team selection and ready changes are REST-only:
 
@@ -86,40 +86,32 @@ chat.
 ## Runtime Recovery
 
 `index.ts` completes the initial `reconcileActiveRuntime()` pass before the HTTP
-server listens. Recovery scans started, unfinished, unpaused rooms and locks
-each room before deriving the persisted caller and exact turn identity. It
-restores bot-seat metadata and schedules only when that turn has no scheduled
-or executing runtime. `/ready` remains unavailable while any room recovery
-fails, and the non-overlapping periodic reconciler retries failed or missing
-runtime.
-
-Practice resume commits `pausedAt = null` and a new pause epoch, restores bot
-seats, then calls `startRuntimeTurn` directly (not the recovery path) when that
-turn has no runtime, so no deal-presentation delay is added. Paused rooms are
-excluded from recovery. Snapshot reads remain
-side-effect free.
+server listens. Recovery scans started, unfinished, unpaused rooms, locks each
+one and arms it when it has no timer for its current `version`. A human deadline
+is `GameRoom.turnStartedAt` plus the turn timeout, so a restart keeps it.
+`/ready` remains unavailable while any room recovery fails, and the reconciler
+retries every 30 seconds. Paused rooms are excluded.
 
 Runtime responsibilities are separate:
 
-- `turnTimer.ts`: scheduled/executing turn ownership, cancellation, timer reads
-- `turnRuntime.ts`: start turn runtime and clear room runtime
-- `botExecutor.ts`: bot move execution
-- `timeoutPolicy.ts` and `timeoutExecutor.ts`: penalties and elapsed-turn policy
-- `autoPlay.ts`: fallback legal autoplay
-- `recovery.ts`: explicit startup/resume restoration
+- `turnTimer.ts`: one timer per room, tagged with the version it was armed for
+- `turnRuntime.ts`: `armTurn`, a bot move or the human deadline
+- `botExecutor.ts`: bot move, with a server-chosen move if the service fails
+- `timeoutPolicy.ts`: turn durations and bot think delay
+- `recovery.ts`: startup and periodic re-arming
 - `reconciler.ts`: periodic, non-overlapping runtime repair
 - `eventPublisher.ts`: best-effort Socket.IO publication
 
 Player control survives restarts in `Player.botModel`, `timeoutCount`, and
 `abandonedAt`. In multiplayer rooms, three consecutive human timeouts hand the
 retained seat to a real bot; practice rooms never do, because their single human
-must stay the archived player. Successful manual moves reset the count atomically. Socket rejoin or
-`POST /api/rooms/:roomCode/resume-control` reclaims AFK control, never a
-permanently abandoned seat. Multiplayer leave preserves player identity,
+must stay the archived player. The takeover happens in the same transaction as
+the third timeout. Successful manual moves reset the count atomically. Only
+`POST /api/rooms/:roomCode/resume-control` reclaims AFK control (reconnect does
+not), never a permanently abandoned seat. Multiplayer leave preserves player identity,
 cards, history, and ranking eligibility, but removes the abandoned membership
-from active-game conflicts. Control changes fence in-flight runtime moves and
-rearm only the affected current turn. Recovery also completes interrupted
-third-timeout handoffs. Ordinary disconnects do not remove or pause players.
+from active-game conflicts. Control changes bump the version, which drops
+in-flight runtime moves. Ordinary disconnects do not remove or pause players.
 
 The backend assumes one active runtime instance. Distributed timer ownership is
 not implemented.
@@ -128,7 +120,7 @@ Round presentation timing lives in `gameConfig.ts`: 2.4 seconds for dealing,
 then 1.6 seconds to read the hand, after a 4-second round summary on later
 rounds (ordinary tricks still retain their 3-second collection). Deadlines derive from persisted `Round.createdAt`, including
 runtime recovery. Bots wait until presentation ends before thinking about
-briscola; human callers retain their full choice timeout. Game-state snapshots
+briscola; a human caller's 90-second choice deadline counts from the deal. Game-state snapshots
 expose remaining presentation time in `round.deal`; reads stay side-effect free.
 `roundSummary` exposes the previous score only during that 4-second window.
 `services/gameResult.ts` derives final scores, round history and player counters
@@ -162,9 +154,8 @@ local `becca_test` URL hard-coded in `package.json`; it never targets another
 host or database and does not reset data. Integration
 tests use the shared reset in `tests/helpers/database.ts`.
 
-Practice retirement deletes the game rows in one transaction. Runtime state is
-cleared only after successful deletion, so a delete failure leaves both the
-room and runtime available for retry.
+Practice retirement deletes an unstarted room in one transaction and marks a
+started game `finished` with `winnerTeam = null`, keeping its history.
 
 ## Verification
 
