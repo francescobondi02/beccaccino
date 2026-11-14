@@ -59,6 +59,17 @@ cd ai && pip install -e ".[dev,train,serve]" && pytest   # Python, on the host (
 The 4-player Playwright game runs in CI on pushes to `main`. CI workflows live
 in `.github/workflows/`, one per folder.
 
+### Not in Docker yet
+
+These tasks still need tools installed on the host. Moving them into Docker is
+possible future work, not planned now.
+
+- Python tests in `ai/`: need Python 3.11+ (see the command above).
+- Playwright end-to-end tests: need Node on the host. See
+  [frontend/README.md](./frontend/README.md).
+- Native iOS and Android builds: need Xcode or Android Studio. Expo Go testing
+  does not. See [mobile/README.md](./mobile/README.md).
+
 ## Deploy
 
 - Backend: Render builds `backend/Dockerfile`. The container runs
