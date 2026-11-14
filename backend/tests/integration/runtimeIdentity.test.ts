@@ -1,6 +1,5 @@
 import { prisma } from "../../src/db";
 import { playCard } from "../../src/game/transitions/cardPlay";
-import { setBriscola } from "../../src/game/transitions/round";
 import * as liveGame from "../../src/game/liveGame";
 import { reconcileActiveRuntime } from "../../src/runtime/recovery";
 import {
@@ -54,7 +53,17 @@ describe("runtime turn identity", () => {
     const turn = (await turnOf(roomCode))!;
     expect(turn.phase).toBe("choose_briscola");
 
-    await setBriscola({ roomCode, userId: turn.userId, source: "timeout", expectedVersion: turn.version });
+    // The deadline has passed: the armed timer fires at once.
+    await prisma.gameRoom.update({
+      where: { code: roomCode }, data: { turnStartedAt: new Date(Date.now() - 91_000) },
+    });
+    clearAllTurnTimers();
+    await reconcileActiveRuntime();
+    const deadline = Date.now() + 5_000;
+    while ((await turnOf(roomCode))!.phase === "choose_briscola") {
+      expect(Date.now()).toBeLessThan(deadline);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
 
     expect(await prisma.round.findUniqueOrThrow({ where: { id: round.id } }))
       .toMatchObject({ briscolaAutoChosen: true });
@@ -98,6 +107,10 @@ describe("runtime turn identity", () => {
     await chooseBriscola(roomCode, round, cards);
     const turn = (await turnOf(roomCode))!;
     const user = await userOf(turn.userId);
+    // The turn began 10 seconds ago.
+    await prisma.gameRoom.update({
+      where: { code: roomCode }, data: { turnStartedAt: new Date(Date.now() - 10_000) },
+    });
     const readDeadline = async () =>
       (await apiAs(user.id, user.username).get(`/api/games/${roomCode}/state`)).body.turn.deadline;
     const deadline = await readDeadline();
