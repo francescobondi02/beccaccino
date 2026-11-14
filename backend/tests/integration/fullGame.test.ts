@@ -4,9 +4,10 @@ import {
   setupGame,
   chooseBriscola,
   oneRound,
-  computeRoundPoints,
   prepareNextRound,
+  expectStoredResult,
 } from "../helpers/gameDriver";
+import { setupRound } from "../../src/game/transitions/round";
 import { apiAs } from "../helpers/serverHarness";
 
 // tests/loadTestEnv.ts sets the winning score to 5.
@@ -17,68 +18,32 @@ beforeEach(async () => {
 });
 
 describe("Full Beccaccino game", () => {
-  it("plays until one team reaches the winning score and round totals always equal 11", async () => {
-    const { roomCode, round: firstRound, cards } = await setupGame();
-
-    let team0Total = 0;
-    let team1Total = 0;
-    let roundCount = 0;
-    let currentRound = firstRound;
-    let currentCards = cards;
-
-    while (team0Total < WINNING_SCORE && team1Total < WINNING_SCORE) {
-      roundCount++;
-      await chooseBriscola(roomCode, currentRound, currentCards);
-      await oneRound(roomCode, currentRound);
-
-      ({ team0Total, team1Total } = await computeRoundPoints(
-        currentRound.id,
-        roundCount,
-        team0Total,
-        team1Total
-      ));
-
-      if (team0Total < WINNING_SCORE && team1Total < WINNING_SCORE) {
-        ({ nextRound: currentRound, nextCards: currentCards } =
-          await prepareNextRound(currentRound));
-      }
+  it("plays to the target and stores each round score and the winner", async () => {
+    let { roomCode, round, cards } = await setupGame();
+    for (;;) {
+      await chooseBriscola(roomCode, round, cards);
+      await oneRound(roomCode, round);
+      const room = await prisma.gameRoom.findUniqueOrThrow({ where: { code: roomCode } });
+      if (room.finished) break;
+      ({ nextRound: round, nextCards: cards } = await prepareNextRound(round));
     }
-
-    expect(team0Total >= WINNING_SCORE || team1Total >= WINNING_SCORE).toBe(true);
+    await expectStoredResult(roomCode);
   });
 
-  it("marks the game as finished when a team wins", async () => {
-    const { roomCode, round: firstRound, cards } = await setupGame();
+  it("stores the caller: the quattro di denara holder, then the next seat", async () => {
+    const { roomCode, round, cards } = await setupGame();
+    const quattro = cards.find((card) => card.suit === "denara" && card.value === "quattro")!;
+    expect(round.callerId).toBe(quattro.playerId);
 
-    let team0Total = 0;
-    let team1Total = 0;
-    let currentRound = firstRound;
-    let currentCards = cards;
-    let roundCount = 0;
-
-    while (team0Total < WINNING_SCORE && team1Total < WINNING_SCORE) {
-      roundCount++;
-      await chooseBriscola(roomCode, currentRound, currentCards);
-      await oneRound(roomCode, currentRound);
-
-      ({ team0Total, team1Total } = await computeRoundPoints(
-        currentRound.id,
-        roundCount,
-        team0Total,
-        team1Total
-      ));
-
-      if (team0Total < WINNING_SCORE && team1Total < WINNING_SCORE) {
-        ({ nextRound: currentRound, nextCards: currentCards } =
-          await prepareNextRound(currentRound));
-      }
-    }
-
-    // Verify the game room is marked as finished
-    const room = await prisma.gameRoom.findUnique({
+    const room = await prisma.gameRoom.findUniqueOrThrow({
       where: { code: roomCode },
+      include: { players: true },
     });
-    expect(room!.finished).toBe(true);
+    const { roundId } = await prisma.$transaction((tx) => setupRound(room.id, 2, tx));
+    const second = await prisma.round.findUniqueOrThrow({ where: { id: roundId } });
+    const seatOf = (playerId: number) =>
+      room.players.find((player) => player.id === playerId)!.seat!;
+    expect(seatOf(second.callerId)).toBe((seatOf(round.callerId) + 1) % 4);
   });
 
   it("maintains consistent game state throughout the game", async () => {
@@ -172,7 +137,7 @@ describe("Full Beccaccino game", () => {
 
     const p0 = room!.players[0];
 
-    // Play 4 cards (one full hand)
+    // Play 4 cards (one full trick)
     for (let i = 0; i < 4; i++) {
       const currentState = await apiAs(p0.userId, p0.user.username)
         .get(`/api/games/${roomCode}/state`);
@@ -191,7 +156,7 @@ describe("Full Beccaccino game", () => {
         });
     }
 
-    // After one hand, each player should have 9 cards
+    // After one trick, each player should have 9 cards
     for (const player of room!.players) {
       const stateRes = await apiAs(player.userId, player.user.username)
         .get(`/api/games/${roomCode}/state`);
@@ -236,19 +201,5 @@ describe("Full Beccaccino game", () => {
       number: 1,
       cards: [{ userId: leader.userId, signal: "busso" }],
     });
-  });
-
-  it("total card points per round always sum to 11", async () => {
-    const { roomCode, round, cards } = await setupGame();
-    await chooseBriscola(roomCode, round, cards);
-    await oneRound(roomCode, round);
-
-    // Get the round scores from the database
-    const completedRound = await prisma.round.findUnique({
-      where: { id: round.id },
-    });
-
-    expect(completedRound!.winnerTeam).not.toBeNull();
-    expect(completedRound!.team0Points + completedRound!.team1Points).toBe(11);
   });
 });

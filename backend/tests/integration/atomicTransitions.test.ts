@@ -12,7 +12,7 @@ import { setRng } from "../../src/utils/random";
 import { clearDatabase } from "../helpers/database";
 import {
   chooseBriscola,
-  oneHand,
+  oneTrick,
   setupGame,
 } from "../helpers/gameDriver";
 import { apiAs } from "../helpers/serverHarness";
@@ -35,10 +35,10 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await prisma.$executeRawUnsafe(
-    'DROP TRIGGER IF EXISTS atomic_fail_hand_insert ON "Hand"',
+    'DROP TRIGGER IF EXISTS atomic_fail_trick_insert ON "Trick"',
   );
   await prisma.$executeRawUnsafe(
-    "DROP FUNCTION IF EXISTS atomic_fail_hand_insert()",
+    "DROP FUNCTION IF EXISTS atomic_fail_trick_insert()",
   );
   await prisma.$executeRawUnsafe(
     'ALTER TABLE "GameRoom" DROP CONSTRAINT IF EXISTS atomic_reject_finished',
@@ -68,13 +68,13 @@ async function nextMove(roomCode: string) {
     where: { gameRoomId: room.id },
     orderBy: { number: "desc" },
   });
-  const hand = await prisma.hand.findFirstOrThrow({
+  const trick = await prisma.trick.findFirstOrThrow({
     where: { roundId: round.id },
     orderBy: { number: "desc" },
     include: { cards: true },
   });
-  const starter = room.players.find((player) => player.id === hand.starterId)!;
-  const nextSeat = (starter.seat! + hand.cards.length) % 4;
+  const starter = room.players.find((player) => player.id === trick.starterId)!;
+  const nextSeat = (starter.seat! + trick.cards.length) % 4;
   const player = room.players.find((candidate) => candidate.seat === nextSeat)!;
   const playable = await apiAs(player.userId, player.user.username).get(
     `/api/games/${roomCode}/state`,
@@ -84,7 +84,7 @@ async function nextMove(roomCode: string) {
   expect(playable.body.playableCards).not.toHaveLength(0);
 
   return {
-    hand,
+    trick,
     player,
     payload: {
       suit: playable.body.playableCards[0].suit,
@@ -103,8 +103,8 @@ async function playNext(roomCode: string) {
 }
 
 async function prepareLastCard(roomCode: string, round: { id: number }) {
-  for (let handNumber = 1; handNumber < 10; handNumber++) {
-    await oneHand(roomCode, round, handNumber);
+  for (let trickNumber = 1; trickNumber < 10; trickNumber++) {
+    await oneTrick(roomCode, round, trickNumber);
   }
   await playNext(roomCode);
   await playNext(roomCode);
@@ -113,7 +113,7 @@ async function prepareLastCard(roomCode: string, round: { id: number }) {
 }
 
 describe("Atomic game transitions", () => {
-  it("rolls back briscola when first-hand creation fails and retries once", async () => {
+  it("rolls back briscola when first-trick creation fails and retries once", async () => {
     const { roomCode, round, cards } = await setupGame();
     const room = await prisma.gameRoom.findUniqueOrThrow({
       where: { code: roomCode },
@@ -125,7 +125,7 @@ describe("Atomic game transitions", () => {
     const caller = room.players.find(
       (player) => player.id === callerCard.playerId,
     )!;
-    const sentinel = await prisma.hand.create({
+    const sentinel = await prisma.trick.create({
       data: { roundId: round.id, number: 1, starterId: caller.id },
     });
     const timerBefore = getTurnTimerState(roomCode)!;
@@ -139,23 +139,23 @@ describe("Atomic game transitions", () => {
     expect(
       await prisma.round.findUniqueOrThrow({ where: { id: round.id } }),
     ).toMatchObject({ briscola: null, cricca: false });
-    expect(await prisma.hand.count({ where: { roundId: round.id } })).toBe(1);
+    expect(await prisma.trick.count({ where: { roundId: round.id } })).toBe(1);
     expect(events).not.toContain("briscola_chosen");
     expectTimerUnchanged(roomCode, timerBefore);
 
-    await prisma.hand.delete({ where: { id: sentinel.id } });
+    await prisma.trick.delete({ where: { id: sentinel.id } });
     const retry = await apiAs(caller.userId, caller.user.username)
       .post(`/api/games/${roomCode}/briscola`)
       .send({ suit: "coppe" });
 
     expect(retry.statusCode).toBe(200);
-    expect(await prisma.hand.count({ where: { roundId: round.id } })).toBe(1);
+    expect(await prisma.trick.count({ where: { roundId: round.id } })).toBe(1);
     expect(
       await prisma.round.findUniqueOrThrow({ where: { id: round.id } }),
     ).toMatchObject({ briscola: "coppe" });
   });
 
-  it("rolls back the fourth card and winner when next-hand creation fails", async () => {
+  it("rolls back the fourth card and winner when next-trick creation fails", async () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);
     await playNext(roomCode);
@@ -164,19 +164,19 @@ describe("Atomic game transitions", () => {
     const move = await nextMove(roomCode);
 
     await prisma.$executeRawUnsafe(`
-      CREATE FUNCTION atomic_fail_hand_insert() RETURNS trigger AS $$
+      CREATE FUNCTION atomic_fail_trick_insert() RETURNS trigger AS $$
       BEGIN
         IF NEW."number" = 2 THEN
-          RAISE EXCEPTION 'injected next-hand failure';
+          RAISE EXCEPTION 'injected next-trick failure';
         END IF;
         RETURN NEW;
       END;
       $$ LANGUAGE plpgsql
     `);
     await prisma.$executeRawUnsafe(`
-      CREATE TRIGGER atomic_fail_hand_insert
-      BEFORE INSERT ON "Hand"
-      FOR EACH ROW EXECUTE FUNCTION atomic_fail_hand_insert()
+      CREATE TRIGGER atomic_fail_trick_insert
+      BEFORE INSERT ON "Trick"
+      FOR EACH ROW EXECUTE FUNCTION atomic_fail_trick_insert()
     `);
     const timerBefore = getTurnTimerState(roomCode)!;
     events.length = 0;
@@ -187,13 +187,13 @@ describe("Atomic game transitions", () => {
 
     expect(failed.statusCode).toBe(500);
     expect(failed.body).toEqual({ error: "Internal server error" });
-    expect(await prisma.playedCard.count({ where: { handId: move.hand.id } })).toBe(3);
+    expect(await prisma.playedCard.count({ where: { trickId: move.trick.id } })).toBe(3);
     expect(
-      await prisma.hand.findUniqueOrThrow({ where: { id: move.hand.id } }),
+      await prisma.trick.findUniqueOrThrow({ where: { id: move.trick.id } }),
     ).toMatchObject({ winnerId: null });
-    expect(await prisma.hand.count({ where: { roundId: round.id } })).toBe(1);
+    expect(await prisma.trick.count({ where: { roundId: round.id } })).toBe(1);
     expect(
-      await prisma.playerCard.count({
+      await prisma.handCard.count({
         where: {
           playerId: move.player.id,
           roundId: round.id,
@@ -206,19 +206,19 @@ describe("Atomic game transitions", () => {
     expectTimerUnchanged(roomCode, timerBefore);
 
     await prisma.$executeRawUnsafe(
-      'DROP TRIGGER atomic_fail_hand_insert ON "Hand"',
+      'DROP TRIGGER atomic_fail_trick_insert ON "Trick"',
     );
-    await prisma.$executeRawUnsafe("DROP FUNCTION atomic_fail_hand_insert()");
+    await prisma.$executeRawUnsafe("DROP FUNCTION atomic_fail_trick_insert()");
 
     const retry = await apiAs(move.player.userId, move.player.user.username)
       .post(`/api/games/${roomCode}/cards`)
       .send(move.payload);
 
     expect(retry.statusCode).toBe(200);
-    expect(await prisma.playedCard.count({ where: { handId: move.hand.id } })).toBe(4);
-    expect(await prisma.hand.count({ where: { roundId: round.id } })).toBe(2);
+    expect(await prisma.playedCard.count({ where: { trickId: move.trick.id } })).toBe(4);
+    expect(await prisma.trick.count({ where: { roundId: round.id } })).toBe(2);
     expect(
-      await prisma.hand.findUniqueOrThrow({ where: { id: move.hand.id } }),
+      await prisma.trick.findUniqueOrThrow({ where: { id: move.trick.id } }),
     ).toMatchObject({ winnerId: expect.any(Number) });
   });
 
@@ -247,15 +247,13 @@ describe("Atomic game transitions", () => {
       await prisma.round.findUniqueOrThrow({ where: { id: round.id } }),
     ).toMatchObject({
       winnerTeam: null,
-      team0Points: 0,
-      team1Points: 0,
-      team0Figures: 0,
-      team1Figures: 0,
+      team0Raw: 0,
+      team1Raw: 0,
     });
     expect(
-      await prisma.hand.findUniqueOrThrow({ where: { id: move.hand.id } }),
+      await prisma.trick.findUniqueOrThrow({ where: { id: move.trick.id } }),
     ).toMatchObject({ winnerId: null });
-    expect(await prisma.playedCard.count({ where: { handId: move.hand.id } })).toBe(3);
+    expect(await prisma.playedCard.count({ where: { trickId: move.trick.id } })).toBe(3);
     expect(events).not.toContain("card_played");
     expect(events).not.toContain("round_ended");
     expect(events).not.toContain("game_finished");
@@ -275,10 +273,10 @@ describe("Atomic game transitions", () => {
     expect(
       await prisma.round.findUniqueOrThrow({ where: { id: round.id } }),
     ).toMatchObject({ winnerTeam: expect.any(Number) });
-    expect(await prisma.playedCard.count({ where: { handId: move.hand.id } })).toBe(4);
+    expect(await prisma.playedCard.count({ where: { trickId: move.trick.id } })).toBe(4);
   });
 
-  it("rolls back final-hand writes when next-round setup fails", async () => {
+  it("rolls back final-trick writes when next-round setup fails", async () => {
     const { roomCode, round, cards } = await setupGame();
     await chooseBriscola(roomCode, round, cards);
     const move = await prepareLastCard(roomCode, round);
@@ -302,12 +300,12 @@ describe("Atomic game transitions", () => {
     expect(failed!.body).toEqual({ error: "Internal server error" });
     expect(
       await prisma.round.findUniqueOrThrow({ where: { id: round.id } }),
-    ).toMatchObject({ winnerTeam: null, team0Points: 0, team1Points: 0 });
+    ).toMatchObject({ winnerTeam: null, team0Raw: 0, team1Raw: 0 });
     expect(await prisma.round.count({ where: { gameRoomId: round.gameRoomId } })).toBe(1);
     expect(
-      await prisma.hand.findUniqueOrThrow({ where: { id: move.hand.id } }),
+      await prisma.trick.findUniqueOrThrow({ where: { id: move.trick.id } }),
     ).toMatchObject({ winnerId: null });
-    expect(await prisma.playedCard.count({ where: { handId: move.hand.id } })).toBe(3);
+    expect(await prisma.playedCard.count({ where: { trickId: move.trick.id } })).toBe(3);
     expect(events).not.toContain("card_played");
     expect(events).not.toContain("round_ended");
     expect(events).not.toContain("new_round_started");
@@ -321,10 +319,10 @@ describe("Atomic game transitions", () => {
     const rounds = await prisma.round.findMany({
       where: { gameRoomId: round.gameRoomId },
       orderBy: { number: "asc" },
-      include: { playerCards: true },
+      include: { handCards: true },
     });
     expect(rounds).toHaveLength(2);
-    expect(rounds[1].playerCards).toHaveLength(40);
-    expect(await prisma.playedCard.count({ where: { handId: move.hand.id } })).toBe(4);
+    expect(rounds[1].handCards).toHaveLength(40);
+    expect(await prisma.playedCard.count({ where: { trickId: move.trick.id } })).toBe(4);
   });
 });

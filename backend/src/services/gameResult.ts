@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { sumRoundScores } from "../domain/game/gameScore";
+import { sumRoundScores, toTeamScore } from "../domain/game/gameScore";
 import type { Team } from "../contract/cards";
 import type { GameResult } from "../contract/game";
 
@@ -21,11 +21,9 @@ export async function readGameResult(
         select: {
           number: true,
           winnerTeam: true,
-          team0Points: true,
-          team1Points: true,
-          team0Figures: true,
-          team1Figures: true,
-          hands: {
+          team0Raw: true,
+          team1Raw: true,
+          tricks: {
             select: {
               winnerId: true,
               cards: { select: { playerId: true, value: true, signal: true } },
@@ -46,14 +44,14 @@ export async function readGameResult(
   }));
   const byId = new Map(players.map((player) => [player.playerId, player]));
   for (const round of room.rounds) {
-    for (const hand of round.hands) {
-      if (hand.winnerId === null) continue;
-      const winner = byId.get(hand.winnerId);
+    for (const trick of round.tricks) {
+      if (trick.winnerId === null) continue;
+      const winner = byId.get(trick.winnerId);
       if (!winner || winner.team === null) {
         throw new Error("Completed trick winner has no valid team");
       }
       winner.tricksWon += 1;
-      for (const card of hand.cards) {
+      for (const card of trick.cards) {
         const player = byId.get(card.playerId);
         if (!player || player.team === null) {
           throw new Error("Played card owner has no valid team");
@@ -81,8 +79,8 @@ export async function readGameResult(
         number: round.number,
         winnerTeam: round.winnerTeam as Team,
         score: {
-          team0: { points: round.team0Points, figures: round.team0Figures },
-          team1: { points: round.team1Points, figures: round.team1Figures },
+          team0: toTeamScore(round.team0Raw),
+          team1: toTeamScore(round.team1Raw),
         },
       })),
     },

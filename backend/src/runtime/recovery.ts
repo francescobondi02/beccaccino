@@ -1,9 +1,6 @@
 import { prisma } from "../db";
 import { logger } from "../logger";
-import {
-  readCallerPlayerId,
-  readCurrentTurn,
-} from "../game/snapshots/turnState";
+import { readCurrentTurn } from "../game/snapshots/turnState";
 import { restoreBotSeats } from "./botRegistry";
 import { startRuntimeTurn } from "./turnRuntime";
 import { clearTurnTimer, hasTurnRuntime } from "./turnTimer";
@@ -51,8 +48,7 @@ export async function recoverRoomRuntimeUnlocked(
   if (!room || !room.started || room.finished || room.pausedAt) return false;
   if (!round) throw new Error("Active room has no current round");
 
-  const callerPlayerId = await readCallerPlayerId(round, room.players);
-  const turn = await readCurrentTurn(round, room.players, callerPlayerId);
+  const turn = await readCurrentTurn(round, room.players);
   if (!turn) throw new Error("Active room has no current turn");
 
   // Finish a takeover if the process stopped after committing the third timeout.

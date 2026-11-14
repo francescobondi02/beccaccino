@@ -113,21 +113,17 @@ describeLive("Live bot service (real model)", () => {
 
     const round = await prisma.round.findFirst({
       where: { gameRoom: { code: roomCode }, number: 1 },
-      include: { hands: { include: { cards: true } } },
+      include: { tricks: { include: { cards: true } } },
     });
 
     // The round completed: briscola chosen by a bot caller, all 40 cards played.
     expect(round!.briscola).not.toBeNull();
-    expect(round!.hands).toHaveLength(TRICKS_PER_ROUND);
-    expect(round!.hands.flatMap((h) => h.cards)).toHaveLength(40);
-    expect(round!.hands.every((h) => h.winnerId !== null)).toBe(true);
+    expect(round!.tricks).toHaveLength(TRICKS_PER_ROUND);
+    expect(round!.tricks.flatMap((h) => h.cards)).toHaveLength(40);
+    expect(round!.tricks.every((h) => h.winnerId !== null)).toBe(true);
 
     // And it scored: 35 raw points per round (32 card points + 3 last-trick).
-    const raw = (points: number, figures: number) => points * 3 + figures;
-    expect(
-      raw(round!.team0Points, round!.team0Figures) +
-        raw(round!.team1Points, round!.team1Figures),
-    ).toBe(35);
+    expect(round!.team0Raw + round!.team1Raw).toBe(round!.cricca ? 44 : 35);
   });
 
   it("declares signals as the trick leader", async () => {
@@ -150,7 +146,7 @@ describeLive("Live bot service (real model)", () => {
     await sleep(2_000);
 
     const played = await prisma.playedCard.findMany({
-      where: { hand: { round: { gameRoom: { code: roomCode } } } },
+      where: { trick: { round: { gameRoom: { code: roomCode } } } },
     });
 
     // Only trick leaders may signal, and the backend enforces it.

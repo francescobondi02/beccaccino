@@ -84,10 +84,10 @@ from native clients through the same active-account verifier; explicit invalid
 native tokens never fall back to cookies. Use local/staging test accounts before
 deploying this additive API change; no migration is required.
 
-Game snapshots also expose `lastCompletedTrick` (round ID, hand number, winner
-user ID and four played cards), including the previous round's last trick while
-the next round is dealing. Existing `lastHandCards` remains current-round only.
-Native card collection uses this persisted winner rather than recalculating rules.
+Game snapshots also expose `lastTrick` (round number, trick number, winner user
+ID and four played cards), including the previous round's last trick while the
+next round is dealing. Native card collection uses this stored winner rather
+than recalculating rules.
 
 ## Database Management (Prisma)
 

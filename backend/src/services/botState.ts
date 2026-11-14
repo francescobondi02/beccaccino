@@ -9,9 +9,7 @@
  *  1. Suits and values cross as ENUM STRINGS, never indices. Python orders suits
  *     DENARA, SPADE, COPPE, BASTONI and Prisma orders them denara, coppe, spade,
  *     bastoni — any index computed here would silently transpose 20 cards.
- *  2. Cumulative scores cross as RAW points. We store real points and a figures
- *     remainder in separate columns, so raw = points * 3 + figures. Summing only
- *     the points columns drops each round's remainder.
+ *  2. Cumulative scores cross as RAW points, as stored per round.
  *
  * All four hands are included because the Python encoder rebuilds a full game
  * before taking the acting seat's view. It reads only `player_hands[seat]`, and
@@ -20,15 +18,8 @@
  */
 
 import { prisma } from "../db";
-import {
-  resolveCaller,
-  resolveTurnSeat,
-  seatAfter,
-} from "../domain/game/turnOrder";
+import { resolveTurnSeat } from "../domain/game/turnOrder";
 import { GAME_WIN_POINTS } from "../gameConfig";
-
-/** Real points per raw point — the divisor behind the points/figures split. */
-const RAW_PER_POINT = 3;
 
 const SEATS = [0, 1, 2, 3];
 const TRICK_SIZE = 4;
@@ -84,7 +75,7 @@ export async function buildBotTurn(
         orderBy: { number: "desc" },
         take: 1,
         include: {
-          hands: {
+          tricks: {
             orderBy: { number: "asc" },
             include: { cards: { orderBy: { position: "asc" } } },
           },
@@ -113,13 +104,13 @@ export async function buildBotTurn(
     return seat;
   };
 
-  // Tricks in play order. The in-progress one is the only hand without a winner;
+  // Tricks in play order. The in-progress one is the only trick without a winner;
   // a completed round leaves all ten resolved.
-  const tricks = round.hands;
+  const tricks = round.tricks;
   const openTrick = tricks.find((h) => h.winnerId === null);
   const completedTricks = tricks.filter((h) => h.winnerId !== null);
 
-  const heldCards = await prisma.playerCard.findMany({
+  const heldCards = await prisma.handCard.findMany({
     where: { roundId: round.id },
     orderBy: [{ suit: "asc" }, { value: "asc" }],
   });
@@ -133,43 +124,12 @@ export async function buildBotTurn(
     });
   }
 
-  let previousCallerSeat: number | null = null;
-  if (tricks.length === 0 && round.number > 1) {
-    const previousRound = await prisma.round.findFirst({
-      where: { gameRoomId: room.id, number: round.number - 1 },
-      select: {
-        hands: {
-          orderBy: { number: "asc" },
-          take: 1,
-          select: { starterId: true },
-        },
-      },
-    });
-    const previousCallerId = previousRound?.hands[0]?.starterId;
-    previousCallerSeat =
-      previousCallerId === undefined ? null : requireSeat(previousCallerId);
-  }
-  const quattroDenara = heldCards.find(
-    (card) => card.suit === "denara" && card.value === "quattro",
-  );
-  const callerSeat = resolveCaller({
-    roundNumber: round.number,
-    firstTrickStarter:
-      tricks.length > 0 ? requireSeat(tricks[0].starterId) : null,
-    quattroDenaraHolder: quattroDenara
-      ? requireSeat(quattroDenara.playerId)
-      : null,
-    previousCaller: previousCallerSeat,
-    nextCaller: (caller) => seatAfter(caller),
-  });
-  if (callerSeat === null) {
-    throw new BotStateError(`room ${roomCode} has no briscola caller`);
-  }
+  const callerSeat = requireSeat(round.callerId);
 
   const turnSeat = resolveTurnSeat({
     briscolaChosen: round.briscola !== null,
     callerSeat,
-    hand: openTrick
+    trick: openTrick
       ? {
           starterSeat: requireSeat(openTrick.starterId),
           playedCardCount: openTrick.cards.length,
@@ -230,18 +190,13 @@ async function cumulativeRawScores(
 ): Promise<Record<string, number>> {
   const rounds = await prisma.round.findMany({
     where: { gameRoomId, winnerTeam: { not: null } },
-    select: {
-      team0Points: true,
-      team1Points: true,
-      team0Figures: true,
-      team1Figures: true,
-    },
+    select: { team0Raw: true, team1Raw: true },
   });
 
   return rounds.reduce(
     (total, r) => ({
-      "0": total["0"] + r.team0Points * RAW_PER_POINT + r.team0Figures,
-      "1": total["1"] + r.team1Points * RAW_PER_POINT + r.team1Figures,
+      "0": total["0"] + r.team0Raw,
+      "1": total["1"] + r.team1Raw,
     }),
     { "0": 0, "1": 0 },
   );

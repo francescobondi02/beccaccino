@@ -17,18 +17,18 @@ describe("runtime turn identity", () => {
       where: { code: roomCode },
       include: { players: true },
     });
-    const previousHand = await prisma.hand.findFirstOrThrow({
+    const previousTrick = await prisma.trick.findFirstOrThrow({
       where: { roundId: round.id },
       include: { cards: true },
     });
     const player = room.players.find(
-      (candidate) => candidate.id === previousHand.starterId,
+      (candidate) => candidate.id === previousTrick.starterId,
     )!;
-    await prisma.hand.update({
-      where: { id: previousHand.id },
+    await prisma.trick.update({
+      where: { id: previousTrick.id },
       data: { winnerId: player.id },
     });
-    const currentHand = await prisma.hand.create({
+    const currentTrick = await prisma.trick.create({
       data: {
         roundId: round.id,
         number: 2,
@@ -40,7 +40,7 @@ describe("runtime turn identity", () => {
       userId: player.userId,
     });
     const cardsBefore = await prisma.playedCard.count({
-      where: { handId: currentHand.id },
+      where: { trickId: currentTrick.id },
     });
 
     await expect(
@@ -52,13 +52,13 @@ describe("runtime turn identity", () => {
         autoPlayed: true,
         expectedTurn: {
           roundId: round.id,
-          handId: previousHand.id,
-          playedCardCount: previousHand.cards.length,
+          trickId: previousTrick.id,
+          playedCardCount: previousTrick.cards.length,
         },
       }),
     ).rejects.toBeInstanceOf(RuntimeTurnCancelledError);
     expect(
-      await prisma.playedCard.count({ where: { handId: currentHand.id } }),
+      await prisma.playedCard.count({ where: { trickId: currentTrick.id } }),
     ).toBe(cardsBefore);
   });
 });

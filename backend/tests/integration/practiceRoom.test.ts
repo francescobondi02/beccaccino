@@ -87,7 +87,7 @@ describe("Practice room creation", () => {
     expect(room!.rounds).toHaveLength(1);
     expect(room!.rounds[0].briscola).toBeNull();
 
-    const dealt = await prisma.playerCard.count({
+    const dealt = await prisma.handCard.count({
       where: { roundId: room!.rounds[0].id },
     });
     expect(dealt).toBe(40);

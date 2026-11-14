@@ -73,14 +73,14 @@ describe("first-round startup", () => {
       where: { id: room.id },
       include: {
         players: { orderBy: { seat: "asc" } },
-        rounds: { include: { playerCards: true } },
+        rounds: { include: { handCards: true } },
       },
     });
     expect(startedRoom!.started).toBe(true);
     expect(startedRoom!.rounds).toHaveLength(1);
-    expect(startedRoom!.rounds[0].playerCards).toHaveLength(40);
+    expect(startedRoom!.rounds[0].handCards).toHaveLength(40);
     const cardsPerPlayer = new Map<number, number>();
-    for (const card of startedRoom!.rounds[0].playerCards) {
+    for (const card of startedRoom!.rounds[0].handCards) {
       cardsPerPlayer.set(
         card.playerId,
         (cardsPerPlayer.get(card.playerId) ?? 0) + 1,
@@ -142,7 +142,7 @@ describe("first-round startup", () => {
       null,
       null,
     ]);
-    expect(await prisma.playerCard.count()).toBe(0);
+    expect(await prisma.handCard.count()).toBe(0);
     expect(failedRoom!.players[3].isReady).toBe(false);
     expect(events).not.toContain("ready_changed");
     expect(events).not.toContain("game_started");
@@ -239,7 +239,7 @@ describe("first-round startup", () => {
       await prisma.gameRoom.findUniqueOrThrow({ where: { id: room.id } }),
     ).toMatchObject({ started: true });
     expect(
-      await prisma.playerCard.count({
+      await prisma.handCard.count({
         where: { round: { gameRoomId: room.id } },
       }),
     ).toBe(40);

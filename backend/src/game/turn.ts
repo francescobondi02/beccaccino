@@ -1,6 +1,6 @@
 export type TurnIdentity = {
   roundId: number;
-  handId: number | null;
+  trickId: number | null;
   playedCardCount: number;
 };
 
@@ -10,7 +10,7 @@ export function isSameTurn(
 ): boolean {
   return (
     first.roundId === second.roundId &&
-    first.handId === second.handId &&
+    first.trickId === second.trickId &&
     first.playedCardCount === second.playedCardCount
   );
 }

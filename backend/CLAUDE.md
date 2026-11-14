@@ -39,8 +39,8 @@ Use these entry points when following the game:
 - `domain/game/trickWinner.ts`, `roundScore.ts`, `gameScore.ts`: pure rules at each scope.
 
 Use explicit `userId` and `playerId` names. `playerTeams` maps player IDs to
-teams. A trick is one four-card play; a hand is the cards held by a player.
-Prisma's `Hand` model and existing `hand*` API fields retain their legacy names.
+teams. A trick is one four-card play (`Trick`); a hand is the cards held by a
+player (`HandCard`).
 
 ## Call Flow
 

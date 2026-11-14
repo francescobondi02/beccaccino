@@ -4,17 +4,17 @@ import {
   decideScoreWinner,
 } from "../../src/domain/game/gameScore";
 
+// Raw score of a round from real points and the figures remainder.
 const row = (
-  team0Points: number,
-  team1Points: number,
-  team0Figures: number,
-  team1Figures: number,
-) => ({ team0Points, team1Points, team0Figures, team1Figures });
+  points0: number,
+  points1: number,
+  figures0: number,
+  figures1: number,
+) => ({ team0Raw: points0 * 3 + figures0, team1Raw: points1 * 3 + figures1 });
 
 describe("sumRoundScores", () => {
   it("carries figure remainders into whole points across rounds", () => {
     // Two rounds of 2 figures each = 4 raw = 1 real point + 1 figure.
-    // Summing only the points columns would report 0.
     const total = sumRoundScores([row(0, 0, 2, 0), row(0, 0, 2, 0)]);
     expect(total.team0).toEqual({ points: 1, figures: 1 });
     expect(total.team1).toEqual({ points: 0, figures: 0 });

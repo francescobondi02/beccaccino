@@ -1,44 +1,22 @@
 import type { Team } from "../../contract/cards";
-import type { Score } from "../../contract/game";
+import type { Score, TeamScore } from "../../contract/game";
 
-// Per-round scores are stored as real points + a figures remainder in separate
-// columns (raw = points * RAW_PER_POINT + figures). Cumulative totals therefore
-// MUST be summed on RAW and re-split, or each round's figures are silently
-// dropped. This mirrors ai/becca_env/game.py (_end_round), the reference
-// semantics: it accumulates raw and derives real points as raw // 3.
-
-/** Raw points per real point; preserve remainders while summing rounds. */
-const RAW_PER_POINT = 3;
-
-export interface RoundScoreRow {
-  team0Points: number;
-  team1Points: number;
-  team0Figures: number;
-  team1Figures: number;
+/** Real points and the figures remainder (thirds of a point) of a raw score. */
+export function toTeamScore(raw: number): TeamScore {
+  return { points: Math.floor(raw / 3), figures: raw % 3 };
 }
 
-
-/**
- * Cumulative real points across the given rounds, computed on raw totals so a
- * round's figures remainder carries into whole points instead of being lost.
- */
-export function sumRoundScores(rounds: RoundScoreRow[]): Score {
-  let rawTeam0 = 0;
-  let rawTeam1 = 0;
+/** Cumulative score across the given rounds, summed on raw points. */
+export function sumRoundScores(
+  rounds: { team0Raw: number; team1Raw: number }[],
+): Score {
+  let team0 = 0;
+  let team1 = 0;
   for (const round of rounds) {
-    rawTeam0 += round.team0Points * RAW_PER_POINT + round.team0Figures;
-    rawTeam1 += round.team1Points * RAW_PER_POINT + round.team1Figures;
+    team0 += round.team0Raw;
+    team1 += round.team1Raw;
   }
-  return {
-    team0: {
-      points: Math.floor(rawTeam0 / RAW_PER_POINT),
-      figures: rawTeam0 % RAW_PER_POINT,
-    },
-    team1: {
-      points: Math.floor(rawTeam1 / RAW_PER_POINT),
-      figures: rawTeam1 % RAW_PER_POINT,
-    },
-  };
+  return { team0: toTeamScore(team0), team1: toTeamScore(team1) };
 }
 
 /**
@@ -52,10 +30,8 @@ export function decideGameWinner(
   winPoints: number,
   callerTeam: Team,
 ): Team | null {
-  const team0Points = cumulative.team0.points;
-  const team1Points = cumulative.team1.points;
-  const team0Won = team0Points >= winPoints;
-  const team1Won = team1Points >= winPoints;
+  const team0Won = cumulative.team0.points >= winPoints;
+  const team1Won = cumulative.team1.points >= winPoints;
 
   if (!team0Won && !team1Won) return null;
   if (team0Won && team1Won) return decideScoreWinner(cumulative, callerTeam);

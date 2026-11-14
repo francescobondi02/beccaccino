@@ -320,7 +320,7 @@ const GameTable = () => {
         roomCode={gameRoomCode}
         briscola={round?.briscola}
         roundNumber={round?.number}
-        handNumber={completedTrick?.trickNumber ?? gameState.trick?.number ?? null}
+        trickNumber={completedTrick?.trickNumber ?? gameState.trick?.number ?? null}
         playerTeam={myPlayer.team}
         totalPoints={gameState.score}
       />

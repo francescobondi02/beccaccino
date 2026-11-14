@@ -12,10 +12,7 @@ import { startFirstRound } from "../game/transitions/round";
 import { logger } from "../logger";
 import { publishRoomChanged } from "../runtime/eventPublisher";
 import { sendGameState } from "./gameState";
-import {
-  readCallerPlayerId,
-  readCurrentTurn,
-} from "../game/snapshots/turnState";
+import { readCurrentTurn } from "../game/snapshots/turnState";
 
 class PracticeRoomCleanupError extends Error {
   constructor(
@@ -87,12 +84,12 @@ export async function retirePracticeRoom(args: {
       const roundIds = rounds.map((round) => round.id);
 
       await tx.playedCard.deleteMany({
-        where: { hand: { roundId: { in: roundIds } } },
+        where: { trick: { roundId: { in: roundIds } } },
       });
-      await tx.playerCard.deleteMany({
+      await tx.handCard.deleteMany({
         where: { roundId: { in: roundIds } },
       });
-      await tx.hand.deleteMany({ where: { roundId: { in: roundIds } } });
+      await tx.trick.deleteMany({ where: { roundId: { in: roundIds } } });
       await tx.round.deleteMany({ where: { gameRoomId: room.id } });
       await tx.player.deleteMany({ where: { gameRoomId: room.id } });
       await tx.gameRoom.delete({ where: { id: room.id } });
@@ -303,8 +300,7 @@ export async function resumePracticeRoom(
     if (!round) {
       throw new GameError("Practice game runtime unavailable; retry", 503);
     }
-    const callerPlayerId = await readCallerPlayerId(round, room.players);
-    const turn = await readCurrentTurn(round, room.players, callerPlayerId);
+    const turn = await readCurrentTurn(round, room.players);
     if (!turn) {
       throw new GameError("Practice game runtime unavailable; retry", 503);
     }

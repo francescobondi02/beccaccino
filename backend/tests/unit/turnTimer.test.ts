@@ -9,7 +9,7 @@ import { clearBotSeats, registerBotSeats } from "../../src/runtime/botRegistry";
 
 const firstTurn = {
   roundId: 10,
-  handId: 20,
+  trickId: 20,
   playedCardCount: 0,
 };
 
@@ -50,7 +50,7 @@ describe("turn timer storage", () => {
       userId: 1,
       phase: "choose_briscola",
       pauseEpoch: 0,
-      identity: { roundId: 10, handId: null, playedCardCount: 0 },
+      identity: { roundId: 10, trickId: null, playedCardCount: 0 },
       durationMs: 100,
       isBot: false,
       onElapsed: first,

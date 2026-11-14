@@ -14,17 +14,7 @@ export async function getUserStatistics(userId: number) {
           rounds: {
             orderBy: { number: "asc" },
             where: { winnerTeam: { not: null } },
-            select: {
-              team0Points: true,
-              team1Points: true,
-              team0Figures: true,
-              team1Figures: true,
-              hands: {
-                orderBy: { number: "asc" },
-                take: 1,
-                select: { starterId: true },
-              },
-            },
+            select: { team0Raw: true, team1Raw: true },
           },
           players: {
             include: { user: { select: { username: true } } },
@@ -49,11 +39,7 @@ export async function getUserStatistics(userId: number) {
 
   for (const player of players) {
     const room = player.gameRoom;
-    const summary = summarizePlayerGame(
-      player.team,
-      room.rounds,
-      room.players,
-    );
+    const summary = summarizePlayerGame(player.team, room.winnerTeam, room.rounds);
     if (summary.didWin) wins++;
     totalPoints += summary.myTeamPoints;
     recentGames.push({
@@ -127,19 +113,8 @@ export async function getLeaderboardStatistics() {
               rounds: {
                 where: { winnerTeam: { not: null } },
                 orderBy: { number: "asc" },
-                select: {
-                  team0Points: true,
-                  team1Points: true,
-                  team0Figures: true,
-                  team1Figures: true,
-                  hands: {
-                    orderBy: { number: "asc" },
-                    take: 1,
-                    select: { starterId: true },
-                  },
-                },
+                select: { team0Raw: true, team1Raw: true },
               },
-              players: { select: { id: true, team: true } },
             },
           },
         },
@@ -153,8 +128,8 @@ export async function getLeaderboardStatistics() {
     for (const player of user.players) {
       const summary = summarizePlayerGame(
         player.team,
+        player.gameRoom.winnerTeam,
         player.gameRoom.rounds,
-        player.gameRoom.players,
       );
       if (summary.didWin) wins++;
       totalPoints += summary.myTeamPoints;

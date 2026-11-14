@@ -1,51 +1,25 @@
-import {
-  sumRoundScores,
-  decideScoreWinner,
-  RoundScoreRow,
-} from "../domain/game/gameScore";
-import type { Team } from "../contract/cards";
-
-type StatsRound = RoundScoreRow & {
-  hands: { starterId: number }[];
-};
-
-type StatsPlayer = {
-  id: number;
-  team: number | null;
-};
+import { sumRoundScores } from "../domain/game/gameScore";
 
 export type PlayerGameSummary = {
   didWin: boolean;
   myTeamPoints: number;
   opponentTeamPoints: number;
-  winnerTeam: Team;
 };
 
 export function summarizePlayerGame(
   playerTeam: number | null,
-  rounds: StatsRound[],
-  players: StatsPlayer[],
+  winnerTeam: number | null,
+  rounds: { team0Raw: number; team1Raw: number }[],
 ): PlayerGameSummary {
   if (playerTeam !== 0 && playerTeam !== 1) {
     throw new Error("Finished game player has no valid team");
   }
-
-  const finalRound = rounds[rounds.length - 1];
-  const callerId = finalRound?.hands[0]?.starterId;
-  const callerTeam = players.find((player) => player.id === callerId)?.team;
-  if (callerTeam !== 0 && callerTeam !== 1) {
-    throw new Error("Finished game has no valid final caller");
-  }
-
   const cumulative = sumRoundScores(rounds);
-  const winnerTeam = decideScoreWinner(cumulative, callerTeam);
-
   return {
     didWin: playerTeam === winnerTeam,
     myTeamPoints:
       playerTeam === 0 ? cumulative.team0.points : cumulative.team1.points,
     opponentTeamPoints:
       playerTeam === 0 ? cumulative.team1.points : cumulative.team0.points,
-    winnerTeam,
   };
 }

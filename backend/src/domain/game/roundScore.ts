@@ -62,31 +62,18 @@ export function computeRoundScore(
     }
   }
 
-  const splitRawScore = (rawPoints: number) => ({
-    raw: rawPoints,
-    points: Math.floor(rawPoints / 3),
-    figures: rawPoints % 3,
-  });
-
-  return {
-    team0: splitRawScore(rawScores.team0),
-    team1: splitRawScore(rawScores.team1),
-  };
+  return rawScores;
 }
 
 /**
  * Adds the caller team's 3-point cricca bonus, then picks the round winner:
- * more points, then more figures; an exact tie goes to team 0.
+ * more raw points; an exact tie goes to team 0.
  */
 export function settleRound(
-  score: ReturnType<typeof computeRoundScore>,
+  raw: { team0: number; team1: number },
   criccaTeam: number | null,
 ) {
-  const team0 = { ...score.team0, points: score.team0.points + (criccaTeam === 0 ? 3 : 0) };
-  const team1 = { ...score.team1, points: score.team1.points + (criccaTeam === 1 ? 3 : 0) };
-  const winnerTeam =
-    team0.points !== team1.points
-      ? team0.points > team1.points ? 0 : 1
-      : team1.figures > team0.figures ? 1 : 0;
-  return { team0, team1, winnerTeam };
+  const team0Raw = raw.team0 + (criccaTeam === 0 ? 9 : 0);
+  const team1Raw = raw.team1 + (criccaTeam === 1 ? 9 : 0);
+  return { team0Raw, team1Raw, winnerTeam: team1Raw > team0Raw ? 1 : 0 };
 }
