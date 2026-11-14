@@ -554,7 +554,7 @@ the unchanged legacy prefix; offsets 462:470 are the A2 public features:
 | 400 | 4 | briscola one-hot | `SUIT_INDEX` (Python suit order) |
 | 404 | 4 | my_seat one-hot | **absolute** seat |
 | 408 | 4 | trick_starter one-hot | **absolute** seat |
-| 412 | 10 | trick_number one-hot | `min(len(tricks_played), 9)`, **0-indexed** (backend `Hand.number − 1`) |
+| 412 | 10 | trick_number one-hot | `min(len(tricks_played), 9)`, **0-indexed** (backend `Trick.number − 1`) |
 | 422 | 10 | round_number one-hot | `min(round.number − 1, 9)`, **0-indexed** |
 | 432 | 2 | scores (team0, team1) | cumulative **raw** / `(win_points*3)`, clipped to 1 |
 | 434 | 16 | void_mask 4×4 | rows **relative**: row0=me(zero), row1=left, row2=partner, row3=right |
