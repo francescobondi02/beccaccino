@@ -105,7 +105,7 @@ Runtime responsibilities are separate:
 Player control survives restarts in `Player.botModel`, `timeoutCount`, and
 `abandonedAt`. In multiplayer rooms, three consecutive human timeouts hand the
 retained seat to a real bot; practice rooms never do, because their single human
-must stay the archived player. The takeover happens in the same transaction as
+must stay in control. The takeover happens in the same transaction as
 the third timeout. Successful manual moves reset the count atomically. Only
 `POST /api/rooms/:roomCode/resume-control` reclaims AFK control (reconnect does
 not), never a permanently abandoned seat. Multiplayer leave preserves player identity,
@@ -120,8 +120,10 @@ Round presentation timing lives in `gameConfig.ts`: 2.4 seconds for dealing,
 then 1.6 seconds to read the hand, after a 4-second round summary on later
 rounds (ordinary tricks still retain their 3-second collection). Deadlines derive from persisted `Round.createdAt`, including
 runtime recovery. Bots wait until presentation ends before thinking about
-briscola; a human caller's 90-second choice deadline counts from the deal. Game-state snapshots
-expose remaining presentation time in `round.deal`; reads stay side-effect free.
+briscola; a human caller's 90-second choice deadline starts when the hand review ends
+(`runtime/timeoutPolicy.ts` `turnTimes` computes it for both the timer and snapshots).
+Game-state snapshots expose absolute end times in `round.deal` (`animationEndsAt`,
+`reviewEndsAt`); reads stay side-effect free.
 `roundSummary` exposes the previous score only during that 4-second window.
 `services/gameResult.ts` derives final scores, round history and player counters
 from persisted rounds/tricks/cards. Both atomic game completion and finished

@@ -23,9 +23,10 @@ backend/
 │   ├── controllers/        # HTTP adapters grouped by account, auth, stats, rooms, and games
 │   ├── domain/game/        # Pure caller, turn, card, trick, and scoring rules
 │   ├── game/
-│   │   ├── snapshots/      # Side-effect-free persisted turn reads
-│   │   ├── transitions/    # Atomic round and card-play database mutations
-│   │   └── turn.ts         # Shared turn phase, persisted identity and comparison
+│   │   ├── liveGame.ts     # One-query load of a started game
+│   │   ├── gameState.ts    # Side-effect-free per-viewer game state
+│   │   ├── runGameAction.ts # Locked, versioned game mutations and publication
+│   │   └── transitions/    # Round setup, briscola and card-play changes
 │   ├── http/               # Input parsers, typed errors, and global error mapping
 │   ├── practice/           # Versioned practice-match payload contract and parser
 │   ├── routes/             # Visible REST API map
