@@ -45,7 +45,8 @@ jobs:
 
   full-game:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    # Playwright 1.60 does not support Chromium on Ubuntu 26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       JWT_SECRET: e2e-secret
